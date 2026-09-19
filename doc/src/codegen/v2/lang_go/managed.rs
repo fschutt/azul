@@ -146,7 +146,46 @@ fn wrapper_type_list(ir: &CodegenIR, config: &CodegenConfig) -> Vec<String> {
 struct Kind<'a> {
     wrapper: &'a str,
     arg_types: Vec<String>,
+    /// The IR's argument names (may be empty for legacy entries).
+    arg_names: Vec<String>,
     ret: Option<String>,
+}
+
+/// Go-side parameter / local name for callback argument `i`: the IR's own
+/// argument name (lowerCamel, Go keywords suffixed), with the conventional
+/// `data` / `info` for the leading RefAny and the info struct, the type-based
+/// fallback when the IR carries no name — and ALWAYS unique within the
+/// kind: `OnNodeConnected(input, input_index, output, output_index)` used to
+/// come out as `nodeGraphNodeId, index, nodeGraphNodeId, index` and did not
+/// compile.
+fn go_param_names(k: &Kind, ir: &CodegenIR) -> Vec<String> {
+    const GO_KEYWORDS: &[&str] = &[
+        "break", "default", "func", "interface", "select", "case", "defer", "go", "map",
+        "struct", "chan", "else", "goto", "package", "switch", "const", "fallthrough", "if",
+        "range", "type", "continue", "for", "import", "return", "var",
+    ];
+    let mut out: Vec<String> = Vec::with_capacity(k.arg_types.len());
+    for (i, t) in k.arg_types.iter().enumerate() {
+        let ir_name = k.arg_names.get(i).map(|s| s.trim()).unwrap_or("");
+        let mut name = if (i == 0 && is_refany_type(t, ir)) || t.ends_with("CallbackInfo") {
+            arg_go_name(i, t, ir)
+        } else if !ir_name.is_empty() && ir_name != "_" {
+            lower_camel(ir_name)
+        } else {
+            arg_go_name(i, t, ir)
+        };
+        if GO_KEYWORDS.contains(&name.as_str()) {
+            name.push('_');
+        }
+        let base = name.clone();
+        let mut n = 2;
+        while out.contains(&name) {
+            name = format!("{base}{n}");
+            n += 1;
+        }
+        out.push(name);
+    }
+    out
 }
 
 fn kind_list<'a>(ir: &'a CodegenIR) -> Vec<Kind<'a>> {
@@ -158,6 +197,7 @@ fn kind_list<'a>(ir: &'a CodegenIR) -> Vec<Kind<'a>> {
                 .iter()
                 .map(|a| a.type_name.trim().to_string())
                 .collect(),
+            arg_names: cb.args.iter().map(|a| a.name.clone()).collect(),
             ret: cb
                 .return_type
                 .as_deref()
@@ -601,12 +641,7 @@ fn emit_register_fns(
 
     for k in kinds {
         let rk = ret_kind(k.ret.as_deref(), ir, wrapper_types);
-        let names: Vec<String> = k
-            .arg_types
-            .iter()
-            .enumerate()
-            .map(|(i, t)| arg_go_name(i, t, ir))
-            .collect();
+        let names: Vec<String> = go_param_names(k, ir);
         let mut params: Vec<String> = names
             .iter()
             .zip(&k.arg_types)

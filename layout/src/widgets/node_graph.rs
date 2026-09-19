@@ -4,7 +4,7 @@
 //! (e.g. shader graphs, data-flow pipelines). Key types:
 //!
 //! - [`NodeGraph`] — top-level widget holding nodes, types, and callbacks
-//! - [`Node`] — a single node with typed input/output connections and editable fields
+//! - [`NodeGraphNode`] — a single node with typed input/output connections and editable fields
 //! - [`NodeTypeInfo`] / [`InputOutputInfo`] — metadata describing node types and their I/O ports
 //! - [`NodeGraphCallbacks`] — user-provided callbacks for add, remove, drag, connect, etc.
 //!
@@ -157,12 +157,12 @@ impl_vec_clone!(
 impl_vec_mut!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 impl_vec_debug!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 
-/// Maps a [`NodeGraphNodeId`] to its [`Node`] data.
+/// Maps a [`NodeGraphNodeId`] to its [`NodeGraphNode`] data.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeIdNodeMap {
     pub node_id: NodeGraphNodeId,
-    pub node: Node,
+    pub node: NodeGraphNode,
 }
 
 impl_option!(
@@ -305,6 +305,122 @@ impl_widget_callback!(
     OnNodeFieldEditedCallbackType
 );
 
+// Host-invoker plumbing so managed-language closures can be registered for
+// every node-graph event once the widget is exposed in api.json (the C API
+// does not carry NodeGraph yet; the engine side is ready).
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeAddedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_ADDED_INVOKER,
+    invoker_ty:     AzOnNodeAddedCallbackInvoker,
+    thunk_fn:       az_on_node_added_callback_thunk,
+    setter_fn:      AzApp_setOnNodeAddedCallbackInvoker,
+    from_handle_fn: AzOnNodeAddedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeAddedCallback_createFromHostHandleByref,
+    extra_args:     [ new_node_type: NodeTypeId, new_node_id: NodeGraphNodeId, new_node_position: NodeGraphNodePosition ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeRemovedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_REMOVED_INVOKER,
+    invoker_ty:     AzOnNodeRemovedCallbackInvoker,
+    thunk_fn:       az_on_node_removed_callback_thunk,
+    setter_fn:      AzApp_setOnNodeRemovedCallbackInvoker,
+    from_handle_fn: AzOnNodeRemovedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeRemovedCallback_createFromHostHandleByref,
+    extra_args:     [ node_id_to_remove: NodeGraphNodeId ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeGraphDraggedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_GRAPH_DRAGGED_INVOKER,
+    invoker_ty:     AzOnNodeGraphDraggedCallbackInvoker,
+    thunk_fn:       az_on_node_graph_dragged_callback_thunk,
+    setter_fn:      AzApp_setOnNodeGraphDraggedCallbackInvoker,
+    from_handle_fn: AzOnNodeGraphDraggedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeGraphDraggedCallback_createFromHostHandleByref,
+    extra_args:     [ drag_amount: GraphDragAmount ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeDraggedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_DRAGGED_INVOKER,
+    invoker_ty:     AzOnNodeDraggedCallbackInvoker,
+    thunk_fn:       az_on_node_dragged_callback_thunk,
+    setter_fn:      AzApp_setOnNodeDraggedCallbackInvoker,
+    from_handle_fn: AzOnNodeDraggedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeDraggedCallback_createFromHostHandleByref,
+    extra_args:     [ node_dragged: NodeGraphNodeId, drag_amount: NodeDragAmount ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeConnectedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_CONNECTED_INVOKER,
+    invoker_ty:     AzOnNodeConnectedCallbackInvoker,
+    thunk_fn:       az_on_node_connected_callback_thunk,
+    setter_fn:      AzApp_setOnNodeConnectedCallbackInvoker,
+    from_handle_fn: AzOnNodeConnectedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeConnectedCallback_createFromHostHandleByref,
+    extra_args:     [ input: NodeGraphNodeId, input_index: usize, output: NodeGraphNodeId, output_index: usize ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeInputDisconnectedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_INPUT_DISCONNECTED_INVOKER,
+    invoker_ty:     AzOnNodeInputDisconnectedCallbackInvoker,
+    thunk_fn:       az_on_node_input_disconnected_callback_thunk,
+    setter_fn:      AzApp_setOnNodeInputDisconnectedCallbackInvoker,
+    from_handle_fn: AzOnNodeInputDisconnectedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeInputDisconnectedCallback_createFromHostHandleByref,
+    extra_args:     [ input: NodeGraphNodeId, input_index: usize ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeOutputDisconnectedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_OUTPUT_DISCONNECTED_INVOKER,
+    invoker_ty:     AzOnNodeOutputDisconnectedCallbackInvoker,
+    thunk_fn:       az_on_node_output_disconnected_callback_thunk,
+    setter_fn:      AzApp_setOnNodeOutputDisconnectedCallbackInvoker,
+    from_handle_fn: AzOnNodeOutputDisconnectedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeOutputDisconnectedCallback_createFromHostHandleByref,
+    extra_args:     [ output: NodeGraphNodeId, output_index: usize ],
+}
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnNodeFieldEditedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_NODE_FIELD_EDITED_INVOKER,
+    invoker_ty:     AzOnNodeFieldEditedCallbackInvoker,
+    thunk_fn:       az_on_node_field_edited_callback_thunk,
+    setter_fn:      AzApp_setOnNodeFieldEditedCallbackInvoker,
+    from_handle_fn: AzOnNodeFieldEditedCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnNodeFieldEditedCallback_createFromHostHandleByref,
+    extra_args:     [ node_id: NodeGraphNodeId, field_id: usize, node_type: NodeTypeId, new_value: NodeTypeFieldValue ],
+}
+
+
 /// Unique identifier for an input/output port type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -351,7 +467,7 @@ pub struct NodeGraphNodeId {
 /// A single node with typed input/output connections and editable fields.
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct Node {
+pub struct NodeGraphNode {
     pub node_type: NodeTypeId,
     pub position: NodeGraphNodePosition,
     pub fields: NodeTypeFieldVec,
@@ -1173,7 +1289,7 @@ struct ConnectionLocalDataset {
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 fn render_node(
-    node: &Node,
+    node: &NodeGraphNode,
     graph_offset: (f32, f32),
     node_info: &NodeTypeInfo,
     mut node_local_dataset: NodeLocalDataset,
@@ -3024,7 +3140,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 
             let _nodegraph_node = info.get_hit_node();
             let result = match refany.callbacks.on_node_dragged.as_ref() {
-                Some(OnNodeDragged { callback, refany }) => (callback.cb)(
+                Some(OnNodeDragged { callback, refany }) => callback.invoke(
                     refany.clone(),
                     info,
                     node_graph_node_id,
@@ -3159,7 +3275,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         None => {
             let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
                 Some(OnNodeGraphDragged { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info, GraphDragAmount { x: dx, y: dy })
+                    callback.invoke(refany.clone(), info, GraphDragAmount { x: dx, y: dy })
                 }
                 None => Update::DoNothing,
             };
@@ -3317,7 +3433,7 @@ extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) 
     };
 
     let result = match backref.callbacks.on_node_removed.as_ref() {
-        Some(OnNodeRemoved { callback, refany }) => (callback.cb)(refany.clone(), info, node_id),
+        Some(OnNodeRemoved { callback, refany }) => callback.invoke(refany.clone(), info, node_id),
         None => Update::DoNothing,
     };
 
@@ -3368,7 +3484,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
     let result = match backref.callbacks.on_node_added.as_ref() {
-        Some(OnNodeAdded { callback, refany }) => (callback.cb)(
+        Some(OnNodeAdded { callback, refany }) => callback.invoke(
             refany.clone(),
             info,
             new_node_type,
@@ -3436,7 +3552,7 @@ extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: Callb
 
     let result = match backref.callbacks.on_node_connected.as_ref() {
         Some(OnNodeConnected { callback, refany }) => {
-            let r = (callback.cb)(
+            let r = callback.invoke(
                 refany.clone(),
                 info,
                 input_node,
@@ -3478,7 +3594,7 @@ extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: Callba
             result.max_self(
                 match backref.callbacks.on_node_input_disconnected.as_ref() {
                     Some(OnNodeInputDisconnected { callback, refany }) => {
-                        (callback.cb)(refany.clone(), info, node_id, i)
+                        callback.invoke(refany.clone(), info, node_id, i)
                     }
                     None => Update::DoNothing,
                 },
@@ -3488,7 +3604,7 @@ extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: Callba
             result.max_self(
                 match backref.callbacks.on_node_output_disconnected.as_ref() {
                     Some(OnNodeOutputDisconnected { callback, refany }) => {
-                        (callback.cb)(refany.clone(), info, node_id, o)
+                        callback.invoke(refany.clone(), info, node_id, o)
                     }
                     None => Update::DoNothing,
                 },
@@ -3534,7 +3650,7 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+        Some(OnNodeFieldEdited { refany, callback }) => callback.invoke(
             refany.clone(),
             info,
             node_id,
@@ -3583,7 +3699,7 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+        Some(OnNodeFieldEdited { refany, callback }) => callback.invoke(
             refany.clone(),
             info,
             node_id,
@@ -3632,7 +3748,7 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+        Some(OnNodeFieldEdited { refany, callback }) => callback.invoke(
             refany.clone(),
             info,
             node_id,
@@ -3680,7 +3796,7 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+        Some(OnNodeFieldEdited { refany, callback }) => callback.invoke(
             refany.clone(),
             info,
             node_id,
@@ -3729,7 +3845,7 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
 
     // If a new file was selected, invoke callback
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+        Some(OnNodeFieldEdited { refany, callback }) => callback.invoke(
             refany.clone(),
             info,
             node_id,
@@ -3858,8 +3974,8 @@ mod autotest_generated {
         .into()
     }
 
-    fn mk_node(node_type: NodeTypeId, x: f32, y: f32) -> Node {
-        Node {
+    fn mk_node(node_type: NodeTypeId, x: f32, y: f32) -> NodeGraphNode {
+        NodeGraphNode {
             node_type,
             position: NodeGraphNodePosition { x, y },
             fields: NodeTypeFieldVec::new(),

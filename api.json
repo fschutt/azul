@@ -3849,6 +3849,66 @@
                     "displayName": "Kotlin",
                     "install": [
                         {
+                            "id": "linux-gradle",
+                            "label": "Gradle (Linux)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Download the pre-made build.gradle.kts, settings.gradle.kts and HelloWorld.kt, then build a fat jar with Gradle against rs.azul:azul-kotlin from the self-hosted maven repository (the jar carries the native library; Gradle downloads it and JNA)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/build.gradle.kts"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/settings.gradle.kts"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gradle build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -jar build/libs/hello-world-1.0.0.jar"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-gradle",
+                            "label": "Gradle (macOS)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Download the pre-made build.gradle.kts, settings.gradle.kts and HelloWorld.kt, then build a fat jar with Gradle against rs.azul:azul-kotlin from the self-hosted maven repository (the jar carries the native library; Gradle downloads it and JNA)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/build.gradle.kts"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/settings.gradle.kts"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gradle build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -XstartOnFirstThread -jar build/libs/hello-world-1.0.0.jar"
+                                }
+                            ]
+                        },
+                        {
                             "id": "linux-maven",
                             "label": "Maven (Linux)",
                             "os": [
@@ -22003,6 +22063,191 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "OnNodeRemovedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeRemovedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeInputDisconnectedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeInputDisconnectedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeGraphDraggedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeGraphDraggedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "GraphDragAmount"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeOutputDisconnectedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeOutputDisconnectedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeAddedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeAddedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeTypeId"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "NodeGraphNodePosition"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeConnectedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeConnectedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeFieldEditedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeFieldEditedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "NodeTypeId"
+                                },
+                                {
+                                    "type": "NodeTypeFieldValue"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "OnNodeDraggedCallbackType": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeDraggedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                {
+                                    "type": "NodeDragAmount"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -32401,6 +32646,167 @@
                             {
                                 "cb": {
                                     "type": "VideoMountCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeAddedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeAddedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeAddedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeDraggedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeDraggedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeDraggedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeConnectedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeConnectedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeConnectedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeFieldEditedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeFieldEditedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeFieldEditedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeOutputDisconnectedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeOutputDisconnectedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeOutputDisconnectedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeRemovedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeRemovedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeRemovedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeInputDisconnectedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeInputDisconnectedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeInputDisconnectedCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -68285,6 +68691,707 @@
                                 },
                                 "callback": {
                                     "type": "VideoMountCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeId": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeId",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeFieldEdited": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeFieldEdited",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeFieldEditedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdInfoMap": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "io_type_id": {
+                                    "type": "InputOutputTypeId"
+                                },
+                                "io_info": {
+                                    "type": "InputOutputInfo"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeInputDisconnected": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeInputDisconnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeInputDisconnectedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeDragged": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeDragged",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeDraggedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeIdInfoMap": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_type_id": {
+                                    "type": "NodeTypeId"
+                                },
+                                "node_type_info": {
+                                    "type": "NodeTypeInfo"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeGraphDragged": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeGraphDragged",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeGraphDraggedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeId": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeId",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraphCallbacks": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraphCallbacks",
+                        "derive": [
+                            "Default",
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "on_node_added": {
+                                    "type": "OptionOnNodeAdded"
+                                },
+                                "on_node_removed": {
+                                    "type": "OptionOnNodeRemoved"
+                                },
+                                "on_node_dragged": {
+                                    "type": "OptionOnNodeDragged"
+                                },
+                                "on_node_graph_dragged": {
+                                    "type": "OptionOnNodeGraphDragged"
+                                },
+                                "on_node_connected": {
+                                    "type": "OptionOnNodeConnected"
+                                },
+                                "on_node_input_disconnected": {
+                                    "type": "OptionOnNodeInputDisconnected"
+                                },
+                                "on_node_output_disconnected": {
+                                    "type": "OptionOnNodeOutputDisconnected"
+                                },
+                                "on_node_field_edited": {
+                                    "type": "OptionOnNodeFieldEdited"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeIdNodeMap": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMap",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_id": {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                "node": {
+                                    "type": "NodeGraphNode"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeOutputDisconnected": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeOutputDisconnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeOutputDisconnectedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraphNodeId": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraphNodeId",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeConnected": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeConnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeConnectedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeInfo": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "is_root": {
+                                    "type": "bool"
+                                },
+                                "node_type_name": {
+                                    "type": "String"
+                                },
+                                "inputs": {
+                                    "type": "InputOutputTypeIdVec"
+                                },
+                                "outputs": {
+                                    "type": "InputOutputTypeIdVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraph": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraph",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_types": {
+                                    "type": "NodeTypeIdInfoMapVec"
+                                },
+                                "input_output_types": {
+                                    "type": "InputOutputTypeIdInfoMapVec"
+                                },
+                                "nodes": {
+                                    "type": "NodeIdNodeMapVec"
+                                },
+                                "allow_multiple_root_nodes": {
+                                    "type": "bool"
+                                },
+                                "offset": {
+                                    "type": "LogicalPosition"
+                                },
+                                "style": {
+                                    "type": "NodeGraphStyle"
+                                },
+                                "callbacks": {
+                                    "type": "NodeGraphCallbacks"
+                                },
+                                "add_node_str": {
+                                    "type": "String"
+                                },
+                                "scale_factor": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "generate_unique_node_id": {
+                                "doc": [
+                                    "Generates a new `NodeId` that is unique in the graph"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                "fn_body": "object.generate_unique_node_id()"
+                            },
+                            "swap_with_default": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeGraph"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "InputOutputInfo": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data_type": {
+                                    "type": "String"
+                                },
+                                "color": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeRemoved": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeRemoved",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeRemovedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeAdded": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeAdded",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnNodeAddedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraphStyle": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraphStyle",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Default": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnNodeGraphDraggedCallback": {
+                        "external": "azul_layout::widgets::node_graph::OnNodeGraphDraggedCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnNodeGraphDraggedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputConnection": {
+                        "external": "azul_layout::widgets::node_graph::OutputConnection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "output_index": {
+                                    "type": "usize"
+                                },
+                                "connects_to": {
+                                    "type": "InputNodeAndIndexVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeFieldValue": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldValue",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "TextInput": {
+                                    "type": "String"
+                                },
+                                "NumberInput": {
+                                    "type": "f32"
+                                },
+                                "CheckBox": {
+                                    "type": "bool"
+                                },
+                                "ColorInput": {
+                                    "type": "ColorU"
+                                },
+                                "FileInput": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OutputNodeAndIndex": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndex",
+                        "derive": [
+                            "Copy",
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_id": {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                "output_index": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraphNodePosition": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraphNodePosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputNodeAndIndex": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndex",
+                        "derive": [
+                            "Copy",
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_id": {
+                                    "type": "NodeGraphNodeId"
+                                },
+                                "input_index": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeField": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeField",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "key": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "NodeTypeFieldValue"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputConnection": {
+                        "external": "azul_layout::widgets::node_graph::InputConnection",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "input_index": {
+                                    "type": "usize"
+                                },
+                                "connects_to": {
+                                    "type": "OutputNodeAndIndexVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeGraphNode": {
+                        "external": "azul_layout::widgets::node_graph::NodeGraphNode",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node_type": {
+                                    "type": "NodeTypeId"
+                                },
+                                "position": {
+                                    "type": "NodeGraphNodePosition"
+                                },
+                                "fields": {
+                                    "type": "NodeTypeFieldVec"
+                                },
+                                "connect_in": {
+                                    "type": "InputConnectionVec"
+                                },
+                                "connect_out": {
+                                    "type": "OutputConnectionVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GraphDragAmount": {
+                        "external": "azul_layout::widgets::node_graph::GraphDragAmount",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeDragAmount": {
+                        "external": "azul_layout::widgets::node_graph::NodeDragAmount",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -113246,6 +114353,483 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "InputOutputTypeIdInfoMapVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "InputOutputTypeIdInfoMapVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "NodeTypeIdInfoMapVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "NodeTypeIdInfoMapVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "InputOutputTypeIdVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "InputOutputTypeIdVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "NodeIdNodeMapVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "NodeIdNodeMapVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NodeTypeIdInfoMapVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "NodeTypeIdInfoMapVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NodeIdNodeMapVec": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeIdNodeMap",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "NodeIdNodeMapVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdVec": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeId",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "InputOutputTypeIdVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "InputOutputTypeIdVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "InputOutputTypeIdInfoMapVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "InputOutputTypeIdInfoMapVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "InputOutputTypeIdInfoMapVec": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeIdInfoMap",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "InputOutputTypeIdInfoMapVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeIdInfoMapVec": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeIdInfoMap",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "NodeTypeIdInfoMapVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeIdNodeMapVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "NodeIdNodeMapVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "InputNodeAndIndexVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "InputNodeAndIndexVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NodeTypeFieldVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "NodeTypeFieldVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "InputConnectionVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::InputConnectionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "InputConnectionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "OutputNodeAndIndexVec": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OutputNodeAndIndex",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "OutputNodeAndIndexVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputConnectionVec": {
+                        "external": "azul_layout::widgets::node_graph::OutputConnectionVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OutputConnection",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "OutputConnectionVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputNodeAndIndexVec": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputNodeAndIndex",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "InputNodeAndIndexVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeFieldVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "NodeTypeFieldVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "InputNodeAndIndexVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "InputNodeAndIndexVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "OutputConnectionVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::OutputConnectionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "OutputConnectionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "OutputConnectionVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::OutputConnectionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "OutputConnectionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OutputNodeAndIndexVecDestructorType": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "OutputNodeAndIndexVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "InputConnectionVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::InputConnectionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "InputConnectionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NodeTypeFieldVec": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeField",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "NodeTypeFieldVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputNodeAndIndexVecDestructor": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "OutputNodeAndIndexVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "InputConnectionVec": {
+                        "external": "azul_layout::widgets::node_graph::InputConnectionVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputConnection",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "InputConnectionVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -120094,6 +121678,174 @@
                                     "doc": [
                                         "Some value of type IrohEvent"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeRemoved": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeRemoved",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeRemoved"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeOutputDisconnected": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeOutputDisconnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeOutputDisconnected"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeConnected": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeConnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeConnected"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeAdded": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeAdded",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeAdded"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeDragged": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeDragged",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeDragged"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeGraphDragged": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeGraphDragged",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeGraphDragged"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeFieldEdited": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeFieldEdited",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeFieldEdited"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnNodeInputDisconnected": {
+                        "external": "azul_layout::widgets::node_graph::OptionOnNodeInputDisconnected",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnNodeInputDisconnected"
                                 }
                             }
                         ],

@@ -720,7 +720,7 @@ mod label_convention {
     fn node_graph_fixture() -> super::node_graph::NodeGraph {
         use super::node_graph::{
             InputConnectionVec, InputOutputInfo, InputOutputTypeId, InputOutputTypeIdInfoMap,
-            InputOutputTypeIdInfoMapVec, InputOutputTypeIdVec, Node, NodeGraph, NodeGraphNodeId,
+            InputOutputTypeIdInfoMapVec, InputOutputTypeIdVec, NodeGraph, NodeGraphNode, NodeGraphNodeId,
             NodeGraphNodePosition, NodeIdNodeMap, NodeIdNodeMapVec, NodeTypeField,
             NodeTypeFieldValue, NodeTypeFieldVec, NodeTypeId, NodeTypeIdInfoMap,
             NodeTypeIdInfoMapVec, NodeTypeInfo, OutputConnectionVec,
@@ -755,7 +755,7 @@ mod label_convention {
             ]),
             nodes: NodeIdNodeMapVec::from_vec(vec![NodeIdNodeMap {
                 node_id: NodeGraphNodeId { inner: 1 },
-                node: Node {
+                node: NodeGraphNode {
                     node_type: TYPE_A,
                     position: NodeGraphNodePosition { x: 0.0, y: 0.0 },
                     fields: NodeTypeFieldVec::from_vec(vec![NodeTypeField {

@@ -57,23 +57,67 @@ pub const HOST_INVOKER_KINDS: &[&str] = &[
     // (layout/src/callbacks.rs). Managed hosts pass a closure as `on_result`
     // to FileDialog::open_file, FilePath::read_bytes, HttpRequestConfig::http_get, ...
     "ResumeCallback",
-    // Widget callbacks (layout/src/widgets/*).
+    // Updater (layout/src/updater.rs).
+    "UpdateCheckCallback",
+    // Widget callbacks (layout/src/widgets/*) — EVERY `impl_managed_callback!`
+    // site in the engine is listed; the `matches_every_engine_thunk` test
+    // below fails the build of this crate when the two drift apart.
+    "AccordionOnToggleCallback",
+    "AlertOnDismissCallback",
+    "BackstageOnNavSelectCallback",
+    "BreadcrumbOnNavigateCallback",
     "ButtonOnClickCallback",
-    "TabOnClickCallback",
+    "CardOnClickCallback",
     "CheckBoxOnToggleCallback",
-    "TreeViewOnNodeClickCallback",
-    "DropDownOnChoiceChangeCallback",
+    "ChipOnClickCallback",
+    "ChipOnRemoveCallback",
     "ColorInputOnValueChangeCallback",
+    "ComboBoxOnSelectCallback",
+    "DatePickerOnChangeCallback",
+    "DropDownOnChoiceChangeCallback",
     "FileInputOnPathChangeCallback",
-    "NumberInputOnValueChangeCallback",
+    "ListViewOnColumnClickCallback",
+    "ListViewOnLazyLoadScrollCallback",
+    "ListViewOnRowClickCallback",
+    "MapMountCallback",
+    "MapPinTapCallback",
+    "MapViewportChangedCallback",
+    "ModalOnCloseCallback",
     "NumberInputOnFocusLostCallback",
+    "NumberInputOnValueChangeCallback",
+    "OnAudioFrameCallback",
+    "OnConsumerFrameCallback",
+    "OnNodeAddedCallback",
+    "OnNodeConnectedCallback",
+    "OnNodeDraggedCallback",
+    "OnNodeFieldEditedCallback",
+    "OnNodeGraphDraggedCallback",
+    "OnNodeInputDisconnectedCallback",
+    "OnNodeOutputDisconnectedCallback",
+    "OnNodeRemovedCallback",
+    "OnVideoFrameCallback",
+    "PaginationOnChangeCallback",
+    "PopoverOnToggleCallback",
+    "RadioGroupOnChangeCallback",
+    "RibbonGalleryOnSelectCallback",
+    "RibbonOnTabClickCallback",
+    "SegmentedOnChangeCallback",
+    "SliderOnValueChangeCallback",
+    "SplitPaneOnResizeCallback",
+    "StatusBarOnViewSelectCallback",
+    "StepperOnStepChangeCallback",
+    "SwitchOnToggleCallback",
+    "TabOnClickCallback",
+    "TextAreaOnFocusLostCallback",
+    "TextAreaOnTextInputCallback",
+    "TextAreaOnVirtualKeyDownCallback",
+    "TextInputOnFocusLostCallback",
     "TextInputOnTextInputCallback",
     "TextInputOnVirtualKeyDownCallback",
-    "TextInputOnFocusLostCallback",
-    "ListViewOnLazyLoadScrollCallback",
-    "ListViewOnColumnClickCallback",
-    "ListViewOnRowClickCallback",
-    "RibbonOnTabClickCallback",
+    "TimePickerOnChangeCallback",
+    "ToastOnDismissCallback",
+    "TreeViewOnNodeClickCallback",
+    "VideoMountCallback",
     // ThreadCallback fires on a worker thread (spawned by
     // Thread::create). Per-language host-invoker thunks for this kind
     // MUST acquire the host VM lock before dispatching
@@ -81,7 +125,8 @@ pub const HOST_INVOKER_KINDS: &[&str] = &[
     // etc.). Single-threaded interpreters (Lua, Perl, PHP, Pharo)
     // can't safely receive this callback; users should use the
     // writeback-only pattern (Rust extern "C" worker fn + host
-    // WriteBackCallback on main).
+    // WriteBackCallback on main). Every other kind above is invoked on
+    // the main thread from inside another callback (`<Wrapper>::invoke`).
     "ThreadCallback",
 ];
 
@@ -753,4 +798,62 @@ pub fn app_factory_info(ir: &CodegenIR) -> Option<AppFactoryInfo> {
                 window_methods,
             })
         })
+}
+
+#[cfg(test)]
+mod host_invoker_kinds_tests {
+    use super::HOST_INVOKER_KINDS;
+    use std::collections::BTreeSet;
+
+    /// Every `impl_managed_callback!` site in the engine (core + layout) must
+    /// be in [`HOST_INVOKER_KINDS`] and vice versa: a kind missing here gets
+    /// no registration/invoker in any binding (managed closures silently
+    /// cannot be used for it), a kind listed here without an engine thunk
+    /// makes every binding reference `AzApp_set<X>Invoker` symbols the dll
+    /// does not export.
+    #[test]
+    fn matches_every_engine_thunk() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut engine = BTreeSet::new();
+        for dir in ["core/src", "layout/src"] {
+            for entry in walkdir::WalkDir::new(root.join(dir))
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
+            {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // The macro definition and its own test fakes.
+                if name == "host_invoker.rs" || name == "host_invoker_test.rs" {
+                    continue;
+                }
+                let Ok(src) = std::fs::read_to_string(path) else { continue };
+                let mut rest = src.as_str();
+                while let Some(i) = rest.find("impl_managed_callback!") {
+                    rest = &rest[i + "impl_managed_callback!".len()..];
+                    let Some(w) = rest.find("wrapper:") else { break };
+                    let after = rest[w + "wrapper:".len()..].trim_start();
+                    let ident: String = after
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
+                    // A real macro site names a `<Kind>Callback` wrapper; prose
+                    // that merely mentions the macro does not.
+                    let is_wrapper = ident.ends_with("Callback")
+                        && ident.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+                    if is_wrapper {
+                        engine.insert(ident);
+                    }
+                }
+            }
+        }
+        let listed: BTreeSet<String> = HOST_INVOKER_KINDS.iter().map(|s| s.to_string()).collect();
+        let missing: Vec<_> = engine.difference(&listed).collect();
+        let stale: Vec<_> = listed.difference(&engine).collect();
+        assert!(
+            missing.is_empty() && stale.is_empty(),
+            "HOST_INVOKER_KINDS drifted from the engine's impl_managed_callback! sites.\n  \
+             engine kinds not listed: {missing:?}\n  listed kinds without an engine thunk: {stale:?}"
+        );
+    }
 }
