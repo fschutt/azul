@@ -5118,7 +5118,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                    "content": "fpc hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5148,7 +5148,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh -Fl. hello-world.pas"
+                                    "content": "fpc -Fl. hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5182,7 +5182,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh -Fl\"$(brew --prefix)/lib\" hello-world.pas"
+                                    "content": "fpc -Fl\"$(brew --prefix)/lib\" -k-rpath -k\"$(brew --prefix)/lib\" hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5212,7 +5212,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh -Fl. hello-world.pas"
+                                    "content": "fpc -Fl. hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5250,7 +5250,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                    "content": "fpc hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5288,7 +5288,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                    "content": "fpc hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5318,7 +5318,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh -Fl. hello-world.pas"
+                                    "content": "fpc -Fl. hello-world.pas"
                                 },
                                 {
                                     "type": "command",
