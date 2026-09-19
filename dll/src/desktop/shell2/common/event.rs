@@ -797,6 +797,14 @@ fn apply_focus_restyle_in_dom(
         // re-evaluated against the node's focused flag when the display list is
         // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
         // display list forever until the app laid out for some other reason.
+        //
+        // And the rebuild happens HERE, like every other producer of this
+        // tier does for itself (a selection drag, a caret move): the tier only
+        // asks the shell to present. Wayland presented its cached list - a
+        // frame with no visual change - so a Tab that changed no rule (the
+        // focus ring is a display-list post-pass, not a style) moved focus
+        // and showed nothing.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
@@ -8104,6 +8112,13 @@ pub trait PlatformWindow {
                         let restyle_result = apply_focus_restyle(layout_window, *old_focus, *new_focus);
                         result = result.max(restyle_result);
                     } else if visibility_changed {
+                        // Same node, different indication (a Tab that lands
+                        // on the node a click focused): the ring lives in the
+                        // display list, so rebuild it before asking for the
+                        // present.
+                        if let Some(dom) = new_focus.map(|n| n.dom) {
+                            layout_window.regenerate_display_list_for_dom(dom);
+                        }
                         result =
                             result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                     }
@@ -13391,6 +13406,71 @@ mod tests {
         assert!(
             !focused(&lw, DomId::ROOT_ID),
             "the root node with the same index took :focus"
+        );
+    }
+
+    /// A focus change that alters no CSS rule still rebuilds the display
+    /// list: the focus ring is appended by the list's post-pass, and a shell
+    /// that presents its cached list (Wayland) otherwise shows a Tab as
+    /// "nothing happened".
+    #[test]
+    fn a_focus_change_without_a_style_delta_rebuilds_the_display_list() {
+        use azul_core::{
+            dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+            geom::LogicalSize,
+            resources::{RendererResources, SystemAnimations},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+        use azul_layout::{
+            callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+            window::LayoutWindow, window_state::FullWindowState,
+        };
+
+        let mut dom = Dom::create_body();
+        for label in ["one", "two"] {
+            let mut d = Dom::create_div();
+            d.set_tab_index(TabIndex::Auto);
+            dom = dom.with_child(d.with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(label),
+            ));
+        }
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations::default());
+        let rr = RendererResources::default();
+        let cb = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &cb, &mut dbg)
+            .unwrap();
+
+        let ends_with_ring = |lw: &LayoutWindow| {
+            matches!(
+                lw.layout_results[&DomId::ROOT_ID].display_list.items.last(),
+                Some(DisplayListItem::Border { .. })
+            )
+        };
+        assert!(!ends_with_ring(&lw), "harness: nothing focused, no ring");
+
+        // Keyboard focus lands on "one" (node 1): no CSS rule mentions :focus,
+        // so the restyle reports no changed node.
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        };
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(target), true);
+        let r = apply_focus_restyle(&mut lw, None, Some(target));
+
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert!(
+            ends_with_ring(&lw),
+            "the display list was rebuilt with the focus ring appended"
         );
     }
 
