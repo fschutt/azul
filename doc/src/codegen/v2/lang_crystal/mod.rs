@@ -326,6 +326,9 @@ pub fn map_type_to_crystal(rust_type: &str, ir: &CodegenIR) -> String {
         }
     }
 
+    // allow-api-name: this is the C-type -> Crystal-type table, so it spells
+    // C type names by nature - including the GL scalar typedefs, whose widths
+    // are fixed by OpenGL (and whose `GLboolean` is a boolean, not a byte).
     match t {
         // Void in value position never really occurs (void returns are
         // handled by omitting the `: ...`); degrade to an opaque ptr.
@@ -436,6 +439,8 @@ pub fn enum_member_name(name: &str) -> String {
 }
 
 fn is_crystal_keyword(s: &str) -> bool {
+    // allow-api-name: Crystal's own keyword table; `end` is a keyword an API
+    // method happens to share a spelling with, not a decision about that method.
     matches!(
         s,
         "abstract"

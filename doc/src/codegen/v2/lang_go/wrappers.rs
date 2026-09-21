@@ -722,6 +722,8 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
             FunctionKind::PartialCmp => "PartialOrder",
             FunctionKind::Cmp => "Order",
             FunctionKind::Hash => "Hash",
+            // allow-api-name: `String` here is Go's Stringer method, which
+            // merely spells the same word as the API class of that name.
             FunctionKind::DebugToString => "String",
             _ => continue,
         };
@@ -796,6 +798,7 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
                 FunctionKind::PartialCmp => "PartialOrder",
                 FunctionKind::Cmp => "Order",
                 FunctionKind::Hash => "Hash",
+                // allow-api-name: Go's Stringer method name, as above.
                 FunctionKind::DebugToString => "String",
                 FunctionKind::DeepCopy => "Clone",
                 FunctionKind::Default => "Default",

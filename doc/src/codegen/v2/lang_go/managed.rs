@@ -69,6 +69,8 @@ fn lower_camel(t: &str) -> String {
 fn arg_go_name(i: usize, t: &str, ir: &CodegenIR) -> String {
     if i == 0 && is_refany_type(t, ir) {
         "data".to_string()
+    // allow-api-name: cosmetic - what to CALL the parameter in the generated
+    // Go signature. Nothing branches on it beyond the identifier.
     } else if t.ends_with("CallbackInfo") {
         "info".to_string()
     } else if t == "usize" {
@@ -97,6 +99,8 @@ fn arg_go_type(t: &str, wrapper_types: &[String], ir: &CodegenIR) -> String {
 /// info offers)? Such an argument is where binding errors are reported.
 fn class_has_log(t: &str, ir: &CodegenIR) -> bool {
     ir.functions_for_class(t).any(|f| {
+        // allow-api-name: "does this type offer the log sink" is a question
+        // about one named method; the IR has no other mark for it.
         matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) && f.method_name == "log"
     })
 }
@@ -167,6 +171,7 @@ fn go_param_names(k: &Kind, ir: &CodegenIR) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(k.arg_types.len());
     for (i, t) in k.arg_types.iter().enumerate() {
         let ir_name = k.arg_names.get(i).map(|s| s.trim()).unwrap_or("");
+        // allow-api-name: as in `arg_go_name` - naming the parameter only.
         let mut name = if (i == 0 && is_refany_type(t, ir)) || t.ends_with("CallbackInfo") {
             arg_go_name(i, t, ir)
         } else if !ir_name.is_empty() && ir_name != "_" {

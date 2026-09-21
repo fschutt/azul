@@ -153,10 +153,15 @@ fn is_pointer_spelling(t: &str) -> bool {
     t.starts_with('*') || t.starts_with('&')
 }
 
+/// A C function pointer, i.e. one of the IR's callback typedefs.
+///
+/// The name-suffix fallback this replaced ("ends with CallbackType/FnType")
+/// caught two api.json classes that are NOT function pointers at all -
+/// `CoreCallbackType` and `CoreRenderImageCallbackType` are aliases of
+/// `usize`, core's type-erased storage - and no api.json function takes
+/// either, so the fallback only ever misclassified them.
 fn is_fn_pointer(t: &str, ir: &CodegenIR) -> bool {
     ir.callback_typedefs.iter().any(|c| c.name == t)
-        || t.ends_with("CallbackType")
-        || t.ends_with("FnType")
 }
 
 /// The `lang_c` / `lang_rust` twin predicate for one argument: owned and a

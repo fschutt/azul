@@ -93,7 +93,50 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
             b.line(&format!("type {} = {}", super::sanitize_identifier(&c.name), ffi_type_name(&c.name)));
         }
     }
+    emit_constants(&mut b, ir);
     Ok(b.finish())
+}
+
+/// The api.json constants, grouped by the class that owns them.
+///
+/// These are the OpenGL enum values, and they are API: without them a caller
+/// cannot name a single argument of the GL surface. The C header has always
+/// had them (`#define AzGlContextPtr_ACCUM 0x0100`); Go had none.
+fn emit_constants(b: &mut CodeBuilder, ir: &CodegenIR) {
+    if ir.constants.is_empty() {
+        return;
+    }
+    b.blank();
+    b.line("// ============================================================================");
+    b.line("// Constants");
+    b.line("// ============================================================================");
+    b.line("");
+    b.line("const (");
+    b.indent();
+    for c in &ir.constants {
+        // `GlContextPtr_ACCUM` keeps the owning class in the name: Go has no
+        // scope to hang them off, and the C spelling is what GL documents.
+        b.line(&format!("{} {} = {}", c.name, go_scalar(&c.type_name), c.value));
+    }
+    b.dedent();
+    b.line(")");
+    b.blank();
+}
+
+/// The Go type of a constant's declared scalar type.
+fn go_scalar(rust_type: &str) -> &'static str {
+    match rust_type.trim() {
+        "u8" => "uint8",
+        "u16" => "uint16",
+        "u64" => "uint64",
+        "i8" => "int8",
+        "i16" => "int16",
+        "i32" => "int32",
+        "i64" => "int64",
+        "f32" => "float32",
+        "f64" => "float64",
+        _ => "uint32",
+    }
 }
 
 fn emit_header(b: &mut CodeBuilder) {
@@ -444,7 +487,13 @@ fn emit_union_body(
             b.blank();
         }
 
-        // Constructor.
+        // Constructor. Named after the IR's variant-constructor method, not
+        // the bare variant name: a variant called `Default` is exported as
+        // `Az<Enum>_defaultVariant`, and the Go constructor every other
+        // binding's user reads about must carry the same name.
+        let ctor_name = upper_first(&crate::codegen::v2::ir_builder::variant_constructor_method_name(
+            &v.name,
+        ));
         let params: Vec<String> = v
             .members
             .iter()
@@ -452,9 +501,9 @@ fn emit_union_body(
             .collect();
         b.line(&format!(
             "// {}_{} builds the {} variant of {}.",
-            go_name, v.name, v.name, go_name
+            go_name, ctor_name, v.name, go_name
         ));
-        b.line(&format!("func {}_{}({}) {} {{", go_name, v.name, params.join(", "), go_name));
+        b.line(&format!("func {}_{}({}) {} {{", go_name, ctor_name, params.join(", "), go_name));
         b.indent();
         b.line(&format!("var u {}", go_name));
         if v.members.is_empty() {
@@ -515,6 +564,15 @@ fn emit_union_body(
 
 /// Constructor parameter name for a variant member (`Payload` -> `payload`,
 /// `Payload0` -> `payload0`, `Width` -> `width`); `u`/`v` are taken.
+/// `defaultVariant` -> `DefaultVariant`: an exported Go identifier.
+fn upper_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
 fn ctor_param_name(member: &str) -> String {
     let mut c = member.chars();
     let lower = match c.next() {
