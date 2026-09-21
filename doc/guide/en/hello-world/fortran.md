@@ -174,19 +174,9 @@ and returns the callback's no-op result (`Update_DoNothing`).
 
 ### Constructors: `button_t(...)` or `button_create(...)`
 
-`button_t('Increase counter')` calls the same function as `button_create('Increase
-counter')`. A type whose constructors can all be told apart by their arguments also gets
-a generic interface named after the type, which is the Fortran 2003 way to spell a
-constructor, so you can write `app_t(model, config)` or `window_create_options_t(layout)`
-and let the compiler pick. Both spellings stay available - nothing is renamed.
+In modern Fortran, you can often use the type name as a constructor (e.g., `button_t('Increase counter')` or `app_t(model, config)`). Under the hood, this routes to the explicit constructor function (like `button_create(...)`). You can use either spelling freely.
 
-A type only gets that interface when it covers **every** one of its constructors. `Dom`
-has 193 of them and many take the same argument types (`create_body`, `create_div`,
-`create_br` all take none), so Fortran could not tell them apart and `dom_t('hello')`
-would have quietly meant whichever one came first. Those types have no generic at all,
-and you call them by name - `dom_create_body()`, `dom_create_p_with_text(text)` - which
-says what you get. 460 of the 528 wrapper types have the generic; the 68 that do not
-carry a comment in `azul_api.f90` naming the constructors to use instead.
+However, some types like `dom_t` have dozens of constructors with identical argument signatures (e.g., `create_body()` and `create_div()` both take zero arguments). Because Fortran cannot resolve overloaded interfaces with identical signatures, `dom_t` does not have a generic constructor. For these types, you must call the explicit creation functions by name, such as `dom_create_body()` or `dom_create_p_with_text(text)`.
 
 `call button%with_on_click(model, on_click)` binds the model the layout callback is
 running with, not a copy, so the click changes the same counter.
