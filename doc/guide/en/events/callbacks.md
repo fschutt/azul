@@ -99,75 +99,61 @@ extern "C" fn save(data: RefAny, _info: CallbackInfo) -> Update {
 For a callback that needs to mutate, use `downcast_mut`. The mutable
 borrow lasts the callback body.
 
+## Finding the right method
+
+`CallbackInfo` has around 350 methods. They fall into groups, and most
+of them are documented on a page of their own:
+
+| Group | Page |
+|---|---|
+| Finding, walking and editing nodes; hit testing; geometry | [Node Tree & Hit Testing](node-tree.md) |
+| Cursor position, seats, capture and lock, pen, touch, gestures | [Pointer, Pen & Touch](pointer.md) |
+| Drag sources, drop targets, drag data, OS file drops | [Drag & Drop](drag-and-drop.md) |
+| Scroll containers, offsets, programmatic scrolling | [Scrolling](scrolling.md) |
+| Window state, monitors, transient windows, tooltips, screenshots, system capabilities | [Window & System](window-system.md) |
+| Audio and video playback, now-playing, media keys | [Media Playback](media.md) |
+| Locale-aware numbers, dates, plurals, collation | [Locale Formatting](formatting.md) |
+| Typing, IME, undo, document sync | [Text Input](text-input.md) |
+| Cursors, selection ranges, clipboard | [Text Selection](text-selection.md) |
+| Route pattern and parameters | [Routing](../architecture/routing.md) |
+
+What stays on this page is the part that is not a group: the signature,
+the return value, reading state, propagation, focus, async work, and
+the styling and cache queries.
+
 ## Identifying the node that fired
 
 ```rust,ignore
-let hit: DomNodeId = info.get_hit_node();           // DomId + NodeId
-let rect = info.get_node_rect(hit);                 // optional
-let css = info.override_node_css_properties(hit, …); // example mutation
+let hit: DomNodeId = info.get_hit_node();
+let rect = info.get_node_rect(hit);
 ```
 
-A `DomNodeId` is `(DomId, NodeId)`. Most apps have a single root DOM
-(`DomId::ROOT_ID`). Sub-DOMs come from `IFrame` nodes and virtual
-views.
-
-For a generic callback that fires from many call sites — say a
-"submit" callback that's attached to several forms — the dataset is
-the cleanest way to identify which instance fired:
-
-```rust,ignore
-let me = match info.get_dataset(info.get_hit_node()) {
-    Some(d) => d,
-    None => return Update::DoNothing,
-};
-let row = match me.downcast_ref::<TableRow>() {
-    Some(r) => r,
-    None => return Update::DoNothing,
-};
-```
-
-To reach a *specific* node rather than the one that fired, stamp it
-with a marker during `layout()` and resolve that marker in the
-callback:
-
-```rust,ignore
-// layout(): mint an address and keep the same string in your state.
-let marker = Uuid::short();
-let bar = ProgressBar::create(0.0).dom().with_marker(Some(marker.clone()).into());
-
-// callback: resolve it back to a node id.
-if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
-    // ...
-}
-```
-
-A marker is like an HTML `id` except that it is invisible to CSS and
-does not affect node equality, so minting a fresh one on every
-`layout()` costs no `Mount` / `Unmount` churn. `get_node_id_by_id_attribute`
-does the same for a node carrying a real `id`. See
-[Architecture](../architecture.md) for the full pattern.
+A `DomNodeId` is `(DomId, NodeId)`, and for a callback attached to
+several nodes the dataset is how you tell instances apart. Addressing,
+walking and mutating nodes is the subject of
+[Node Tree & Hit Testing](node-tree.md).
 
 ## Reading input state
 
-The framework hands you the input state at event time. Rules of
-thumb:
-
-- `info.get_current_keyboard_state()` — modifier keys, currently
-  pressed scancodes, the chars the platform reports for the most
-  recent key event.
-- `info.get_current_mouse_state()` — button state, scroll delta,
-  whether the cursor is captured.
-- `info.get_previous_keyboard_state()` / `get_previous_mouse_state()`
-  — the snapshot from the *previous* frame. Useful for transition
-  detection (`pressed_now && !pressed_last_frame == "just pressed"`).
-
-For position queries:
+The framework hands you the input state as of the event, plus the
+snapshot from the previous one, so transitions are a diff rather than
+bookkeeping you keep yourself:
 
 ```rust,ignore
-info.get_cursor_position_screen()        // LogicalPosition relative to screen
-info.get_cursor_relative_to_viewport()   // LogicalPosition in window coords
-info.get_cursor_relative_to_node()       // (node_id, LogicalPosition) for the hit node
+info.get_current_keyboard_state();    // modifiers, pressed scancodes, reported chars
+info.get_previous_keyboard_state();   // the same, one event ago
+info.get_key_modifiers();             // just the modifier set
+info.get_key_locks();                 // caps / num / scroll
+info.is_key_repeat();                 // held, not newly pressed
 ```
+
+`get_physical_key()` is the layout-independent key - the *position* on
+the keyboard - which is what a shortcut like "W A S D" must use so it
+stays a square on an AZERTY keyboard.
+
+The pointer equivalents (`get_current_mouse_state`, the three cursor
+position spaces, pen and touch) are on
+[Pointer, Pen & Touch](pointer.md).
 
 ## Mutating the DOM without rebuilding
 
@@ -194,21 +180,36 @@ For structural edits (insert a child, delete a node), use
 beyond a handful of nodes — are usually clearer expressed as a fresh
 `Dom` from `layout()` plus `Update::RefreshDom`.
 
-## Focus, scroll, cursor
+## Focus
 
 ```rust,ignore
-info.set_focus(FocusTarget::Node(node_id));         // focus a specific node
-info.set_focus(FocusTarget::Path(/* ... */));       // by selector path
-info.scroll_to(node_id, position, alignment);
-info.scroll_node_into_view(node_id);
-info.is_node_focused(node_id);
-info.set_cursor_visibility(false);
-info.start_cursor_blink_timer();
+info.set_focus(FocusTarget::Node(node_id));
+info.set_focus_to_path(dom_id, css_path);     // by selector
+info.has_focus(node_id);
+info.clear_focus();
 ```
 
-A focus change adjusts which node receives keyboard input on the next
-frame. The reconciler migrates the focus across a `RefreshDom` for
-nodes that match.
+Focus moves on the next frame, and the reconciler migrates it across a
+`RefreshDom` for nodes that still match - so a focused text field
+survives a rebuild without you re-focusing it.
+
+`focus_next()`, `focus_previous()`, `focus_first()` and `focus_last()`
+walk the focus order, which is what a custom key handler calls instead
+of computing the next focusable node itself.
+
+Every one of these has a `_for_seat` twin - `set_focus_for_seat()`,
+`clear_focus_for_seat()` - because a window can have several
+independent cursors; see [Pointer, Pen & Touch](pointer.md).
+`is_dom_focused(dom_id)` asks the same question of a whole sub-DOM.
+
+Accessibility rides on the same axis: `set_accessibility_state()` and
+`set_accessibility_value()` update what assistive technology reports
+for a node, and `perform_accessibility_action()` performs an action
+the assistive layer requested.
+
+Scrolling a node into view is `scroll_node_into_view(node)`, and
+`set_cursor_visibility(false)` hides the pointer - see
+[Scrolling](scrolling.md) and [Pointer, Pen & Touch](pointer.md).
 
 For text inputs and contenteditable surfaces, the cursor and
 selection helpers (`add_cursor`, `add_selection_range`,
@@ -232,6 +233,30 @@ the same name for the same idea.
 Event filtering — `EventFilter::Hover(...)` vs `Focus(...)` vs
 `Window(...)`, propagation order, NotEvent — is in
 [Events and Input](..md).
+
+`get_current_event_id()` identifies the event being dispatched, which is
+how two callbacks on different nodes tell "the same click" from "two
+clicks", and `get_last_input_sample()` is the raw sample it came from.
+
+## Logging and metrics
+
+A callback runs inside the framework's loop, so `println!` lands
+wherever the host put stdout - which on a windowed app is often
+nowhere. Log through the info instead, and it goes to the same sink as
+the framework's own output:
+
+```rust,ignore
+info.log(AppLogLevel::Info, "export finished".into());
+info.warn("texture atlas is full".into());
+```
+
+Three metric recorders sit alongside them - `record_counter()`,
+`record_gauge()` and `record_histogram()`, each taking a name, a value
+and a label set. They feed the observability pipeline, so an app can be
+instrumented without a metrics crate of its own.
+
+`get_ctx()` returns the host-provided context `RefAny`, when one was
+installed.
 
 ## Async work: timers and threads
 
@@ -257,16 +282,21 @@ delivery, so you don't need a manual mutex. See
 ## Window control
 
 ```rust,ignore
-info.create_window(WindowCreateOptions::new(layout_fn));
-info.close_window();                          // close the current window
-info.modify_window_state(new_state);          // resize, retitle, fullscreen, ...
-info.begin_interactive_move();                // start an OS-level drag
-info.queue_window_state_sequence(states);     // animate state changes
+info.create_window(WindowCreateOptions::create(layout_fn));
+info.close_window();
+info.modify_window_state(new_state);
+info.begin_interactive_move();       // hand the drag to the OS
 ```
 
-Routing across pages is done with `switch_route(pattern, params)`,
-which updates the active route and re-runs layout. Read the current
-route with `get_route_pattern` / `get_route_param`.
+`begin_interactive_move()` is the one worth singling out: it tells the
+window manager to take over a drag, so a custom title bar moves the
+window with the platform's own snapping and animations instead of a
+per-frame reposition. Monitors, transient windows, tooltips and
+screenshots are on [Window & System](window-system.md).
+
+Routing across pages is `switch_route(pattern, params)`, with
+`get_route_pattern()` and `get_route_param()` to read the active route;
+see [Routing](../architecture/routing.md).
 
 ## Image and font caches
 
@@ -280,23 +310,30 @@ Cached images are addressable by name from any layout pass. Reloading
 system fonts is the right thing to do after a font config change
 (rare, but desktop environments do change font defaults at runtime).
 
-## Layout queries
+## Styling and layout queries
 
-`CallbackInfo` exposes the post-layout geometry of every node — the
-same data the renderer reads. Useful for hit-testing your own widgets
-or implementing "click on the row but only outside the buttons":
+`set_css_property()` and `override_css_property()` change one
+declaration on one node without re-running the cascade for the tree.
+Reading back is the computed value, after the cascade:
 
 ```rust,ignore
-info.get_node_size(node_id);            // LogicalSize
-info.get_node_position(node_id);        // LogicalPosition (in viewport coords)
-info.get_node_rect(node_id);            // LogicalRect = position + size
-info.get_node_hit_test_bounds(node_id); // includes overflow padding
-info.get_hit_node_rect();               // rect of the node that fired
+info.get_computed_width(node);
+info.get_computed_height(node);
+info.get_computed_css_property(node, CssPropertyType::Display);
 ```
 
-For deeper tree walks, `get_parent_node`, `get_first_child_node`,
-`get_all_children_nodes`, and `get_children_count` give you the same
-hierarchy the framework uses internally.
+`has_pending_relayout_change()` reports whether anything queued so far
+this callback will force a relayout - worth checking before adding
+more, in a handler that runs every frame.
+
+`get_animation_momentum()` and `set_animation_momentum()` read and
+inject the velocity a node is carrying, which is how a custom gesture
+hands a fling over to the built-in animation.
+
+`get_gl_context()` returns the GL context for a node that draws its own
+content, and `query_pagination()` measures how a styled DOM would break
+across pages. Node geometry - sizes, positions, hit-test bounds - is on
+[Node Tree & Hit Testing](node-tree.md).
 
 ## Working with sub-DOMs
 
