@@ -577,9 +577,29 @@ pub fn regenerate_layout(
     // for as long as the app's DOM stayed structurally identical.
     let theme_changed_precheck =
         layout_window.current_window_state.theme != current_window_state.theme;
+    // The window's DECORATION MODE moved since the retained DOM was built, so
+    // the tree this pass owes is a DIFFERENT SHAPE from the retained one: a CSD
+    // titlebar has to be prepended (or dropped). That injection lives on the
+    // FULL path alone — step 3 below — and NOTHING downstream of the layout
+    // callback can see the flip, because the app's DOM is identical either way:
+    // the fingerprints match, the node counts match, and the skip fired. So a
+    // compositor answering the xdg-decoration request with the mode the window
+    // did NOT ask for (KWin granting client-side where we asked for
+    // server-side) flipped the flags, asked for a regeneration — and got a
+    // no-op. The titlebar then appeared at the next app-driven rebuild
+    // instead, shifting every NodeId under the reconciler long after the
+    // window was up. Unlike the theme, this cannot settle for the warm
+    // relayout below: only the full path injects.
+    let csd_changed_precheck = csd::csd_injection_changed(
+        layout_window.current_window_state.flags.has_decorations,
+        layout_window.current_window_state.flags.decorations,
+        current_window_state.flags.has_decorations,
+        current_window_state.flags.decorations,
+    );
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+                && !csd_changed_precheck
                 && fp.structure_root == prev.structure_root
                 && fp.style_root == prev.style_root
                 && layout_window
@@ -828,64 +848,47 @@ pub fn regenerate_layout(
     // wrong (all user NodeIds would be off by the titlebar node count). By
     // injecting the titlebar first, both old and new DOMs have matching structure
     // and reconciliation produces correct node mappings.
-    let mut styled_dom = if csd::should_inject_csd(
+    //
+    // WHICH injection applies is `csd::csd_injection_for` and nothing else —
+    // the same function the pre-cascade skip consults above, so the skip can
+    // never disagree with what this match would have built.
+    let mut styled_dom = match csd::csd_injection_for(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     ) {
-        log_debug!(
-            LogCategory::Layout,
-            "[regenerate_layout] Injecting CSD decorations"
-        );
-        csd::wrap_user_dom_with_decorations(
-            user_styled_dom,
-            &current_window_state.title,
-            true,         // inject titlebar
-            system_style, // pass SystemStyle for native look
-        )
-    } else if current_window_state.flags.decorations
-        == azul_core::window::WindowDecorations::NoTitleAutoInject
-        && !cfg!(any(
-            target_os = "windows",
-            target_os = "linux",
-            // Mobile has no window to title, move or maximize: the surface is
-            // fullscreen and the OS owns the chrome above it. A software
-            // titlebar here lands UNDER the status bar and steals a strip of
-            // an already-small viewport. `csd::should_inject_csd` has excluded
-            // ios/android since MWA-C-csd; this branch is the same decision for
-            // the title-only mode and was simply never updated — its comment
-            // reasons about macOS vs Windows/Linux and stops there, so mobile
-            // fell into the macOS case by default.
-            target_os = "android",
-            target_os = "ios"
-        ))
-    {
-        // Auto-inject a Titlebar at the top of the user's DOM.
-        // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
-        // callbacks — no special event-system hooks required.
-        //
-        // `NoTitleAutoInject` means "native controls visible, native title hidden,
-        // app draws its own title". That requires a frame that shows window
-        // controls WITHOUT a title bar — which only macOS provides (traffic
-        // lights over a title-less bar). Windows (WS_CAPTION) and Linux (KWin/
-        // Mutter server-side decorations, or X11 WM decorations) ALWAYS draw a
-        // full titlebar including the title text, so a software titlebar here is
-        // a duplicate "fake" bar below the real one (the double-titlebar bug).
-        // On those platforms the native caption already renders the title and
-        // handles dragging, so we leave the user DOM untouched and inject only on
-        // macOS. (Apps wanting fully custom chrome should use
-        // `WindowDecorations::None` + `has_decorations` → full CSD with buttons.)
-        log_debug!(
-            LogCategory::Layout,
-            "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
-        );
-        inject_software_titlebar(
-            layout_window,
-            user_styled_dom,
-            &current_window_state.title,
-            system_style,
-        )
-    } else {
-        user_styled_dom
+        csd::CsdInjection::Titlebar => {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Injecting CSD decorations"
+            );
+            csd::wrap_user_dom_with_decorations(
+                user_styled_dom,
+                &current_window_state.title,
+                true,         // inject titlebar
+                system_style, // pass SystemStyle for native look
+            )
+        }
+        csd::CsdInjection::SoftwareTitleOnly => {
+            // Auto-inject a Titlebar at the top of the user's DOM.
+            // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
+            // callbacks — no special event-system hooks required.
+            //
+            // The platform gate (macOS only) and why it is that way live on
+            // `csd::auto_injects_software_titlebar`. (Apps wanting fully custom
+            // chrome should use `WindowDecorations::None` + `has_decorations` →
+            // full CSD with buttons.)
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
+            );
+            inject_software_titlebar(
+                layout_window,
+                user_styled_dom,
+                &current_window_state.title,
+                system_style,
+            )
+        }
+        csd::CsdInjection::None => user_styled_dom,
     };
     azul_layout::probe::emit_phase_heap("after_csd");
     phases.mark("after_csd");

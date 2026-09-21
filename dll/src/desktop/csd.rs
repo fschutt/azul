@@ -61,6 +61,78 @@ pub(crate) fn should_inject_csd(has_decorations: bool, decorations: WindowDecora
     has_decorations && decorations == WindowDecorations::None
 }
 
+/// Does this platform grow its own title-only bar for
+/// [`WindowDecorations::NoTitleAutoInject`]?
+///
+/// `NoTitleAutoInject` means "native controls visible, native title hidden,
+/// app draws its own title". That needs a frame showing window controls
+/// WITHOUT a title — which only macOS provides (traffic lights over a
+/// title-less bar). Windows (`WS_CAPTION`) and Linux (KWin/Mutter server-side
+/// decorations, X11 WM decorations) always draw the full caption including the
+/// title text, so a software bar there is a second, fake titlebar under the
+/// real one. Mobile has no window to title at all.
+#[inline]
+pub(crate) const fn auto_injects_software_titlebar() -> bool {
+    !cfg!(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "android",
+        target_os = "ios"
+    ))
+}
+
+/// What the shell prepends above the user's DOM for a given set of window
+/// decoration flags.
+///
+/// This is the DOM-shape consequence of the flags, and it is why the type
+/// exists at all: `regenerate_layout` has to be able to ask "would this window
+/// build a DIFFERENT tree now?" *before* it decides to skip the rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CsdInjection {
+    /// The user's DOM is the window's DOM.
+    None,
+    /// Full CSD: a titlebar carrying close/minimise/maximise controls.
+    Titlebar,
+    /// A title-only software bar (no controls) — `NoTitleAutoInject`.
+    SoftwareTitleOnly,
+}
+
+/// The injection the given flags call for. Single source of truth: the
+/// injection site in `regenerate_layout` and the "did it change" precheck
+/// guarding the pre-cascade skip both read THIS, so they cannot drift.
+#[inline]
+pub(crate) fn csd_injection_for(
+    has_decorations: bool,
+    decorations: WindowDecorations,
+) -> CsdInjection {
+    if should_inject_csd(has_decorations, decorations) {
+        CsdInjection::Titlebar
+    } else if decorations == WindowDecorations::NoTitleAutoInject
+        && auto_injects_software_titlebar()
+    {
+        CsdInjection::SoftwareTitleOnly
+    } else {
+        CsdInjection::None
+    }
+}
+
+/// Would a rebuild under `new` produce a differently-shaped tree than the one
+/// built under `old`?
+///
+/// A decoration flip is invisible to the app's DOM — the layout callback
+/// returns the same nodes either way — so nothing downstream of the callback
+/// can notice it. Only the flags can.
+#[inline]
+pub(crate) fn csd_injection_changed(
+    old_has_decorations: bool,
+    old_decorations: WindowDecorations,
+    new_has_decorations: bool,
+    new_decorations: WindowDecorations,
+) -> bool {
+    csd_injection_for(old_has_decorations, old_decorations)
+        != csd_injection_for(new_has_decorations, new_decorations)
+}
+
 /// Inject CSD titlebar and/or menu into user's DOM.
 ///
 /// Creates a container `StyledDom` and appends:
@@ -103,5 +175,100 @@ mod tests {
         assert!(!should_inject_csd(true, WindowDecorations::Normal));
         assert!(!should_inject_csd(true, WindowDecorations::NoTitle));
         assert!(!should_inject_csd(true, WindowDecorations::NoControls));
+    }
+
+    #[test]
+    fn the_injection_follows_the_flags() {
+        // Mobile owns the chrome: nothing is ever prepended there.
+        let mobile = cfg!(any(target_os = "ios", target_os = "android"));
+
+        assert_eq!(
+            csd_injection_for(true, WindowDecorations::Normal),
+            CsdInjection::None,
+            "a server-decorated window adds nothing"
+        );
+        assert_eq!(
+            csd_injection_for(true, WindowDecorations::None),
+            if mobile {
+                CsdInjection::None
+            } else {
+                CsdInjection::Titlebar
+            },
+            "frameless + has_decorations is the full CSD titlebar"
+        );
+        assert_eq!(
+            csd_injection_for(false, WindowDecorations::None),
+            CsdInjection::None,
+            "frameless WITHOUT has_decorations is a bare surface by request"
+        );
+        assert_eq!(
+            csd_injection_for(true, WindowDecorations::NoTitleAutoInject),
+            if auto_injects_software_titlebar() {
+                CsdInjection::SoftwareTitleOnly
+            } else {
+                CsdInjection::None
+            },
+        );
+    }
+
+    /// The predicate the pre-cascade skip consults. A decoration flip that
+    /// reshapes the tree MUST be visible here — it is the only evidence the
+    /// shell has, because the app's DOM is identical across the flip.
+    #[test]
+    fn a_reshaping_decoration_flip_is_visible() {
+        use WindowDecorations::{NoTitle, NoTitleAutoInject, Normal, None as NoDeco};
+
+        // Nothing moved.
+        assert!(!csd_injection_changed(true, Normal, true, Normal));
+        assert!(!csd_injection_changed(true, NoDeco, true, NoDeco));
+        // A title-bar-less mode swapped for another title-bar-less mode.
+        assert!(!csd_injection_changed(
+            true,
+            Normal,
+            true,
+            WindowDecorations::NoControls
+        ));
+
+        // THE BUG: the compositor refused server-side decorations, the shell
+        // flipped the window to frameless+CSD, and the tree now grows a
+        // titlebar it did not have.
+        let flip_to_csd = csd_injection_changed(true, Normal, true, NoDeco);
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        assert!(!flip_to_csd, "mobile never grows a desktop titlebar");
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        assert!(
+            flip_to_csd,
+            "Normal -> None+has_decorations grows the CSD titlebar"
+        );
+
+        // …and the way back, which drops it again.
+        assert_eq!(
+            csd_injection_changed(true, NoDeco, true, Normal),
+            flip_to_csd
+        );
+
+        // NoTitle -> NoTitleAutoInject only reshapes where the software
+        // title-only bar is actually injected (macOS).
+        let auto_inject_flip = csd_injection_changed(true, NoTitle, true, NoTitleAutoInject);
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "android",
+            target_os = "ios"
+        ))]
+        assert!(
+            !auto_inject_flip,
+            "the native caption already draws the title here — no software bar, no reshape"
+        );
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "android",
+            target_os = "ios"
+        )))]
+        assert!(
+            auto_inject_flip,
+            "macOS auto-injects the title-only bar, so the tree changes"
+        );
     }
 }

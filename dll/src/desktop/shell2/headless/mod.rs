@@ -2064,6 +2064,33 @@ impl HeadlessWindow {
         let _ = self.process_window_events(0);
     }
 
+    /// Simulate the window system answering the decoration request with a
+    /// different mode than the one the window asked for.
+    ///
+    /// This is the headless analogue of
+    /// `zxdg_toplevel_decoration_v1.configure` reporting `client_side` to a
+    /// window that requested `server_side` (KWin does exactly that): the shell
+    /// flips the window to frameless + CSD and asks for a regeneration, in
+    /// which the titlebar must appear. Same shape as
+    /// `wayland::events::toplevel_decoration_configure_handler` — an
+    /// OS-sourced flag write (the change is already true of the window, so the
+    /// OS-sync baseline advances with it and is never echoed back) followed by
+    /// a plain `RefreshDom` regeneration request.
+    pub fn simulate_decoration_change(
+        &mut self,
+        decorations: azul_core::window::WindowDecorations,
+        has_decorations: bool,
+    ) {
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.flags.decorations = decorations;
+                ws.flags.has_decorations = has_decorations;
+            });
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.wake();
+    }
+
     /// Read the queued reason for the next `regenerate_layout()` call.
     /// Useful for asserting in tests that an event handler tagged the
     /// upcoming relayout correctly.
