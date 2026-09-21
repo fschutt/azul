@@ -1329,6 +1329,39 @@ jobs:
             | tee e2e-json.txt
           ./scripts/zero_test_guard.sh --strict e2e-json.txt
 
+  # Miri lives ALONE, with no cache and no secrets, on purpose.
+  #
+  # `cargo miri` writes the environment it was invoked with into target/ so it
+  # survives between the several rustc invocations one invocation makes
+  # (rust-lang security advisory, 2026-09-21). A job that does that, holds a
+  # secret, and saves target/ to a cache publishes the secret to an artifact
+  # pull requests can read. Keeping Miri in a job with neither half means the
+  # combination cannot arise here, whatever is added later.
+  #
+  # scripts/preflight_contracts.py enforces this.
+  miri:
+    name: Run Miri
+    needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly-2026-09-03 --component miri
+          cargo +nightly-2026-09-03 miri setup
+
+      - name: Run Miri tests
+        run: |
+          cargo +nightly-2026-09-03 miri test --lib -p azul-core -- refany::
+
   test_heavy:
     # Runs Miri and Reftests.
     name: Run Heavy Tests (Miri + Reftests)
@@ -1343,15 +1376,6 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
-      - name: Install Miri
-        run: |
-          rustup toolchain install nightly-2026-09-03 --component miri
-          cargo +nightly-2026-09-03 miri setup
-
-      - name: Run Miri tests
-        run: |
-          cargo +nightly-2026-09-03 miri test --lib -p azul-core -- refany::
-
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -4456,7 +4480,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

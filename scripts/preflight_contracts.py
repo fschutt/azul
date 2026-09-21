@@ -346,6 +346,72 @@ def check_api_json_parses() -> None:
         fail("api-json", f"api.json does not parse: {e}")
 
 
+# --------------------------------------------------------------------------
+# 7. No CI job both runs Miri and can leak secrets into a cache.
+#
+# Miri stores the environment it was invoked with under target/ so it can
+# reuse it between the several rustc invocations one `cargo miri` makes
+# (rust-lang security advisory, 2026-09-21). A job that runs Miri, holds a
+# secret in its environment, and saves target/ to a cache therefore writes
+# that secret into an artifact that pull requests can read - including pull
+# requests opened by anyone who has landed a change before.
+#
+# Our Miri jobs have neither secrets nor a target/miri cache, so nothing
+# leaked. This keeps it that way: the advisory's own advice is to make sure
+# the combination cannot arise, because it is not Miri-specific - any tool
+# may put its environment in a build directory, and build scripts certainly
+# can.
+# --------------------------------------------------------------------------
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+
+# `  job-name:` at the one indentation level `jobs:` uses.
+JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
+
+# An actual INVOCATION, not the word. A job named `miri`, a `needs:` entry
+# naming it, and a comment explaining any of this are all just text.
+RUNS_MIRI = re.compile(r"cargo\s+(?:\+\S+\s+)?miri\b|--component\s+miri\b")
+
+
+def _jobs(text: str) -> list[tuple[str, int, str]]:
+    """(name, first line number, body) per job, by indentation."""
+    lines = text.split("\n")
+    starts = [(i, m.group(1)) for i, l in enumerate(lines) if (m := JOB_HEADER.match(l))]
+    out = []
+    for (i, name), (j, _) in zip(starts, starts[1:] + [(len(lines), "")]):
+        body = lines[i:j]
+        # A comment block ABOVE a job header documents that job, not the one
+        # before it - and a comment about Miri is not a job running Miri.
+        while body and (not body[-1].strip() or body[-1].lstrip().startswith("#")):
+            body.pop()
+        out.append((name, i + 1, "\n".join(body)))
+    return out
+
+
+def check_miri_cache_secrets() -> None:
+    for wf in sorted(WORKFLOW_DIR.glob("*.yml")):
+        for name, line, body in _jobs(wf.read_text()):
+            if not RUNS_MIRI.search(body):
+                continue
+            where = f"{wf.relative_to(ROOT)}:{line} job `{name}`"
+            if "secrets." in body:
+                fail(
+                    "miri-cache",
+                    f"{where} runs Miri AND references a secret. Miri writes its "
+                    f"environment into target/, so the secret can reach a cached "
+                    f"build directory. Move the secret to a job that does not run "
+                    f"Miri.",
+                )
+            if "actions/cache@" in body or "rust-cache" in body:
+                fail(
+                    "miri-cache",
+                    f"{where} runs Miri AND saves a cache. Even with no secret "
+                    f"today, this is half of the leak: anything later added to the "
+                    f"job's environment would be written to target/ and published "
+                    f"to a cache pull requests can read. Keep Miri in a job that "
+                    f"caches nothing.",
+                )
+
+
 def main() -> int:
     check_api_json_parses()
     check_demo_naming()
@@ -353,6 +419,7 @@ def main() -> int:
     check_widget_override_latch()
     check_demo_state_round_trip()
     check_sparse_checkout()
+    check_miri_cache_secrets()
 
     if FAILURES:
         print("preflight contracts FAILED:\n", file=sys.stderr)
@@ -361,7 +428,7 @@ def main() -> int:
         return 1
     print(
         "preflight contracts OK (naming, widget wiring, override latch, "
-        "demo round-trip, sparse checkout, api.json)"
+        "demo round-trip, sparse checkout, api.json, miri/cache/secrets)"
     )
     return 0
 
