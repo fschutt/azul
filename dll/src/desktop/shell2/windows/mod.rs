@@ -1330,6 +1330,14 @@ impl Win32Window {
                                     }
                                 }
                                 if let Some(ref d) = self.native_dib {
+                                    // A DIB created by `CreateDIBSection` is
+                                    // ZEROED, and a window that GREW got a new
+                                    // one: rastering only the damage strips
+                                    // into it presents black everywhere the
+                                    // diff found nothing. `has_frame` is set
+                                    // once a frame has been rendered into it.
+                                    self.cpu_backend.native_target_holds_previous_frame =
+                                        d.has_frame;
                                     self.cpu_backend.native_target = unsafe {
                                         azul_layout::cpurender::AzulPixmap::from_external(
                                             d.ptr, d.w as u32, d.h as u32,

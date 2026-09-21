@@ -252,6 +252,37 @@ pub use azul_layout::window::{FrameDamage, FrameReport};
 /// The backend holds a retained-mode `CompositorState` for efficient
 /// incremental re-rendering.  On resize, only the root layer pixbuf is
 /// reallocated; scroll and damage use pixel-shift / partial re-render.
+/// May the next frame be painted INCREMENTALLY - only the damage rects
+/// re-rastered, every other pixel left standing in the OUTPUT buffer?
+///
+/// Only while that buffer still holds the PREVIOUS frame:
+/// - a resize that GREW the buffer preserved it (`resize_preserved_pixels`);
+///   a shrink threw it away,
+/// - a different canvas colour invalidates every reused pixel,
+/// - `force_full_repaint` is the shell's own "something changed outside the
+///   display list",
+/// - and `target_holds_previous_frame` is the one the PLATFORM BACKBUFFER
+///   path gets wrong. `CpuBackend::native_target` is documented to already
+///   hold frame N-1, but a buffer the platform just (re)created holds
+///   nothing: a `CreateDIBSection` DIB is zeroed, a never-filled `wl_shm`
+///   slot is zeroed, a resized macOS view framebuffer is white-filled.
+///   Rastering damage strips into any of those presents the fill everywhere
+///   the diff found nothing.
+///
+/// Pure so the law can be tested without a window.
+pub fn frame_may_reuse_previous_pixels(
+    needs_resize: bool,
+    resize_preserved_pixels: bool,
+    clear_color_changed: bool,
+    force_full_repaint: bool,
+    target_holds_previous_frame: bool,
+) -> bool {
+    target_holds_previous_frame
+        && (!needs_resize || resize_preserved_pixels)
+        && !clear_color_changed
+        && !force_full_repaint
+}
+
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: azul_layout::headless::CpuHitTester,
@@ -355,6 +386,16 @@ pub struct CpuBackend {
     /// (R/B-swapped scrolled content on the glass). Set by the shell at every
     /// arming; only read while `rendered_native` is true.
     pub native_target_pool_order: bool,
+    /// #27: the shell's answer to "does the armed `native_target` ALREADY
+    /// hold the previous frame?" - clause (b) of the `native_target`
+    /// contract, which until now nothing enforced. Set at EVERY arming, next
+    /// to `native_target` itself; only read while a target is armed.
+    ///
+    /// False means the platform just handed over a buffer it created or
+    /// refilled this frame (a re-created Windows DIB section, a never-filled
+    /// `wl_shm` slot, a white-filled macOS view framebuffer), and the frame
+    /// must be repainted in FULL - see `frame_may_reuse_previous_pixels`.
+    pub native_target_holds_previous_frame: bool,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -451,6 +492,7 @@ impl CpuBackend {
             native_target: None,
             rendered_native: false,
             native_target_pool_order: false,
+            native_target_holds_previous_frame: false,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -704,9 +746,25 @@ impl CpuBackend {
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
         // were copied over verbatim). No on a shrink / first allocation.
-        let can_reuse_previous_frame = (!needs_resize || resize_preserved_pixels)
-            && !clear_color_changed
-            && !core::mem::take(&mut self.force_full_repaint);
+        //
+        // Whose pixels they are depends on where this frame is going: an armed
+        // platform backbuffer answers for itself (the shell sets the flag at
+        // every arming), the owned path answers with the retained frame -
+        // `last_frame` is `None` on the very first frame and after any frame
+        // that went to a native target, and a freshly allocated pixmap holds
+        // nothing to stand on.
+        let target_holds_previous_frame = if self.native_target.is_some() {
+            self.native_target_holds_previous_frame
+        } else {
+            self.last_frame.is_some()
+        };
+        let can_reuse_previous_frame = frame_may_reuse_previous_pixels(
+            needs_resize,
+            resize_preserved_pixels,
+            clear_color_changed,
+            core::mem::take(&mut self.force_full_repaint),
+            target_holds_previous_frame,
+        );
 
         // ROUND 3: the layout patch's presentation hint. Eligible when the
         // dominant delta is INTEGRAL in physical pixels (a fractional blit
@@ -4513,7 +4571,10 @@ mod tests {
                     s.variant = step;
                 }
             }
-            // Arm: this frame renders DIRECTLY into the external buffer.
+            // Arm: this frame renders DIRECTLY into the external buffer,
+            // which holds the frame the previous step rendered into it -
+            // which is exactly what makes the incremental path legal.
+            nat.cpu_backend.native_target_holds_previous_frame = step > 1;
             nat.cpu_backend.native_target = unsafe {
                 azul_layout::cpurender::AzulPixmap::from_external(slot.as_mut_ptr(), pw, ph)
             };
@@ -9936,5 +9997,62 @@ mod tests {
         _info: azul_layout::timer::TimerCallbackInfo,
     ) -> azul_core::callbacks::TimerCallbackReturn {
         azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+    }
+}
+
+#[cfg(test)]
+mod native_backbuffer_reuse_law {
+    use super::frame_may_reuse_previous_pixels;
+
+    /// Steady state: same size, same canvas, nothing forced, and the output
+    /// buffer holds the previous frame.
+    #[test]
+    fn a_steady_frame_reuses_the_previous_one() {
+        assert!(frame_may_reuse_previous_pixels(
+            false, false, false, false, true
+        ));
+    }
+
+    #[test]
+    fn a_shrink_a_recolour_and_a_forced_repaint_do_not() {
+        // shrink (resize that did not preserve the pixels)
+        assert!(!frame_may_reuse_previous_pixels(
+            true, false, false, false, true
+        ));
+        // the canvas colour changed under the reused pixels
+        assert!(!frame_may_reuse_previous_pixels(
+            false, false, true, false, true
+        ));
+        // the shell asked for a full repaint
+        assert!(!frame_may_reuse_previous_pixels(
+            false, false, false, true, true
+        ));
+    }
+
+    /// THE LAW (I6): a window GROWN by a resize makes the platform re-create
+    /// its backbuffer - `CreateDIBSection` on Windows hands back a ZEROED
+    /// DIB. The compositor's own layer pixbuf grew with its pixels intact,
+    /// which is what `resize_preserved_pixels` reports, but the buffer the
+    /// frame is about to be painted INTO did not: it holds nothing, so the
+    /// frame cannot be incremental.
+    #[test]
+    fn a_grow_into_a_freshly_allocated_backbuffer_is_a_full_repaint() {
+        assert!(
+            !frame_may_reuse_previous_pixels(true, true, false, false, false),
+            "a grow-resize painted only its damage strips into a backbuffer that holds no \
+             previous frame"
+        );
+    }
+
+    /// Same law without a resize: the shell can hand over a fresh buffer at
+    /// any time (a native frame drops the retained `last_frame`, so the next
+    /// owned frame starts from a blank pixmap).
+    #[test]
+    fn a_frame_with_no_previous_pixels_anywhere_is_a_full_repaint() {
+        assert!(
+            !frame_may_reuse_previous_pixels(false, false, false, false, false),
+            "an unchanged-size frame painted only its damage strips into a buffer that holds no \
+             previous frame"
+        );
     }
 }

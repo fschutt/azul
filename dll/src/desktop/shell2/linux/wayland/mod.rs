@@ -7645,6 +7645,18 @@ impl WaylandWindow {
                                                 // full-repaint arm.
                                                 self.cpu_backend.previous_display_list = None;
                                             }
+                                            // Whether THIS slot holds frame
+                                            // N-1: `catch_up_slot` above has
+                                            // replayed what it owed, so a
+                                            // valid slot now does. A
+                                            // never-filled one holds zeroed
+                                            // shm, and rastering damage
+                                            // strips into that presents the
+                                            // zeroes everywhere the diff
+                                            // found nothing.
+                                            self.cpu_backend
+                                                .native_target_holds_previous_frame =
+                                                cpu_state.slots[slot].valid;
                                             self.cpu_backend.native_target_pool_order =
                                                 cpu_state.needs_commit_swizzle();
                                             self.cpu_backend.native_target = unsafe {
