@@ -33,7 +33,8 @@ examples. The example compiles with Scala 3 and Scala 2.13 and runs on JDK 17+.
 
 ## Installation
 
-Azul is tested against JDK 17+ and JNA 5.14+. Azul is not (yet) on Maven Central, but azul.rs hosts a maven2 repository, serving the `rs.azul:azul` artifact. 
+Azul is tested against JDK 17+ and JNA 5.14+. Azul is not (yet) on Maven Central, but azul.rs 
+hosts a maven2 repository, serving the `rs.azul:azul` artifact. 
 
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/build.sbt
@@ -43,7 +44,8 @@ sbt assembly
 java -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
 ```
 
-The Java artifact (`rs.azul:azul`) bundles the compiled `com.azul` binding and `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources:
+The Java artifact (`rs.azul:azul`) bundles the compiled `com.azul` binding 
+and `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources:
 
 ```scala
 resolvers += "azul-rs" at "https://azul.rs/ui/maven"
