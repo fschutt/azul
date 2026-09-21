@@ -5,7 +5,7 @@
 //! - C-ABI function definitions or declarations
 //! - Trait implementations using transmute
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
@@ -679,6 +679,8 @@ impl RustGenerator {
         builder.indent();
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            // allow-api-name: building an AzString from Rust bytes IS the
+            // String constructor; there is no other symbol that can do it.
             abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
@@ -697,6 +699,8 @@ impl RustGenerator {
         builder.indent();
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            // allow-api-name: building an AzString from Rust bytes IS the
+            // String constructor; there is no other symbol that can do it.
             abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
@@ -905,7 +909,49 @@ impl RustGenerator {
         // Generate serde support for RefAny (optional, requires "serde" feature)
         self.generate_serde_support(&mut builder, config);
 
+        // The api.json constants, as associated consts on the class that owns
+        // them (`GlContextPtr::ACCUM_ALPHA_BITS`).
+        self.generate_constants(&mut builder, ir, config);
+
         Ok(builder.finish())
+    }
+
+    /// The api.json constants, grouped into one `impl` per owning class.
+    ///
+    /// All 1436 of them are the OpenGL enum values on `GlContextPtr`. The C
+    /// header has always had them (`#define AzGlContextPtr_ACCUM 0x0100`);
+    /// the Rust binding had none, so a caller could not name a single
+    /// argument of the GL surface without writing the hex value out.
+    fn generate_constants(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let mut by_class: BTreeMap<&str, Vec<(String, &ConstantDef)>> = BTreeMap::new();
+        for c in &ir.constants {
+            if let Some((class, _)) = c.name.split_once('_') {
+                by_class.entry(class).or_default().push((c.member_name(), c));
+            }
+        }
+        for (class, constants) in by_class {
+            if !config.should_include_type(class) {
+                continue;
+            }
+            builder.line(&format!("impl {} {{", config.apply_prefix(class)));
+            builder.indent();
+            for (bare, c) in constants {
+                builder.line(&format!(
+                    "pub const {}: {} = {};",
+                    bare,
+                    c.type_name.trim(),
+                    c.value
+                ));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
 
     /// Generate serde-json support for RefAny.
@@ -1864,48 +1910,32 @@ impl RustGenerator {
                 continue;
             }
 
-            // Derive the inner type from the VecRef name
-            // e.g., "TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"
+            // The name prefix ("TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"),
+            // which is how the owning Vec is spelled further down.
             let inner_type = match struct_def.name.strip_suffix("VecRef") {
                 Some(inner) => inner.to_string(),
                 None => continue,
             };
 
-            // Check if the inner type actually exists in the IR
-            let inner_type_exists = ir.structs.iter().any(|s| s.name == inner_type)
-                || ir.enums.iter().any(|e| e.name == inner_type);
-
-            // Map primitive VecRef names to Rust primitive types
-            let rust_inner_type = match inner_type.as_str() {
-                "U8" => Some("u8"),
-                "U16" => Some("u16"),
-                "U32" => Some("u32"),
-                "U64" => Some("u64"),
-                "I8" => Some("i8"),
-                "I16" => Some("i16"),
-                "I32" => Some("i32"),
-                "I64" => Some("i64"),
-                "F32" => Some("f32"),
-                "F64" => Some("f64"),
-                "Usize" => Some("usize"),
-                "Isize" => Some("isize"),
-                "GLuint" => Some("GLuint"),
-                "GLint" => Some("GLint"),
-                "GLfloat" => Some("GLfloat"),
-                _ => None,
-            };
-
-            if !inner_type_exists && rust_inner_type.is_none() {
+            // The ELEMENT type is the IR's answer, not a second derivation
+            // from the name: `vecref_element` is the one predicate for it
+            // (`GLuintVecRef` -> `GLuint`, `U8VecRef` -> `u8`, `RefstrVecRef`
+            // -> nothing, because `Refstr` is a Rust `&str`). The scalar map
+            // this replaced knew three GL typedefs of the eleven api.json has,
+            // so `GLenumVecRef` silently got no `as_slice` at all.
+            let Some(element) = ir.vecref_element(&struct_def.name) else {
                 continue;
-            }
-
-            // Use the Rust primitive type if available, otherwise use the prefixed inner type
-            let prefixed_name = config.apply_prefix(&struct_def.name);
-            let prefixed_inner = if let Some(primitive) = rust_inner_type {
-                primitive.to_string()
-            } else {
-                config.apply_prefix(&inner_type)
             };
+
+            // A named API type takes the type prefix; a scalar (`u8`) and a
+            // typedef (`GLuint`, in scope as itself) are spelled as they are.
+            let prefixed_name = config.apply_prefix(&struct_def.name);
+            let prefixed_inner =
+                if ir.find_struct(&element).is_some() || ir.find_enum(&element).is_some() {
+                    config.apply_prefix(&element)
+                } else {
+                    element
+                };
 
             // Derive the corresponding Vec type name (remove "Ref" suffix)
             let vec_type_name = format!("{}Vec", inner_type);
@@ -4142,6 +4172,8 @@ impl RustGenerator {
             if is_cb(orig) {
                 let mut c = a.clone();
                 c.name = format!("{}_ctx", a.name);
+                // allow-api-name: the WithCtx twin's extra slot is the
+                // callback context, which is an OptionRefAny by definition.
                 c.type_name = "OptionRefAny".to_string();
                 c.ref_kind = ArgRefKind::Owned;
                 ctx_def.args.push(c);
@@ -4724,6 +4756,7 @@ impl RustGenerator {
         func: &FunctionDef,
         config: &CodegenConfig,
     ) -> String {
+        // allow-api-name: the context a WithCtx twin carries is an OptionRefAny.
         let opt_refany_type = config.apply_prefix("OptionRefAny");
         let mut out = Vec::with_capacity(func.args.len());
         for arg in &func.args {
@@ -4768,6 +4801,7 @@ impl RustGenerator {
             }
             let wrapper_name = arg.type_name.trim();
             let wrapper_ty = config.apply_prefix(wrapper_name);
+            // allow-api-name: as above - the callback context's type.
             let opt_refany = config.apply_prefix("OptionRefAny");
             let ctx_expr = if with_ctx {
                 // The WithCtx variant takes the ctx as a pre-built

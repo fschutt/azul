@@ -951,6 +951,8 @@ impl CGenerator {
         // callback-wrapper replaced by its fn-pointer typedef (raw
         // form), once with the fn-pointer typedef plus a trailing
         // `<arg>_ctx: AzOptionRefAny` per callback-wrapper arg.
+        // allow-api-name: the context a `WithCtx` twin carries IS an
+        // OptionRefAny - that is the shadow API's definition.
         let opt_refany_c = self.rust_type_to_c_with_prefix("OptionRefAny", config);
 
         let mut args_raw: Vec<String> = Vec::with_capacity(func.args.len());
@@ -1037,6 +1039,7 @@ impl CGenerator {
             if is_cb_wrapper {
                 let mut c = a;
                 c.name = format!("{}_ctx", arg.name);
+                // allow-api-name: as above - the shadow API's context slot.
                 c.type_name = "OptionRefAny".to_string();
                 c.ref_kind = ArgRefKind::Owned;
                 ctx_args.push(c);
