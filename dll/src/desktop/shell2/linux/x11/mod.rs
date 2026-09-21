@@ -311,6 +311,119 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
     None
 }
 
+/// The bytes a window title goes onto the wire as, truncated at an interior
+/// NUL rather than refused.
+///
+/// X strings are NUL-terminated, so a title carrying one cannot be expressed
+/// past that byte - but `CString::new(..).unwrap()` turned that into a PANIC,
+/// and a title is often user data (a document name, a URL).
+fn window_title_bytes(title: &str) -> Vec<u8> {
+    let end = title.find('\0').unwrap_or(title.len());
+    title[..end].as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod window_title_tests {
+    use super::window_title_bytes;
+
+    #[test]
+    fn a_title_survives_its_non_ascii_characters() {
+        // The whole point of _NET_WM_NAME: these bytes are UTF-8, and
+        // WM_NAME(STRING) could not carry them.
+        assert_eq!(window_title_bytes("Übersicht — 日本語"), "Übersicht — 日本語".as_bytes());
+    }
+
+    #[test]
+    fn an_interior_nul_truncates_instead_of_panicking() {
+        assert_eq!(window_title_bytes("doc\0evil"), b"doc");
+        assert!(window_title_bytes("\0").is_empty());
+    }
+}
+
+/// The executable's own name, which is what every other toolkit derives a
+/// window class from when the application does not supply one (GTK reads
+/// `g_get_prgname()`, Qt `QCoreApplication::applicationName()`; both fall
+/// back to `argv[0]`).
+fn current_exe_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_default()
+}
+
+/// The bytes of a `WM_CLASS` property: `instance\0class\0`.
+///
+/// A window ALWAYS has one. It is how every taskbar groups windows, how a
+/// dock matches the `.desktop` file that carries the icon and the display
+/// name, and what a WM window rule matches on. azul used to write the
+/// property only when the application had supplied a class of its own, which
+/// almost none do - its own demo does not - so the window arrived on the
+/// desktop anonymous: no grouping, no icon, no rule could name it.
+///
+/// The instance is conventionally the executable's name as invoked, the
+/// class the same with an initial capital.
+fn wm_class_payload(supplied: Option<(&str, &str)>, exe: &str) -> Vec<u8> {
+    let (instance, class) = match supplied {
+        Some((i, c)) if !i.is_empty() || !c.is_empty() => (i.to_string(), c.to_string()),
+        _ => {
+            let instance = if exe.is_empty() { "azul" } else { exe };
+            let mut chars = instance.chars();
+            let class = chars.next().map_or_else(String::new, |f| {
+                f.to_uppercase().collect::<String>() + chars.as_str()
+            });
+            (instance.to_string(), class)
+        }
+    };
+    let mut data = Vec::with_capacity(instance.len() + class.len() + 2);
+    data.extend_from_slice(instance.as_bytes());
+    data.push(0);
+    data.extend_from_slice(class.as_bytes());
+    data.push(0);
+    data
+}
+
+#[cfg(test)]
+mod wm_class_tests {
+    use super::wm_class_payload;
+
+    fn parts(data: &[u8]) -> Vec<String> {
+        data.split(|b| *b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_window_has_a_class_even_when_the_app_supplies_none() {
+        // RED before this existed: no property was written at all, and the
+        // window arrived on the desktop with nothing to group or icon it.
+        let data = wm_class_payload(None, "AzWidgets");
+        assert_eq!(parts(&data), vec!["AzWidgets", "AzWidgets"]);
+        assert_eq!(data.last(), Some(&0), "both strings are NUL-terminated");
+        assert_eq!(data.iter().filter(|b| **b == 0).count(), 2);
+    }
+
+    #[test]
+    fn the_class_is_the_instance_with_an_initial_capital() {
+        assert_eq!(parts(&wm_class_payload(None, "azwidgets")), vec!["azwidgets", "Azwidgets"]);
+    }
+
+    #[test]
+    fn what_the_app_supplies_wins() {
+        assert_eq!(
+            parts(&wm_class_payload(Some(("inkscape", "Inkscape")), "AzWidgets")),
+            vec!["inkscape", "Inkscape"]
+        );
+    }
+
+    #[test]
+    fn a_nameless_executable_still_produces_a_usable_pair() {
+        // `current_exe()` can fail; the property is still owed.
+        assert_eq!(parts(&wm_class_payload(None, "")), vec!["azul", "Azul"]);
+        assert_eq!(parts(&wm_class_payload(Some(("", "")), "")), vec!["azul", "Azul"]);
+    }
+}
+
 /// Publish `_NET_WM_ICON` from whatever icon sizes the caller supplied.
 ///
 /// EWMH format is `[w1, h1, w1*h1 pixels..., w2, h2, ...]`, one entry per size,
@@ -3593,12 +3706,12 @@ impl X11Window {
                 .platform_specific_options
                 .linux_options
                 .x11_wm_classes;
-            if let Some(pair) = classes.as_ref().first() {
-                let mut data: Vec<u8> = Vec::new();
-                data.extend_from_slice(pair.key.as_str().as_bytes());
-                data.push(0);
-                data.extend_from_slice(pair.value.as_str().as_bytes());
-                data.push(0);
+            let supplied = classes
+                .as_ref()
+                .first()
+                .map(|pair| (pair.key.as_str(), pair.value.as_str()));
+            {
+                let data = wm_class_payload(supplied, &current_exe_name());
                 unsafe {
                     let wm_class_atom =
                         (xlib.XInternAtom)(display, b"WM_CLASS\0".as_ptr() as *const c_char, 0);
@@ -3615,6 +3728,51 @@ impl X11Window {
                         data.len() as i32,
                     );
                 }
+            }
+        }
+
+        // WHO WE ARE, the other half. `WM_CLASS` says what application this
+        // is; `_NET_WM_PID` + `WM_CLIENT_MACHINE` say which PROCESS on which
+        // host it belongs to, and EWMH requires them together. Without them
+        // `xdotool search --pid` and `wmctrl -lp` report nothing for an azul
+        // window, and the WM cannot offer to force-quit one that hangs.
+        unsafe {
+            let pid: std::os::raw::c_long = std::process::id() as std::os::raw::c_long;
+            let pid_atom =
+                (xlib.XInternAtom)(display, b"_NET_WM_PID\0".as_ptr() as *const c_char, 0);
+            (xlib.XChangeProperty)(
+                display,
+                window_handle,
+                pid_atom,
+                defines::XA_CARDINAL,
+                32,
+                defines::PropModeReplace,
+                &pid as *const std::os::raw::c_long as *const u8,
+                1,
+            );
+            // The hostname has to be the one the WM would see, so it is read
+            // from the kernel rather than from the environment.
+            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|h| h.trim().to_string())
+                .unwrap_or_default();
+            if !host.is_empty() {
+                let machine_atom = (xlib.XInternAtom)(
+                    display,
+                    b"WM_CLIENT_MACHINE\0".as_ptr() as *const c_char,
+                    0,
+                );
+                let string_atom =
+                    (xlib.XInternAtom)(display, b"STRING\0".as_ptr() as *const c_char, 0);
+                (xlib.XChangeProperty)(
+                    display,
+                    window_handle,
+                    machine_atom,
+                    string_atom,
+                    8,
+                    defines::PropModeReplace,
+                    host.as_ptr(),
+                    host.len() as i32,
+                );
             }
         }
 
