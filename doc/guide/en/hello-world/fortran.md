@@ -91,7 +91,7 @@ next to your program.
 ```fortran
 module counter
   use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
-                  dom_create_body, dom_create_p_with_text, button_create, &
+                  dom_create_body, dom_create_p_with_text, &
                   ButtonType_Primary, Update_DoNothing, Update_RefreshDom, &
                   AppLogLevel_Error
   implicit none
@@ -116,7 +116,7 @@ contains
       label = dom_create_p_with_text(trim(text))
       call label%with_css('font-size: 32px; margin: 0;')
 
-      button = button_create('Increase counter')
+      button = button_t('Increase counter')
       call button%with_button_type(ButtonType_Primary)
       call button%with_on_click(model, on_click)
 
@@ -157,39 +157,58 @@ program hello_world
 end program hello_world
 ```
 
-There are a few Fortran-specific things in this example:
+## Notes
 
-1. `use azul, only: ...` imports only the names you use. A bare `use azul` also works,
-   but then gfortran loads the whole binding for your file, which takes tens of seconds
-   instead of one.
-2. `app_create(model_t(counter=5), ...)` copies your model into the binding. Each
-   callback receives that copy as `class(*), intent(inout) :: model`, and changes made
-   inside `type is (model_t)` are kept: `class(*)` is "any type", the model as
-   libazul holds it, and `select type` is the checked downcast back to yours. A model
-   of any other type is a programming error, so `class default` reports it through
-   `info%log` - which reaches the application's log sink, not just the terminal -
-   and returns the callback's no-op result, instead of silently rendering an empty
-   body or ignoring the click. Assign that result explicitly, as `on_click` does:
-   the engine reads it, so an unassigned `update` would hand over whatever was on
-   the stack.
-3. `call button%with_on_click(model, on_click)` binds the model the layout callback is
-   running with, not a copy, so the click changes the same counter.
-4. `layout` and `on_click` are ordinary module functions. Their dummy arguments must
-   match the binding's interfaces exactly (`class(*), intent(inout)` for the model,
-   `intent(inout)` for `info`); a mismatch is a compile error.
-5. Methods like `with_css` or `with_child` change the object in place and are called
-   with `call`. `button%dom()` turns the button into a `dom_t`. An argument such a
-   method takes by value moves into the result: after `call body%with_child(label)`,
-   `label`'s value belongs to `body`, so don't pass `label` on again or `%delete()` it.
-   Values nothing took are yours to `%delete()`; a second `%delete()` of the same
-   variable does nothing.
-6. A callback that returns an invalid result, such as an `integer` that is not an
-   `Update` value or a `dom_t` that was never assigned, does not reach the engine.
-   The binding logs the problem and uses the default result instead:
+In the example, `use azul, only: ...` imports only the names you use. A bare `use azul` 
+also works, but then gfortran loads the whole binding for your file, which takes tens of 
+seconds instead of one.
+   
+`app_create(model_t(counter=5), ...)` copies your model into the binding. Each
+callback receives that copy as `class(*), intent(inout) :: model`, and changes made
+inside `type is (model_t)` are kept: `class(*)` is "any type", the model as
+libazul holds it, and `select type` is the checked downcast back to yours.
 
-   ```
-   [azul][error] azul: ButtonOnClickCallback expected an Update (0 to 2), got 7
-   ```
+A model of any other type is a programming error, so `class default` reports it through
+`info%log` - which reaches the application's log sink, not just the terminal -
+and returns the callback's no-op result (`Update_DoNothing`).
+
+### Constructors: `button_t(...)` or `button_create(...)`
+
+`button_t('Increase counter')` calls the same function as `button_create('Increase
+counter')`. A type whose constructors can all be told apart by their arguments also gets
+a generic interface named after the type, which is the Fortran 2003 way to spell a
+constructor, so you can write `app_t(model, config)` or `window_create_options_t(layout)`
+and let the compiler pick. Both spellings stay available - nothing is renamed.
+
+A type only gets that interface when it covers **every** one of its constructors. `Dom`
+has 193 of them and many take the same argument types (`create_body`, `create_div`,
+`create_br` all take none), so Fortran could not tell them apart and `dom_t('hello')`
+would have quietly meant whichever one came first. Those types have no generic at all,
+and you call them by name - `dom_create_body()`, `dom_create_p_with_text(text)` - which
+says what you get. 460 of the 528 wrapper types have the generic; the 68 that do not
+carry a comment in `azul_api.f90` naming the constructors to use instead.
+
+`call button%with_on_click(model, on_click)` binds the model the layout callback is
+running with, not a copy, so the click changes the same counter.
+  
+`layout` and `on_click` are ordinary module functions. Their dummy arguments must
+match the binding's interfaces exactly (`class(*), intent(inout)` for the model,
+`intent(inout)` for `info`); a mismatch is a compile error.
+
+Methods like `with_css` or `with_child` change the object in place and are called
+with `call`. `button%dom()` turns the button into a `dom_t`. Arguments are passed 
+by-value and "moved" into whatever theyre used in, so after `call body%with_child(label)` 
+you shouldn't pass `label` on again or `%delete()` it. The API prevents double-frees 
+internally by making the n+1th `free()`. a no-op
+
+A callback that returns an invalid result, such as an `integer` that is not an
+`Update` value or a `dom_t` that was never assigned, does not reach the engine.
+Similar to downcasting errors, the bindings log the problem and uses the default 
+result (`Update_DoNothing`) instead:
+
+```
+[azul][error] azul: ButtonOnClickCallback expected an Update (0 to 2), got 7
+```
 
 ## Build and run
 

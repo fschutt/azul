@@ -1,6 +1,6 @@
 module counter
   use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
-                  dom_create_body, dom_create_p_with_text, button_create, &
+                  dom_create_body, dom_create_p_with_text, &
                   ButtonType_Primary, Update_DoNothing, Update_RefreshDom, &
                   AppLogLevel_Error
   implicit none
@@ -25,7 +25,7 @@ contains
       label = dom_create_p_with_text(trim(text))
       call label%with_css('font-size: 32px; margin: 0;')
 
-      button = button_create('Increase counter')
+      button = button_t('Increase counter')
       call button%with_button_type(ButtonType_Primary)
       call button%with_on_click(model, on_click)
 

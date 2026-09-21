@@ -26,10 +26,14 @@
 //! 3. `azul_api.f90` — the idiomatic layer (public by default, with its
 //!    runtime internals listed `private`): every class as a `<snake>_t`
 //!    derived type (`dom_t`, `button_t`, `app_t`) whose methods are
-//!    type-bound procedures (`call app%run(window)`), whose `String`
-//!    arguments are `character(len=*)`, whose unit enums are plain
-//!    `integer`, and whose callbacks are ordinary Fortran procedures
-//!    matching a typed abstract interface; plus the host-invoker runtime
+//!    type-bound procedures (`call app%run(window)`), whose constructors
+//!    are also reachable through a generic interface named after the type
+//!    when one can carry all of them (`btn = button_t('Increase
+//!    counter')`, next to the flat `button_create` that keeps working),
+//!    whose `String` arguments are
+//!    `character(len=*)`, whose unit enums are plain `integer`, and whose
+//!    callbacks are ordinary Fortran procedures matching a typed abstract
+//!    interface; plus the host-invoker runtime
 //!    (see [`managed`]): one handle table that owns both `RefAny` payloads
 //!    and registered user procedures, installed lazily on the first handle
 //!    so user code never calls an `init` function. There is deliberately

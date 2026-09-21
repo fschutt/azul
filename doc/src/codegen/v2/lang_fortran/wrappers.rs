@@ -23,6 +23,10 @@
 //!   guarded by `owned`.
 //! - Factories (constructors, `default`, static methods) are public module procedures named
 //!   `<snake>_<method>`: `dom_create_p_with_text('5')`, `button_create('Increase counter')`.
+//! - A class's own constructors are ALSO gathered into a generic interface named after the wrapper
+//!   type, so `button_t('Increase counter')` works. Purely additive - the flat names are unchanged
+//!   - and only when the generic can carry EVERY constructor of that type, so an overload is never
+//!   a name the call site cannot show you: see [`generic_constructors`].
 //! - Instance methods are type-bound procedures. A method that consumes `self` and returns `Self`
 //!   (`with_css`, `with_child`, ...) becomes an in-place SUBROUTINE (`call
 //!   label%with_css('font-size: 32px;')`); any other consumer marks `self%owned = .false.` after
@@ -778,6 +782,10 @@ pub(crate) fn generate_wrapper_decls(
         emit_wrapper_type_decl(builder, ctx, c);
     }
 
+    // After the types: a generic shares its name with the type it builds,
+    // so the type has to be declared first for the block to read sensibly.
+    emit_constructor_interfaces(builder, ctx, split);
+
     if let Some(st) = &ctx.string {
         builder.line(&split.marker(&st.name));
     }
@@ -821,6 +829,248 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
     builder.line(&format!("end type {}", c.wt));
     builder.line(&format!("public :: {}", c.wt));
     builder.blank();
+}
+
+// ============================================================================
+// Generic constructor interfaces
+// ============================================================================
+
+/// What Fortran compares when it resolves a generic reference: the type,
+/// kind and rank of each actual argument. Every wrapper dummy is a scalar,
+/// so rank never enters here.
+enum Tkr {
+    /// `class(*)`: an unlimited polymorphic dummy accepts every data
+    /// object, so it can never be what tells two specifics apart.
+    Any,
+    /// A dummy procedure. It IS distinguishable from a data object, but
+    /// two dummy procedures are not something this emitter will claim to
+    /// tell apart: the standard's rule for them turns on interface details
+    /// we do not model, and guessing wrong is a compile error in the
+    /// generated binding rather than a missing overload.
+    Procedure,
+    /// A data object, keyed by type and kind. Two spellings of one kind
+    /// (`integer` and `integer(c_int32_t)` on every target azul supports)
+    /// are the SAME dummy and must compare equal.
+    Data(String),
+    /// A declaration this function does not model. Never distinguishes:
+    /// the cost is one overload, the cost of the opposite guess is a
+    /// binding that will not compile.
+    Unknown,
+}
+
+/// Byte width of an `iso_c_binding` kind parameter.
+fn kind_bytes(kind: &str) -> Option<u8> {
+    match kind {
+        "c_bool" | "c_char" | "c_int8_t" => Some(1),
+        "c_int16_t" => Some(2),
+        "c_float" | "c_int" | "c_int32_t" => Some(4),
+        "c_double" | "c_int64_t" | "c_intptr_t" | "c_size_t" => Some(8),
+        _ => None,
+    }
+}
+
+/// Classify one emitted dummy-argument declaration (`type(dom_t),
+/// intent(in), target :: child`).
+fn dummy_tkr(decl: &str) -> Tkr {
+    let head = decl
+        .split("::")
+        .next()
+        .unwrap_or("")
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if head.starts_with("class(*") {
+        return Tkr::Any;
+    }
+    if head.starts_with("procedure(") {
+        return Tkr::Procedure;
+    }
+    if head.starts_with("character") {
+        return Tkr::Data("character".to_string());
+    }
+    if let Some(t) = head.strip_prefix("type(").and_then(|t| t.strip_suffix(')')) {
+        return Tkr::Data(format!("type:{}", t.to_ascii_lowercase()));
+    }
+    for (base, default) in [("integer", 4u8), ("real", 4), ("logical", 4)] {
+        let Some(rest) = head.strip_prefix(base) else {
+            continue;
+        };
+        let rest = rest.trim();
+        let bytes = if rest.is_empty() {
+            default
+        } else {
+            match rest
+                .strip_prefix('(')
+                .and_then(|k| k.strip_suffix(')'))
+                .and_then(kind_bytes)
+            {
+                Some(b) => b,
+                None => return Tkr::Unknown,
+            }
+        };
+        return Tkr::Data(format!("{}:{}", base, bytes));
+    }
+    Tkr::Unknown
+}
+
+/// Can Fortran tell these two dummy lists apart? Conservative in every
+/// direction: it says yes only when the difference is certain.
+fn distinguishable(a: &[Tkr], b: &[Tkr]) -> bool {
+    // No wrapper dummy is `optional`, so a different count always resolves.
+    if a.len() != b.len() {
+        return true;
+    }
+    a.iter().zip(b).any(|(x, y)| match (x, y) {
+        (Tkr::Unknown, _) | (_, Tkr::Unknown) => false,
+        (Tkr::Procedure, Tkr::Procedure) => false,
+        (Tkr::Procedure, _) | (_, Tkr::Procedure) => true,
+        (Tkr::Any, _) | (_, Tkr::Any) => false,
+        (Tkr::Data(p), Tkr::Data(q)) => p != q,
+    })
+}
+
+/// The dummy list a constructor will be emitted with.
+fn constructor_signature(ctx: &Ctx, p: &ProcPlan) -> Vec<Tkr> {
+    // The smart layout factory replaces the raw fn-pointer constructor and
+    // takes the typed procedure instead, so its dummy list is not the IR's.
+    if p.smart.is_some() {
+        return vec![Tkr::Procedure];
+    }
+    p.func
+        .args
+        .iter()
+        .map(|a| {
+            let (_, plan) = plan_arg(ctx, &p.func.class_name, a);
+            plan.decls.first().map_or(Tkr::Unknown, |d| dummy_tkr(d))
+        })
+        .collect()
+}
+
+/// Is `p` a constructor of `c` itself - a factory of this class that hands
+/// one back?
+///
+/// A static method of some OTHER class that happens to return this type
+/// (`FileDialog::open_multiple_files -> RequestId`) is not a way of
+/// constructing one and must not answer to its name.
+fn is_own_constructor(c: &ClassPlan, p: &ProcPlan) -> bool {
+    !takes_self(p.func) && p.func.return_type.as_deref().map(str::trim) == Some(c.s.name.as_str())
+}
+
+/// A class's own constructors, but only when a generic interface can carry
+/// ALL of them - otherwise `None`, and the class gets no generic.
+///
+/// Fortran resolves a generic by type, kind and rank, so two constructors
+/// it cannot tell apart may not sit in one interface block. The obvious
+/// move is to keep the first of each colliding group, and it is the wrong
+/// one: `Dom` has 193 constructors, 172 of which would be dropped, and
+/// `dom_t('hello')` would quietly mean
+/// `dom_create_text_do_not_use_without_block_level_wrapper` - a name that
+/// warns against itself - with nothing at the call site to say so. An
+/// overload set that is a SUBSET of the constructors is a lottery the
+/// reader has to look up.
+///
+/// So the rule is all-or-nothing. When the generic covers every
+/// constructor, `foo_t(...)` is ordinary honest overloading: the set is
+/// the whole constructor set and resolution is the language's. When it
+/// cannot, the type keeps only its flat names, which say what they build
+/// (`dom_create_body`, `color_u_white`). That also makes the outcome
+/// independent of the order this walks in, so no tie ever has to be broken
+/// and api.json's `priority` - which the IR does not carry anyway - does
+/// not enter into it.
+///
+/// Either way nothing is removed: the flat names are unchanged, and the
+/// interface is purely additive on top of them.
+fn generic_constructors<'a>(ctx: &Ctx, c: &'a ClassPlan<'a>) -> Option<Vec<&'a ProcPlan<'a>>> {
+    let all: Vec<&ProcPlan> = c.procs.iter().filter(|p| is_own_constructor(c, p)).collect();
+    if all.is_empty() {
+        return None;
+    }
+    let sigs: Vec<Vec<Tkr>> = all.iter().map(|p| constructor_signature(ctx, p)).collect();
+    let every_pair_resolves = sigs
+        .iter()
+        .enumerate()
+        .all(|(i, a)| sigs[i + 1..].iter().all(|b| distinguishable(a, b)));
+    every_pair_resolves.then_some(all)
+}
+
+/// `interface <wrapper type>` blocks: `btn = button_t('Increase counter')`
+/// next to the `button_create('Increase counter')` that always worked.
+fn emit_constructor_interfaces(builder: &mut CodeBuilder, ctx: &Ctx, split: &super::Split) {
+    builder.line("! ----------------------------------------------------------------------");
+    builder.line("! Constructor overloads. A generic interface named after a wrapper type");
+    builder.line("! makes its constructors reachable as `button_t(...)` / `app_t(...)`,");
+    builder.line("! the way a Fortran programmer expects to build a value. Purely");
+    builder.line("! additive: every constructor keeps the flat name it already had.");
+    builder.line("!");
+    builder.line("! A type gets one only when the generic covers EVERY constructor it");
+    builder.line("! has, so `foo_t(...)` is never one of several the call site cannot");
+    builder.line("! show you - the overload set IS the constructor set, and Fortran's");
+    builder.line("! own type/kind/rank resolution picks from it. A type with two");
+    builder.line("! constructors it cannot tell apart gets no generic at all and keeps");
+    builder.line("! its flat names, which say what they build.");
+    builder.line("! ----------------------------------------------------------------------");
+    builder.blank();
+    for c in &ctx.classes {
+        let names: Vec<&str> = c
+            .procs
+            .iter()
+            .filter(|p| is_own_constructor(c, p))
+            .map(|p| p.name.as_str())
+            .collect();
+        // A class with no constructor of its own (every value of it comes
+        // back from somewhere else) has nothing to say here.
+        if names.is_empty() {
+            continue;
+        }
+        builder.line(&split.marker(&c.s.name));
+        match generic_constructors(ctx, c) {
+            Some(all) => {
+                builder.line(&format!("interface {}", c.wt));
+                builder.indent();
+                for p in &all {
+                    builder.line(&format!("module procedure {}", p.name));
+                }
+                builder.dedent();
+                builder.line("end interface");
+            }
+            None => {
+                // Answer the question the absence raises, where the reader
+                // will look for it: `dom_t(...)` failing to compile is
+                // otherwise a puzzle, and the flat names are right here.
+                builder.line(&format!(
+                    "! No {}(...) overload: {} constructors, and Fortran cannot tell them",
+                    c.wt,
+                    names.len()
+                ));
+                builder.line("! all apart by type, kind and rank, so a generic would answer to");
+                builder.line("! the name of one the call site never mentions. Build one by name:");
+                for line in wrap_names(names.iter().take(6).copied()) {
+                    builder.line(&format!("!   {}", line));
+                }
+                if names.len() > 6 {
+                    builder.line("!   ...");
+                }
+            }
+        }
+        builder.blank();
+    }
+}
+
+/// Comma-separated names, wrapped so a comment line stays readable.
+fn wrap_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    const WIDTH: usize = 66;
+    let mut out: Vec<String> = Vec::new();
+    for n in names {
+        match out.last_mut() {
+            Some(l) if l.len() + 2 + n.len() <= WIDTH => {
+                l.push_str(", ");
+                l.push_str(n);
+            }
+            _ => out.push(n.to_string()),
+        }
+    }
+    out
 }
 
 // ============================================================================
