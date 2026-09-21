@@ -4522,8 +4522,16 @@ impl WaylandWindow {
             // fullscreen window has no resizable edge, and the `return` below
             // precedes `record_input_sample`, so eating the press here costs
             // the DragStart and the DoubleClick the title bar needs.
+            // Wayland asks for client-side decoration for all three of
+            // these (see the `wants_csd` request), and the compositor then
+            // draws NOTHING - no border, no resize handles. A `NoTitle`
+            // window could not be resized by dragging any edge of it.
+            let frameless = {
+                use azul_core::window::WindowDecorations as D;
+                matches!(decorations, D::None | D::NoTitle | D::NoControls)
+            };
             if let Some(edge) =
-                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+                csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,

@@ -578,8 +578,12 @@ impl X11Window {
             let ws = self.common.current_window_state();
             let size = ws.size.dimensions;
             let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // The Motif hints keep BORDER|RESIZEH for `NoTitle` and
+            // `NoControls`, so those windows still have the WM's own resize
+            // handles; only `None` drops every bit and needs our band.
+            let frameless = decorations == azul_core::window::WindowDecorations::None;
             if let Some(edge) =
-                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+                csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {
                 // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
                 // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.

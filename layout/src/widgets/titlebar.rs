@@ -487,6 +487,39 @@ impl Titlebar {
         self.dom_inner(true, buttons, button_side)
     }
 
+    /// The window CONTROLS alone, with no title beside them.
+    ///
+    /// `WindowDecorations::NoTitle` promises "no title text, controls still
+    /// visible": the app draws its own title and the frame keeps close,
+    /// minimise and maximise. macOS can do that natively (traffic lights over
+    /// a title-less bar) and Windows keeps its caption; X11's Motif hints and
+    /// Wayland's xdg-decoration cannot ask for half a frame, so the window
+    /// comes up with NO WAY TO CLOSE IT. This is that half, in software: the
+    /// buttons and the drag region, and nothing that takes a title's width.
+    #[must_use]
+    pub fn dom_controls_only(
+        self,
+        buttons: &TitlebarButtons,
+        button_side: TitlebarButtonSide,
+    ) -> Dom {
+        let container_style = self.build_container_style(true);
+        let button_container = build_button_container(
+            buttons,
+            self.button_hover_color,
+            self.close_hover_color,
+        );
+        let container_classes = IdOrClassVec::from_vec(vec![
+            Class("csd-titlebar".into()),
+            Class("csd-controls-only".into()),
+            Class("__azul-native-titlebar".into()),
+        ]);
+        let _ = button_side;
+        Dom::create_div()
+            .with_ids_and_classes(container_classes)
+            .with_css_props(container_style)
+            .with_child(button_container)
+    }
+
     /// Inner builder for both modes.
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                                  // pixel/coord path or to avoid churning call sites

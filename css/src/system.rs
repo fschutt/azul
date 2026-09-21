@@ -1838,6 +1838,17 @@ impl SystemStyle {
             bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
         );
 
+        // The controls-only overlay (`WindowDecorations::NoTitle` on a frame
+        // that cannot show controls without a title). It sits ON the app's
+        // chrome rather than above it - `NoTitle` promised the app the whole
+        // client area - so it is taken out of flow, pinned to the corner the
+        // platform puts its buttons in, and sized to its buttons instead of
+        // the window's width.
+        let _ = write!(
+            css,
+            ".csd-controls-only {{ position: absolute; top: 0; right: 0; width: auto;              background: transparent; border-bottom: none; padding: 0 4px; }} ",
+        );
+
         // Title text
         let _ = write!(
             css,

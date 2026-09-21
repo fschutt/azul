@@ -1157,15 +1157,20 @@ pub fn csd_resize_edge_at(
 /// top 8 px sit at screen y = 0, exactly where a user aims for the title bar.
 ///
 /// A window the WM decorates has no client band at all: the frame is the
-/// compositor's, and its own edges do the resizing.
+/// compositor's, and its own edges do the resizing. WHICH windows those are
+/// is the backend's to say, not this function's - `decorations` alone does
+/// not answer it. On X11 the Motif hints keep a border and resize handles for
+/// `NoTitle` and `NoControls`, so only `None` is frameless; on Wayland all
+/// three ask for client-side decoration and the compositor draws nothing at
+/// all, so a `NoTitle` window could not be resized by any edge.
 pub fn csd_resize_edge_for_press(
     pos: LogicalPosition,
+    frameless: bool,
     size: azul_core::geom::LogicalSize,
-    decorations: azul_core::window::WindowDecorations,
     frame: azul_core::window::WindowFrame,
     band: f32,
 ) -> Option<CsdResizeEdge> {
-    if decorations != azul_core::window::WindowDecorations::None {
+    if !frameless {
         return None;
     }
     if matches!(
@@ -1254,8 +1259,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Normal,
                 8.0
             ),
@@ -1266,8 +1271,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Maximized,
                 8.0
             ),
@@ -1276,8 +1281,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Fullscreen,
                 8.0
             ),
@@ -1288,8 +1293,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                false,
                 size(),
-                WindowDecorations::Normal,
                 WindowFrame::Normal,
                 8.0
             ),

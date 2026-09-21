@@ -888,6 +888,16 @@ pub fn regenerate_layout(
                 system_style,
             )
         }
+        csd::CsdInjection::ControlsOnly => {
+            // `NoTitle` promised controls without a title, and this platform's
+            // frame cannot give them: draw them over the app's own chrome
+            // rather than leave the window with no way to close it.
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Overlaying window controls (NoTitle)"
+            );
+            csd::overlay_window_controls(user_styled_dom, system_style)
+        }
         csd::CsdInjection::None => user_styled_dom,
     };
     azul_layout::probe::emit_phase_heap("after_csd");

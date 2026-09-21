@@ -81,6 +81,21 @@ pub(crate) const fn auto_injects_software_titlebar() -> bool {
     ))
 }
 
+/// Can this platform's own frame show window CONTROLS without a title?
+///
+/// That is exactly what [`WindowDecorations::NoTitle`] asks for. macOS can
+/// (traffic lights over a title-less bar) and Windows keeps its caption
+/// buttons; X11's Motif hints are all-or-nothing per element - `NoTitle`
+/// drops the whole title bar, and with it minimise, maximise and close - and
+/// Wayland's xdg-decoration has one bit for the entire frame. On Linux the
+/// window therefore comes up with no way to close it, which is why the
+/// controls are drawn in software there. Mobile has no window controls to
+/// begin with, so nothing is owed.
+#[inline]
+pub(crate) const fn frame_shows_controls_without_title() -> bool {
+    !cfg!(target_os = "linux")
+}
+
 /// What the shell prepends above the user's DOM for a given set of window
 /// decoration flags.
 ///
@@ -95,6 +110,9 @@ pub(crate) enum CsdInjection {
     Titlebar,
     /// A title-only software bar (no controls) — `NoTitleAutoInject`.
     SoftwareTitleOnly,
+    /// The window CONTROLS alone, overlaid on the user's DOM — `NoTitle` on a
+    /// platform whose frame cannot show controls without a title.
+    ControlsOnly,
 }
 
 /// The injection the given flags call for. Single source of truth: the
@@ -111,6 +129,8 @@ pub(crate) fn csd_injection_for(
         && auto_injects_software_titlebar()
     {
         CsdInjection::SoftwareTitleOnly
+    } else if decorations == WindowDecorations::NoTitle && !frame_shows_controls_without_title() {
+        CsdInjection::ControlsOnly
     } else {
         CsdInjection::None
     }
@@ -139,6 +159,32 @@ pub(crate) fn csd_injection_changed(
 /// 1. Titlebar with close/min/max buttons (via [`Titlebar::dom_with_buttons`])
 /// 2. User's content DOM (which already includes the software menu bar, if any — that is injected
 ///    earlier in `regenerate_layout`, before this runs)
+/// The window controls alone, to be overlaid on the user's DOM.
+///
+/// No title node, so it claims no width for one; the CSD stylesheet pins it
+/// to the frame's corner over the app's own chrome.
+pub(crate) fn create_controls_only_styled_dom(system_style: &SystemStyle) -> StyledDom {
+    let tm = &system_style.metrics.titlebar;
+    let titlebar = Titlebar::from_system_style_csd(String::new().into(), system_style);
+    let mut dom = titlebar.dom_controls_only(&tm.buttons, tm.button_side);
+    let css = system_style.create_csd_stylesheet();
+    StyledDom::create(&mut dom, css)
+}
+
+/// Overlay the window controls on a `NoTitle` window whose frame cannot draw
+/// them. The user's DOM keeps the whole window: the controls sit ON it, not
+/// above it, because `NoTitle` promised the app the full client area.
+pub(crate) fn overlay_window_controls(
+    user_dom: StyledDom,
+    system_style: &SystemStyle,
+) -> StyledDom {
+    let mut container_dom = Dom::create_html();
+    let mut container_styled = StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
+    container_styled.append_child(user_dom);
+    container_styled.append_child(create_controls_only_styled_dom(system_style));
+    container_styled
+}
+
 pub(crate) fn wrap_user_dom_with_decorations(
     user_dom: StyledDom,
     window_title: &str,
@@ -247,15 +293,17 @@ mod tests {
             flip_to_csd
         );
 
-        // NoTitle -> NoTitleAutoInject only reshapes where the software
-        // title-only bar is actually injected (macOS).
+        // NoTitle -> NoTitleAutoInject reshapes wherever the two modes ask
+        // for different chrome: macOS grows the software title-only bar, and
+        // Linux DROPS the controls overlay `NoTitle` is owed there (its frame
+        // cannot show controls without a title, `NoTitleAutoInject`'s can).
         let auto_inject_flip = csd_injection_changed(true, NoTitle, true, NoTitleAutoInject);
-        #[cfg(any(
-            target_os = "windows",
-            target_os = "linux",
-            target_os = "android",
-            target_os = "ios"
-        ))]
+        #[cfg(target_os = "linux")]
+        assert!(
+            auto_inject_flip,
+            "NoTitle carries a software controls overlay on Linux; NoTitleAutoInject does not"
+        );
+        #[cfg(any(target_os = "windows", target_os = "android", target_os = "ios"))]
         assert!(
             !auto_inject_flip,
             "the native caption already draws the title here — no software bar, no reshape"
@@ -270,5 +318,60 @@ mod tests {
             auto_inject_flip,
             "macOS auto-injects the title-only bar, so the tree changes"
         );
+    }
+}
+
+#[cfg(test)]
+mod controls_only_tests {
+    //! `WindowDecorations::NoTitle` promises "no title text, controls still
+    //! visible". On Linux the frame cannot give half of itself: X11's Motif
+    //! hints drop the whole title bar and with it minimise, maximise and
+    //! close, and Wayland's xdg-decoration has one bit for the entire frame.
+    //! Such a window came up with NO WAY TO CLOSE IT.
+
+    use azul_core::window::WindowDecorations;
+
+    use super::{csd_injection_for, frame_shows_controls_without_title, CsdInjection};
+
+    #[test]
+    fn a_no_title_window_gets_its_controls_drawn_where_the_frame_cannot() {
+        let expected = if frame_shows_controls_without_title() {
+            // macOS draws traffic lights over a title-less bar; Windows keeps
+            // its caption buttons. Nothing is owed.
+            CsdInjection::None
+        } else {
+            CsdInjection::ControlsOnly
+        };
+        assert_eq!(csd_injection_for(true, WindowDecorations::NoTitle), expected);
+        // The promise is about the FRAME, so it holds whether or not the app
+        // asked for decorations to be drawn by us.
+        assert_eq!(
+            csd_injection_for(false, WindowDecorations::NoTitle),
+            expected
+        );
+    }
+
+    #[test]
+    fn linux_is_the_platform_that_cannot() {
+        assert_eq!(
+            frame_shows_controls_without_title(),
+            !cfg!(target_os = "linux")
+        );
+    }
+
+    #[test]
+    fn no_other_decoration_mode_grows_a_controls_overlay() {
+        for d in [
+            WindowDecorations::Normal,
+            WindowDecorations::NoControls,
+            WindowDecorations::None,
+            WindowDecorations::NoTitleAutoInject,
+        ] {
+            assert_ne!(
+                csd_injection_for(true, d),
+                CsdInjection::ControlsOnly,
+                "{d:?} asked for no such thing"
+            );
+        }
     }
 }
