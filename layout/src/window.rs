@@ -8595,6 +8595,13 @@ impl LayoutWindow {
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
         now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        // THE LAST ACTION WINS. Every node reveal the engine issues comes
+        // through here - a focus change, an a11y `Focus`, an app's
+        // `scroll_node_into_view` - and every one of them is an input in its
+        // own right, so it takes the claim on the view. That is what lets a
+        // key press reach a component the user has scrolled off-screen and
+        // still pull it back.
+        self.scroll_manager.note_reveal_intent();
         // Precomputed, because the resolver would otherwise borrow `self`
         // immutably while `scroll_manager` is borrowed mutably below.
         let hops = self.nested_dom_hops();
@@ -13643,6 +13650,13 @@ impl LayoutWindow {
         scroll_type: SelectionScrollType,
         scroll_mode: ScrollMode,
     ) -> bool {
+        // THE LAST ACTION WINS. Every caret and selection reveal comes
+        // through here, and each of its callers is a real input - a
+        // keystroke's changeset, a caret move, a paste, an a11y focus. The
+        // one caller that is NOT an input is
+        // `scroll_focused_cursor_into_view`, which asks
+        // `reveal_may_move_view()` before it gets this far.
+        self.scroll_manager.note_reveal_intent();
         // Get bounds to scroll into view
         let bounds = match scroll_type {
             SelectionScrollType::Cursor => {
@@ -13840,6 +13854,19 @@ impl LayoutWindow {
     /// Delegates to `scroll_selection_into_view` with cursor mode.
     /// Called internally from `layout_and_generate_display_list()`.
     fn scroll_focused_cursor_into_view(&mut self) -> bool {
+        // THE LAST ACTION WINS, and this is the only reveal in the engine
+        // that is RE-ASSERTED rather than issued: it runs after every
+        // successful layout, which includes every layout a wheel step causes.
+        // The caret gate below asks "did the caret change?", which is a
+        // question about CONTENT - it cannot tell a fresh intent from the
+        // same intent asserted one frame later, and it is blind to what the
+        // user did in between. Asking the scroll manager first is what stops
+        // the reveal fighting the wheel. Before the latch, deliberately: an
+        // abandoned reveal must not be recorded as satisfied, so the next
+        // keystroke still finds the caret unrevealed and shows it.
+        if !self.scroll_manager.reveal_may_move_view() {
+            return false;
+        }
         // ONLY when the caret actually moved — see `last_revealed_caret_rect`.
         // This is called after EVERY successful layout, so without the gate the
         // user cannot scroll away from a focused text field: every frame drags

@@ -115,6 +115,26 @@ pub enum ScrollInputSource {
     AnimateTo,
 }
 
+impl ScrollInputSource {
+    /// Whether this input is the USER moving the view with their own hand.
+    ///
+    /// The four gesture sources are; the two engine ones are not. A caret
+    /// glide (`AnimateTo`) and an app's `scroll_to` (`Programmatic`) are the
+    /// engine moving the view on somebody's behalf, and a reveal that ends up
+    /// in this queue must not be read back as the user having scrolled away
+    /// from it.
+    #[must_use]
+    pub const fn is_user_scroll(self) -> bool {
+        matches!(
+            self,
+            Self::TrackpadContinuous
+                | Self::TrackpadMomentum
+                | Self::TrackpadEnd
+                | Self::WheelDiscrete
+        )
+    }
+}
+
 /// WHERE a scroll input physically came from - distinct from
 /// [`ScrollInputSource`], which is the PROCESSING model. Different devices
 /// deserve different curves (a wheel step animated with the trackpad's
@@ -382,6 +402,33 @@ pub enum ScrollPhaseTransition {
     Ended,
 }
 
+/// What last laid claim to where the view is looking.
+///
+/// Two mechanisms move a scroll container that the user did not ask for by
+/// name: the user's own scrolling (wheel, trackpad, touch pan, a scrollbar
+/// thumb) and the engine's REVEAL (`scroll_into_view`,
+/// `scroll_selection_into_view`), which drags a focused node or a caret back
+/// on screen. Both are correct and neither may be deleted - without the
+/// reveal, typing into a field the user has scrolled past shows nothing;
+/// without the user's scroll, the page is nailed to whatever was clicked
+/// last.
+///
+/// Which one applies is decided by WHICH CAME LAST, and this is the whole
+/// record of that. A reveal re-asserted after the user has turned the wheel
+/// is a STALE reveal and must move nothing; a reveal asked for AFTER the
+/// wheel - a keystroke, a caret move, a focus change - is the newest thing
+/// the user did and wins, however recently they scrolled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewAction {
+    /// A reveal: focus moved, the caret moved, a key reached an editable, the
+    /// app asked for a node to be shown. The default, so that a window nobody
+    /// has scrolled yet still reveals what it focuses.
+    #[default]
+    Reveal,
+    /// The user moved the view themselves.
+    UserScroll,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -473,6 +520,13 @@ pub struct ScrollManager {
     /// Phase transitions observed since the last drain, oldest first. Drained
     /// by `EventProvider::get_pending_events`.
     pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
+    /// THE LAST ACTION WINS: which of the two things that move the view
+    /// without being asked - the user's own scrolling, or a reveal - did so
+    /// most recently. See [`ViewAction`]; written by
+    /// [`ScrollManager::note_user_scroll`] and
+    /// [`ScrollManager::note_reveal_intent`], read by
+    /// [`ScrollManager::reveal_may_move_view`].
+    last_view_action: ViewAction,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -710,6 +764,37 @@ impl ScrollManager {
     }
 
     // ========================================================================
+    // THE LAST ACTION WINS - who owns the view right now
+    // ========================================================================
+
+    /// The user just moved the view themselves: a wheel step, a trackpad or
+    /// touch pan, a scrollbar thumb. Any reveal asked for BEFORE this is
+    /// abandoned.
+    pub const fn note_user_scroll(&mut self) {
+        self.last_view_action = ViewAction::UserScroll;
+    }
+
+    /// A reveal's intent arose just now: focus moved, the caret moved, a key
+    /// was pressed, the app asked for a node to be shown. From here until the
+    /// user scrolls again, a reveal may move the view.
+    pub const fn note_reveal_intent(&mut self) {
+        self.last_view_action = ViewAction::Reveal;
+    }
+
+    /// Whether a reveal may move the view: only while it is still the last
+    /// thing that happened.
+    ///
+    /// Asked by the ONE reveal that is re-asserted rather than issued -
+    /// `LayoutWindow::scroll_focused_cursor_into_view`, which runs after
+    /// every successful layout, including the layouts a wheel step itself
+    /// causes. Every other reveal is an input in its own right and simply
+    /// says so with [`Self::note_reveal_intent`].
+    #[must_use]
+    pub const fn reveal_may_move_view(&self) -> bool {
+        matches!(self.last_view_action, ViewAction::Reveal)
+    }
+
+    // ========================================================================
     // Input Recording API (timer-based architecture)
     // ========================================================================
 
@@ -727,6 +812,15 @@ impl ScrollManager {
     /// now pending inputs and no timer is running yet).
     #[cfg(feature = "std")]
     pub fn record_scroll_input(&mut self, mut input: ScrollInput) -> bool {
+        // THE USER MOVED THE VIEW. Recorded at the same chokepoint the
+        // direction sign is applied at, so no backend can forget it. The
+        // engine's own motion rides this queue too - a caret glide as
+        // `AnimateTo`, an app's `scroll_to` as `Programmatic` - and must not
+        // be read back as the user having scrolled away from the reveal that
+        // produced it.
+        if input.source.is_user_scroll() {
+            self.note_user_scroll();
+        }
         let sign = self.scroll_sign();
         input.delta.x *= sign;
         input.delta.y *= sign;
@@ -787,6 +881,16 @@ impl ScrollManager {
         // counts as the start or end of a gesture, which is the whole reason
         // the latch lives on the manager rather than in the shells.
         self.note_scroll_phase(source);
+
+        // ...and so is the claim on the view, for the same reason and one
+        // more: a wheel step that lands on nothing scrollable - or one a
+        // `Scroll` callback takes back with `cancel_queued_scroll_input` to
+        // zoom a map with - never reaches `record_scroll_input`, and it is
+        // still the user's hand. A stale reveal hauling the page around
+        // underneath a map the user is zooming is the same bug.
+        if source.is_user_scroll() {
+            self.note_user_scroll();
+        }
 
         // Record the raw wheel delta for this pass unconditionally — even when the
         // cursor isn't over a scroll container — so a `Scroll` event can be aimed
@@ -1231,6 +1335,9 @@ impl ScrollManager {
         now: Instant,
     ) {
         self.thumb_drag = Some((dom_id, node_id, orientation));
+        // Holding the bar is the user moving the view as much as the wheel
+        // is, and it does not go through the input queue at all.
+        self.note_user_scroll();
         self.touch_activity(dom_id, node_id, now);
     }
 
@@ -1781,6 +1888,93 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
             // ulp and t=1 landed at 0.99999994).
             let end = 1.0 - (1.0 + OMEGA) * (-OMEGA).exp();
             (settle / end).clamp(0.0, 1.0)
+        }
+    }
+}
+
+#[cfg(test)]
+mod last_action_wins {
+    use super::{ScrollInputSource, ScrollManager};
+
+    /// THE LAW, as the user stated it (2026-09-21):
+    ///
+    /// > the LAST action should always win, so that scrolling is not
+    /// > interrupted (and vice versa: if I do key input to a component that is
+    /// > off-screen then it should be scrolled into view - because now the key
+    /// > input is the "last" thing)
+    ///
+    /// Reported as: click a checkbox, then turn the wheel, and the reveal
+    /// keeps hauling the view back to the thing that was clicked - the user
+    /// cannot scroll away from whatever they last touched.
+    ///
+    /// BOTH directions are pinned here on purpose. A "fix" that simply stops
+    /// revealing would satisfy the first half and break the second, which is
+    /// the half the user called out by name.
+    #[test]
+    fn a_reveal_moves_the_view_only_while_it_is_the_last_thing_that_happened() {
+        let mut sm = ScrollManager::new();
+
+        // Nothing has happened yet. A reveal is free to move the view, or a
+        // freshly opened window could never scroll its focused field on
+        // screen.
+        assert!(
+            sm.reveal_may_move_view(),
+            "a window nobody has scrolled must still reveal what it focuses",
+        );
+
+        // A focus change asks for a reveal - and THEN the user turns the
+        // wheel. The wheel is the last action, so the reveal asked for before
+        // it is stale.
+        sm.note_reveal_intent();
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "the user scrolled AFTER the reveal was asked for: the stale reveal must not haul \
+             the view back, or scrolling away from a focused node is impossible",
+        );
+
+        // The wheel does not disable the reveal for good. Key input to a
+        // component the user has just scrolled off-screen is now the last
+        // thing that happened, so it reveals.
+        sm.note_reveal_intent();
+        assert!(
+            sm.reveal_may_move_view(),
+            "key input AFTER a user scroll is the last action: the off-screen component it \
+             reaches must be scrolled into view",
+        );
+
+        // ...and the next wheel step takes the view back again. This is the
+        // case that matters most: the caret reveal is re-asserted after EVERY
+        // successful layout, so it asks this question once per wheel step.
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "a reveal re-asserted on the pass a wheel step caused must not move the view",
+        );
+    }
+
+    /// Only the user's own hand counts as a user scroll. The engine puts its
+    /// own motion through the same queue - a caret glide rides `AnimateTo`,
+    /// an app's `scroll_to` rides `Programmatic` - and a reveal must not be
+    /// read back as the user having scrolled away from it.
+    #[test]
+    fn the_engines_own_scrolling_is_not_the_user_scrolling() {
+        for user in [
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputSource::TrackpadEnd,
+        ] {
+            assert!(user.is_user_scroll(), "{user:?} is the user's own hand");
+        }
+        for engine in [
+            ScrollInputSource::Programmatic,
+            ScrollInputSource::AnimateTo,
+        ] {
+            assert!(
+                !engine.is_user_scroll(),
+                "{engine:?} is the engine moving the view, not the user",
+            );
         }
     }
 }
