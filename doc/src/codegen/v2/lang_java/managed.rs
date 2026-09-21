@@ -29,7 +29,7 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
-        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, TypeCategory},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
@@ -916,12 +916,17 @@ fn emit_data_typed_invoker_sam(
     b.blank();
 }
 
-/// The `log(level, message)` capability among a typed SAM's arguments:
-/// the first wrapper-class arg whose IR type has an instance method `log`
-/// taking a unit enum and an owned `String` (`CallbackInfo::log`). Returns
-/// the Java argument variable (`__arg1`) and the level expression for the
-/// enum's `Error` variant (first variant if there is none), spelled the way
-/// the wrapper method takes it (`AppLogLevel.Error.value` for an `int`).
+/// The logging capability among a typed SAM's arguments: the first
+/// wrapper-class arg whose IR type has an instance method of the shape
+/// `(self, <unit enum> level, owned <string> message) -> ()`. That shape is
+/// what a bridge needs to report a failure from inside a firing callback, and
+/// it is matched by SHAPE — a binding that keyed on the method being spelled
+/// `log` would lose the capability the day api.json renames it, and would
+/// pick up an unrelated method that happened to share the name.
+///
+/// Returns the Java argument variable (`__arg1`) and the level expression for
+/// the enum's `Error` variant (first variant if there is none), spelled the
+/// way the wrapper method takes it (`AppLogLevel.Error.value` for an `int`).
 fn failure_logger(
     cb: &CallbackTypedefDef,
     sam: &DataTypedSam,
@@ -934,11 +939,19 @@ fn failure_logger(
         let ty = a.type_name.trim();
         let Some(f) = ir.functions.iter().find(|f| {
             f.class_name == ty
-                && f.method_name == "log"
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                // Reports, never answers: a logging call returns nothing.
+                && f.return_type.is_none()
+                // (self, level, message)
                 && f.args.len() == 3
-                && f.args[2].type_name.trim() == "String"
+                && ir
+                    .find_enum(f.args[1].type_name.trim())
+                    .is_some_and(|e| !e.is_union && !e.variants.is_empty())
+                // The engine's UTF-8 string type, by IR category.
                 && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+                && ir
+                    .find_struct(f.args[2].type_name.trim())
+                    .is_some_and(|st| matches!(st.category, TypeCategory::String))
         }) else {
             continue;
         };

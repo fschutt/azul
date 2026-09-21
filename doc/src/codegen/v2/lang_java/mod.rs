@@ -22,6 +22,12 @@
 //!    at least one instance method (see `managed_lang_helpers::has_wrapper_class`). Implements
 //!    `AutoCloseable`; `close()` frees the native value only when a `_delete` exists.
 //!
+//! [`derives`] supplies the pieces both (2)/(3) and (4) need but neither owns: the Java spelling
+//! of a type's api.json derives (`toString`, `equals`, `hashCode`, `Comparable`, `deepCopy`,
+//! `createDefault`, `delete`), the api.json members of the ~1400 types that never reach (4), and
+//! the api.json constants. It emits no file of its own except a holder for constants whose class
+//! has no wrapper.
+//!
 //! All of the JNA boilerplate (Structure subclass, ByValue, ByReference,
 //! Union, Pointer) is dropped in by [`types`] and [`wrappers`]; this
 //! module owns only orchestration and the file-marker plumbing.
@@ -40,6 +46,7 @@
 //! type helpers and surfaces them with Kotlin sugar
 //! (`Pointer?`, `Long`, `Int`).
 
+pub mod derives;
 pub mod functions;
 pub mod managed;
 pub mod pom;
@@ -100,6 +107,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 4. Managed-FFI runtime helpers (host-invoker pattern). Two extra Java source files:
     //    AzulNativeManaged.java + AzulHostInvoker.java.
     managed::emit_files(&mut out, ir, config)?;
+
+    // 5. api.json constants whose owning class has no wrapper to carry them
+    //    (see `derives::emit_orphan_constant_files`) — every other class's
+    //    constants are emitted as fields of the wrapper in step 3.
+    derives::emit_orphan_constant_files(&mut out, ir, config)?;
 
     Ok(out)
 }

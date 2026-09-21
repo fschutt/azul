@@ -32,7 +32,8 @@ use super::{
             TypeAliasDef, TypeCategory,
         },
     },
-    emit_file, ffi_type_name, javadoc_escape, map_jvm_type, sanitize_identifier, user_enum_type_name,
+    derives, emit_file, ffi_type_name, javadoc_escape, map_jvm_type, sanitize_identifier,
+    user_enum_type_name,
 };
 
 // ============================================================================
@@ -74,7 +75,7 @@ pub fn emit_all_type_files(out: &mut String, ir: &CodegenIR, config: &CodegenCon
         let chunk = emit_file(
             &format!("{}.java", name),
             |b| {
-                emit_struct(b, struct_def, ir);
+                emit_struct(b, struct_def, ir, config);
                 Ok(())
             },
             config,
@@ -187,7 +188,11 @@ fn emit_monomorphized_alias_files(
                         }
                         b.line(" */");
                     }
-                    b.line(&format!("public class {} extends Structure {{", name));
+                    b.line(&format!(
+                        "public class {} extends Structure{} {{",
+                        name,
+                        derives::comparable_clause(&ta.name, ir, config)
+                    ));
                     b.indent();
                     let mut field_names: Vec<String> = Vec::new();
                     if fields.is_empty() {
@@ -199,6 +204,10 @@ fn emit_monomorphized_alias_files(
                         }
                     }
                     emit_field_order_override(b, &field_names);
+                    // A monomorphized alias has no wrapper class either: its
+                    // derives and members live on the value class.
+                    derives::emit_value_derives(b, &ta.name, ir, config);
+                    derives::emit_member_facade(b, &ta.name, ir, config);
                     emit_byvalue_byref(b, &name);
                     b.dedent();
                     b.line("}");
@@ -275,7 +284,11 @@ fn emit_monomorphized_alias_files(
                         }
                         b.line(" */");
                     }
-                    b.line(&format!("public class {} extends Union {{", name));
+                    b.line(&format!(
+                        "public class {} extends Union{} {{",
+                        name,
+                        derives::comparable_clause(&ta.name, ir, config)
+                    ));
                     b.indent();
                     let mut field_names: Vec<String> = Vec::new();
                     for v in variants {
@@ -325,6 +338,9 @@ fn emit_monomorphized_alias_files(
                             }
                         }
                     }
+
+                    derives::emit_value_derives(b, &ta.name, ir, config);
+                    derives::emit_member_facade(b, &ta.name, ir, config);
 
                     b.line(&format!(
                         "public static class ByValue extends {} implements Structure.ByValue {{}}",
@@ -556,7 +572,11 @@ fn emit_tagged_union_files(
                 }
                 b.line(" */");
             }
-            b.line(&format!("public class {} extends Union {{", name));
+            b.line(&format!(
+                "public class {} extends Union{} {{",
+                name,
+                derives::comparable_clause(&enum_def.name, ir, config)
+            ));
             b.indent();
             let mut field_names: Vec<String> = Vec::new();
             for v in &enum_def.variants {
@@ -688,6 +708,11 @@ fn emit_tagged_union_files(
                 }
             }
 
+            // A tagged union never gets a wrapper class, so its derive surface
+            // and its api.json members both live here, on the value itself.
+            derives::emit_value_derives(b, &enum_def.name, ir, config);
+            derives::emit_member_facade(b, &enum_def.name, ir, config);
+
             // ByValue / ByReference variants for passing the union by
             // value across the FFI boundary.
             b.line(&format!(
@@ -713,7 +738,7 @@ fn emit_tagged_union_files(
 // POD struct
 // ============================================================================
 
-fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) {
     let name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -724,7 +749,13 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line(" */");
     }
 
-    builder.line(&format!("public class {} extends Structure {{", name));
+    // `implements Comparable<Az<X>>` whenever the type exports an ordering;
+    // empty otherwise. See `derives::comparable_clause`.
+    builder.line(&format!(
+        "public class {} extends Structure{} {{",
+        name,
+        derives::comparable_clause(&s.name, ir, config)
+    ));
     builder.indent();
     builder.line(&format!("public {}() {{ super(); }}", name));
     builder.line(&format!("public {}(Pointer p) {{ super(p); read(); }}", name));
@@ -753,6 +784,14 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if s.category == TypeCategory::Vec {
         emit_vec_to_list_java(builder, s, ir);
     }
+
+    // The derive surface this type's api.json traits allow (toString,
+    // equals, hashCode, compareTo, deepCopy, createDefault, delete) plus, for
+    // a type that never reaches the wrapper layer, its api.json members. Both
+    // belong to the OUTER class body, so they go before the nested
+    // ByValue/ByReference classes.
+    derives::emit_value_derives(builder, &s.name, ir, config);
+    derives::emit_member_facade(builder, &s.name, ir, config);
 
     emit_byvalue_byref(builder, &name);
 

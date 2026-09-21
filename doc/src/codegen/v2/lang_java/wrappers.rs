@@ -38,7 +38,7 @@ use super::{
         },
         managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type, takes_self},
     },
-    emit_file, ffi_type_name, javadoc_escape, map_jvm_type_byvalue,
+    derives, emit_file, ffi_type_name, javadoc_escape, map_jvm_type_byvalue,
     managed::data_typed_sam_for_kind, sanitize_identifier, snake_to_lower_camel,
     types::{java_boxed, ref_kind_field_type},
 };
@@ -78,7 +78,7 @@ pub fn emit_all_wrapper_files(
         let chunk = emit_file(
             &format!("{}.java", helper_name),
             |b| {
-                emit_union_helper(b, e, ir);
+                emit_union_helper(b, e, ir, config);
                 Ok(())
             },
             config,
@@ -151,12 +151,18 @@ fn emit_wrapper_class(
     // Every wrapper is AutoCloseable so `try (...)` works uniformly;
     // `close()` only frees when the type has a `_delete` (see
     // `emit_close_method`).
-    let interfaces = match &vec_elem_type {
+    let mut interfaces = match &vec_elem_type {
         Some(elem) if has_wrapper_class(elem, ir) => {
             format!("AutoCloseable, Iterable<{}>", wrapper_class_name(elem))
         }
         _ => "AutoCloseable".to_string(),
     };
+    // A type whose api.json traits give it an ordering is Comparable, routed
+    // through the same `_cmp` / `_partialCmp` export the FFI value class uses.
+    if let Some(cmp) = derives::wrapper_comparable_interface(&s.name, ir, config) {
+        interfaces.push_str(", ");
+        interfaces.push_str(&cmp);
+    }
     builder.line(&format!(
         "public final class {} implements {} {{",
         class_name, interfaces
@@ -203,6 +209,11 @@ fn emit_wrapper_class(
     builder.line("/** Internal: raw pointer for use by sibling wrappers. */");
     builder.line("public Pointer rawPointer() { return ptr; }");
     builder.blank();
+
+    // The api.json constants declared on this class (the OpenGL enum values
+    // on the GL context, ...) belong on the user-facing class, not on the raw
+    // JNA struct.
+    derives::emit_constants(builder, &s.name, ir);
 
     // AzString gets a `toString()` override that decodes the wrapped
     // UTF-8 bytes into a `java.lang.String`. AzString's C-side layout
@@ -400,6 +411,11 @@ fn emit_wrapper_class(
     // place since it accesses the underlying U8Vec directly (no helper
     // round-trip).
     emit_to_string_if_supported(builder, s, ir);
+
+    // Ordering through the type's `_cmp` (or, when that is all it has,
+    // `_partialCmp`) export — the counterpart of the `Comparable` clause
+    // added to the class declaration above.
+    derives::emit_wrapper_compare_to(builder, &s.name, &class_name, ir, config);
 
     // Phase I.1.2 (Java): emit Iterable<T>.iterator() when the Vec
     // shape was detected AND the element has a wrapper class. The
@@ -1364,7 +1380,12 @@ fn emit_wrapper_method(
     //
     // Both apply uniformly to every emitted wrapper method.
     let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
-        a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+        // The engine's UTF-8 string type, recognised by its IR category —
+        // never by the name api.json happens to give it.
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            && ir
+                .find_struct(a.type_name.trim())
+                .is_some_and(|st| matches!(st.category, TypeCategory::String))
     };
     // Only treat as wrapper-class arg if the codegen actually emits a
     // wrapper file for it — the SAME predicate `should_emit_wrapper`
@@ -1908,7 +1929,12 @@ fn emit_result_return_body(
 // Tagged-union helper class
 // ============================================================================
 
-fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
+fn emit_union_helper(
+    builder: &mut CodeBuilder,
+    e: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let class_name = wrapper_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
 
@@ -1934,23 +1960,55 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                     "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
-                builder.line(&format!("public static {} {}() {{", ffi_name, mname));
-                builder.indent();
-                builder.line(&format!("{} u = new {}();", ffi_name, ffi_name));
-                builder.line(&format!(
-                    "u.{}.tag = (byte) {}_Tag.{}.value;",
-                    variant_ident, ffi_name, variant_ident
-                ));
-                builder.line(&format!("u.setType(\"{}\");", variant_ident));
-                builder.line("return u;");
-                builder.dedent();
-                builder.line("}");
+                // libazul exports a constructor for EVERY variant, payload or
+                // not (`AzAccessibilityAction_blur()`). Calling it keeps the
+                // tag encoding the engine's business — assembling the tag byte
+                // here only worked for as long as the C layout stayed
+                // `repr(C, u8)` with the tag first. The hand-rolled fallback
+                // below is for the destructor/cloner unions, whose variant
+                // constructors the FFI layer deliberately does not declare.
+                match ir
+                    .variant_constructor(&e.name, &v.name)
+                    .filter(|ctor| super::functions::should_emit_function(*ctor, ir, config))
+                {
+                    Some(ctor) => {
+                        builder.line(&format!(
+                            "public static {} {}() {{",
+                            super::map_jvm_type_byvalue(&e.name, ir),
+                            mname
+                        ));
+                        builder.indent();
+                        builder.line(&format!(
+                            "return {}.{}();",
+                            super::functions::native_class_for_func(ctor, ir),
+                            super::super::managed_host_invoker::managed_c_symbol(ctor)
+                        ));
+                        builder.dedent();
+                        builder.line("}");
+                    }
+                    None => {
+                        builder.line(&format!("public static {} {}() {{", ffi_name, mname));
+                        builder.indent();
+                        builder.line(&format!("{} u = new {}();", ffi_name, ffi_name));
+                        builder.line(&format!(
+                            "u.{}.tag = (byte) {}_Tag.{}.value;",
+                            variant_ident, ffi_name, variant_ident
+                        ));
+                        builder.line(&format!("u.setType(\"{}\");", variant_ident));
+                        builder.line("return u;");
+                        builder.dedent();
+                        builder.line("}");
+                    }
+                }
                 builder.blank();
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
                 // A payload variant: the C constructor libazul exports for it
                 // (`Az{Enum}_{variant}(payload)`) builds the tagged union.
-                let Some(ctor) = ir.variant_constructor(&e.name, &v.name) else {
+                let Some(ctor) = ir
+                    .variant_constructor(&e.name, &v.name)
+                    .filter(|ctor| super::functions::should_emit_function(*ctor, ir, config))
+                else {
                     continue;
                 };
                 let params: Vec<String> = ctor
@@ -2005,13 +2063,21 @@ pub(super) fn wrapper_class_name(raw: &str) -> String {
     // touched the JDK-bundled string. Rename the wrapper to `AzulString`
     // — preserves the type's purpose (Azul-managed UTF-8 string) and
     // restores the unqualified `String` for the JDK class.
+    //
+    // The comparison has to spell the JDK type's own name, and that name also
+    // happens to be an api.json class name; no IR property says "the host
+    // language already defines a type called this". Only this one is renamed:
+    // `Thread`, the only other api.json class `java.lang` also defines, is
+    // never written unqualified by generated code, so renaming it would churn
+    // a public class name for nothing.
+    // allow-api-name: the JDK class this wrapper shadows is itself named String
     if raw == "String" {
         return "AzulString".to_string();
     }
     sanitize_identifier(raw)
 }
 
-fn idiomatic_method_name(method_name: &str) -> String {
+pub(super) fn idiomatic_method_name(method_name: &str) -> String {
     if method_name == "new" {
         return "create".to_string();
     }
