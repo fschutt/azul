@@ -27,57 +27,81 @@ default-search-keys:
 
 ## Introduction
 
-The D binding is one generated module, `azul.d` (`module azul`), that
-wraps the C API in ordinary D structs and classes, with free functions as callbacks. You compile it
-together with your program - there is no extra runtime and no code
-generator to run on your side.
-
-You need a D compiler with the **2.113 front end or newer**:
-
-- **Linux / Windows**: `dmd` 2.113+ (or LDC).
-- **macOS**: **LDC** (`ldc2` 1.43+, `brew install ldc`). `dmd` has no
-  Apple Silicon backend: it emits x86_64 objects, which cannot link against
-  the arm64 `libazul.dylib` (`symbol(s) not found for architecture x86_64`).
-  LDC shares the dmd front end and accepts the same flags.
+In order to use `libazul` from D (`dmd` 2.113+ or `ldc2` 1.43+), you need the native 
+library and the `azul.d` module, which wraps the underlying C API. 
 
 ## Installation
 
-Linux:
+The preferred way to use Azul in D is via the `dub` package manager. Azul provides a pre-configured `dub` package containing the API wrappers split into parallel-compilable modules (`source/azul/*.d`), which compiles significantly faster than the single-file module.
+
+First, create a new `dub` project and download the native `libazul` engine for your operating system into the project root:
 
 ```sh
+mkdir hello-world && cd hello-world
+dub init -n .
+
+# macOS
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+# Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul.d
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.d
-dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world
-LD_LIBRARY_PATH=. ./hello-world
+# Windows
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 ```
 
-macOS:
+Next, download and extract the Azul `dub` package:
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+curl -LO https://azul.rs/ui/release/$VERSION/azul-d-$VERSION.tar.gz
+mkdir azul-d && tar xzf azul-d-$VERSION.tar.gz -C azul-d
+```
+
+Update your app's `dub.json` to link the local `azul-d` package and the native library:
+
+```json
+{
+    "name": "hello-world",
+    "dependencies": {
+        "azul": { "path": "./azul-d" }
+    },
+    "lflags-posix": ["-L."],
+    "lflags-osx": ["-framework", "Foundation", "-framework", "AppKit", "-framework", "OpenGL", "-framework", "CoreGraphics", "-framework", "CoreText"],
+    "lflags-windows": ["+azul.dll.lib"]
+}
+```
+
+Now, simply copy the "Counter" example below into your `source/app.d` file and run the project:
+
+```sh
+# macOS / Linux
+LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. dub run
+
+# Windows
+dub run
+```
+
+### Manual Compilation (Without Dub)
+
+If you prefer to compile manually without a package manager, you can download the single-file wrapper (`azul.d`) and compile everything directly:
+
+```sh
 curl -O https://azul.rs/ui/release/$VERSION/azul.d
 curl -O https://azul.rs/ui/release/$VERSION/hello-world.d
+
+# macOS
 ldc2 hello-world.d azul.d -L-L. -L-lazul \
   -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL \
   -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world
 DYLD_LIBRARY_PATH=. ./hello-world
-```
 
-Windows:
+# Linux
+dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world
+LD_LIBRARY_PATH=. ./hello-world
 
-```sh
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-curl -O https://azul.rs/ui/release/$VERSION/azul.d
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.d
+# Windows
 dmd hello-world.d azul.d -L/LIBPATH:. azul.dll.lib -of=hello-world.exe
 hello-world.exe
 ```
-
-`-L` passes the next flag straight to the linker, so `-L-L. -L-lazul` is
-the linker's own `-L. -lazul`. The binary embeds no rpath, which is why
-the run step needs `LD_LIBRARY_PATH=.` / `DYLD_LIBRARY_PATH=.`.
 
 ### Building from source
 
@@ -92,7 +116,11 @@ cargo run -p azul-doc --release -- codegen all
 cargo build -p azul-dll --release --features build-dll
 ```
 
-Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings end up at `target/codegen/`: `azul.d` is the one-file module, and `target/codegen/d/` is the same code as a dub package (`source/azul/*.d`, one module per API area), which compiles faster in parallel.
+Notice the required `--features build-dll`. The DLL lands in 
+`target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings are generated 
+in `target/codegen/`: `azul.d` is the one-file module, and `target/codegen/d/` 
+is the same code as a dub package (`source/azul/*.d`, one module per API area), 
+which compiles faster in parallel.
 
 ## Simple "Counter" Example
 
@@ -163,28 +191,19 @@ void main()
 
 ## Build and run
 
-From the directory containing `azul.d`, `hello-world.d` and the native
-library:
+If you used the `dub` installation, running your application is as simple as:
 
 ```sh
-# Linux
-dmd hello-world.d azul.d -L-L. -L-lazul -of=hello-world
-LD_LIBRARY_PATH=. ./hello-world
-
-# macOS
-ldc2 hello-world.d azul.d -L-L. -L-lazul \
-  -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL \
-  -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world
-DYLD_LIBRARY_PATH=. ./hello-world
+# macOS / Linux
+LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. dub run
 
 # Windows
-dmd hello-world.d azul.d -L/LIBPATH:. azul.dll.lib -of=hello-world.exe
-hello-world.exe
+dub run
 ```
 
-On macOS the five `-framework` flags are required: `libazul` calls into
-AppKit, OpenGL and CoreText, and a link without them fails with undefined
-symbols naming those frameworks.
+If you compiled manually, run the resulting executable ensuring the native library is in the library path.
+
+Note: On macOS, linking requires five `-framework` flags (`Foundation`, `AppKit`, `OpenGL`, `CoreGraphics`, `CoreText`). `libazul` calls into these system frameworks, and a link without them fails with undefined symbols. The `lflags-osx` in the `dub.json` configuration handles this automatically.
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
