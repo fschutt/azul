@@ -2421,6 +2421,67 @@ fn parse_font_name_and_size(s: &str) -> Option<(String, f32)> {
     None
 }
 
+/// Give the TITLEBAR its type from the desktop's own title font.
+///
+/// `SystemFonts::title_font{,_size}` is where every Linux desktop's answer
+/// lands — xfwm4's `xfconf xfwm4 /general/title_font`, GNOME's
+/// `org.gnome.desktop.wm.preferences titlebar-font`, Breeze's `WM/activeFont`
+/// — and `TitlebarMetrics::title_font{,_size,_weight}` is the only one a
+/// client-side titlebar ever reads (`SystemStyle::create_csd_stylesheet`,
+/// `Titlebar::from_system_style_csd`). Nothing joined the two, so a fully
+/// detected desktop still drew its titlebar in the BUILT-IN defaults.
+///
+/// They are also in different UNITS, which is the other half of it: a desktop
+/// states a font in POINTS (Pango, and `SystemFonts` says so in its docs) and
+/// the titlebar metrics are consumed as CSS PIXELS. At the 96 dpi X11 and
+/// Wayland report, 10 pt is 13.3 px, not 10.
+fn adopt_desktop_titlebar_font(style: &mut SystemStyle) {
+    use azul_css::{corety::OptionU16, props::basic::pixel::PT_TO_PX};
+
+    let tm = &mut style.metrics.titlebar;
+    if let OptionString::Some(family) = &style.fonts.title_font {
+        tm.title_font_weight = OptionU16::Some(font_weight_from_family_name(family.as_str()));
+        tm.title_font = OptionString::Some(family.clone());
+    }
+    if let OptionF32::Some(pt) = style.fonts.title_font_size {
+        if pt.is_finite() && pt > 0.0 {
+            tm.title_font_size = OptionF32::Some(pt * PT_TO_PX);
+        }
+    }
+}
+
+/// The CSS weight the style word in a Pango family name states.
+///
+/// A desktop names its title face the way Pango describes it — "Ubuntu
+/// Medium 10", "Cantarell Bold 11" — so the weight is carried in the family
+/// string and nowhere else. A name that states none is 400, not the bold the
+/// GNOME defaults happen to carry.
+fn font_weight_from_family_name(name: &str) -> u16 {
+    let n = name.to_ascii_lowercase();
+    // Longest first: "semibold" must not be read by the "bold" arm, nor
+    // "extralight" by "light".
+    for (word, weight) in [
+        ("extrabold", 800u16),
+        ("ultrabold", 800),
+        ("semibold", 600),
+        ("demibold", 600),
+        ("extralight", 200),
+        ("ultralight", 200),
+        ("semilight", 350),
+        ("black", 900),
+        ("heavy", 900),
+        ("bold", 700),
+        ("medium", 500),
+        ("light", 300),
+        ("thin", 100),
+    ] {
+        if n.contains(word) {
+            return weight;
+        }
+    }
+    400
+}
+
 // ── Public entry point ───────────────────────────────────────────────────
 
 /// Discover the Linux system style.
@@ -2534,6 +2595,10 @@ pub(crate) fn discover() -> SystemStyle {
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
     discover_linux_extras(&mut style);
+    // The titlebar is the desktop's, and so is its type: whatever the store
+    // above reported for the window title now reaches the metrics a CSD
+    // titlebar is built from.
+    adopt_desktop_titlebar_font(&mut style);
     style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
     style.language = detect_language_linux();
     style.os_version = detect_linux_version();
@@ -3699,5 +3764,89 @@ mod kde_ini_tests {
             linux_settings_source(&DesktopEnvironment::Kde),
             LinuxSettingsSource::KdeConfig
         );
+    }
+}
+
+#[cfg(test)]
+mod titlebar_font_tests {
+    //! THE CSD TITLEBAR IS SET IN THE WRONG TYPE.
+    //!
+    //! Measured on Linux Mint 22.2 / XFCE, 96 dpi, `Xft.dpi` unset:
+    //!
+    //! ```text
+    //! $ xfconf-query -c xfwm4 -p /general/title_font
+    //! Ubuntu Medium 10
+    //! ```
+    //!
+    //! 10 pt at 96 dpi is 13.3 px. azul's own titlebar came out in Cantarell
+    //! 11 px bold — `TitlebarMetrics::linux_gnome()`, untouched — because the
+    //! XFCE discovery writes the desktop's answer into `SystemFonts` and
+    //! nothing carries it across to `SystemMetrics::titlebar`, which is the
+    //! only place `create_csd_stylesheet` and `Titlebar::from_system_style_csd`
+    //! look.
+
+    use azul_css::{
+        corety::{OptionF32, OptionString},
+        system::defaults,
+    };
+
+    use super::adopt_desktop_titlebar_font;
+
+    /// The size, in the unit the titlebar is drawn in.
+    #[test]
+    fn the_titlebar_is_set_at_the_size_the_desktop_reported() {
+        let mut style = defaults::gnome_adwaita_light();
+        // What xfwm4 reports on this desktop, as the discovery parses it.
+        style.fonts.title_font = OptionString::Some("Ubuntu Medium".into());
+        style.fonts.title_font_size = OptionF32::Some(10.0);
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        let px = style
+            .metrics
+            .titlebar
+            .title_font_size
+            .into_option()
+            .expect("the titlebar must state a size");
+        assert!(
+            (px - 13.333_333).abs() < 0.01,
+            "10 pt is 13.33 px at 96 dpi; the titlebar says {px} px"
+        );
+    }
+
+    /// …and the family, and the weight the family name states. `Medium` is
+    /// 500; the GNOME default this style starts from says 700, which is
+    /// Cantarell's, not this desktop's.
+    #[test]
+    fn the_titlebar_is_set_in_the_face_the_desktop_reported() {
+        let mut style = defaults::gnome_adwaita_light();
+        style.fonts.title_font = OptionString::Some("Ubuntu Medium".into());
+        style.fonts.title_font_size = OptionF32::Some(10.0);
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        assert_eq!(
+            style.metrics.titlebar.title_font.as_option().map(|s| s.as_str()),
+            Some("Ubuntu Medium"),
+        );
+        assert_eq!(
+            style.metrics.titlebar.title_font_weight.into_option(),
+            Some(500),
+            "`Medium` is weight 500"
+        );
+    }
+
+    /// A desktop that reported nothing keeps whatever the platform defaults
+    /// said — the join must not erase a known titlebar with a blank one.
+    #[test]
+    fn a_desktop_that_reported_nothing_changes_nothing() {
+        let mut style = defaults::gnome_adwaita_light();
+        style.fonts.title_font = OptionString::None;
+        style.fonts.title_font_size = OptionF32::None;
+        let before = style.metrics.titlebar.clone();
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        assert_eq!(style.metrics.titlebar, before);
     }
 }
