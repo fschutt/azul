@@ -1828,14 +1828,43 @@ impl SystemStyle {
             })
             .unwrap_or_else(|| "4px".to_string());
 
+        // The titlebar's own metrics, from the desktop rather than from here.
+        // A CSD titlebar that is 32px tall with 13px text next to a Breeze
+        // frame that is not reads as a foreign toolkit, which is exactly what
+        // it is until it asks. The constants stay as the fallback for a
+        // platform that reports nothing.
+        use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
+        let tb = &self.metrics.titlebar;
+        let px_of = |v: &OptionPixelValue, fallback: f32| -> f32 {
+            v.as_option().map_or(fallback, |p| {
+                p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            })
+        };
+        let titlebar_height = px_of(&tb.height, 32.0);
+        let titlebar_padding = px_of(&tb.padding_horizontal, 8.0);
+        let title_font_size = tb.title_font_size.as_option().copied().unwrap_or(13.0);
+        let title_font_weight = tb.title_font_weight.as_option().copied().unwrap_or(400);
+        let title_font_family = tb
+            .title_font
+            .as_option()
+            .map(|f| format!("font-family: \"{f}\"; "))
+            .unwrap_or_default();
+
         // Titlebar container
         let _ = write!(
             css,
-            ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
+            ".csd-titlebar {{ width: 100%; height: {}px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
-             align-items: center; justify-content: space-between; padding: 0 8px; cursor: grab; \
+             align-items: center; justify-content: space-between; padding: 0 {}px; cursor: grab; \
              user-select: none; }} ",
-            bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
+            titlebar_height,
+            bg_color.r,
+            bg_color.g,
+            bg_color.b,
+            border_color.r,
+            border_color.g,
+            border_color.b,
+            titlebar_padding,
         );
 
         // The controls-only overlay (`WindowDecorations::NoTitle` on a frame
@@ -1852,10 +1881,15 @@ impl SystemStyle {
         // Title text
         let _ = write!(
             css,
-            ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
-             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: \
-             none; }} ",
-            text_color.r, text_color.g, text_color.b,
+            ".csd-title {{ color: rgb({}, {}, {}); font-size: {}px; font-weight: {}; {}flex-grow: \
+             1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: \
+             nowrap; user-select: none; }} ",
+            text_color.r,
+            text_color.g,
+            text_color.b,
+            title_font_size,
+            title_font_weight,
+            title_font_family,
         );
 
         // Button container
@@ -3804,6 +3838,41 @@ mod autotest_generated {
         assert!(PixelValue::px(f32::NEG_INFINITY)
             .to_pixels_internal(0.0, 0.0, 0.0)
             .is_finite());
+    }
+
+    #[test]
+    fn the_csd_titlebar_is_the_desktops_own_size_and_type() {
+        use crate::props::basic::pixel::PixelValue;
+
+        let mut style = SystemStyle::default();
+        style.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(26.0));
+        style.metrics.titlebar.padding_horizontal = OptionPixelValue::Some(PixelValue::px(4.0));
+        style.metrics.titlebar.title_font_size = OptionF32::Some(11.0);
+        style.metrics.titlebar.title_font_weight = OptionU16::Some(700);
+        style.metrics.titlebar.title_font = OptionString::Some("Noto Sans".into());
+
+        let css = style.create_csd_stylesheet();
+        let text = format!("{css:?}");
+        for needle in ["26", "11", "Noto Sans"] {
+            assert!(
+                text.contains(needle),
+                "the titlebar ignored the desktop's {needle}"
+            );
+        }
+        // The parser resolves a numeric weight to its keyword, so 700 is Bold
+        // by the time it reaches the stylesheet.
+        assert!(
+            text.contains("Bold") || text.contains("700"),
+            "the titlebar ignored the desktop's bold title"
+        );
+    }
+
+    #[test]
+    fn a_desktop_that_reports_no_titlebar_metrics_keeps_the_fallbacks() {
+        let style = SystemStyle::default();
+        let text = format!("{:?}", style.create_csd_stylesheet());
+        assert!(text.contains("32"), "the 32px fallback height is gone");
+        assert!(text.contains("13"), "the 13px fallback font size is gone");
     }
 
     #[test]
