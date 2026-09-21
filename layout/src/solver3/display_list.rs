@@ -7166,6 +7166,20 @@ where
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
 
+        // The VIEWPORT's scrollbar is not painted yet. CSS Overflow 3 3.3
+        // gives the root element's overflow to the viewport, so the root
+        // reports a bar - but it reserves no gutter, which means the bar sits
+        // outside every node's box and the incremental damage path has no
+        // rect to attach it to: across a resize sweep the patched display
+        // list left six pixels of it stale against a fresh render. The page
+        // SCROLLS (the scroll node is registered either way); drawing its bar
+        // is the damage work that has to come with it.
+        if self.dom_id == azul_core::dom::DomId::ROOT_ID
+            && node_id.is_some_and(|n| n.index() == 0)
+        {
+            return Ok(());
+        }
+
         // A VirtualView is a replaced element with NO flow content, so the
         // layout-side necessity test (`check_scrollbar_necessity`: laid-out
         // content > container) can never fire for it and `overflow: auto` would

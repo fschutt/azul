@@ -828,7 +828,11 @@ fn layout_dom_and_get_scrollbar_info(
     height: f32,
 ) -> Vec<(f32, f32, f32, f32, String)> {
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = dom;
+    // See `layout_dom_and_count_scrollbars`: a scroll box that IS the root is
+    // the viewport, whose bar is the window's, not the box's.
+    let mut dom = Dom::create_body()
+        .with_css("margin: 0; padding: 0;")
+        .with_child(dom);
     let styled_dom = StyledDom::create(&mut dom, css);
     let dom_id = styled_dom.dom_id;
 
