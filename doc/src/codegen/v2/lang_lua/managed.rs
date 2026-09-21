@@ -87,6 +87,11 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
             ));
         }
     }
+    // Core's one out-pointer RefAny constructor is a fixed engine export
+    // (core/src/host_invoker.rs) with no api.json entry to derive the
+    // spelling from; the check only asks whether the shared block declared
+    // it already.
+    // allow-api-name: an engine export, not an api.json item
     if !shared.contains("AzRefAny_newHostHandleByref") {
         out.push_str("    void AzRefAny_newHostHandleByref(uint64_t, AzRefAny*);\n");
     }

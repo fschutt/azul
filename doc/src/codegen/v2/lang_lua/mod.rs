@@ -17,8 +17,10 @@
 //!    and routes every call that moves a struct / tagged union by value through its generated
 //!    `<fn>Byref` twin (see [`byref_routes`]).
 //! 4. Managed prelude ([`managed`]) — host-invoker registrations, RefAny helpers, `_consume`.
-//! 5. Idiomatic wrappers ([`wrappers::generate_wrappers`]) — methods tables + metatypes + an
-//!    `azul` namespace where method names drop the `Az<TypeName>_` prefix.
+//! 5. Idiomatic wrappers ([`wrappers::generate_wrappers`]) — the shared derive helper
+//!    (`_az_derive`: equality, ordering, hashing, debug, ownership), methods tables +
+//!    metatypes, an `azul` namespace where method names drop the `Az<TypeName>_` prefix,
+//!    and api.json's constants merged onto their class tables.
 //! 6. Postlude — `azul.String.from_lua`, `azul._apply_opts`.
 //!
 //! ## Dual-runtime rules for emitted Lua

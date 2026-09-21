@@ -27,21 +27,32 @@
 //! `type(x) == 'cdata'` (use `ffi.istype` or the `_is_cdata` shim), no
 //! `ULL` literals — see `lang_lua/mod.rs`.
 //!
+//! Monomorphized generic aliases (`ClipPathValue = CssPropertyValue<ClipPath>`,
+//! `PhysicalSizeU32 = PhysicalSize<u32>`) get the same treatment: they are
+//! real `union` / `struct` types on the wire with the full derive export set,
+//! they just live in `ir.type_aliases` instead of `ir.structs` / `ir.enums`
+//! (see [`emit_alias_wrapper`]).
+//!
 //! # Skipped categories
 //!
-//! - `TypeCategory::Recursive`        — same reason as Python.
 //! - `TypeCategory::VecRef`           — raw slice pointers, host-only.
-//! - `TypeCategory::Boxed`            — internal heap wrappers.
 //! - `TypeCategory::GenericTemplate`  — generic shells.
 //! - `TypeCategory::DestructorOrClone`— internal callback typedefs.
 //! - `TypeCategory::CallbackTypedef`  — function-pointer typedefs (the user-facing
 //!   `CallbackDataPair` wrapper *is* emitted; consumers cast their Lua callbacks via
 //!   `ffi.cast('Az<CallbackTypedefName>', fn)`).
+//!
+//! `Boxed` and `Recursive` are NOT skipped here — see
+//! [`should_emit_struct`]: an opaque heap handle (`ImageRef`, `FontRef`,
+//! `Texture`, `Svg`, `GlContextPtr`) and a self-referential type (`Xml`,
+//! `XmlNode`) are both ordinary structs to an FFI that uses the header's
+//! own layout, and a Lua program that cannot reach them cannot load an
+//! image, draw with GL or parse XML.
 
 use super::super::{
     ir::{
         ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind,
-        StructDef, TypeCategory,
+        MonomorphizedKind, StructDef, TypeAliasDef, TypeCategory,
     },
     managed_lang_helpers::{has_callback_arg, is_refany_type},
 };
@@ -53,6 +64,10 @@ use super::super::{
 pub fn generate_wrappers(ir: &CodegenIR) -> String {
     let mut out = String::new();
     out.push('\n');
+
+    // The derive surface every wrapper type shares, emitted once (see
+    // DERIVE_HELPER) and called from each type's metatype line.
+    out.push_str(DERIVE_HELPER);
 
     // Unit-only enums become flat constant tables.
     out.push_str("-- ------------------------------------------------------------------\n");
@@ -90,6 +105,20 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
         emit_data_enum_wrapper(&mut out, ir, e);
     }
 
+    // Monomorphized generic aliases: neither `ir.structs` nor `ir.enums`
+    // knows them, yet the C ABI has them as real types with a full set of
+    // derive exports (see `emit_alias_wrapper`).
+    out.push_str("\n-- ------------------------------------------------------------------\n");
+    out.push_str("-- Monomorphized generic aliases (CssPropertyValue<T>, BoxOrStatic<T>, …)\n");
+    out.push_str("-- ------------------------------------------------------------------\n\n");
+
+    for a in &ir.type_aliases {
+        emit_alias_wrapper(&mut out, ir, a);
+    }
+
+    // api.json's constants, merged onto the class tables the wrappers built.
+    emit_constants(&mut out, ir);
+
     out
 }
 
@@ -97,13 +126,23 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
 // Filters
 // ============================================================================
 
+/// Two categories other bindings skip are emitted here, because the reason
+/// they are skipped is about generating a native wrapper STRUCT, which an
+/// FFI binding never does:
+///
+/// * `Boxed` — an opaque heap handle (`ImageRef`, `FontRef`, `Texture`,
+///   `Svg`, `GlContextPtr`) is an ordinary struct with a pointer field at
+///   the C ABI; skipping it lost every one of their methods.
+/// * `Recursive` — `Xml` / `XmlNode` / `XmlNodeChildVec` are "infinite
+///   size" only for a binding that embeds the type by value in a wrapper
+///   of its own; the cdef declares exactly what `azul.h` declares (the
+///   recursion goes through the child Vec's `ptr`), so the FFI handles
+///   them like any other type.
 fn should_emit_struct(s: &StructDef) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    !matches!(s.category, TypeCategory::Recursive
-        | TypeCategory::VecRef
-        | TypeCategory::Boxed
+    !matches!(s.category, TypeCategory::VecRef
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
         | TypeCategory::CallbackTypedef)
@@ -113,9 +152,7 @@ fn should_emit_enum(e: &EnumDef) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    !matches!(e.category, TypeCategory::Recursive
-        | TypeCategory::VecRef
-        | TypeCategory::Boxed
+    !matches!(e.category, TypeCategory::VecRef
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
         | TypeCategory::CallbackTypedef)
@@ -126,6 +163,69 @@ fn is_unit_only_enum(e: &EnumDef) -> bool {
         && e.variants
             .iter()
             .all(|v| matches!(v.kind, EnumVariantKind::Unit))
+}
+
+// ============================================================================
+// Derive surface (equality, ordering, hashing, debug, ownership)
+// ============================================================================
+
+/// The derive exports a class has, as the `syms` table `_az_derive` reads:
+/// `(<key>, <C symbol>)` pairs in the order the helper documents them.
+///
+/// Built from the IR's FUNCTION list, not from `TypeTraits`: the export is
+/// the only evidence a derive exists (a type whose api.json `derive` list
+/// and whose `custom_impls` disagree still gets the symbol emitted into
+/// libazul, and the binding must reach whatever libazul exports).
+fn derive_syms(funcs: &[&FunctionDef]) -> Vec<(&'static str, String)> {
+    const KEYS: &[(FunctionKind, &str)] = &[
+        (FunctionKind::Delete, "delete"),
+        (FunctionKind::DeepCopy, "clone"),
+        (FunctionKind::PartialEq, "eq"),
+        (FunctionKind::Cmp, "cmp"),
+        (FunctionKind::PartialCmp, "pcmp"),
+        (FunctionKind::Hash, "hash"),
+        (FunctionKind::DebugToString, "dbg"),
+    ];
+    KEYS.iter()
+        .filter_map(|(kind, key)| {
+            funcs
+                .iter()
+                .find(|f| f.kind == *kind)
+                .map(|f| (*key, f.c_name.clone()))
+        })
+        .collect()
+}
+
+/// Emit a type's `ffi.metatype` line: the methods table becomes `__index`
+/// and [`DERIVE_HELPER`]'s `_az_derive` adds one metamethod per derive the
+/// type exports.
+///
+/// `is_vec` asks for `#value` (the ptr/len/cap layout), `is_string` for a
+/// `__tostring` that decodes the wrapped UTF-8 bytes instead of printing
+/// the Debug form — the string type is the one type whose text IS its
+/// value.
+fn emit_metatype(
+    out: &mut String,
+    class: &str,
+    c_name: &str,
+    syms: &[(&'static str, String)],
+    is_vec: bool,
+    is_string: bool,
+) {
+    let mut fields: Vec<String> = syms
+        .iter()
+        .map(|(key, sym)| format!("{key} = '{sym}'"))
+        .collect();
+    if is_vec {
+        fields.push("len = true".to_string());
+    }
+    if is_string {
+        fields.push("str = true".to_string());
+    }
+    out.push_str(&format!(
+        "    ffi.metatype('{c_name}', _az_derive({class}_methods, '{c_name}', {{ {} }}))\n",
+        fields.join(", ")
+    ));
 }
 
 // ============================================================================
@@ -157,7 +257,11 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         return;
     }
 
-    let has_delete = funcs.iter().any(|f| f.kind == FunctionKind::Delete);
+    // Everything a `derive` gives the type (`_clone`, `_partialEq`,
+    // `_cmp`, `_partialCmp`, `_hash`, `_toDbgString`, `_delete`) is
+    // installed by `_az_derive` on the metatype line at the end of the
+    // block, so the loop below only walks the api.json methods.
+    let syms = derive_syms(&funcs);
 
     // The whole methods-table block is wrapped in `do ... end` so the
     // `<Class>_methods` local doesn't count against Lua's main-chunk limit
@@ -170,45 +274,12 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // Instance methods (Method, MethodMut) — receiver `self`.
     let mut method_count = 0;
     for f in &funcs {
-        match f.kind {
-            FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(out, class, &f.method_name, f, ir);
-                method_count += 1;
-            }
-            FunctionKind::DeepCopy => {
-                // Expose deep-copy as `:clone()`. The clone is a fresh
-                // owned value returned BY VALUE from C — LuaJIT never
-                // arms metatype __gc for C-call returns (only for
-                // ffi.new cdata), so arm the finalizer explicitly.
-                let ret_ty = f.return_type.as_deref().unwrap_or(class);
-                out.push_str(&format!(
-                    "    function {}_methods:clone() return {} end\n",
-                    class,
-                    lua_arm(
-                        &format!("C.{}(self)", f.c_name),
-                        &lua_finalizer_for(ret_ty, ir)
-                    )
-                ));
-                method_count += 1;
-            }
-            FunctionKind::DebugToString => {
-                // Returns an owned AzString by value — arm it so
-                // dropping the result doesn't leak the heap buffer.
-                let ret_ty = f.return_type.as_deref().unwrap_or("String");
-                out.push_str(&format!(
-                    "    function {}_methods:toString() return {} end\n",
-                    class,
-                    lua_arm(
-                        &format!("C.{}(self)", f.c_name),
-                        &lua_finalizer_for(ret_ty, ir)
-                    )
-                ));
-                method_count += 1;
-            }
-            _ => {}
+        if matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+            emit_instance_method(out, class, &f.method_name, f, ir);
+            method_count += 1;
         }
     }
-    if method_count == 0 {
+    if method_count == 0 && syms.is_empty() {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
@@ -253,8 +324,9 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // copies `len` bytes from `ptr` — `self.vec.ptr` / `self.vec.len`
     // are accessible directly since AzString is a cdata with the C
     // struct layout.
-    if class == "String" {
-        out.push_str("    function String_methods:to_lua_string()\n");
+    let is_string = s.category == TypeCategory::String;
+    if is_string {
+        out.push_str(&format!("    function {}_methods:to_lua_string()\n", class));
         out.push_str("        if self.vec.ptr == nil or self.vec.len == 0 then return '' end\n");
         out.push_str("        return ffi.string(self.vec.ptr, self.vec.len)\n");
         out.push_str("    end\n");
@@ -341,76 +413,20 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("    end\n");
     }
 
-    // Phase I.2.7 (Lua): __eq metamethod via Az<X>_partialEq when
-    // TypeTraits.is_partial_eq and the helper is exported.
-    let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
-    let eq_clause = if has_eq {
-        // Guard against `cdata == nil` and cross-type equality: LuaJIT
-        // invokes __eq with `b = nil` / a foreign cdata, which would
-        // otherwise dereference garbage inside the C-side partialEq
-        // comparator. `ffi.istype` (not `type(x) == 'cdata'`) makes the
-        // check exact and keeps it valid under cffi-lua, where cdata are
-        // userdata to `type()`. The ctype is cached per do-block.
-        out.push_str(&format!("    local {}_ct = ffi.typeof('{}')\n", class, c_name));
-        format!(
-            ", __eq = function(a, b) if not (ffi.istype({c}_ct, a) and ffi.istype({c}_ct, b)) \
-             then return false end; return C.{}(a, b) end",
-            eq_sym,
-            c = class
-        )
-    } else {
-        String::new()
-    };
-
-    // Phase I.3.5 (Lua): __tostring metamethod via Az<X>_toDbgString.
-    let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg =
-        s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym) && s.name != "String";
-    // The AzString returned by value from toDbgString is never seen by
-    // a finalizer (LuaJIT arms __gc only for ffi.new cdata, not C-call
-    // returns), so it must be consumed here after ffi.string() copies
-    // the bytes — otherwise every tostring() leaks the heap buffer.
-    let tostring_clause = if has_dbg {
-        format!(
-            ", __tostring = function(self) local az = C.{}(self); local ok = az.vec.ptr ~= nil \
-             and az.vec.len > 0; local s = ok and ffi.string(az.vec.ptr, _tonum(az.vec.len)) or \
-             ''; C.AzString_delete(az); return s end",
-            dbg_sym
-        )
-    } else {
-        String::new()
-    };
-
-    // Phase I.1.8 (Lua): __len + __index for numeric keys when this is
-    // a Vec wrapper. Enables `#vec` length, `vec[i]` access (0-based at
-    // the C ABI, 1-based via convention here), and `ipairs(vec)`-like
-    // iteration via the standard length+index protocol.
+    // Phase I.1.8 (Lua): `#vec` when this is a Vec wrapper. Decided by
+    // the ptr/len/cap layout, never by the name.
     let is_vec = s.fields.len() == 4
         && s.fields[0].name == "ptr"
         && s.fields[1].name == "len"
         && s.fields[2].name == "cap"
         && s.fields[1].type_name.trim() == "usize";
-    let len_clause = if is_vec {
-        ", __len = function(self) return _tonum(self.len) end".to_string()
-    } else {
-        String::new()
-    };
 
-    // Metatype binding — only for non-Copy types (those with _delete).
-    // For Copy types we still want __index for instance methods, but no __gc.
-    if has_delete {
-        let delete_c = format!("Az{}_delete", class);
-        out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) \
-             end{}{}{} }})\n",
-            c_name, class, delete_c, eq_clause, tostring_clause, len_clause
-        ));
-    } else if method_count > 0 || has_eq || has_dbg || is_vec {
-        out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods{}{}{} }})\n",
-            c_name, class, eq_clause, tostring_clause, len_clause
-        ));
+    // Metatype binding: `__index` plus every metamethod the type's derive
+    // exports support (`__gc`, `__eq`, `__lt`, `__le`, `__tostring`,
+    // `__len`), all built by `_az_derive`. A type with neither methods nor
+    // derives has nothing to attach.
+    if method_count > 0 || !syms.is_empty() || is_vec {
+        emit_metatype(out, class, &c_name, &syms, is_vec, is_string);
     }
     out.push_str("end\n");
 
@@ -437,7 +453,9 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     let c_name = format!("Az{}", e.name);
 
     let funcs: Vec<&FunctionDef> = ir.functions_for_class(class).collect();
-    let has_delete = funcs.iter().any(|f| f.kind == FunctionKind::Delete);
+    // Same derive surface as a struct — a tagged union compares, orders,
+    // hashes and prints through the very same C exports.
+    let syms = derive_syms(&funcs);
 
     // See struct equivalent for the rationale: scope the methods table so
     // we don't blow Lua's 200-locals-per-function ceiling on the main chunk.
@@ -446,26 +464,9 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 
     let mut method_count = 0;
     for f in &funcs {
-        match f.kind {
-            FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(out, class, &f.method_name, f, ir);
-                method_count += 1;
-            }
-            FunctionKind::DeepCopy => {
-                // Owned C-returned clone: arm the finalizer (see the
-                // struct-wrapper DeepCopy branch for the rationale).
-                let ret_ty = f.return_type.as_deref().unwrap_or(class);
-                out.push_str(&format!(
-                    "    function {}_methods:clone() return {} end\n",
-                    class,
-                    lua_arm(
-                        &format!("C.{}(self)", f.c_name),
-                        &lua_finalizer_for(ret_ty, ir)
-                    )
-                ));
-                method_count += 1;
-            }
-            _ => {}
+        if matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+            emit_instance_method(out, class, &f.method_name, f, ir);
+            method_count += 1;
         }
     }
     // AzOption<T>:to_opt() / is_some / is_none — Lua nullable mirror
@@ -522,22 +523,12 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
         }
     }
 
-    if method_count == 0 && auto_method_count == 0 {
+    if method_count == 0 && auto_method_count == 0 && syms.is_empty() {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
-    if has_delete {
-        let delete_c = format!("Az{}_delete", class);
-        out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end \
-             }})\n",
-            c_name, class, delete_c
-        ));
-    } else if method_count + auto_method_count > 0 {
-        out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods }})\n",
-            c_name, class
-        ));
+    if method_count + auto_method_count > 0 || !syms.is_empty() {
+        emit_metatype(out, class, &c_name, &syms, false, false);
     }
     out.push_str("end\n");
 
@@ -570,6 +561,180 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 }
 
 // ============================================================================
+// Monomorphized generic aliases
+// ============================================================================
+
+/// Emit the wrapper for one monomorphized generic alias
+/// (`ClipPathValue = CssPropertyValue<ClipPath>`, `BoxOrStaticString =
+/// BoxOrStatic<String>`, `PhysicalSizeU32 = PhysicalSize<u32>`).
+///
+/// `ir.find_struct` / `ir.find_enum` do not know these names — they live in
+/// `ir.type_aliases` and carry their instantiated shape in
+/// `monomorphized_def` — but the C ABI has them as real
+/// `union AzClipPathValue` / `struct AzPhysicalSizeU32` types, and
+/// `functions_for_class` lists the derive exports the IR synthesises for
+/// them. Skipping them skipped 119 classes' worth of equality, ordering and
+/// hashing, plus the destructor of the 32 that own heap memory.
+fn emit_alias_wrapper(out: &mut String, ir: &CodegenIR, a: &TypeAliasDef) {
+    // A plain alias (`GLuint = u32`) IS its target — no type of its own.
+    let Some(mono) = a.monomorphized_def.as_ref() else {
+        return;
+    };
+    // A monomorphized SimpleEnum is a C `enum`: an int on the wire with no
+    // struct/union ctype to attach a metatype to (`is_value_aggregate`
+    // classifies it the same way); its variants are plain constants.
+    let variants = match &mono.kind {
+        MonomorphizedKind::TaggedUnion { variants, .. } => Some(variants),
+        MonomorphizedKind::Struct { .. } => None,
+        MonomorphizedKind::SimpleEnum { .. } => return,
+    };
+
+    let class = &a.name;
+    let c_name = format!("Az{}", a.name);
+    let funcs: Vec<&FunctionDef> = ir.functions_for_class(class).collect();
+    let syms = derive_syms(&funcs);
+    if syms.is_empty() {
+        return;
+    }
+
+    out.push_str("do\n");
+    out.push_str(&format!("    local {}_methods = {{}}\n", class));
+    // An alias carries no api.json methods, only the derives — so the
+    // struct shapes get the same fluent `:with(opts)` builder every other
+    // struct wrapper has, and the tagged unions get their derives alone.
+    if variants.is_none() {
+        out.push_str(&format!(
+            "    function {}_methods:with(opts) azul._apply_opts(self, opts); return self end\n",
+            class
+        ));
+    }
+    emit_metatype(out, class, &c_name, &syms, false, false);
+    out.push_str("end\n");
+
+    out.push_str(&format!("azul.{} = {{\n", class));
+    if let Some(variants) = variants {
+        // Tags for variant inspection (`if v.tag == azul.ClipPathValue.Tag.Exact`),
+        // exactly like a data-bearing enum's.
+        out.push_str("    Tag = {\n");
+        for v in variants {
+            out.push_str(&format!(
+                "        {} = C.{}_Tag_{},\n",
+                v.name, c_name, v.name
+            ));
+        }
+        out.push_str("    },\n");
+    }
+    for f in &funcs {
+        if f.kind == FunctionKind::Default {
+            emit_static_method(out, &f.method_name, f, ir);
+        }
+    }
+    out.push_str("}\n\n");
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Emit every `ir.constants` entry onto the namespace table of the class it
+/// belongs to (`azul.GlContextPtr.COLOR_BUFFER_BIT`), so the OpenGL enum
+/// values api.json carries are usable as
+/// `gl:clear(azul.GlContextPtr.COLOR_BUFFER_BIT)` instead of being
+/// unreachable from Lua.
+///
+/// The values are MERGED into whatever the wrapper layer already put on
+/// `azul.<Class>` (its constructors and static methods) instead of
+/// replacing it, and the table is created when the class has no wrapper at
+/// all, so the constants never depend on emission order.
+fn emit_constants(out: &mut String, ir: &CodegenIR) {
+    if ir.constants.is_empty() {
+        return;
+    }
+    // Group by class, first-seen order inside and out, so the output is
+    // byte-stable across runs. `<Class>_<CONSTANT>` is the name
+    // `ir_builder::build_constants` composes.
+    let mut groups: Vec<(&str, Vec<(String, &str)>)> = Vec::new();
+    for c in &ir.constants {
+        let Some((class, _)) = c.name.split_once('_') else {
+            continue;
+        };
+        let name = c.member_name();
+        match groups.iter_mut().find(|(g, _)| *g == class) {
+            Some((_, items)) => items.push((name, c.value.as_str())),
+            None => groups.push((class, vec![(name, c.value.as_str())])),
+        }
+    }
+
+    out.push_str("\n-- ------------------------------------------------------------------\n");
+    out.push_str("-- Constants\n");
+    out.push_str("-- ------------------------------------------------------------------\n\n");
+
+    for (class, items) in groups {
+        out.push_str(&format!(
+            "-- api.json's constants for {class}, merged onto the class table.\n"
+        ));
+        out.push_str("do\n");
+        out.push_str("    local consts = {\n");
+        for (name, value) in items {
+            // Uppercase constant names are valid Lua identifiers (every Lua
+            // keyword is lowercase), but a name that is not takes the
+            // bracket form rather than being renamed.
+            let key = if is_lua_ident(&name) {
+                name.to_string()
+            } else {
+                format!("[\"{name}\"]")
+            };
+            out.push_str(&format!("        {key} = {},\n", lua_constant_literal(value)));
+        }
+        out.push_str("    }\n");
+        out.push_str(&format!("    azul.{class} = azul.{class} or {{}}\n"));
+        out.push_str(&format!(
+            "    for k, v in pairs(consts) do azul.{class}[k] = v end\n"
+        ));
+        out.push_str("end\n\n");
+    }
+}
+
+/// Is `name` usable as a bare Lua table key? (Lua's keywords are all
+/// lowercase, so an uppercase constant name never collides with one.)
+fn is_lua_ident(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && sanitize_lua_ident(name) == name
+}
+
+/// The Lua expression for a constant's api.json value.
+///
+/// Lua's number is a double, so an integer above 2^53 would silently lose
+/// bits as a literal (`GL_TIMEOUT_IGNORED` = `0xFFFFFFFFFFFFFFFF` becomes
+/// 2^64 and reaches C as 0). Such a value is assembled into a 64-bit cdata
+/// from its two halves instead — spelled without a `ULL` suffix, which is
+/// LuaJIT-only (see the dual-runtime rules in `lang_lua/mod.rs`).
+fn lua_constant_literal(value: &str) -> String {
+    let text = value.trim();
+    let parsed = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => text.parse::<u64>().ok(),
+    };
+    match parsed {
+        // Exactly representable as a Lua number: emit it as written, so the
+        // hex spelling of a GL enum survives into the binding.
+        Some(v) if v <= (1u64 << 53) => text.to_string(),
+        Some(v) => format!(
+            "(ffi.cast('uint64_t', 0x{:X}) * 4294967296 + 0x{:X})",
+            v >> 32,
+            v & 0xFFFF_FFFF
+        ),
+        // Not an integer we can reason about (a float, a negative, an
+        // expression): pass the api.json text through unchanged.
+        None => text.to_string(),
+    }
+}
+
+// ============================================================================
 // Method-body emitters
 // ============================================================================
 //
@@ -589,6 +754,31 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 //   `azul.pin_callback('AzFooCallbackType', arg)` line for each callback-typed arg before the C
 //   call.
 
+/// Does `func` take a callback that libazul invokes on a WORKER thread?
+///
+/// Lua is a single-threaded VM with no runtime lock: a Lua function called
+/// from a libazul worker thread corrupts the interpreter, so a setter for
+/// one emits a hard error instead of a registration that would crash at
+/// runtime. The writeback pattern is the supported route from Lua — the
+/// WriteBackCallback runs on the main thread.
+///
+/// This is the one decision in this emitter that an api.json property
+/// cannot make: nothing records which thread invokes a callback, and the
+/// shape does not tell (plenty of main-thread callbacks take neither a
+/// `CallbackInfo` nor a channel endpoint, so any structural rule would
+/// refuse callbacks that work today). The kinds are therefore listed, and
+/// the list is the exception that the marker below makes reviewable.
+// allow-api-name: api.json records no "invoked off the main thread" property
+const OFF_MAIN_THREAD_CALLBACKS: &[&str] = &["ThreadCallback"];
+
+fn takes_off_main_thread_callback(func: &FunctionDef) -> bool {
+    func.args.iter().any(|a| {
+        a.callback_info
+            .as_ref()
+            .is_some_and(|c| OFF_MAIN_THREAD_CALLBACKS.contains(&c.callback_wrapper_name.as_str()))
+    })
+}
+
 /// Emit one instance method line (the do-block and `local Foo_methods = {}`
 /// are emitted by the caller). `func.args[0]` is the receiver (named after
 /// the class) and is supplied implicitly via `self`.
@@ -601,17 +791,11 @@ fn emit_instance_method(
 ) {
     let lua_method = sanitize_lua_ident(lua_method);
 
-    // ThreadCallback guard (same rationale as emit_static_method):
+    // Worker-thread callback guard (see `takes_off_main_thread_callback`):
     // LuaJIT has no runtime lock, so a Lua fn invoked from a libazul
     // worker thread corrupts the VM. Applies to instance methods like
     // ThreadPool:create_thread.
-    let takes_thread_callback = func.args.iter().any(|a| {
-        a.callback_info
-            .as_ref()
-            .map(|c| c.callback_wrapper_name == "ThreadCallback")
-            .unwrap_or(false)
-    });
-    if takes_thread_callback {
+    if takes_off_main_thread_callback(func) {
         out.push_str(&format!(
             "    function {}_methods:{}(...)\n\x20       error('ThreadCallback from Lua is \
              unsupported; use the writeback pattern', 2)\n\x20   end\n",
@@ -1072,19 +1256,11 @@ fn emit_arg_coercions(
 fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir: &CodegenIR) {
     let lua_method = sanitize_lua_ident(lua_method);
 
-    // ThreadCallback guard: LuaJIT is a single-threaded VM with no
-    // runtime lock — libazul would invoke a Lua ThreadCallback on a
-    // worker thread and corrupt the VM. ThreadCallback host-code is
-    // NOT supported from Lua; only the writeback pattern
-    // is (the WriteBackCallback runs on the main thread). Emit a
-    // hard error instead of a VM-corrupting registration.
-    let takes_thread_callback = func.args.iter().any(|a| {
-        a.callback_info
-            .as_ref()
-            .map(|c| c.callback_wrapper_name == "ThreadCallback")
-            .unwrap_or(false)
-    });
-    if takes_thread_callback {
+    // Worker-thread callback guard: Lua is a single-threaded VM with no
+    // runtime lock — libazul would invoke the Lua function on a worker
+    // thread and corrupt the VM (see `takes_off_main_thread_callback`).
+    // Emit a hard error instead of a VM-corrupting registration.
+    if takes_off_main_thread_callback(func) {
         out.push_str(&format!(
             "    {} = function(...)\n\x20       error('ThreadCallback from Lua is unsupported; \
              use the writeback pattern', 2)\n\x20   end,\n",
@@ -1348,3 +1524,151 @@ fn sanitize_lua_ident(name: &str) -> String {
         name.to_string()
     }
 }
+
+// ============================================================================
+// Static Lua chunks
+// ============================================================================
+
+/// The derive surface shared by every wrapper type, emitted once at the top
+/// of the wrapper section and called from each type's `ffi.metatype` line
+/// (see [`emit_metatype`]).
+///
+/// One helper rather than four closures written out per type: the metamethod
+/// bodies are identical for all ~1 900 types, and the main chunk pays one
+/// constant-table entry per type for the `syms` literal instead of a
+/// function prototype per metamethod.
+const DERIVE_HELPER: &str = r#"-- ------------------------------------------------------------------
+-- Derive surface shared by every wrapper type
+-- ------------------------------------------------------------------
+--
+-- Equality, ordering, hashing, the debug string and ownership all route
+-- through the C export libazul generated from the Rust `derive`, so
+-- `a == b`, `a < b` and `a:hash()` answer exactly what Rust's PartialEq /
+-- Ord / Hash say about the same two values -- and equal values hash equal,
+-- which a Lua-side reimplementation could never promise.
+--
+-- Symbols arrive BY NAME, never as `C.AzFoo_cmp`: naming ~6 000 comparators
+-- at module load would `ffi.cdef` every one of them and blow LuaJIT's
+-- 16-bit ctype budget (see the lazy `__az_fn_decls` registry in the
+-- prologue). `C[sym]` inside a closure pays the memoizing proxy once, on
+-- the first comparison, and is a plain table read afterwards.
+--
+-- `syms` keys, each present iff libazul exports that derive for the type:
+--   delete  Drop       -> __gc
+--   clone   Clone      -> :clone()
+--   eq      PartialEq  -> __eq
+--   cmp     Ord        -> :cmp(other), __lt, __le
+--   pcmp    PartialOrd -> :partial_cmp(other), and the ordering
+--                         metamethods when there is no total order
+--   hash    Hash       -> :hash()
+--   dbg     Debug      -> :toString(), __tostring
+--   len     the ptr/len/cap layout -> #value
+--   str     the string type        -> __tostring is the text itself
+local function _az_derive(methods, ctname, syms)
+    local ct = ffi.typeof(ctname)
+    local mt = { __index = methods }
+    local delete = syms.delete
+
+    -- Ownership: both FFIs run __gc only for cdata that `ffi.new` created,
+    -- so this frees values the user constructs and never a struct field or
+    -- a C-call return -- those are armed explicitly with `ffi.gc` at the
+    -- wrapper boundary and disarmed by `azul._consume` once a C call has
+    -- taken the bytes over.
+    if delete then
+        mt.__gc = function(self) C[delete](self) end
+    end
+
+    -- A clone is a fresh owned value returned BY VALUE, which the FFI hands
+    -- back unarmed; arm it so dropping it frees it exactly once.
+    if syms.clone then
+        local clone = syms.clone
+        if delete then
+            methods.clone = function(self) return ffi.gc(C[clone](self), C[delete]) end
+        else
+            methods.clone = function(self) return C[clone](self) end
+        end
+    end
+
+    -- uint64_t: a boxed integer cdata on both runtimes, returned whole so
+    -- no bits are lost. `tostring(v:hash())` is the portable table key.
+    if syms.hash then
+        local hash = syms.hash
+        methods.hash = function(self) return C[hash](self) end
+    end
+
+    if syms.eq then
+        local eq = syms.eq
+        -- Both FFIs invoke __eq with `nil` or a foreign cdata as the second
+        -- operand; reading those bytes as this type would compare garbage,
+        -- so anything that is not this type is simply not equal to it.
+        -- `ffi.istype` (never `type(x) == 'cdata'`) keeps the check exact
+        -- under cffi-lua, where cdata are userdata to `type()`.
+        mt.__eq = function(a, b)
+            if not (ffi.istype(ct, a) and ffi.istype(ct, b)) then return false end
+            return C[eq](a, b)
+        end
+    end
+
+    -- The comparators answer 0 = Less, 1 = Equal, 2 = Greater, and
+    -- _partialCmp additionally 255 = incomparable (a NaN inside the value):
+    -- the encoding the DLL emits for core::cmp::Ordering.
+    if syms.cmp then
+        local cmp = syms.cmp
+        methods.cmp = function(self, other) return C[cmp](self, other) end
+    end
+    if syms.pcmp then
+        local pcmp = syms.pcmp
+        methods.partial_cmp = function(self, other)
+            local o = C[pcmp](self, other)
+            if o == 255 then return nil end -- Rust's `None`: not comparable
+            return o
+        end
+    end
+    -- A total order answers everything `<` and `<=` can ask. A partial one
+    -- answers 255 for a NaN, which is neither `<` nor `<=`, like Rust.
+    local order = syms.cmp or syms.pcmp
+    if order then
+        local function ordered(a, b)
+            if not (ffi.istype(ct, a) and ffi.istype(ct, b)) then
+                error('azul: < and <= need two ' .. ctname .. ' values', 3)
+            end
+            return C[order](a, b)
+        end
+        mt.__lt = function(a, b) return ordered(a, b) == 0 end
+        mt.__le = function(a, b) local o = ordered(a, b); return o == 0 or o == 1 end
+    end
+
+    if syms.dbg then
+        local dbg = syms.dbg
+        -- :toString() hands back the AzString itself, armed -- the caller
+        -- owns it. __tostring copies the bytes into a Lua string and frees
+        -- the AzString, which no finalizer would ever see (a C-call return
+        -- is never armed by the FFI), so printing a value cannot leak.
+        methods.toString = function(self) return ffi.gc(C[dbg](self), C.AzString_delete) end
+        if not syms.str then
+            mt.__tostring = function(self)
+                local az = C[dbg](self)
+                local ok = az.vec.ptr ~= nil and az.vec.len > 0
+                local s = ok and ffi.string(az.vec.ptr, _tonum(az.vec.len)) or ''
+                C.AzString_delete(az)
+                return s
+            end
+        end
+    end
+
+    -- The string type prints as its own text, not as its Debug form.
+    if syms.str then
+        mt.__tostring = function(self)
+            if self.vec.ptr == nil or self.vec.len == 0 then return '' end
+            return ffi.string(self.vec.ptr, _tonum(self.vec.len))
+        end
+    end
+
+    if syms.len then
+        mt.__len = function(self) return _tonum(self.len) end
+    end
+
+    return mt
+end
+
+"#;
