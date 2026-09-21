@@ -475,6 +475,11 @@ fn emit_function(out: &mut String, ir: &CodegenIR, f: &FunctionDef, config: &Cod
         if is_cb {
             let mut c = a.clone();
             c.name = format!("{}_ctx", a.name);
+            // The extra slot of a `WithCtx` twin is the callback's context,
+            // and the DLL exports that twin with the type spelled out
+            // (`lang_rust::format_function_args_for_cabi_pair_with_ctx`): an
+            // extern that names anything else does not match the symbol.
+            // allow-api-name: a WithCtx twin's context slot IS an OptionRefAny.
             c.type_name = "OptionRefAny".to_string();
             c.ref_kind = ArgRefKind::Owned;
             ctx_args.push(c);

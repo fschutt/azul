@@ -64,6 +64,30 @@
 //! divergence risk. We instead emit a thin namespace per data-bearing
 //! enum that exposes the C-ABI `_Tag_*` discriminator constants and
 //! every variant constructor as `pub fn <variant>(...)`.
+//!
+//! # Namespaces: enums and monomorphized generic aliases
+//!
+//! Three kinds of type get a NAMESPACE (`pub const X = struct { pub const Raw = C.AzX; ... }`
+//! or, for a unit enum, `pub const X = enum(C.AzX) { ... }`) rather than an `inner`-carrying
+//! wrapper, because their values ARE the raw C aggregate and there is nothing to box:
+//!
+//! * data-bearing enums ([`emit_union_helper`]),
+//! * unit-only enums ([`emit_unit_enum_helper`]),
+//! * monomorphized generic aliases ([`emit_alias_helper`]) — api.json's
+//!   `type_alias: {target: CssPropertyValue, generic_args: [ClipPath]}`. `ir.find_struct` /
+//!   `find_enum` return `None` for these, but `ir.type_aliases` carries the monomorphized
+//!   definition and `azul.h` emits a real `union AzClipPathValue`, so skipping them skips
+//!   119 types' worth of API.
+//!
+//! A namespace carries the same surface a wrapper struct does — variant constructors, static
+//! factories, instance methods, the derives, and `deinit` — with the receiver spelled
+//! `*const Raw` / `*Raw` / `Raw` (whatever the C ABI declares) instead of `*Self`.
+//!
+//! `deinit` on a namespace has NO `consumed` sentinel to check: the caller holds a plain C
+//! value, not a wrapper, so it frees exactly what it is handed and must be called exactly
+//! once, like the `Az<T>_delete` it forwards to. Emitting it is not optional — Zig has no
+//! drop glue, so without it there is no way to release a `CssProperty`, an `OptionDom` or a
+//! `ClipPathValue` at all, and every one of the 494 such types leaked.
 
 use std::collections::HashSet;
 
@@ -71,7 +95,7 @@ use super::{
     super::{
         ir::{
             ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
-            FunctionKind, StructDef, TypeCategory,
+            FunctionKind, MonomorphizedKind, StructDef, TypeAliasDef, TypeCategory,
         },
         managed_host_invoker::shadow_callback_typedef,
     },
@@ -183,6 +207,25 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
         emit_union_helper(&mut out, &ctx, e);
     }
 
+    // Monomorphized generic aliases. `ir.structs` / `ir.enums` do not carry
+    // them, so the two loops above cannot see them - yet libazul exports a
+    // full set of derives and a destructor for each, and `c_decls` already
+    // declared the union/struct they resolve to.
+    out.push_str(
+        "\n// ============================================================================\n",
+    );
+    out.push_str(
+        "// Monomorphized generic aliases (`ClipPathValue = CssPropertyValue<ClipPath>`).\n",
+    );
+    out.push_str(
+        "// ============================================================================\n",
+    );
+    out.push('\n');
+
+    for ta in &ir.type_aliases {
+        emit_alias_helper(&mut out, &ctx, ta);
+    }
+
     out
 }
 
@@ -249,6 +292,44 @@ fn has_destructor(class_name: &str, ir: &CodegenIR) -> bool {
         .any(|f| f.class_name == class_name && f.kind == FunctionKind::Delete)
 }
 
+/// The class's `Delete`, if the binding may surface it.
+///
+/// A `VecRef` is `{ptr, len}` BORROWED from the caller: its `_delete` is a
+/// no-op `drop_in_place` over memory someone else owns, so a `deinit()` on
+/// the borrow hands user code a way to free a buffer it never allocated.
+/// That is why `FunctionKind::is_declared_capability` - the predicate that
+/// admits a `VecRef` to a wrapper at all, so its derives can be named -
+/// deliberately leaves `Delete` out, and why `bug_classes` exempts the
+/// borrowed-slice trait functions from the reachability rule. Every other
+/// owning type MUST get one: Zig has no drop glue.
+fn destructor_of<'a>(class_name: &str, ir: &'a CodegenIR) -> Option<&'a FunctionDef> {
+    let borrowed = ir
+        .find_struct(class_name)
+        .is_some_and(|s| s.category == TypeCategory::VecRef);
+    if borrowed {
+        return None;
+    }
+    // Not `functions_for_class`: its signature ties the class name's lifetime
+    // to the IR's, which would force every caller to own the name.
+    ir.functions
+        .iter()
+        .find(|f| f.class_name == class_name && f.kind == FunctionKind::Delete)
+}
+
+/// The Zig names a class's wrapper or namespace declares.
+///
+/// Zig forbids a function parameter that shadows ANY declaration in the
+/// containing scope ("function parameter shadows declaration of 'X'"), and
+/// every method this file emits is such a declaration - so every parameter
+/// name is checked against this set first (see [`renamed_param`]). Derived
+/// from the IR's function list, never from what one emission loop happens to
+/// have written, so the answer cannot drift between the loops.
+fn reserved_names(class_name: &str, ir: &CodegenIR) -> HashSet<String> {
+    ir.functions_for_class(class_name)
+        .map(|f| sanitize_identifier(&idiomatic_method_name(f)))
+        .collect()
+}
+
 fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
     ir.functions.iter().any(|f| {
         f.class_name == class_name
@@ -284,7 +365,7 @@ fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
 fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     let zig_name = sanitize_identifier(&s.name);
     let ffi_name = ffi_type_name(&s.name);
-    let has_delete = has_destructor(&s.name, ctx.ir);
+    let delete_fn = destructor_of(&s.name, ctx.ir);
 
     if !s.doc.is_empty() {
         for d in &s.doc {
@@ -316,14 +397,9 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     // Zig also disallows function parameters whose name shadows ANY
     // declaration in the containing scope, including sibling methods.
     // `fromMillis(millis: u64)` shadows the `millis(self: *Self)`
-    // method on the same struct. Precompute the set of Zig method
-    // names this class will emit so the per-method param formatter
-    // can rename colliding params with an `_arg` suffix.
-    let emitted_method_names: HashSet<String> = ctx
-        .ir
-        .functions_for_class(&s.name)
-        .map(|f| sanitize_identifier(&idiomatic_method_name(f)))
-        .collect();
+    // method on the same struct, so the per-method param formatter renames
+    // colliding params with an `_arg` suffix.
+    let emitted_method_names = reserved_names(&s.name, ctx.ir);
 
     // Constructors / static factories.
     for f in ctx.ir.functions_for_class(&s.name) {
@@ -367,7 +443,7 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     emit_trait_methods(out, &s.name, &ffi_name, ctx.ir, &mut seen);
 
     // Destructor.
-    if has_delete {
+    if delete_fn.is_some() {
         out.push_str("    /// Free the underlying native resources.\n");
         out.push_str("    /// Idiomatic Zig: pair `App.create(...)` with `defer app.deinit();`.\n");
         out.push_str("    /// Skipped when `self.consumed` is set — a previous DeepCopy /\n");
@@ -386,16 +462,19 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
 // Unit-only enum namespace
 // ============================================================================
 
-/// A namespace for a unit-only enum, carrying only its trait entry points.
+/// A namespace for a unit-only enum: a real Zig `enum(C.AzX)` over the C
+/// values, carrying everything libazul exports for the type.
 ///
 /// The pre-translated C layer already gives the value itself
-/// (`C.AzAccessibilityRole_Alert`), so this deliberately emits no
-/// constructors and no `Tag` block - it exists so `_partialEq` / `_cmp` /
-/// `_hash` / `_toDbgString`, which libazul exports for these types, can be
-/// named from Zig at all. A type that declares none of them gets no
-/// namespace rather than an empty one.
+/// (`C.AzAccessibilityRole_Alert`), so this emits no `Tag` block - the enum
+/// members ARE the discriminators. What it does carry is the exported
+/// surface that had nowhere else to live: `_partialEq` / `_cmp` / `_hash` /
+/// `_toDbgString` / `_clone` / `_createDefault`, plus the factories
+/// (`AzComponentSource_create`) and instance methods a unit enum can still
+/// have, and the destructor when libazul exports one. A type that declares
+/// none of those gets no namespace rather than an empty one.
 fn emit_unit_enum_helper(out: &mut String, ctx: &Ctx, e: &EnumDef) {
-    let has_traits = ctx.ir.functions_for_class(&e.name).any(|f| {
+    let has_surface = ctx.ir.functions_for_class(&e.name).any(|f| {
         matches!(
             f.kind,
             FunctionKind::PartialEq
@@ -405,9 +484,18 @@ fn emit_unit_enum_helper(out: &mut String, ctx: &Ctx, e: &EnumDef) {
                 | FunctionKind::DebugToString
                 | FunctionKind::DeepCopy
                 | FunctionKind::Default
+                // A unit enum can carry ordinary API too: `ComponentSource`
+                // has a `create` factory and libazul exports a `_delete` for
+                // a handful of them. Excluding those kinds from the gate is
+                // what left those symbols declared and uncallable.
+                | FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+                | FunctionKind::Delete
         )
     });
-    if !has_traits {
+    if !has_surface {
         return;
     }
 
@@ -430,12 +518,49 @@ fn emit_unit_enum_helper(out: &mut String, ctx: &Ctx, e: &EnumDef) {
     }
     out.push_str("    _,\n\n");
     out.push_str(&format!("    pub const Raw = C.{};\n\n", ffi_name));
-    emit_trait_methods_raw(out, &e.name, &ffi_name, ctx.ir);
+
+    let reserved = reserved_names(&e.name, ctx.ir);
+    // One declaration set for the whole namespace: a second `pub fn` of the
+    // same name is a Zig redeclaration error, so every loop below inserts
+    // into it before writing.
+    //
+    // A unit enum spells `Default` as `default()` by hand at the end of this
+    // function, not as the C suffix `createDefault()` the union namespaces
+    // use - it has since the namespace existed, and renaming it would break
+    // callers. Claim BOTH names so the generic factory loop does not emit a
+    // second entry point onto the same C symbol.
+    let mut seen: HashSet<String> = HashSet::new();
+    seen.insert("default".to_string());
+    for f in ctx.ir.functions_for_class(&e.name) {
+        // A unit enum's VALUES are this namespace's own members
+        // (`HttpMethod.Delete`), so libazul's per-variant constructor
+        // (`AzHttpMethod_deleteVariant() -> AzHttpMethod`) would only be a
+        // second spelling of something already declared above - across 664
+        // unit enums, thousands of one-line functions on a binding whose
+        // whole design is about not handing the Zig compiler a megabyte it
+        // does not need. (`bug_classes::api_functions` makes the same call:
+        // a unit enum's exports are optional for exactly this reason.) The
+        // ordinary constructors, static methods, instance methods and the
+        // destructor DO get emitted below - those have no other spelling.
+        if f.kind == FunctionKind::EnumVariantConstructor || f.kind == FunctionKind::Default {
+            seen.insert(sanitize_identifier(&idiomatic_method_name(f)));
+        }
+    }
+
+    // NOTE: a declaration here may not collide with one of the enum MEMBERS
+    // written above - Zig has one namespace for both. It cannot: members are
+    // the api.json variant names (PascalCase) and every name emitted below is
+    // lowerCamel, either a C symbol's suffix or one of the six trait
+    // spellings.
+    emit_raw_factories(out, ctx, &e.name, &reserved, &mut seen);
+    emit_raw_instance_methods(out, ctx, &e.name, &reserved, &mut seen);
+    emit_trait_methods_raw(out, &e.name, &ffi_name, ctx.ir, &reserved, &mut seen);
+    emit_raw_destructor(out, ctx, &e.name, &reserved, &mut seen);
 
     // `Default` is a STATIC factory, not an instance method, so it is not part
-    // of `emit_trait_methods_raw` - the union helper already emits it through
-    // its constructor loop and would duplicate. For a unit enum this namespace
-    // is the only place it can live.
+    // of `emit_trait_methods_raw`. A unit enum spells it `default()` rather
+    // than the C suffix `createDefault()` the union namespaces use, and has
+    // done since the namespace existed - renaming it would break callers.
     if let Some(f) = ctx
         .ir
         .functions_for_class(&e.name)
@@ -453,24 +578,32 @@ fn emit_unit_enum_helper(out: &mut String, ctx: &Ctx, e: &EnumDef) {
 // Trait entry points
 // ============================================================================
 
-/// The enum flavour of [`emit_trait_methods`]: same entry points, but an enum
-/// wrapper has no `inner` field, so these operate on `*const Raw`.
-fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir: &CodegenIR) {
-    // Zig forbids a parameter shadowing ANY declaration in the containing
-    // scope, and these namespaces already declare one function per variant -
-    // `NodeType` has `pub fn a()`, so a parameter named `a` is a hard error.
-    // The file solves this for ordinary methods with `renamed_param`; this
-    // does the same, against the names this namespace will emit.
-    let reserved: HashSet<String> = ir
-        .functions_for_class(class_name)
-        .map(|f| sanitize_identifier(&idiomatic_method_name(f)))
-        .collect();
-    let pa = renamed_param("a", &reserved);
-    let pb = renamed_param("b", &reserved);
-    let pv = renamed_param("v", &reserved);
-    let mut seen: HashSet<String> = HashSet::new();
+/// The enum flavour of [`emit_trait_methods`]: same entry points, but a
+/// namespace has no `inner` field, so these operate on `*const Raw`.
+///
+/// `reserved` is [`reserved_names`] for the class (Zig forbids a parameter
+/// shadowing ANY declaration in the containing scope, and these namespaces
+/// already declare one function per variant - `NodeType` has `pub fn a()`, so
+/// a parameter named `a` is a hard error). `seen` is the namespace's single
+/// declaration set, shared with the constructor / method / destructor loops:
+/// a second `pub fn` of the same name is a Zig redeclaration error, so the
+/// whole namespace must agree on what it has already written.
+fn emit_trait_methods_raw(
+    out: &mut String,
+    class_name: &str,
+    ffi_name: &str,
+    ir: &CodegenIR,
+    reserved: &HashSet<String>,
+    seen: &mut HashSet<String>,
+) {
+    let pa = renamed_param("a", reserved);
+    let pb = renamed_param("b", reserved);
+    let pv = renamed_param("v", reserved);
     for f in ir.functions_for_class(class_name) {
-        let name = idiomatic_method_name(f);
+        // Sanitized, like every other name that goes into `seen`: the six
+        // trait spellings are never Zig keywords, but the set is shared with
+        // the loops whose names can be.
+        let name = sanitize_identifier(&idiomatic_method_name(f));
         let text = match f.kind {
             FunctionKind::PartialEq => format!(
                 "    /// Structural equality, delegating to the Rust `PartialEq`.\n    pub fn \
@@ -731,51 +864,287 @@ fn emit_union_helper(out: &mut String, ctx: &Ctx, e: &EnumDef) {
     }
     out.push_str("    };\n\n");
 
-    // Variant constructors come from FunctionKind::EnumVariantConstructor /
-    // Constructor / StaticMethod / Default.
-    let empty_reserved: HashSet<String> = HashSet::new();
-    for f in ctx.ir.functions_for_class(&e.name) {
-        match f.kind {
-            FunctionKind::EnumVariantConstructor
-            | FunctionKind::Constructor
-            | FunctionKind::StaticMethod
-            | FunctionKind::Default => {
-                let safe = sanitize_identifier(&idiomatic_method_name(f));
-                let params = format_params(ctx, f, /* skip_self */ false, &empty_reserved);
-                let call_args =
-                    format_call_args(ctx, f, /* skip_self */ false, &empty_reserved);
+    let reserved = reserved_names(&e.name, ctx.ir);
+    let mut seen: HashSet<String> = HashSet::new();
 
-                let return_zig = match &f.return_type {
-                    None => "void".to_string(),
-                    Some(_) => format!("C.{}", ffi_name),
-                };
-
-                if !f.doc.is_empty() {
-                    for d in &f.doc {
-                        out.push_str(&format!("    /// {}\n", d));
-                    }
-                }
-                out.push_str(&format!(
-                    "    pub fn {}({}) {} {{\n",
-                    safe, params, return_zig
-                ));
-                let call = format!("C.{}({})", f.c_name, call_args);
-                if return_zig == "void" {
-                    out.push_str(&format!("        {};\n", call));
-                } else {
-                    out.push_str(&format!("        return {};\n", call));
-                }
-                out.push_str("    }\n\n");
-            }
-            _ => {}
-        }
-    }
-
+    // Variant constructors and static factories.
+    emit_raw_factories(out, ctx, &e.name, &reserved, &mut seen);
+    // Instance methods (`CssProperty.isInitial`, `SvgPathElement.getLength`).
+    // Dropping these is how six exported methods ended up declared and
+    // uncallable - a data-bearing enum is not only its constructors.
+    emit_raw_instance_methods(out, ctx, &e.name, &reserved, &mut seen);
     // Trait entry points. An enum wrapper holds no `inner` — its values are
     // raw C tagged unions — so these take `*const Raw` rather than `*Self`.
     // Without them every derive an enum declares was unreachable from Zig,
     // which is what the C++ emitter had to fix for the same reason.
-    emit_trait_methods_raw(out, &e.name, &ffi_name, ctx.ir);
+    emit_trait_methods_raw(out, &e.name, &ffi_name, ctx.ir, &reserved, &mut seen);
+    // The destructor. 462 data-bearing enums (every `Option*`, `Result*` and
+    // payload-carrying enum that owns heap memory) had none, and Zig has no
+    // drop glue to make up for it.
+    emit_raw_destructor(out, ctx, &e.name, &reserved, &mut seen);
+    out.push_str("};\n\n");
+}
+
+// ============================================================================
+// Shared namespace members (enums and monomorphized aliases)
+// ============================================================================
+
+/// [`classify_return`] for a namespace with no `inner` field.
+///
+/// A factory or method that returns the class's own type hands back the raw C
+/// aggregate the caller already holds — there is no `Self` wrapper to build
+/// one into, and `Self{ .inner = ... }` would not even compile here.
+fn classify_return_raw(ctx: &Ctx, f: &FunctionDef, ffi_name: &str) -> RetConv {
+    match classify_return(ctx, f) {
+        RetConv::SelfWrapper => RetConv::Plain(format!("C.{}", ffi_name)),
+        other => other,
+    }
+}
+
+/// The static entry points of a namespace: variant constructors, ordinary
+/// constructors, static methods and `Default`. None of them takes a receiver.
+fn emit_raw_factories(
+    out: &mut String,
+    ctx: &Ctx,
+    class_name: &str,
+    reserved: &HashSet<String>,
+    seen: &mut HashSet<String>,
+) {
+    let ffi_name = ffi_type_name(class_name);
+    for f in ctx.ir.functions_for_class(class_name) {
+        if !matches!(
+            f.kind,
+            FunctionKind::EnumVariantConstructor
+                | FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Default
+        ) {
+            continue;
+        }
+        let safe = sanitize_identifier(&idiomatic_method_name(f));
+        if !seen.insert(safe.clone()) {
+            continue;
+        }
+        let params = format_params(ctx, f, /* skip_self */ false, reserved);
+        let call_args = format_call_args(ctx, f, /* skip_self */ false, reserved);
+        let ret = classify_return_raw(ctx, f, &ffi_name);
+
+        for d in &f.doc {
+            out.push_str(&format!("    /// {}\n", d));
+        }
+        out.push_str(&format!(
+            "    pub fn {}({}) {} {{\n",
+            safe,
+            params,
+            ret.zig_type()
+        ));
+        let call = format!("C.{}({})", f.c_name, call_args);
+        match ret {
+            RetConv::Void => out.push_str(&format!("        {};\n", call)),
+            _ => out.push_str(&format!("        return {};\n", ret.wrap(&call))),
+        }
+        out.push_str("    }\n\n");
+    }
+}
+
+/// The `Method` / `MethodMut` entry points of a namespace.
+///
+/// The receiver is the raw C aggregate itself, and its indirection comes from
+/// the IR's `ref_kind` — the same input `c_decls::emit_function` used to
+/// spell the `extern fn` parameter (`[*c]const AzX` / `[*c]AzX` / `AzX`), so
+/// the `*const Raw` / `*Raw` / `Raw` written here always coerces to it.
+fn emit_raw_instance_methods(
+    out: &mut String,
+    ctx: &Ctx,
+    class_name: &str,
+    reserved: &HashSet<String>,
+    seen: &mut HashSet<String>,
+) {
+    let ffi_name = ffi_type_name(class_name);
+    for f in ctx.ir.functions_for_class(class_name) {
+        if !matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+            continue;
+        }
+        let safe = sanitize_identifier(&idiomatic_method_name(f));
+        if !seen.insert(safe.clone()) {
+            continue;
+        }
+
+        // `args[0]` is the receiver `ir_builder` synthesises for `{"self":
+        // ...}`, exactly as `emit_instance_method` treats it.
+        let recv = f.args.first();
+        let params = format_params(ctx, f, /* skip_self */ true, reserved);
+        let user_call_args = format_call_args(ctx, f, /* skip_self */ true, reserved);
+
+        let recv_param = recv.map(|a| {
+            (
+                renamed_param(&a.name, reserved),
+                apply_ref_kind("Raw".to_string(), a.ref_kind),
+            )
+        });
+        let (full_params, call_args_full) = match &recv_param {
+            Some((n, ty)) => (
+                if params.is_empty() {
+                    format!("{}: {}", n, ty)
+                } else {
+                    format!("{}: {}, {}", n, ty, params)
+                },
+                if user_call_args.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{}, {}", n, user_call_args)
+                },
+            ),
+            None => (params.clone(), user_call_args.clone()),
+        };
+
+        for d in &f.doc {
+            out.push_str(&format!("    /// {}\n", d));
+        }
+        // A namespace has no `consumed` sentinel to flip (it holds no state),
+        // so a by-value receiver — which the C ABI consumes — has to be
+        // called out in the docs instead.
+        if recv.is_some_and(|a| matches!(a.ref_kind, ArgRefKind::Owned)) {
+            out.push_str(
+                "    /// The C ABI takes the receiver BY VALUE and consumes it: do not use\n    \
+                 /// or free it after this call.\n",
+            );
+        }
+
+        let ret = classify_return_raw(ctx, f, &ffi_name);
+        out.push_str(&format!(
+            "    pub fn {}({}) {} {{\n",
+            safe,
+            full_params,
+            ret.zig_type()
+        ));
+        let call = format!("C.{}({})", f.c_name, call_args_full);
+        match ret {
+            RetConv::Void => out.push_str(&format!("        {};\n", call)),
+            _ => out.push_str(&format!("        return {};\n", ret.wrap(&call))),
+        }
+        out.push_str("    }\n\n");
+    }
+}
+
+/// `deinit` for a namespace type.
+///
+/// Unlike a wrapper struct's `deinit` this has no `consumed` sentinel to
+/// check — a namespace holds no state, its values are the plain C aggregates
+/// the caller owns — so it frees exactly what it is handed and must be called
+/// once, like the `Az<T>_delete` it forwards to.
+///
+/// It is not optional. Zig has no drop glue, so a `CssProperty`, an
+/// `OptionDom` or a `ClipPathValue` with no reachable destructor is memory
+/// the program can never give back.
+fn emit_raw_destructor(
+    out: &mut String,
+    ctx: &Ctx,
+    class_name: &str,
+    reserved: &HashSet<String>,
+    seen: &mut HashSet<String>,
+) {
+    let Some(f) = destructor_of(class_name, ctx.ir) else {
+        return;
+    };
+    let safe = sanitize_identifier(&idiomatic_method_name(f));
+    if !seen.insert(safe.clone()) {
+        return;
+    }
+    // The IR's own parameter name and indirection, so the call matches the
+    // `extern fn` `c_decls` derived from the same two fields.
+    let (name, ty) = match f.args.first() {
+        Some(a) => (
+            renamed_param(&a.name, reserved),
+            apply_ref_kind("Raw".to_string(), a.ref_kind),
+        ),
+        None => (renamed_param("instance", reserved), "*Raw".to_string()),
+    };
+    out.push_str("    /// Free the value's native resources.\n");
+    out.push_str("    /// Idiomatic Zig: `var v = ...; defer <Type>.deinit(&v);`\n");
+    out.push_str("    /// There is no `consumed` sentinel here as there is on an owning\n");
+    out.push_str("    /// wrapper struct — a namespace holds no state — so call this exactly\n");
+    out.push_str("    /// once, and never on a value already moved into the API.\n");
+    out.push_str(&format!("    pub fn {}({}: {}) void {{\n", safe, name, ty));
+    out.push_str(&format!("        C.{}({});\n", f.c_name, name));
+    out.push_str("    }\n\n");
+}
+
+// ============================================================================
+// Monomorphized generic alias namespace
+// ============================================================================
+
+/// A namespace for a monomorphized generic alias (`ClipPathValue =
+/// CssPropertyValue<ClipPath>`, `PhysicalSizeU32 = PhysicalSize<u32>`).
+///
+/// `ir.find_struct` / `ir.find_enum` return `None` for these — api.json
+/// spells them `type_alias: {target, generic_args}` and the IR keeps them in
+/// `type_aliases`, with the instantiated definition under
+/// `monomorphized_def` — so neither the struct nor the enum loop above can
+/// see them. They are nevertheless REAL types on the wire:
+/// `c_decls::emit_monomorphized` writes the `extern union` / `extern struct`
+/// for each, `azul.h` the matching `union AzClipPathValue`, and libazul
+/// exports a full set of derives plus, for the ones whose payload owns
+/// memory, a destructor. Skipping them skipped 119 types' worth of API.
+fn emit_alias_helper(out: &mut String, ctx: &Ctx, ta: &TypeAliasDef) {
+    // There is nothing to hang the surface on unless `c_decls` declared a Zig
+    // type for this alias: it emits nothing for one whose target is still
+    // generic and has no monomorphized definition, and `C.Az<name>` would not
+    // resolve.
+    let target = ta.target.trim();
+    if ta.monomorphized_def.is_none() && (target.contains('<') || target.contains('>')) {
+        return;
+    }
+    if ctx.ir.functions_for_class(&ta.name).next().is_none() {
+        return;
+    }
+
+    let zig_name = sanitize_identifier(&ta.name);
+    let ffi_name = ffi_type_name(&ta.name);
+
+    // The discriminator constants `c_decls::emit_monomorphized` wrote for this
+    // instantiation, under the spelling it used: a tagged union gets the
+    // `_Tag_` infix, a monomorphized unit enum (an int on the wire) does not,
+    // and a monomorphized struct has no discriminator at all.
+    let tags: Vec<(String, String)> = match ta.monomorphized_def.as_ref().map(|m| &m.kind) {
+        Some(MonomorphizedKind::TaggedUnion { variants, .. }) => variants
+            .iter()
+            .map(|v| (v.name.clone(), format!("{}_Tag_{}", ffi_name, v.name)))
+            .collect(),
+        Some(MonomorphizedKind::SimpleEnum { variants, .. }) => variants
+            .iter()
+            .map(|v| (v.clone(), format!("{}_{}", ffi_name, v)))
+            .collect(),
+        _ => Vec::new(),
+    };
+
+    for d in &ta.doc {
+        out.push_str(&format!("/// {}\n", d));
+    }
+    out.push_str(&format!("pub const {} = struct {{\n", zig_name));
+    out.push_str("    /// The raw FFI type this alias monomorphizes to, as declared in `C`.\n");
+    out.push_str(&format!("    pub const Raw = C.{};\n", ffi_name));
+    out.push('\n');
+
+    if !tags.is_empty() {
+        out.push_str("    /// Discriminator constants for the underlying C tagged union.\n");
+        out.push_str("    pub const Tag = struct {\n");
+        for (variant, c_name) in &tags {
+            out.push_str(&format!(
+                "        pub const {}: c_uint = C.{};\n",
+                sanitize_identifier(variant),
+                c_name
+            ));
+        }
+        out.push_str("    };\n\n");
+    }
+
+    let reserved = reserved_names(&ta.name, ctx.ir);
+    let mut seen: HashSet<String> = HashSet::new();
+    emit_raw_factories(out, ctx, &ta.name, &reserved, &mut seen);
+    emit_raw_instance_methods(out, ctx, &ta.name, &reserved, &mut seen);
+    emit_trait_methods_raw(out, &ta.name, &ffi_name, ctx.ir, &reserved, &mut seen);
+    emit_raw_destructor(out, ctx, &ta.name, &reserved, &mut seen);
     out.push_str("};\n\n");
 }
 
@@ -1182,7 +1551,7 @@ mod tests {
                 config::CodegenConfig,
                 ir::{
                     CallbackArgInfo, FieldDef, FieldRefKind, FunctionArg, FunctionDef,
-                    FunctionKind, StructDef,
+                    FunctionKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
                 },
             },
             c_decls::tests::fixture_ir,
@@ -1289,6 +1658,47 @@ mod tests {
             ],
         ));
         ir.structs.push(strukt("Bar", TypeCategory::Regular, vec![]));
+        // A borrowed slice: admitted to a wrapper by its declared `Debug`
+        // (`has_declared_capability`) although its category is excluded, so
+        // the destructor carve-out in `destructor_of` has something to bite on.
+        ir.structs.push(strukt(
+            "FooVecRef",
+            TypeCategory::VecRef,
+            vec![
+                field("ptr", "Foo", FieldRefKind::Ptr),
+                field("len", "usize", FieldRefKind::Owned),
+            ],
+        ));
+        // A monomorphized generic alias, the shape `ir.structs` / `ir.enums`
+        // never carry: `FooValue = CssPropertyValue<Foo>`.
+        ir.type_aliases.push(TypeAliasDef {
+            name: "FooValue".into(),
+            target: "CssPropertyValue".into(),
+            generic_args: vec!["Foo".into()],
+            doc: vec!["Type alias for CssPropertyValue < Foo >".into()],
+            module: "dom".into(),
+            external_path: None,
+            traits: Default::default(),
+            monomorphized_def: Some(MonomorphizedTypeDef {
+                kind: MonomorphizedKind::TaggedUnion {
+                    repr: Some("C, u8".into()),
+                    variants: vec![
+                        MonomorphizedVariant {
+                            name: "None".into(),
+                            payload_type: None,
+                            payload_ref_kind: FieldRefKind::Owned,
+                        },
+                        MonomorphizedVariant {
+                            name: "Exact".into(),
+                            payload_type: Some("Foo".into()),
+                            payload_ref_kind: FieldRefKind::Owned,
+                        },
+                    ],
+                },
+            }),
+            dependencies: vec![],
+            sort_order: 0,
+        });
         for (c, kind, args, ret) in [
             ("AzOptionFoo_some", FunctionKind::EnumVariantConstructor, vec![arg("payload", "Foo", ArgRefKind::Owned)], Some("OptionFoo")),
             ("AzOptionFoo_none", FunctionKind::EnumVariantConstructor, vec![], Some("OptionFoo")),
@@ -1308,6 +1718,18 @@ mod tests {
             ("AzBar_eqFoo", FunctionKind::Method, vec![arg("bar", "Bar", ArgRefKind::Ref), arg("foo", "Foo", ArgRefKind::Ref)], Some("bool")),
             ("AzBar_foo", FunctionKind::Method, vec![arg("bar", "Bar", ArgRefKind::Owned)], Some("Foo")),
             ("AzBar_delete", FunctionKind::Delete, vec![arg("bar", "Bar", ArgRefKind::RefMut)], None),
+            // A data-bearing enum's own method and destructor: neither has an
+            // `inner` to hang off, and both used to be dropped on the floor.
+            ("AzOptionFoo_isSome", FunctionKind::Method, vec![arg("option_foo", "OptionFoo", ArgRefKind::Ref)], Some("bool")),
+            ("AzOptionFoo_delete", FunctionKind::Delete, vec![arg("instance", "OptionFoo", ArgRefKind::RefMut)], None),
+            // The monomorphized alias: derives + a destructor on a class the
+            // struct and enum tables do not contain.
+            ("AzFooValue_partialEq", FunctionKind::PartialEq, vec![arg("a", "FooValue", ArgRefKind::Ref), arg("b", "FooValue", ArgRefKind::Ref)], Some("bool")),
+            ("AzFooValue_delete", FunctionKind::Delete, vec![arg("instance", "FooValue", ArgRefKind::RefMut)], None),
+            // The borrowed slice: a declared `Debug` earns it a wrapper, the
+            // `_delete` over someone else's buffer must not come with it.
+            ("AzFooVecRef_toDbgString", FunctionKind::DebugToString, vec![arg("instance", "FooVecRef", ArgRefKind::Ref)], Some("String")),
+            ("AzFooVecRef_delete", FunctionKind::Delete, vec![arg("instance", "FooVecRef", ArgRefKind::RefMut)], None),
         ] {
             ir.functions.push(func(c, c.split('_').next().unwrap().trim_start_matches("Az"), kind, args, ret));
         }
@@ -1351,6 +1773,70 @@ mod tests {
     fn wrapper_typed_returns_are_wrapped_and_by_value_self_is_consumed() {
         let z = zig();
         assert!(z.contains("    pub fn foo(self: *Self) Foo {\n        const _ret = Foo{ .inner = C.AzBar_foo(self.inner) };\n        self.consumed = true;\n        return _ret;\n"), "{z}");
+    }
+
+    /// A data-bearing enum is a namespace, not a wrapper struct: its methods
+    /// and its destructor take the raw C value, and without them libazul's
+    /// `_delete` for every `Option*` / `Result*` / payload-carrying enum was
+    /// declared and uncallable — a leak in a language with no drop glue.
+    #[test]
+    fn enum_namespaces_carry_their_methods_and_destructor() {
+        let z = zig();
+        assert!(
+            z.contains(
+                "    pub fn isSome(option_foo: *const Raw) bool {\n        return \
+                 C.AzOptionFoo_isSome(option_foo);\n    }\n"
+            ),
+            "{z}"
+        );
+        assert!(
+            z.contains(
+                "    pub fn deinit(instance: *Raw) void {\n        \
+                 C.AzOptionFoo_delete(instance);\n    }\n"
+            ),
+            "{z}"
+        );
+    }
+
+    /// A monomorphized generic alias lives in `ir.type_aliases`, not in
+    /// `structs` / `enums`, but is a real C union with real exports.
+    #[test]
+    fn monomorphized_aliases_get_a_namespace() {
+        let z = zig();
+        assert!(z.contains("pub const FooValue = struct {\n"), "{z}");
+        assert!(z.contains("    pub const Raw = C.AzFooValue;\n"), "{z}");
+        assert!(
+            z.contains("        pub const Exact: c_uint = C.AzFooValue_Tag_Exact;\n"),
+            "{z}"
+        );
+        assert!(
+            z.contains(
+                "    pub fn eql(a: *const Raw, b: *const Raw) bool {\n        return \
+                 C.AzFooValue_partialEq(a, b);\n    }\n"
+            ),
+            "{z}"
+        );
+        assert!(
+            z.contains(
+                "    pub fn deinit(instance: *Raw) void {\n        \
+                 C.AzFooValue_delete(instance);\n    }\n"
+            ),
+            "{z}"
+        );
+    }
+
+    /// A `VecRef` points at the CALLER's buffer: its declared `Debug` earns
+    /// it a wrapper so the derive can be named, but the `_delete` must never
+    /// come with it — that would hand user code a free of memory it does not
+    /// own.
+    #[test]
+    fn borrowed_slices_get_no_destructor() {
+        let z = zig();
+        let start = z.find("pub const FooVecRef = struct {\n").expect("no FooVecRef wrapper");
+        let body = &z[start..start + z[start..].find("\n};\n").expect("unterminated") ];
+        assert!(body.contains("pub fn toDbgString("), "{body}");
+        assert!(!body.contains("pub fn deinit("), "{body}");
+        assert!(!z.contains("C.AzFooVecRef_delete("), "{z}");
     }
 
     #[test]
