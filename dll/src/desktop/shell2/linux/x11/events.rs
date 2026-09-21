@@ -586,10 +586,12 @@ impl X11Window {
             let ws = self.common.current_window_state();
             let size = ws.size.dimensions;
             let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
-            // The Motif hints keep BORDER|RESIZEH for `NoTitle` and
-            // `NoControls`, so those windows still have the WM's own resize
-            // handles; only `None` drops every bit and needs our band.
-            let frameless = decorations == azul_core::window::WindowDecorations::None;
+            // A window has the WM's own resize handles exactly when we asked
+            // the WM for a frame. Read that from the SAME place the request is
+            // built, so the band can never disagree with what was asked for:
+            // no decoration bits, no server frame, and the band is the only
+            // way left to resize.
+            let frameless = super::motif_decor_bits(decorations) == 0;
             if let Some(edge) =
                 csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {

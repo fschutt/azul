@@ -492,6 +492,41 @@ unsafe fn apply_net_wm_icon(
     );
 }
 
+/// The `_MOTIF_WM_HINTS` decoration bits a decoration mode asks the window
+/// manager for.
+///
+/// Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
+/// MINIMIZE=32, MAXIMIZE=64.
+///
+/// Zero means "draw me no frame at all", and it is the ONLY answer an X11
+/// window manager reads unambiguously: every WM that honours these hints -
+/// xfwm4, Metacity/Marco, KWin - treats `MWM_DECOR_BORDER` as "this window
+/// wants a frame" and hands back the WHOLE one, caption included. So a mode
+/// that must not get a server caption has to ask for nothing, and draw the
+/// rest itself.
+///
+/// Separated from [`apply_motif_wm_hints`] so the decision is testable: it is
+/// also what tells the software resize band whether this window has a server
+/// frame to resize by (`x11::events`, `csd_resize_edge_for_press`).
+pub(super) const fn motif_decor_bits(
+    decorations: azul_core::window::WindowDecorations,
+) -> std::os::raw::c_long {
+    match decorations {
+        // Nothing, and for the same reason in both cases: the app is getting
+        // its chrome from azul. `None` asked for that outright; `NoTitle`
+        // asked for a caption-less frame, which no X11 window manager can
+        // give - ask one for BORDER and it draws the caption too - so the
+        // only request that keeps a second titlebar off the screen is none.
+        // The controls `NoTitle` is owed come from `CsdInjection::ControlsOnly`
+        // and the edges from the software resize band, both of which key off
+        // exactly this answer.
+        azul_core::window::WindowDecorations::None
+        | azul_core::window::WindowDecorations::NoTitle => 0,
+        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
+        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
+    }
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// MWA-B5: `_MOTIF_WM_HINTS` — tell the WM which decorations to draw.
@@ -517,14 +552,7 @@ unsafe fn apply_motif_wm_hints(
         status: c_long,
     }
     const MWM_HINTS_DECORATIONS: c_long = 1 << 1;
-    // Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
-    // MINIMIZE=32, MAXIMIZE=64.
-    let deco_bits: c_long = match decorations {
-        azul_core::window::WindowDecorations::None => 0,
-        azul_core::window::WindowDecorations::NoTitle => 2 | 4,
-        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
-        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
-    };
+    let deco_bits: c_long = motif_decor_bits(decorations);
     let hints = MotifWmHints {
         flags: MWM_HINTS_DECORATIONS,
         functions: 0,
@@ -9823,5 +9851,66 @@ unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEv
     if let Some(ref mut lw) = win.common.layout_window {
         lw.device_event_manager
             .note_raw_motion(dx, dy, ev.sourceid as u64);
+    }
+}
+
+#[cfg(test)]
+mod motif_decoration_tests {
+    //! THE DOUBLE TITLEBAR ON X11.
+    //!
+    //! Measured on Linux Mint 22.2 / Xfwm4 with the AzWidgets demo, which asks
+    //! for `WindowDecorations::NoTitle`:
+    //!
+    //! ```text
+    //! _MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x2, 0x0, 0x6, 0x0, 0x0
+    //! _NET_FRAME_EXTENTS(CARDINAL)     = 2, 2, 36, 2
+    //! ```
+    //!
+    //! `0x6` is `MWM_DECOR_BORDER | MWM_DECOR_RESIZEH` - "no title bit" - and
+    //! the window still came back with a 36 px caption carrying its own
+    //! minimise / maximise / close. Every window manager that reads these
+    //! hints does this: `MWM_DECOR_BORDER` means "this window wants a frame",
+    //! and the frame a WM knows how to draw is the whole one. Xfwm4 and
+    //! Metacity/Marco fold title and border into ONE flag; KWin's `noborder`
+    //! is `!(BORDER | TITLE | ALL)`, so BORDER alone keeps the caption there
+    //! too.
+    //!
+    //! Meanwhile `csd::csd_injection_for` believes no Linux frame can show
+    //! controls without a title, and overlays a software set on top - so the
+    //! window ended up with TWO close buttons, one of them azul's.
+    //!
+    //! X11 has no xdg-decoration to negotiate with. The only request that
+    //! reliably means "no caption" is no decoration bits at all, which is what
+    //! `NoTitle` has to ask for: azul already owns the controls and, once the
+    //! bits are zero, the software resize band as well.
+
+    use azul_core::window::WindowDecorations;
+
+    use super::motif_decor_bits;
+
+    /// `NoTitle` must not ask for a server frame, because every WM that reads
+    /// the hint answers a request for one with the caption included.
+    #[test]
+    fn a_no_title_window_asks_for_no_server_frame() {
+        assert_eq!(
+            motif_decor_bits(WindowDecorations::NoTitle),
+            0,
+            "NoTitle asked the WM for BORDER|RESIZEH and got a 36px caption \
+             with it; the only request that leaves no caption is none at all"
+        );
+    }
+
+    /// Asking for no frame is also what turns the software resize band on -
+    /// one fact, read in both places, so a window can never be left with
+    /// neither the WM's edges nor ours.
+    #[test]
+    fn a_window_with_no_server_frame_resizes_itself() {
+        assert_eq!(motif_decor_bits(WindowDecorations::None), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoTitle), 0);
+
+        // These two keep the WM's frame, and with it its resize handles.
+        assert_ne!(motif_decor_bits(WindowDecorations::Normal), 0);
+        assert_ne!(motif_decor_bits(WindowDecorations::NoControls), 0);
+        assert_ne!(motif_decor_bits(WindowDecorations::NoTitleAutoInject), 0);
     }
 }
