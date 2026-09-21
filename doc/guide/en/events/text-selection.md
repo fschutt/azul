@@ -212,9 +212,12 @@ CSS `selection-background-color` and `selection-color` style the highlight:
 `get_document_selection`.
 
 **Cursors and ranges** - `add_cursor`, `add_selection_range`,
-`set_selection`, `remove_selection_by_id`, `get_primary_cursor`,
-`get_primary_selection`, `get_multi_cursor_selections`,
-`process_text_selection_click`.
+`set_selection`, `set_select_all_range`, `remove_selection_by_id`,
+`get_primary_cursor`, `get_primary_selection`,
+`get_multi_cursor_selections`, `process_text_selection_click`.
+`set_select_all_range(target, range)` defines what Ctrl+A selects on a
+node, for a surface where "everything" is narrower than the node's
+whole content.
 
 **Remote selections** - `set_remote_selections`,
 `clear_remote_selections`, `set_selection_owner_color`,

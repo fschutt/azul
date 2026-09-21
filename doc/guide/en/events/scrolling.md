@@ -121,6 +121,33 @@ The framework animates between scroll positions when `scroll_to` is called. Trac
 
 CSS `-azul-overflow-scrolling: touch` enables momentum on a node. `overscroll-behavior: contain` prevents scroll chaining to the parent.
 
+## More methods
+
+**Reading** - `get_scroll_offset` is the offset of the scroll node the
+event belongs to; `get_scroll_state(dom_id, node_id)` and
+`get_scroll_delta(dom_id, node_id)` are the full state and the change
+since the last event for one node. `get_scroll_offset_for_node` and
+`get_scroll_node_info` answer the same per node; see
+[Node Tree & Hit Testing](node-tree.md).
+
+**Scrolling** - `scroll_to(dom_id, node_id, position)` jumps,
+`scroll_to_animated(dom_id, node_id, target)` eases, and
+`scroll_to_unclamped` allows a position past the content's end - the
+overscroll region, which is what a rubber-band animation drives.
+`scroll_node_into_view(node)` and `scroll_active_cursor_into_view()`
+scroll the minimum needed to reveal a node or the text caret.
+
+**Finding the container** - `find_scroll_target(dom_id, node_id)`
+resolves which scroll container a wheel event over this node would
+actually move, following the same topmost-scrollable-ancestor rule the
+hit test uses. `find_scroll_parent` is its `DomNodeId` form.
+
+**Platform** - `get_natural_scroll()` reports the system's scroll
+direction preference, which you need only if you are synthesising
+scroll deltas yourself; the framework already applies it to real input.
+`has_system_natural_scroll()` says whether the platform reported a
+preference at all - see [Window & System](window-system.md).
+
 ## Cross-references
 
 - [`events`](..md): the event filter system this page builds on.
