@@ -961,10 +961,55 @@ fn emitters_never_key_behaviour_on_api_names() {
         for path in files {
             let Ok(src) = std::fs::read_to_string(&path) else { continue };
             let lines: Vec<&str> = src.lines().collect();
+            // A marker covers the next line of CODE (comment lines in between
+            // are part of the reason, which is usually more than one line),
+            // and everything up to the matching close if that line opens a
+            // block or a list: some exceptions are a whole table rather than
+            // one decision - a prelude is a curated set of names by
+            // definition, a C-type-to-native-type map names C types by nature
+            // - and marking every line of one would bury the reason.
+            // A comment never nests anything - counting the brackets in the
+            // reason's own prose would end the block it is introducing.
+            let depth_of = |line: &str| {
+                if line.trim_start().starts_with("//") {
+                    return 0;
+                }
+                line.chars().filter(|c| matches!(c, '[' | '(' | '{')).count() as i32
+                    - line.chars().filter(|c| matches!(c, ']' | ')' | '}')).count() as i32
+            };
+            let mut block_allowed: BTreeSet<usize> = BTreeSet::new();
+            for (i, line) in lines.iter().enumerate() {
+                if !line.contains("allow-api-name") {
+                    continue;
+                }
+                // Walk to the first line that is not a comment.
+                let mut j = i;
+                let mut depth = depth_of(line);
+                while depth == 0 && j + 1 < lines.len() {
+                    let next = lines[j + 1].trim_start();
+                    if !(next.starts_with("//") || next.is_empty()) {
+                        break;
+                    }
+                    j += 1;
+                }
+                if j + 1 < lines.len() {
+                    block_allowed.insert(j + 2);
+                    depth += depth_of(lines[j + 1]);
+                }
+                // Then to the close of whatever that line opened.
+                let mut k = j + 1;
+                while depth > 0 && k + 1 < lines.len() {
+                    k += 1;
+                    block_allowed.insert(k + 1);
+                    depth += depth_of(lines[k]);
+                }
+            }
             let allowed = |line: usize| {
                 let here = lines.get(line.wrapping_sub(1)).copied().unwrap_or("");
                 let above = lines.get(line.wrapping_sub(2)).copied().unwrap_or("");
-                here.contains("allow-api-name") || above.contains("allow-api-name")
+                here.contains("allow-api-name")
+                    || above.contains("allow-api-name")
+                    || block_allowed.contains(&line)
             };
             // Test modules may name concrete items: they check real api.json data.
             let test_start = src.find("#[cfg(test)]").map_or(usize::MAX, |p| src[..p].lines().count());
@@ -1210,6 +1255,15 @@ fn referenced_symbols(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     for line in text.lines() {
         let b = line.as_bytes();
         let mut i = 0;
+        // `function AzImageRef_getRawimage_2(...); external name 'AzImageRef_getRawimage';`
+        // BINDS a local name to an export. Pascal folds case, so two api.json
+        // methods differing only in case need one renamed; the renamed side is
+        // a declaration, not a reference to a symbol that does not exist. Only
+        // a line that also quotes the real export counts as such a binding, so
+        // a plain `extern` declaration still has to name something exported.
+        let renames_an_export = line.contains("external")
+            && line.matches(['"', '\'']).count() >= 2
+            && line.contains("Az");
         while i + 2 < b.len() {
             let boundary = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
             if boundary && b[i] == b'A' && b[i + 1] == b'z' && b[i + 2].is_ascii_uppercase() {
@@ -1243,7 +1297,7 @@ fn referenced_symbols(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
                             let t = line.trim_end();
                             t.ends_with('{') || t.ends_with(')') || t.ends_with('}')
                         };
-                    if definition {
+                    if definition || (renames_an_export && !quoted) {
                         defined.insert(tok.to_string());
                     } else if quoted || called {
                         used.insert(tok.to_string());
@@ -1258,8 +1312,76 @@ fn referenced_symbols(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     (used, defined)
 }
 
+/// A failure that names thousands of items is only actionable in full, but a
+/// panic message that long is unreadable. `AZ_BUG_CLASS_DUMP=<dir>` writes
+/// every offender to `<dir>/<what>-<lang>.txt` while the message stays a
+/// summary.
+fn dump_full(lang: &str, what: &str, items: &[String]) {
+    let Some(dir) = std::env::var_os("AZ_BUG_CLASS_DUMP") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let slug: String = what
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let _ = std::fs::write(dir.join(format!("{slug}-{lang}.txt")), items.join("\n"));
+}
+
+/// What each API function is: its kind, and the category of the type it sits
+/// on, keyed by C name.
+fn function_kinds() -> &'static BTreeMap<String, (FunctionKind, String)> {
+    static KINDS: OnceLock<BTreeMap<String, (FunctionKind, String)>> = OnceLock::new();
+    KINDS.get_or_init(|| {
+        ir().functions
+            .iter()
+            .map(|f| {
+                let category = ir()
+                    .find_struct(&f.class_name)
+                    .map(|s| s.category)
+                    .or_else(|| ir().find_enum(&f.class_name).map(|e| e.category))
+                    .map_or_else(|| "?".to_string(), |c| format!("{c:?}"));
+                (f.c_name.clone(), (f.kind, category))
+            })
+            .collect()
+    })
+}
+
+/// Summarizes missing C symbols by WHAT they are - `Delete on Vec x412`,
+/// `EnumVariantConstructor on Enum x88` - so a coverage failure states the
+/// shape of the gap (one emitter branch that never runs) instead of a wall of
+/// names, then gives examples from the largest group.
+fn summarize_symbols(lang: &str, what: &str, missing: &[String], total: usize) -> String {
+    dump_full(lang, what, missing);
+    let kinds = function_kinds();
+    let mut groups: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for m in missing {
+        let key = kinds
+            .get(m)
+            .map_or_else(|| "not an IR function".to_string(), |(k, c)| format!("{k:?} on {c}"));
+        groups.entry(key).or_default().push(m.as_str());
+    }
+    let mut by_size: Vec<(&String, &Vec<&str>)> = groups.iter().collect();
+    by_size.sort_by_key(|(k, v)| (std::cmp::Reverse(v.len()), (*k).clone()));
+    let shape: Vec<String> = by_size.iter().map(|(k, v)| format!("{k} x{}", v.len())).collect();
+    let examples: Vec<&str> = by_size
+        .first()
+        .map(|(_, v)| v.iter().take(3).copied().collect())
+        .unwrap_or_default();
+    format!(
+        "[{lang}] {} of {total} {what}: {}; e.g. {}",
+        missing.len(),
+        shape.join(", "),
+        examples.join(", ")
+    )
+}
+
 /// Summarizes a per-language list of missing items for a failure message.
 fn summarize(lang: &str, what: &str, missing: &[String], total: usize) -> String {
+    dump_full(lang, what, missing);
     let shown: Vec<&str> = missing.iter().take(8).map(String::as_str).collect();
     format!(
         "[{lang}] {} of {total} {what}: {}{}",
@@ -1358,10 +1480,22 @@ fn canonical_symbol(token: &str) -> Option<String> {
 /// line that names it twice - a declaration binding an alias to the C name -
 /// counts once).
 fn symbol_line_counts(files: &[(String, String)]) -> BTreeMap<String, usize> {
+    // A comment naming a symbol is not a call. Counting one would mean a
+    // binding scores green for the very functions it documents as skipped -
+    // rewarding the note instead of the wrapper - so a line that is nothing
+    // but a comment, in any of the shipped languages' syntaxes, is not
+    // evidence of reach.
+    const COMMENT: &[&str] = &[
+        "//", "/*", "*/", "*", "#", "--", "(*", "*)", "{-", "-}", "!", ";", "%", "{ ", "}",
+    ];
     let mut out: BTreeMap<String, usize> = BTreeMap::new();
     for (_, text) in files {
         for line in text.lines() {
             if !line.contains("az") && !line.contains("Az") {
+                continue;
+            }
+            let t = line.trim_start();
+            if COMMENT.iter().any(|c| t.starts_with(c)) {
                 continue;
             }
             let on_line: BTreeSet<String> = line
@@ -1395,10 +1529,161 @@ fn every_api_function_is_declared_by_every_binding() {
             .cloned()
             .collect();
         if !missing.is_empty() {
-            offenders.push(summarize(lang, "API functions are never declared", &missing, api.len()));
+            offenders.push(summarize_symbols(lang, "API functions are never declared", &missing, api.len()));
         }
     }
     assert_none("API functions missing from a binding's FFI layer", offenders);
+}
+
+/// The derives of the borrowed-slice types (`F32VecRef`, `GLuintVecRefMut`,
+/// ...). A `VecRef` is `{ptr, len}` pointing at memory the CALLER owns: a
+/// binding builds one at the call site from a native array and lets it die
+/// there. Its `_delete` is a no-op `drop_in_place` and its `_clone` copies the
+/// borrow, so surfacing either as idiomatic API hands user code a way to free
+/// or duplicate someone else's buffer. No borrowed-slice type has an api.json
+/// function of its own - every symbol on one is a derive - so they only have
+/// to be DECLARED, which
+/// `every_api_function_is_declared_by_every_binding` enforces.
+///
+/// `is_api_function` rather than `!is_trait_function`: the latter leaves out
+/// `_clone` and `_createDefault`, which are exactly as unsafe to expose here.
+fn borrowed_slice_plumbing() -> &'static BTreeSet<String> {
+    static PLUMBING: OnceLock<BTreeSet<String>> = OnceLock::new();
+    PLUMBING.get_or_init(|| {
+        ir().functions
+            .iter()
+            .filter(|f| !f.kind.is_api_function())
+            .filter(|f| {
+                ir().find_struct(&f.class_name)
+                    .is_some_and(|s| s.category == TypeCategory::VecRef)
+            })
+            .map(|f| f.c_name.clone())
+            .collect()
+    })
+}
+
+/// The declared capabilities (`_partialEq`, `_cmp`, `_hash`, `_clone`,
+/// `_createDefault`, `_toDbgString`) of the API's string type.
+///
+/// A binding may map `String` to the language's own string, and then that
+/// type's equality, ordering, hashing, copy, debug and default ARE those
+/// capabilities - answered natively, without an FFI call. Surfacing the C
+/// ones beside them is not extra API, it is a second, worse answer to the
+/// same question: each allocates and copies the bytes to compare them, and
+/// `_hash` returns Rust's `DefaultHasher` value, which is NOT the language's
+/// own hash of the same string. Two hashes for one string is a silent-bug
+/// generator. `api_functions()` already makes this exact call for unit enums.
+///
+/// The string's CONSTRUCTORS are not covered: `fromUtf16Be`, `fromCStr` and
+/// friends are api.json functions with no native equivalent, and a binding
+/// that cannot reach them is genuinely missing API.
+fn native_string_capabilities() -> &'static BTreeSet<String> {
+    static CAPS: OnceLock<BTreeSet<String>> = OnceLock::new();
+    CAPS.get_or_init(|| {
+        ir().functions
+            .iter()
+            .filter(|f| f.kind.is_declared_capability())
+            .filter(|f| {
+                ir().find_struct(&f.class_name)
+                    .is_some_and(|s| s.category == TypeCategory::String)
+            })
+            .map(|f| f.c_name.clone())
+            .collect()
+    })
+}
+
+/// A variant constructor whose payload is an opaque pointer.
+///
+/// `OptionX11Visual::Some` carries an `X11Visual`, whose IR target is
+/// `*const c_void` - an X server handle the caller got from Xlib. A binding whose idiomatic layer
+/// refuses raw pointers on purpose (Crystal says so in its header, Python in
+/// `python_unbridgeable`) cannot give it a safe form, and inventing one would
+/// hand user code a pointer it cannot validate. The raw FFI layer still
+/// declares it, so the capability is there for whoever holds a real Visual.
+fn opaque_pointer_variant(c_name: &str) -> bool {
+    ir().functions
+        .iter()
+        .filter(|f| f.kind == FunctionKind::EnumVariantConstructor)
+        .filter(|f| f.c_name == c_name)
+        .any(|f| {
+            f.args.iter().any(|a| {
+                ir().find_type_alias(a.type_name.trim()).is_some_and(|alias| {
+                    let t = alias.target.trim_start();
+                    t.starts_with("*const") || t.starts_with("*mut")
+                })
+            })
+        })
+}
+
+/// Symbols no Fortran identifier can spell.
+///
+/// A Fortran identifier is at most 63 characters. The shortest lossless
+/// rendering of `Az<Class>_<method>` drops the separator, so a C symbol of 65
+/// characters or more has no legal Fortran name at all and the binding must
+/// bind it under a hashed alias. The capability IS reachable that way - the
+/// alias is a normal callable - but a probe that counts lines naming the C
+/// symbol cannot see it, and papering over that with a comment mentioning the
+/// symbol would make the test pass for a reason that is not reachability.
+/// One symbol qualifies today:
+/// `AzCssStylePerspectiveOriginParseErrorOwned_wrongNumberOfComponents`.
+fn unspellable_in_fortran(c_name: &str) -> bool {
+    const FORTRAN_IDENT_MAX: usize = 63;
+    c_name.len().saturating_sub(1) > FORTRAN_IDENT_MAX
+}
+
+/// Go builds every tagged-union variant itself instead of calling the
+/// exported constructor: `types.go` writes the discriminant and the payload
+/// into a Go struct that mirrors the C layout, and a `const _ = uint(16 -
+/// unsafe.Sizeof(...))` assertion next to it fails the build if that layout
+/// ever stops matching. That is the whole design of the Go binding - it uses
+/// purego and mirrors C types natively rather than paying an FFI call - so
+/// `Az<Enum>_<variant>` is unreachable there ON PURPOSE, while every variant
+/// remains constructible. The constructor is still DECLARED nowhere and
+/// needs none: nothing links against it.
+fn go_builds_variants_natively(kind: FunctionKind) -> bool {
+    kind == FunctionKind::EnumVariantConstructor
+}
+
+/// The derives of an alias that shares its monomorphized type with another
+/// alias, minus the one name that carries the impls. (`is_api_function`
+/// again: `_clone` and `_createDefault` are impls on the same type too.)
+///
+/// api.json gives two names to one instantiation in four places
+/// (`LayoutGridAutoColumnsValue` and `LayoutGridAutoRowsValue` are both
+/// `CssPropertyValue<GridAutoTracks>`). Every other binding emits two distinct
+/// C types, but a Rust `pub type` is transparent - the two names ARE one type -
+/// so only one set of trait impls can exist; a second is E0119, conflicting
+/// implementations. The twin's C symbols are therefore never called from Rust,
+/// while the behaviour is fully reachable through the name that carries them.
+fn rust_alias_twins() -> &'static BTreeMap<String, Vec<String>> {
+    static TWINS: OnceLock<BTreeMap<String, Vec<String>>> = OnceLock::new();
+    TWINS.get_or_init(|| {
+        let mut by_instantiation: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        for a in &ir().type_aliases {
+            if a.generic_args.is_empty() {
+                continue;
+            }
+            by_instantiation
+                .entry(format!("{}<{}>", a.target, a.generic_args.join(",")))
+                .or_default()
+                .push(a.name.as_str());
+        }
+        // Which alias of a group carries the impls is the emitter's choice, so
+        // map each symbol to the same method on ALL of its twins and let the
+        // caller ask whether any of them is reached.
+        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for names in by_instantiation.values().filter(|n| n.len() > 1) {
+            for f in ir().functions.iter().filter(|f| !f.kind.is_api_function()) {
+                if !names.contains(&f.class_name.as_str()) {
+                    continue;
+                }
+                let suffix = f.c_name.trim_start_matches(&format!("Az{}", f.class_name));
+                let siblings = names.iter().map(|n| format!("Az{n}{suffix}")).collect();
+                out.insert(f.c_name.clone(), siblings);
+            }
+        }
+        out
+    })
 }
 
 /// Every API function is reachable from each binding's idiomatic API, not
@@ -1406,6 +1691,15 @@ fn every_api_function_is_declared_by_every_binding() {
 /// (C++ and Swift declare nothing, so on one line). This is the silent-skip
 /// class - a method, derive (`_hash`, `_partialCmp`, ...) or variant
 /// constructor the binding declares and then never wraps.
+///
+/// KNOWN BLIND SPOT, read the numbers with it in mind: this counts LINES THAT
+/// NAME THE SYMBOL, not calls. A binding whose FFI layer renames what it
+/// imports - OCaml bound `AzApp_create` as `ffi_az_app_create`, which
+/// `canonical_symbol` cannot map back - scores zero for its whole idiomatic
+/// layer even where every function is wrapped, which is why OCaml once looked
+/// like the worst binding of the 19. The probe cannot be made exact without a
+/// per-language call graph; a binding that spells the C symbol it calls is
+/// also the one whose link errors are traceable, so the proxy is the rule.
 #[test]
 fn every_api_function_is_reachable_from_the_idiomatic_api() {
     let api = api_functions();
@@ -1430,6 +1724,27 @@ fn every_api_function_is_reachable_from_the_idiomatic_api() {
             .iter()
             .filter(|f| !(lang == "rust" && delete_fns.contains(f.as_str())))
             .filter(|f| {
+                // An alias twin counts as reached when the name that carries
+                // the shared impls is reached.
+                lang != "rust"
+                    || rust_alias_twins().get(f.as_str()).is_none_or(|twins| {
+                        !twins.iter().any(|t| {
+                            canonical_symbol(t).and_then(|c| counts.get(&c)).copied().unwrap_or(0)
+                                >= needed
+                        })
+                    })
+            })
+            .filter(|f| {
+                lang != "go"
+                    || !function_kinds()
+                        .get(f.as_str())
+                        .is_some_and(|(k, _)| go_builds_variants_natively(*k))
+            })
+            .filter(|f| !(lang == "fortran" && unspellable_in_fortran(f)))
+            .filter(|f| !native_string_capabilities().contains(f.as_str()))
+            .filter(|f| !opaque_pointer_variant(f))
+            .filter(|f| !borrowed_slice_plumbing().contains(f.as_str()))
+            .filter(|f| {
                 canonical_symbol(f)
                     .and_then(|c| counts.get(&c).copied())
                     .unwrap_or(0)
@@ -1438,10 +1753,120 @@ fn every_api_function_is_reachable_from_the_idiomatic_api() {
             .cloned()
             .collect();
         if !missing.is_empty() {
-            offenders.push(summarize(lang, "API functions are never called by the idiomatic API", &missing, api.len()));
+            offenders.push(summarize_symbols(
+                lang,
+                "API functions are never called by the idiomatic API",
+                &missing,
+                api.len(),
+            ));
         }
     }
     assert_none("API functions unreachable from a binding's idiomatic API", offenders);
+}
+
+/// Classes Python deliberately does not give a `#[pyclass]`, because the
+/// value already IS a Python object.
+///
+/// * a borrowed slice (`VecRef`/`VecRefMut`) is `{ptr, len}` over memory the
+///   caller owns - a pyclass over one is a dangling pointer with a `__del__`;
+/// * the rest map onto a builtin: `String` is `str`, `U8Vec` is `bytes`,
+///   `StringVec`/`GLintVec`/`GLuintVec` are lists, `RefAny` is the Python
+///   object itself, and their methods are the builtin's own;
+/// * `InstantPtr` carries its own clone/destructor function pointers around
+///   an opaque `*const c_void`, and `StringMenuItem` is the recursive knot of
+///   the menu tree - neither has a Python shape at all.
+fn python_has_no_class(class: &str) -> bool {
+    if ir()
+        .find_struct(class)
+        .is_some_and(|s| s.category == TypeCategory::VecRef)
+    {
+        return true;
+    }
+    // allow-api-name: the classes whose Python form is a builtin. There is no
+    // IR property for "this one is a `str`"; the emitter keeps the same list.
+    matches!(
+        class,
+        "String"
+            | "U8Vec"
+            | "StringVec"
+            | "GLintVec"
+            | "GLuintVec"
+            | "RefAny"
+            | "InstantPtr"
+            | "StringMenuItem"
+    )
+}
+
+/// Why Python cannot expose this function, or `None` if it must.
+///
+/// Each reason is a property of the SIGNATURE, not a list of names:
+///
+/// * a raw pointer argument or return - a Python object has no address the
+///   callee may keep, and every `*Vec.copy_from_ptr` (124 of them) has
+///   `create` / `from_item` / `with_capacity` beside it;
+/// * a borrowed slice the callee writes through (`VecRefMut`) - a Python list
+///   is not a contiguous typed buffer, so an honest bridge takes a length and
+///   returns a list, which is a different method;
+/// * a bare C function pointer with no wrapper to store a Python callable in;
+/// * building or unwrapping a callback wrapper: the Python API takes the
+///   callable itself everywhere, so a wrapper object has nowhere to go.
+fn python_unbridgeable(f: &FunctionDef) -> Option<&'static str> {
+    let is_borrowed_slice = |t: &str| {
+        ir().find_struct(t.trim())
+            .is_some_and(|s| s.category == TypeCategory::VecRef)
+    };
+    // An `OptionU8VecRef` is a borrow behind a tag: Python would have to keep
+    // the buffer alive for a value that may not be there.
+    let wraps_borrowed_slice = |t: &str| {
+        ir().find_enum(t.trim()).is_some_and(|e| {
+            e.variants.iter().any(|v| match &v.kind {
+                EnumVariantKind::Tuple(types) => types.iter().any(|(ty, _)| is_borrowed_slice(ty)),
+                _ => false,
+            })
+        })
+    };
+    let raw_pointer = |t: &str| t.contains("*const") || t.contains("*mut");
+    let fn_pointer = |t: &str| ir().callback_typedefs.iter().any(|c| c.name == t.trim());
+
+    for a in &f.args {
+        if matches!(a.ref_kind, ArgRefKind::Ptr | ArgRefKind::PtrMut) || raw_pointer(&a.type_name) {
+            return Some("takes a raw pointer");
+        }
+        if wraps_borrowed_slice(&a.type_name) {
+            return Some("takes an optional borrowed slice");
+        }
+        if is_borrowed_slice(&a.type_name) {
+            // A slice of primitives, or of a repr(transparent) class, is
+            // bridged by lending a Python buffer for the call. One whose
+            // element the IR cannot even name (`RefstrVecRef` - borrowed
+            // strings inside a borrowed slice) is two levels of lent memory.
+            if a.type_name.contains("Mut") {
+                return Some("writes through a borrowed slice");
+            }
+            if ir().vecref_element(a.type_name.trim()).is_none() {
+                return Some("takes a borrowed slice of borrowed values");
+            }
+        }
+        if fn_pointer(&a.type_name) {
+            return Some("takes a bare C function pointer");
+        }
+    }
+    if let Some(ret) = &f.return_type {
+        if raw_pointer(ret) {
+            return Some("returns a raw pointer");
+        }
+        if is_borrowed_slice(ret) || wraps_borrowed_slice(ret) {
+            return Some("returns a borrowed slice");
+        }
+    }
+    // `Callback.create` / `.to_core`: a wrapper object Python has no use for.
+    if ir()
+        .find_struct(&f.class_name)
+        .is_some_and(|s| s.callback_wrapper_info.is_some())
+    {
+        return Some("builds or unwraps a callback wrapper");
+    }
+    None
 }
 
 /// Python calls the Rust API directly, not the C symbols: every API class
@@ -1466,6 +1891,9 @@ fn python_exposes_every_method_of_every_class() {
     let mut total = 0;
     for f in &ir().functions {
         if f.kind.is_trait_function() || f.kind == FunctionKind::EnumVariantConstructor {
+            continue;
+        }
+        if python_has_no_class(&f.class_name) || python_unbridgeable(f).is_some() {
             continue;
         }
         total += 1;
@@ -1503,6 +1931,8 @@ fn every_constant_reaches_every_binding() {
             .filter_map(|c| {
                 let (class, name) = c.name.split_once('_')?;
                 let spelled = match lang {
+                    // An OCaml value name must start lowercase: `accum_alpha_bits`.
+                    "ocaml" => name.to_ascii_lowercase(),
                     "haskell" => {
                         let camel: String = name
                             .split('_')
