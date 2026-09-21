@@ -2395,8 +2395,22 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
         return ScrollbarRequirements::default();
     }
 
-    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
-    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
+    // CSS Overflow 3 §3.3: on the ROOT element, `visible` is applied to the
+    // VIEWPORT as `auto` (and `clip` as `hidden`) - that is what scrolls a
+    // page taller than the window. The rule belongs to the SCROLLPORT
+    // decision only: the root's own clip, hit testing and pagination keep
+    // reading the declared value.
+    let is_viewport_root =
+        dom_id.index() == 0 && ctx.styled_dom.dom_id == azul_core::dom::DomId::ROOT_ID;
+    let viewport_rule = |v| {
+        if is_viewport_root {
+            crate::solver3::getters::apply_viewport_overflow_rule(dom_id, v)
+        } else {
+            v
+        }
+    };
+    let overflow_x = viewport_rule(get_overflow_x(ctx.styled_dom, dom_id, styled_node_state));
+    let overflow_y = viewport_rule(get_overflow_y(ctx.styled_dom, dom_id, styled_node_state));
 
     // Resolve the full scrollbar style **once** and reuse it
     // across the rest of this function + any further calls from
@@ -2410,7 +2424,15 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     // on the same (dom_id, state) are a HashMap hit.
     let scrollbar_style =
         crate::solver3::getters::get_scrollbar_style_cached(ctx, dom_id, styled_node_state);
-    let scrollbar_width_px = scrollbar_style.reserve_width_px;
+    // The VIEWPORT's scrollbar is an OVERLAY: it is drawn at the window edge
+    // over the page instead of reserving a gutter. Reserving one would make
+    // every page that overflows by a pixel reflow to a narrower viewport -
+    // and a layout that only overflows BECAUSE of that gutter oscillates.
+    let scrollbar_width_px = if is_viewport_root {
+        0.0
+    } else {
+        scrollbar_style.reserve_width_px
+    };
 
     let mut reqs = fc::check_scrollbar_necessity(
         content_size,
@@ -2591,6 +2613,30 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     final_used_size: LogicalSize,
     writing_mode: LayoutWritingMode,
 ) -> ScrollbarRequirements {
+    // THE ROOT SCROLLS THE VIEWPORT (CSS Overflow 3 §3.3), not its own box:
+    // the root has `height: auto` and grows to its content, so measured
+    // against itself it can never overflow and a page taller than the window
+    // had nothing to scroll. Its scrollport is the window and what has to fit
+    // in it is the root's MARGIN box - the UA's 8px body margins alone put
+    // 16px past the bottom edge.
+    if dom_id.index() == 0 && ctx.styled_dom.dom_id == azul_core::dom::DomId::ROOT_ID {
+        let m = &box_props.margin;
+        let margin_box = LogicalSize {
+            width: final_used_size.width + m.left + m.right,
+            height: final_used_size.height + m.top + m.bottom,
+        };
+        let content = LogicalSize {
+            width: content_size.width.max(margin_box.width),
+            height: content_size.height.max(margin_box.height),
+        };
+        return compute_scrollbar_info_core(
+            ctx,
+            dom_id,
+            styled_node_state,
+            content,
+            ctx.viewport_size,
+        );
+    }
     let container_size = box_props.inner_size(final_used_size, writing_mode);
     compute_scrollbar_info_core(ctx, dom_id, styled_node_state, content_size, container_size)
 }

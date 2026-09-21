@@ -408,6 +408,8 @@ mod typed_script_font_fallback;
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
 mod variable_font_disk_path;
+#[path = "viewport_scrolls_its_overflow.rs"]
+mod viewport_scrolls_its_overflow;
 #[path = "virtual_view_natural_size.rs"]
 mod virtual_view_natural_size;
 #[path = "virtualized_view_manager.rs"]
