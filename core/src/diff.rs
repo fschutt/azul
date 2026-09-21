@@ -556,6 +556,10 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
 /// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
 /// 3. **Structural hash** — matches node type + attrs ignoring text content; for text-edit cases.
 ///
+/// Between the two runs the pass that makes a keyless tree survive being
+/// re-parented: a node is also identified by the old parent its already-matched
+/// children descend from, which no change of shape ABOVE it can disturb.
+///
 /// # Arguments
 /// * `old_node_data` / `new_node_data` - Per-node data for each frame
 /// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable; the
@@ -656,9 +660,16 @@ pub fn reconcile_dom(
     //       deliberately NOT parent-gated: re-pagination moves a paragraph's
     //       whole subtree under a different page container, and following it
     //       there is the point.
+    //   A3: bottom-up identity — a node IS the old parent its already-matched
+    //       children all descend from. Nothing above either node is consulted,
+    //       which is what survives chrome being injected over the root.
     //   B1: positional structural key (the old Tier 1 fallback)
     //   B2: shallow content hash   (parent-gated, as before)
     //   B3: shallow structural hash (parent-gated, as before — text edits)
+    //
+    // B2/B3's parent gate prefers the parent's MATCH over the parent's key, so
+    // the descent picks up where A3's climb stopped: the one child whose text
+    // changed is found under the parent A3 just identified.
     let old_subtree_hashes = compute_subtree_hashes(old_node_data, old_hierarchy);
     let new_subtree_hashes = compute_subtree_hashes(new_node_data, new_hierarchy);
     let mut old_by_subtree: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
@@ -749,6 +760,100 @@ pub fn reconcile_dom(
         }
     }
 
+    // Pass A3: bottom-up identity — a parent is known by its children.
+    //
+    // A2 leaves the ancestors of ANY changed content unmatched, because their
+    // subtree hash moved with it, and B1 cannot rescue them once the tree
+    // SHAPE above them changed: the positional key folds every ancestor's
+    // sibling index, so injecting window chrome above the document —
+    // `html > [menubar, body]` becoming
+    // `html > [titlebar, html > [menubar, body]]` — shifts every key in the
+    // document at once. The user's whole spine (root, body, the container of
+    // the one label whose counter ticked over) then mass-unmounts and takes
+    // focus, scroll and dataset state with it. Worse, the injected `<html>`
+    // carries the SAME root-level positional key the user's old `<html>` had,
+    // so B1 hands the wrapper the old root and the real root never finds it.
+    //
+    // So identify a node the way a re-parent cannot disturb: by WHICH OLD
+    // NODES its children turned out to be. If every already-matched child of a
+    // new node descends from one and the same unconsumed old node of the same
+    // kind, that old node IS this node — nothing above either of them was
+    // consulted, so a wrapper above the root is invisible to the question.
+    //
+    // One REVERSE pass suffices: the arena is depth-first pre-order, so a
+    // parent's index is always lower than its children's and a single walk
+    // backwards sees every child before its parent. Identity therefore climbs
+    // the entire spine in one sweep, from the leaves A2 anchored up to the
+    // user's root — and stops there, because the old root has no parent for
+    // the wrapper to claim.
+    for new_idx in (0..n_new).rev() {
+        if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
+            continue;
+        }
+        let new_id = NodeId::new(new_idx);
+        let mut candidate: Option<NodeId> = None;
+        let mut agreed = true;
+        let mut child = new_hierarchy
+            .get(new_idx)
+            .and_then(|item| item.first_child_id(new_id));
+        // Bounded like the key walk above: a sibling chain is at most `n_new`
+        // long, so exceeding that means the hierarchy is cyclic — stop.
+        let mut guard = n_new;
+        while let Some(c) = child {
+            if c.index() >= n_new || guard == 0 {
+                break;
+            }
+            guard -= 1;
+            if let Some(old_child) = matched[c.index()] {
+                // The old parent of a matched child. A matched child that WAS
+                // the old root has none, and nothing is the parent of a root:
+                // that is a disagreement, not a candidate. (Which is exactly
+                // the injected wrapper — its only matched child is the user's
+                // old root — so the wrapper correctly mounts.)
+                let old_parent = old_hierarchy
+                    .get(old_child.index())
+                    .and_then(NodeHierarchyItem::parent_id);
+                match (old_parent, candidate) {
+                    (Some(p), None) => candidate = Some(p),
+                    (Some(p), Some(existing)) if existing == p => {}
+                    _ => {
+                        agreed = false;
+                        break;
+                    }
+                }
+            }
+            child = new_hierarchy
+                .get(c.index())
+                .and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        if !agreed {
+            continue;
+        }
+        let Some(old_id) = candidate else {
+            continue;
+        };
+        if old_id.index() >= old_node_data.len() || old_nodes_consumed[old_id.index()] {
+            continue;
+        }
+        let old_node = &old_node_data[old_id.index()];
+        let new_node = &new_node_data[new_idx];
+        // Same kind of element, and the same terminal identity: an author who
+        // moved the children out of `#left` and into `#right` said "a
+        // different container", and A1 already had its chance at both.
+        if core::mem::discriminant(old_node.get_node_type())
+            != core::mem::discriminant(new_node.get_node_type())
+            || terminal_key_of(old_node) != terminal_key_of(new_node)
+        {
+            continue;
+        }
+        old_nodes_consumed[old_id.index()] = true;
+        matched[new_idx] = Some(old_id);
+        // Identity-by-children is LOGICAL identity, not a content coincidence,
+        // so a container whose own content changed still fires `Updated` —
+        // the same event it got back when B1 was the one matching it.
+        matched_by_rec_key[new_idx] = true;
+    }
+
     // Pass B1: positional structural key — the old Tier 1 for keyless nodes,
     // now running only for what strong evidence left over.
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
@@ -780,12 +885,36 @@ pub fn reconcile_dom(
             .and_then(NodeHierarchyItem::parent_id)
             .map(|p| new_rec_keys[p.index()]);
 
+        // The old node this new node's PARENT was matched to, if it matched at
+        // all. Two nodes whose parents turned out to be the SAME node are
+        // children of one parent in both frames — "match the children of
+        // matched parents", and strictly stronger evidence than comparing the
+        // parents' positional keys, which a re-parent ABOVE them invalidates
+        // although neither node moved. Falls back to the key comparison when
+        // the parent is itself unmatched, so nothing that matches today stops.
+        let new_parent_match: Option<NodeId> = new_hierarchy
+            .get(new_idx)
+            .and_then(NodeHierarchyItem::parent_id)
+            .and_then(|p| matched.get(p.index()).copied().flatten());
+        let parent_agrees = |old_id: NodeId| -> bool {
+            new_parent_match.map_or_else(
+                || old_parent_key(old_id) == new_parent_key,
+                |expected| {
+                    old_hierarchy
+                        .get(old_id.index())
+                        .and_then(NodeHierarchyItem::parent_id)
+                        == Some(expected)
+                },
+            )
+        };
+
         // B2: Content hash (exact match — catches pure reorders)
         let hash = new_node.calculate_node_data_hash();
         if let Some(queue) = old_hashed.get_mut(&hash) {
-            if let Some(pos) = queue.iter().position(|&old_id| {
-                !old_nodes_consumed[old_id.index()] && old_parent_key(old_id) == new_parent_key
-            }) {
+            if let Some(pos) = queue
+                .iter()
+                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
+            {
                 if let Some(old_id) = queue.remove(pos) {
                     old_nodes_consumed[old_id.index()] = true;
                     matched[new_idx] = Some(old_id);
@@ -797,9 +926,10 @@ pub fn reconcile_dom(
         // B3: Structural hash (text-node fallback — ignores text content)
         let structural_hash = new_node.calculate_structural_hash();
         if let Some(queue) = old_structural.get_mut(&structural_hash) {
-            if let Some(pos) = queue.iter().position(|&old_id| {
-                !old_nodes_consumed[old_id.index()] && old_parent_key(old_id) == new_parent_key
-            }) {
+            if let Some(pos) = queue
+                .iter()
+                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
+            {
                 if let Some(old_id) = queue.remove(pos) {
                     old_nodes_consumed[old_id.index()] = true;
                     matched[new_idx] = Some(old_id);
