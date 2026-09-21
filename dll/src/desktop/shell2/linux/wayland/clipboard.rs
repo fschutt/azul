@@ -306,6 +306,41 @@ pub(crate) fn read_payload(asking: Option<LinuxWindowId>) -> Option<ClipboardPay
     super::super::x11::clipboard::read_payload()
 }
 
+/// The same as [`write_payload`], on a window the caller already holds.
+///
+/// `with_wayland_window` reaches the window through the registry and makes a
+/// `&mut` out of a raw pointer. Every one of these calls happens inside a
+/// `&mut WaylandWindow` method - `poll_event` dispatching a Ctrl+C - so when
+/// the routed window IS the caller, which is always the case in a
+/// single-window app, that is two live `&mut` to one object. A window that
+/// has itself in hand does not need the registry at all.
+pub(crate) fn write_payload_on(
+    window: &mut super::WaylandWindow,
+    payload: &ClipboardPayload,
+) -> Result<(), ClipboardError> {
+    if let Ok(mut g) = NATIVE_COPY.lock() {
+        *g = Some(payload.clone());
+    }
+    if window.wayland_set_selection() {
+        return Ok(());
+    }
+    xwayland_write_fallback(payload)
+}
+
+/// The same as [`read_payload`], on a window the caller already holds. See
+/// [`write_payload_on`] for why that matters.
+pub(crate) fn read_payload_on(window: &mut super::WaylandWindow) -> Option<ClipboardPayload> {
+    if let Ok(guard) = NATIVE_COPY.lock() {
+        if let Some(payload) = guard.as_ref() {
+            return Some(payload.clone());
+        }
+    }
+    if let Some(payload) = window.read_wayland_selection_payload() {
+        return Some(payload);
+    }
+    super::super::x11::clipboard::read_payload()
+}
+
 /// Read string from Wayland clipboard
 fn read_from_clipboard(asking: Option<LinuxWindowId>) -> Result<String, ClipboardError> {
     // MWA-B3: if we own the selection, answer locally (a receive() on our

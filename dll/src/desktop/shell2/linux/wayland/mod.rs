@@ -1520,6 +1520,20 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// The window publishes on ITSELF. The registry route would turn a raw
+    /// pointer back into `&mut WaylandWindow` while this very call holds one.
+    fn write_clipboard_payload(
+        &mut self,
+        payload: &crate::desktop::shell2::common::clipboard::ClipboardPayload,
+    ) -> bool {
+        clipboard::write_payload_on(self, payload).is_ok()
+    }
+
+    /// See [`Self::write_clipboard_payload`].
+    fn read_clipboard_payload(&mut self) -> Option<crate::desktop::shell2::common::clipboard::ClipboardPayload> {
+        clipboard::read_payload_on(self)
+    }
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self
             .common

@@ -3679,6 +3679,27 @@ pub trait PlatformWindow {
     /// Get mutable access to the layout window
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow>;
 
+    /// Publish a payload to the system clipboard, ON THIS WINDOW.
+    ///
+    /// Routing by window id costs the Wayland backend a registry lookup that
+    /// turns a raw pointer back into `&mut WaylandWindow` - and every one of
+    /// these calls already happens inside a `&mut` method of that same
+    /// window, so the two alias. A window that has itself in hand hands
+    /// itself over instead; the default is for the platforms whose clipboard
+    /// is process-wide and needs no window at all.
+    fn write_clipboard_payload(
+        &mut self,
+        payload: &crate::desktop::shell2::common::clipboard::ClipboardPayload,
+    ) -> bool {
+        set_system_clipboard(self.registry_window_id(), payload)
+    }
+
+    /// Read the system clipboard, ON THIS WINDOW. See
+    /// [`Self::write_clipboard_payload`].
+    fn read_clipboard_payload(&mut self) -> Option<crate::desktop::shell2::common::clipboard::ClipboardPayload> {
+        get_system_clipboard(self.registry_window_id())
+    }
+
     /// Get immutable access to the layout window
     fn get_layout_window(&self) -> Option<&LayoutWindow>;
 
@@ -6427,7 +6448,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(self.registry_window_id(), &payload);
+                    self.write_clipboard_payload(&payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -6440,7 +6461,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(self.registry_window_id(), &payload);
+                    self.write_clipboard_payload(&payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -7356,7 +7377,7 @@ pub trait PlatformWindow {
                     if let Some(clipboard_content) = clipboard_content {
                         match clipboard_content_to_payload(&clipboard_content) {
                             Some(payload) => {
-                                set_system_clipboard(self.registry_window_id(), &payload);
+                                self.write_clipboard_payload(&payload);
                             }
                             None => {
                                 log_debug!(
@@ -7376,35 +7397,39 @@ pub trait PlatformWindow {
                 // Hoisted: the layout-window borrow below is mutable, and the
                 // copy has to name the window it came from (Wayland routes the
                 // selection on it).
-                let asking_window = self.registry_window_id();
-                if let Some(layout_window) = self.get_layout_window_mut() {
+                // The cut is copy-then-delete, and the copy has to leave the
+                // layout window's borrow before it runs: publishing goes
+                // through the WINDOW now, not through a registry lookup that
+                // would alias it.
+                let payload = self.get_layout_window_mut().and_then(|layout_window| {
                     // MWA-C-text_edit: editing DOM, not hardcoded DomId 0
                     // (see CopyToClipboard above).
                     let dom_id = layout_window
                         .text_edit_manager
                         .get_editing_dom_id()
                         .unwrap_or(DomId { inner: 0 });
-                    if let Some(clipboard_content) =
-                        layout_window.get_selected_content_for_clipboard(&dom_id)
-                    {
-                        let committed = clipboard_content_to_payload(&clipboard_content)
-                            .is_some_and(|payload| set_system_clipboard(asking_window, &payload));
-                        if committed {
-                            // Cross-block cut: the copy above already joined the
-                            // multi-paragraph text; the delete is the atomic
-                            // replace-merge changeset.
-                            let deleted = if layout_window
-                                .text_edit_manager
-                                .get_cross_block_selection()
-                                .is_some()
-                            {
-                                layout_window.delete_cross_block_selection().is_some()
-                            } else {
-                                layout_window.delete_selection(*target, false).is_some()
-                            };
-                            if deleted {
-                                affected = true;
-                            }
+                    layout_window
+                        .get_selected_content_for_clipboard(&dom_id)
+                        .as_ref()
+                        .and_then(clipboard_content_to_payload)
+                });
+                let committed = payload.is_some_and(|p| self.write_clipboard_payload(&p));
+                if committed {
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        // Cross-block cut: the copy above already joined the
+                        // multi-paragraph text; the delete is the atomic
+                        // replace-merge changeset.
+                        let deleted = if layout_window
+                            .text_edit_manager
+                            .get_cross_block_selection()
+                            .is_some()
+                        {
+                            layout_window.delete_cross_block_selection().is_some()
+                        } else {
+                            layout_window.delete_selection(*target, false).is_some()
+                        };
+                        if deleted {
+                            affected = true;
                         }
                     }
                 }
@@ -7416,14 +7441,14 @@ pub trait PlatformWindow {
             }
 
             SystemChange::PasteFromClipboard => {
-                // Hoisted past the mutable layout-window borrow: a Wayland
-                // paste reads THIS window's `wl_data_offer`, not whichever
-                // window the registry listed first.
-                let asking_window = self.registry_window_id();
+                // Read BEFORE borrowing the layout window: a Wayland paste
+                // reads THIS window's `wl_data_offer`, so it goes through the
+                // window, which cannot be borrowed twice.
+                let pasted = self
+                    .read_clipboard_payload()
+                    .as_ref()
+                    .and_then(payload_to_clipboard_content);
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let pasted = get_system_clipboard(asking_window)
-                        .as_ref()
-                        .and_then(payload_to_clipboard_content);
                     if let Some(clipboard_content) = pasted {
                         let clipboard_text = clipboard_content.plain_text.as_str().to_string();
                         // Paste over a cross-block selection: one atomic
@@ -7781,12 +7806,11 @@ pub trait PlatformWindow {
                 use azul_core::events::KeyboardShortcut;
                 // Hoisted past the mutable layout-window borrow: a Wayland
                 // copy or paste is routed on the window that asked.
-                let asking_window = self.registry_window_id();
-                let Some(layout_window) = self.get_layout_window_mut() else {
-                    return ProcessEventResult::DoNothing;
-                };
                 match shortcut {
                     KeyboardShortcut::SelectAll => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         if layout_window.select_all_for_seat(*seat_id, *target) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
@@ -7796,16 +7820,23 @@ pub trait PlatformWindow {
                     KeyboardShortcut::Copy | KeyboardShortcut::Cut => {
                         // The seat's selection with its runs' formatting
                         // (9b-ii-a-i-d-ii-b-iii), as the primary's copy carries.
-                        let Some(content) =
-                            layout_window.seat_selected_content_for_clipboard(*seat_id)
-                        else {
+                        // Extracted, then published with the borrow dropped -
+                        // the publish goes through THIS window.
+                        let payload = self
+                            .get_layout_window_mut()
+                            .and_then(|lw| lw.seat_selected_content_for_clipboard(*seat_id))
+                            .as_ref()
+                            .and_then(clipboard_content_to_payload);
+                        let Some(payload) = payload else {
                             return ProcessEventResult::DoNothing;
                         };
-                        let committed = clipboard_content_to_payload(&content)
-                            .is_some_and(|payload| set_system_clipboard(asking_window, &payload));
+                        let committed = self.write_clipboard_payload(&payload);
                         if !committed || matches!(shortcut, KeyboardShortcut::Copy) {
                             return ProcessEventResult::DoNothing;
                         }
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         // Cut: the seat's Delete op removes its (anchored) selection.
                         let delete = azul_core::events::SelectionOp::new(
                             azul_core::events::SelectionDirection::Backward,
@@ -7819,10 +7850,14 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Paste => {
-                        let pasted = get_system_clipboard(asking_window)
+                        let pasted = self
+                            .read_clipboard_payload()
                             .as_ref()
                             .and_then(payload_to_clipboard_content);
                         let Some(clipboard_content) = pasted else {
+                            return ProcessEventResult::DoNothing;
+                        };
+                        let Some(layout_window) = self.get_layout_window_mut() else {
                             return ProcessEventResult::DoNothing;
                         };
                         let text = clipboard_content.plain_text.as_str().to_string();
@@ -7839,6 +7874,9 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Undo => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         match undo_text_edit_on(layout_window, *target, *seat_id) {
                             Some(restore) => {
                                 let (cursor, anchor) = match (restore.range, restore.cursor) {
@@ -7857,6 +7895,9 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Redo => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         if redo_text_edit_on(layout_window, *target, *seat_id) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
@@ -11310,7 +11351,7 @@ pub trait PlatformWindow {
                 .iter()
                 .any(|c| matches!(c, SystemChange::PasteFromClipboard));
             if has_paste {
-                let pasted = get_system_clipboard(self.registry_window_id())
+                let pasted = self.read_clipboard_payload()
                     .as_ref()
                     .and_then(payload_to_clipboard_content);
                 if let Some(clipboard_content) = pasted {
