@@ -1,16 +1,15 @@
 ---
 slug: events/scrolling
-title: Scrolling & Drag
+title: Scrolling
 language: en
 canonical_slug: events/scrolling
 audience: external
 maturity: wip
 guide_order: 64
 topic_only: false
-short_desc: Scroll containers, drag-and-drop, hit testing
+short_desc: Scroll containers, scroll events, programmatic scrolling and momentum
 prerequisites: [hello-world, events]
 tracked_files:
-  - core/src/drag.rs
   - core/src/events.rs
   - layout/src/hit_test.rs
   - layout/src/callbacks.rs
@@ -19,35 +18,25 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T06:00:00Z
 default-search-keys:
   - CallbackInfo
-  - DragData
-  - DragEffect
-  - DropEffect
-  - DragState
   - EventFilter
   - HoverEventFilter
   - WindowEventFilter
-  - accept_drop
-  - set_drop_effect
-  - get_drag_types
   - scroll_to
 ---
 
-# Scrolling & Drag
+# Scrolling
 
 ## Introduction
 
-*WIP.* Scrolling is functional. In-app drag-and-drop works end to end: the event
-loop generates `DragStart` / `Drag` / `DragEnd` on the source node and
-`DragEnter` / `DragOver` / `DragLeave` / `Drop` on drop targets, with
-`accept_drop()` / `set_drop_effect()` / `get_drag_data()` available in the
-callbacks. What is still platform-gated is *OS-level* drag-and-drop:
-`DroppedFile` (files dragged in from another application) is wired on Windows
-(`WM_DROPFILES`) but not yet on X11 (XDND), Wayland (`wl_data_device`), or
-macOS (dragging destination) — and dragging data *out* of an azul window is not
-implemented on any platform. The page covers both subjects because they share
-the input pipeline.
+*WIP.* Scrolling is functional: scroll containers, wheel and trackpad
+input, programmatic scrolling and momentum all work. Drag and drop moved
+to its own page, [Drag & Drop](drag-and-drop.md), because the two only
+share the input pipeline.
 
-Scrolling and drag are the two ways a pointer interacts with the layout rather than with a single element. Both are gestures: the framework tracks the mouse across multiple events, decides which gesture is in progress, and emits high-level events you handle the same way as any other event filter from [events](..md).
+Scrolling is a gesture: the framework tracks the pointer across several
+events, decides which gesture is in progress, and emits high-level
+events you handle the same way as any other event filter from
+[events](..md).
 
 ## Making a node scrollable
 
@@ -132,125 +121,8 @@ The framework animates between scroll positions when `scroll_to` is called. Trac
 
 CSS `-azul-overflow-scrolling: touch` enables momentum on a node. `overscroll-behavior: contain` prevents scroll chaining to the parent.
 
-## Drag and drop
-
-The drag system handles selection drags, scrollbar thumb drags, window moves, window resizes, OS file drops, and DOM-node drags. The framework handles the first four for you. Node and file drops are the variants you write callbacks for.
-
-### Marking a node draggable
-
-Set the `draggable` attribute on the DOM node. The gesture manager sees it during hit-test and starts a drag when the user begins one.
-
-```rust,no_run
-use azul::prelude::*;
-let card = Dom::create_div()
-    .with_attribute(AttributeType::Draggable(true))
-    .with_css("padding: 12px; background: #fef;");
-```
-
-### Drag events
-
-- `HoverEventFilter::DragStart` (source node). Drag begins. Set drag data here.
-- `HoverEventFilter::Drag` (source node). Each cursor move during drag.
-- `HoverEventFilter::DragEnd` (source node). Drag ends, on drop or cancel.
-- `HoverEventFilter::DragEnter` (target node). Cursor enters a candidate drop zone.
-- `HoverEventFilter::DragOver` (target node). Cursor stays over a drop zone, throttled.
-- `HoverEventFilter::DragLeave` (target node). Cursor leaves a drop zone.
-- `HoverEventFilter::Drop` (target node). User releases on a drop zone that has accepted the drop.
-- `HoverEventFilter::DroppedFile` (hit node). OS file drop landed.
-
-Each variant has a corresponding `FocusEventFilter::*` and `WindowEventFilter::*`. Use `Hover` for "this specific node is the drop zone". Use `Window` to observe drags anywhere in the window.
-
-### Drag data: set on start, read on drop
-
-`DragData` is a MIME-keyed payload that mirrors the W3C `DataTransfer` API:
-
-```rust,ignore
-impl CallbackInfo {
-    /// W3C dataTransfer.setData(type, data). Call from a DragStart callback.
-    pub fn set_drag_data(&mut self, /* ... */);
-
-    /// W3C dataTransfer.types: visible during DragOver.
-    pub fn get_drag_types(&self) -> /* ... */;
-
-    /// W3C dataTransfer.getData(type): only readable inside the Drop handler.
-    pub fn get_drag_data(&self, /* ... */) -> Option</* ... */>;
-}
-```
-
-Multiple MIME types per drag are allowed. Set the same payload as `text/plain` for foreign drop targets and as your own `application/x-myapp-task` for the structured drop.
-
-### Accepting (or rejecting) a drop
-
-Drop targets opt in. Inside a `DragEnter` or `DragOver` callback, inspect `get_drag_types()`. If the data is for you, call `accept_drop()` and set the drop effect:
-
-```rust,ignore
-impl CallbackInfo {
-    /// Equivalent to event.preventDefault() in a W3C dragover handler.
-    pub fn accept_drop(&mut self);
-
-    /// W3C dataTransfer.dropEffect.
-    pub fn set_drop_effect(&mut self, effect: DropEffect);
-}
-```
-
-A node that doesn't call `accept_drop()` isn't a drop target. The cursor shows the no-drop indicator and `Drop` won't fire. This matches the W3C model.
-
-### Drop and DragEnd
-
-`Drop` fires once on the accepted target with the drop position and the data. `DragEnd` fires once on the source, even if the drop was cancelled or rejected, so the source can finish the move/copy/link operation.
-
-### DropEffect and DragEffect
-
-Two related enums:
-
-- `DragEffect`. What the source allows. Set on the drag context at `DragStart`. Variants: `Uninitialized`, `None`, `Copy`, `CopyLink`, `CopyMove`, `Link`, `LinkMove`, `Move`, `All`.
-- `DropEffect`. What the target chose. Set in `DragOver` or `DragEnter`. Variants: `None`, `Copy`, `Link`, `Move`.
-
-A drop target's `DropEffect` must be in the source's `DragEffect` set, otherwise the drop is rejected.
-
-### Drag query methods
-
-```rust,ignore
-impl CallbackInfo {
-    pub fn is_drag_active(&self) -> bool;
-    pub fn is_dragging(&self) -> bool;
-    pub fn is_node_drag_active(&self) -> bool;
-    pub fn is_file_drag_active(&self) -> bool;
-    pub fn get_drag_state(&self) -> Option<DragState>;
-    pub fn get_drag_delta(&self) -> DragDelta;
-    pub fn get_dragged_node(&self) -> Option<DomNodeId>;
-}
-```
-
-`DragState` carries `drag_type`, `source_node`, `current_drop_target`, and `file_path` for file drops.
-
-## Drag-and-drop status
-
-- **Done.** `DragData` MIME map, `DragEffect` and `DropEffect` enums, drag-state query, and `accept_drop`, `set_drop_effect`, `get_drag_types`, `get_drag_data` on `CallbackInfo`.
-- **Not done.** `DragEnter`, `DragOver`, `DragLeave`, `Drop` event generation by the event loop. The filters exist; the loop doesn't synthesize the events. The `Drop` handler won't fire today.
-- **Not done.** Visual drag feedback (transform the source node to follow the cursor, opacity dim).
-- **Not done.** CSS pseudo-classes `:dragging`, `:drag-over`, `:drag-over-invalid` for styling source and target during a drag.
-
-Code that follows the API described above will start working as the missing event-generation lands without needing a rewrite.
-
-## File drops from the OS
-
-OS-level file drops work through the same drag pipeline. Your `DroppedFile` callback reads the file list:
-
-```rust,no_run
-use azul::prelude::*;
-
-extern "C" fn on_dropped_file(_: RefAny, info: CallbackInfo) -> Update {
-    if let Some(_path) = info.get_dropped_file() {
-        // ... open the file ...
-    }
-    Update::RefreshDom
-}
-```
-
-`info.get_dropped_file()` returns the dropped file path. `info.get_hovered_file()` returns the path while the file is being dragged over the window.
-
 ## Cross-references
 
 - [`events`](..md): the event filter system this page builds on.
 - [`timers`](../animations/timers.md): scrolling momentum and drag auto-scroll run on reserved timers.
+- [Drag & Drop](drag-and-drop.md): the drag half of this page, moved out.
