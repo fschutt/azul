@@ -878,6 +878,25 @@ fn apply_focus_restyle_in_dom(
         r = ProcessEventResult::ShouldIncrementalRelayout;
     } else if restyle_result.gpu_only_changes {
         r = ProcessEventResult::ShouldReRenderCurrentWindow;
+    } else {
+        // PAINT-ONLY, AND THEREFORE OURS TO REBUILD. Same law as the
+        // no-delta arm above, and the case that actually happens: every
+        // field in the widget set rings itself with a `:focus` border
+        // COLOUR (`themes::flat::FIELD_BORDER_STATES`), which is
+        // `RelayoutScope::None` and not a GPU-only property - so this arm,
+        // not that one, is where a Tab between two text fields lands.
+        //
+        // Staging the CSS diff is not a repaint. `pending_css_dirty` is
+        // consumed by a LAYOUT pass and by nothing else, and the shells
+        // answer `ShouldUpdateDisplayListCurrentWindow` by presenting the
+        // list they already have (x11/mod.rs's `request_redraw()` arm, and
+        // its twin on every other backend). So the frame after a focus move
+        // held the colours from before it: the field that LOST focus kept
+        // its ring and the field that GAINED it stayed plain, until some
+        // unrelated edit happened to rebuild the list - "the old field stays
+        // highlighted until the next input arrives", and both fields ringed
+        // at once whenever a partial rebuild caught only one of them.
+        layout_window.regenerate_display_list_for_dom(dom_id);
     }
     r
 }
@@ -13702,6 +13721,199 @@ mod tests {
         assert!(
             ends_with_ring(&lw),
             "the display list was rebuilt with the focus ring appended"
+        );
+    }
+
+    /// The twin of the test above, for the case the shell actually meets: a
+    /// focus change that DOES change a rule must repaint the list too.
+    ///
+    /// Every field in the widget set rings itself with a `:focus`
+    /// border-colour (`themes::flat::FOCUS_BORDER_*`). A border colour is
+    /// `RelayoutScope::None` and is not a GPU-only property, so the restyle
+    /// lands in the paint-only arm — which staged the CSS diff, answered
+    /// `ShouldUpdateDisplayListCurrentWindow` and rebuilt NOTHING. Every shell
+    /// answers that tier by presenting the list it already has (x11/mod.rs's
+    /// `request_redraw()` arm), and only a real LAYOUT pass ever consumes
+    /// `pending_css_dirty` — so the two fields kept the colours of the frame
+    /// before the Tab: the one that lost focus stayed ringed and the one that
+    /// gained it stayed plain, until some unrelated edit rebuilt the list.
+    #[test]
+    fn a_focus_change_with_a_style_delta_rebuilds_the_display_list() {
+        use azul_core::{
+            dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+            geom::LogicalSize,
+            resources::{RendererResources, SystemAnimations},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{
+                basic::color::ColorU,
+                layout::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::{
+                    BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+                    LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+                    StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+                    StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+                    StyleBorderTopStyle,
+                },
+            },
+        };
+        use azul_layout::{
+            callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+            window::LayoutWindow, window_state::FullWindowState,
+        };
+
+        /// The resting border colour of a field.
+        const PLAIN: ColorU = ColorU::new_rgb(0xac, 0xac, 0xac);
+        /// The `:focus` ring colour — the widget set's accent.
+        const RING: ColorU = ColorU::new_rgb(0x42, 0x86, 0xf4);
+
+        // A field: 1px solid PLAIN on all four edges, RING on all four while
+        // focused. Exactly the shape `themes::flat::FIELD_BORDER_STATES` has.
+        let field_style = || {
+            CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::simple(CssProperty::const_width(
+                    LayoutWidth::const_px(120),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_height(
+                    LayoutHeight::const_px(24),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+                    LayoutBorderTopWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+                    LayoutBorderBottomWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+                    LayoutBorderLeftWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+                    LayoutBorderRightWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+                    StyleBorderTopStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+                    StyleBorderBottomStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+                    StyleBorderLeftStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+                    StyleBorderRightStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
+                    StyleBorderLeftColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+                    StyleBorderRightColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+                    StyleBorderLeftColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
+                    StyleBorderRightColor { inner: RING },
+                )),
+            ])
+        };
+
+        let mut dom = Dom::create_body();
+        for _ in 0..2 {
+            let mut d = Dom::create_div();
+            d.set_tab_index(TabIndex::Auto);
+            dom = dom.with_child(d.with_css_props(field_style()));
+        }
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations::default());
+        let rr = RendererResources::default();
+        let cb = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &cb, &mut dbg)
+            .unwrap();
+
+        // How many borders the PAINTED list draws in the ring colour. This is
+        // the only authority on what the user sees: the styled node's
+        // `:focus` flag is what the restyle writes, the display list is what
+        // the shell presents.
+        let ringed_borders = |lw: &LayoutWindow| {
+            lw.layout_results[&DomId::ROOT_ID]
+                .display_list
+                .items
+                .iter()
+                .filter(|i| match i {
+                    DisplayListItem::Border { colors, .. } => {
+                        colors.top.as_ref().and_then(|v| v.get_property()).map(|c| c.inner)
+                            == Some(RING)
+                    }
+                    _ => false,
+                })
+                .count()
+        };
+        let node = |idx: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        };
+
+        assert_eq!(
+            ringed_borders(&lw),
+            0,
+            "harness: nothing is focused, so nothing is painted in the ring colour"
+        );
+
+        // A click focuses the first field.
+        let first = node(1);
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(first), false);
+        let r = apply_focus_restyle(&mut lw, None, Some(first));
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert_eq!(
+            ringed_borders(&lw),
+            1,
+            "the field that gained :focus is painted ringed"
+        );
+
+        // Tab moves focus to the second field.
+        let second = node(2);
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(second), true);
+        let r = apply_focus_restyle(&mut lw, Some(first), Some(second));
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert_eq!(
+            ringed_borders(&lw),
+            1,
+            "exactly ONE field is ringed after a Tab - the old one let go of it"
         );
     }
 
