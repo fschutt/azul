@@ -328,35 +328,48 @@ The 112 built-in HTML element components are themselves registered through `add_
 The registration callback is a `repr(C)` function pointer, so a plain function pointer is enough on the C side.
 
 ```c
+/* `AzRegisterComponentLibraryFnType` is `AzComponentLibrary (*)(void)`. */
 extern AzComponentLibrary register_shadcn(void);
 
-void main(void) {
+int main(void) {
     AzAppConfig config = AzAppConfig_create();
     AzAppConfig_addComponentLibrary(
         &config,
-        AzString_fromCStr("shadcn"),
+        /* `AzString_fromCStr` takes `const int8_t*`, so a string literal
+           needs the cast to compile without -Wpointer-sign. */
+        AzString_fromCStr((const int8_t*)"shadcn"),
         register_shadcn
     );
     /* ... */
+    return 0;
 }
 ```
 
+`ComponentLibrary` exports no constructor - it is a `repr(C)` struct, so the
+registration function fills its fields in directly and returns it. The fields
+are the ones listed above. `examples/c/routing-components.c` is a working
+version of this, compiled and run by CI.
+
 ### From Python
 
-The Python binding wraps the function pointer in a trampoline. You pass a Python callable. The binding stores it in the callback's `ctx` slot (`OptionRefAny::Some(refany)`) and dispatches through a generated trampoline.
+The Python binding wraps the function pointer in a trampoline. You pass a Python
+callable; because `RegisterComponentLibraryFnType` takes no arguments, the binding
+recovers the callable from the engine's invocation slot rather than from a data
+parameter.
+
+**Registering a library from Python is not usable yet.** The call side works:
 
 ```python
-from azul import *
-
-def register_shadcn():
-    # Build a ComponentLibrary using the typed builders the binding exposes.
-    return ComponentLibrary.create("shadcn", "1.0.0", "shadcn-style components", [
-        # ... ComponentDefs ...
-    ], exportable=True, modifiable=False)
-
 config = AppConfig.create()
-config.add_component_library("shadcn", register_shadcn)
+config.add_component_library("shadcn", register_shadcn)   # accepted
 ```
+
+but the callable has to *return* a `ComponentLibrary`, and the Python class exposes
+only `name`, `version`, `description`, `exportable` and `modifiable`. It has no
+constructor, and its `components` field is a `ComponentDefVec`, which the binding
+does not surface as a property (no Vec-typed field is). So there is no way to build
+the value the callback must return. Use the C, or Rust, shape above until that gap
+is closed.
 
 ## Render: live preview
 
