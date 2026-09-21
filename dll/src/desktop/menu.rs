@@ -48,6 +48,30 @@ pub struct MenuWindowData {
     pub child_menu_ids: Arc<std::sync::Mutex<Vec<u64>>>,
 }
 
+/// A menu opens where it ASKED to: only the `Auto*` answers hand the choice
+/// back to the toolkit, and then a trigger rect means "anchor to the control"
+/// and its absence "at the pointer".
+///
+/// `show_menu` used to overwrite every strategy with `AutoHitRect` /
+/// `AutoCursor`, so a submenu's `RightOfHitRect` never survived and every
+/// submenu opened UNDER its item instead of beside it.
+#[must_use]
+pub(crate) fn resolve_position_strategy(
+    requested: MenuPopupPosition,
+    has_trigger_rect: bool,
+) -> MenuPopupPosition {
+    match requested {
+        MenuPopupPosition::AutoCursor | MenuPopupPosition::AutoHitRect => {
+            if has_trigger_rect {
+                MenuPopupPosition::AutoHitRect
+            } else {
+                MenuPopupPosition::AutoCursor
+            }
+        }
+        explicit => explicit,
+    }
+}
+
 /// Calculate optimal menu position based on MenuPopupPosition strategy
 ///
 /// Algorithm depends on the position strategy:
@@ -153,7 +177,11 @@ pub(crate) fn calculate_menu_position(
                 }),
                 menu_size,
                 work_area,
-                -menu_size.height, // above
+                // ABOVE the trigger means clearing it: the offset is measured
+                // from the below-the-trigger position, so it has to undo the
+                // trigger's own height as well. Without it the menu's bottom
+                // sat on the trigger's bottom and covered the control whole.
+                -(menu_size.height + trigger_rect.map_or(1.0, |r| r.size.height)),
             )
         }
         MenuPopupPosition::RightOfHitRect => position_submenu_right(
@@ -224,16 +252,17 @@ fn calculate_auto_position_from_rect(
     menu_size: LogicalSize,
     work_area: LogicalRect,
 ) -> LogicalPosition {
-    // Default: right-bottom
-    let mut pos = LogicalPosition::new(
-        trigger_abs.x + trigger_size.width,
-        trigger_abs.y + trigger_size.height,
-    );
+    // LEFT edges aligned, below the control — the `<select>` law, and what
+    // every menu bar on every desktop does. Hanging the menu off the trigger's
+    // bottom-RIGHT corner put it one whole trigger width to the right of the
+    // control it belongs to; Wayland's `menu_edge_for` was fixed for exactly
+    // this and the self-placing backends were left behind.
+    let mut pos = LogicalPosition::new(trigger_abs.x, trigger_abs.y + trigger_size.height);
 
-    // Check right edge overflow
+    // Too wide to stay inside: align the RIGHT edges instead, which is still
+    // attached to the control. Jumping to its left is what a submenu does.
     if pos.x + menu_size.width > work_area.origin.x + work_area.size.width {
-        // Try left-bottom instead
-        pos.x = trigger_abs.x - menu_size.width;
+        pos.x = trigger_abs.x + trigger_size.width - menu_size.width;
     }
 
     // Check bottom edge overflow
@@ -282,12 +311,26 @@ fn position_relative_to_rect(
         parent_window_pos.y + trigger_rect.origin.y,
     );
 
-    let pos = LogicalPosition::new(
-        trigger_abs.x,
-        trigger_abs.y + trigger_rect.size.height + y_offset,
-    );
+    let below = trigger_abs.y + trigger_rect.size.height;
+    let above = trigger_abs.y - menu_size.height;
+    let mut y = below + y_offset;
 
-    clamp_to_work_area(pos, menu_size, work_area)
+    // A menu with no room where it asked to go FLIPS to the other side of its
+    // trigger. Clamping alone slid it back up OVER the control that opened it
+    // — the one place a menu may never be.
+    let wa_top = work_area.origin.y;
+    let wa_bottom = work_area.origin.y + work_area.size.height;
+    if y + menu_size.height > wa_bottom && above >= wa_top {
+        y = above;
+    } else if y < wa_top && below + menu_size.height <= wa_bottom {
+        y = below;
+    }
+
+    clamp_to_work_area(
+        LogicalPosition::new(trigger_abs.x, y),
+        menu_size,
+        work_area,
+    )
 }
 
 /// Position submenu to the right of menu item (typical for submenus)
@@ -405,8 +448,13 @@ pub fn show_menu(
     // calculate_menu_position wants an absolute (screen) cursor, so offset it by
     // the parent's position. (DPI=1 assumption: logical ~= physical; HiDPI
     // repositioning is a follow-up.)
-    let item_count = menu.items.as_slice().len().max(1);
-    let estimated_size = LogicalSize::new(220.0, item_count as f32 * 28.0 + 8.0);
+    // The desktop's own metrics, and the same ones the menu stylesheet is
+    // built from — not a second set of literals (220 x items*28) that agreed
+    // with neither the stylesheet nor the Wayland estimate.
+    let estimated_size = crate::desktop::menu_renderer::MenuMetrics::from_system_style(
+        &system_style,
+    )
+    .estimate_menu_size(&menu);
     let abs_cursor = cursor_position.map(|c| {
         LogicalPosition::new(
             parent_window_position.x + c.x,
@@ -414,11 +462,7 @@ pub fn show_menu(
         )
     });
     let menu_pos = calculate_menu_position(
-        if trigger_rect.is_some() {
-            MenuPopupPosition::AutoHitRect
-        } else {
-            MenuPopupPosition::AutoCursor
-        },
+        resolve_position_strategy(menu.position, trigger_rect.is_some()),
         abs_cursor,
         trigger_rect,
         estimated_size,
@@ -591,4 +635,102 @@ mod tests {
         assert_eq!(pos.x, 300.0); // 100 + 200
         assert_eq!(pos.y, 50.0); // Aligned with menu item top
     }
+}
+
+/// The placement laws a menu obeys on every backend that places its own popup
+/// (X11, Windows' and macOS' fallback menus). Pure geometry: an explicit work
+/// area, no display query, so these run headless.
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    fn work_area() -> LogicalRect {
+        LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(1920.0, 1080.0),
+        )
+    }
+
+    /// A menu opened FOR A CONTROL hangs off that control's LEFT edge, below
+    /// it - the `<select>` law, and what every menu bar on every desktop does.
+    /// Anchoring it at the trigger's bottom-RIGHT corner puts it one whole
+    /// trigger width to the right of the control it belongs to. Wayland's
+    /// `menu_edge_for` already restored this law for the compositor-placed
+    /// path; the self-placing backends still get it wrong.
+    #[test]
+    fn a_menu_anchored_to_a_control_opens_below_its_left_edge() {
+        let pos = calculate_auto_position_from_rect(
+            LogicalPosition::new(100.0, 100.0),
+            LogicalSize::new(200.0, 30.0),
+            LogicalSize::new(150.0, 200.0),
+            work_area(),
+        );
+        assert_eq!(
+            (pos.x, pos.y),
+            (100.0, 130.0),
+            "the menu's left edge belongs on the control's left edge, not one control width right \
+             of it"
+        );
+    }
+
+    /// A menu that will not fit below its trigger FLIPS above it. Sliding it
+    /// up instead parks it ON TOP of the control that opened it, which is the
+    /// one place a menu may never be.
+    #[test]
+    fn a_menu_that_would_leave_the_bottom_flips_above_its_trigger() {
+        let pos = position_relative_to_rect(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalRect::new(
+                LogicalPosition::new(100.0, 1000.0),
+                LogicalSize::new(120.0, 30.0),
+            ),
+            LogicalSize::new(150.0, 200.0),
+            work_area(),
+            0.0,
+        );
+        assert_eq!(
+            pos.y, 800.0,
+            "a menu with no room below its trigger opens above it (trigger top 1000 - menu height \
+             200), never slid down over it"
+        );
+    }
+
+    /// A menu that SAID where it wants to be opens there. `Auto*` is the only
+    /// answer that hands the choice back to the toolkit - so a submenu, which
+    /// asks for `RightOfHitRect`, opens beside its item and not under it.
+    #[test]
+    fn a_menu_opens_where_it_asked_to() {
+        assert_eq!(
+            resolve_position_strategy(MenuPopupPosition::RightOfHitRect, true),
+            MenuPopupPosition::RightOfHitRect,
+            "a submenu's stated placement must survive"
+        );
+        assert_eq!(
+            resolve_position_strategy(MenuPopupPosition::AutoCursor, true),
+            MenuPopupPosition::AutoHitRect,
+            "`Auto` with a trigger rect means: anchor to the trigger"
+        );
+        assert_eq!(
+            resolve_position_strategy(MenuPopupPosition::AutoHitRect, false),
+            MenuPopupPosition::AutoCursor,
+            "`Auto` with no trigger rect means: at the pointer"
+        );
+    }
+
+    /// The mirror law, already held: a submenu with no room on the right
+    /// opens on the left of its item. Kept as the guard for the flip above.
+    #[test]
+    fn a_submenu_that_would_leave_the_right_edge_flips_to_the_left_of_its_item() {
+        let pos = position_submenu_right(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalRect::new(
+                LogicalPosition::new(1700.0, 100.0),
+                LogicalSize::new(180.0, 24.0),
+            ),
+            LogicalSize::new(200.0, 150.0),
+            work_area(),
+        );
+        assert_eq!((pos.x, pos.y), (1500.0, 100.0));
+    }
+
 }

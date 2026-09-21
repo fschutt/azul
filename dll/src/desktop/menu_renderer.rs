@@ -628,6 +628,180 @@ fn virtual_key_to_str(key: &azul_core::window::VirtualKeyCode) -> &'static str {
     }
 }
 
+/// Every number a menu is built from, derived ONCE from the live
+/// [`SystemStyle`] so that the size the popup is CREATED at and the CSS it is
+/// RENDERED with cannot disagree. They used to be two independent sets of
+/// literals (a 24px item and a 200px width in the Wayland estimate, a 28px
+/// item and a 220px width in the cross-platform one, a 160px floor in the
+/// stylesheet), so no menu was ever the size any of them said.
+///
+/// Per property, what a KDE Plasma desktop can actually tell azul:
+/// * `font_family` / `font_size_px` — KNOWN. `kdeglobals [General] menuFont`,
+///   read by `linux::system_style::discover_kde_style`. Reported in POINTS.
+/// * `border_width`, `corner_radius` — from `SystemMetrics`, but on KDE those
+///   are still the `defaults::kde_breeze_*` presets: Breeze keeps them in its
+///   compiled QStyle `Metrics` table and publishes no config key for them.
+/// * `pad_h` / `pad_v` — the desktop's CONTROL padding, halved vertically
+///   because a menu is tighter than a button in every toolkit. Breeze's own
+///   `Metrics::MenuItem_MarginWidth` is likewise not exported.
+/// * `icon_size` — derived from the font. Plasma DOES publish the small-icon
+///   size (`kdeglobals [Icons] Size`), but `LinuxCustomization` has no field
+///   to carry it, so no discovery code could read it today.
+/// * `min_width` — azul's own floor, expressed in ems so it tracks the
+///   desktop's font instead of pinning every menu to one pixel count. Qt
+///   sizes a menu to its contents and imposes no minimum of its own.
+/// * the drop shadow is deliberately NOT derived: KWin does not shadow a
+///   client's popup, Qt paints its own into a surface margin, and azul never
+///   calls `xdg_surface_set_window_geometry` — so a shadow drawn outside the
+///   container's border box is clipped away by the popup surface.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuMetrics {
+    /// The desktop's menu font, in CSS pixels (it reports POINTS).
+    pub font_size_px: f32,
+    /// The desktop's menu font family.
+    pub font_family: String,
+    /// Padding left and right of an item's contents.
+    pub pad_h: f32,
+    /// Padding above and below an item's contents.
+    pub pad_v: f32,
+    /// The content box of one item: the taller of the nominal line box and
+    /// the checkmark gutter. The REAL line box is only known after shaping;
+    /// this is the pre-layout estimate, which `measure_popup_content`
+    /// afterwards replaces with the truth.
+    pub row_height: f32,
+    /// One item's border box: `row_height` plus its vertical padding.
+    pub item_height: f32,
+    /// A separator's border box: the rule plus its margins.
+    pub separator_height: f32,
+    /// Padding the frame adds above the first and below the last item.
+    pub frame_pad_v: f32,
+    /// The frame's own line.
+    pub border_width: f32,
+    pub corner_radius: f32,
+    /// The checkmark / icon gutter.
+    pub icon_size: f32,
+    /// The width the stylesheet promises and the popup is measured at.
+    pub min_width: f32,
+}
+
+impl MenuMetrics {
+    /// A nominal line box, as a multiple of the font size. The real one comes
+    /// from the shaped font; this only has to be close enough to create the
+    /// popup surface with.
+    const NOMINAL_LINE_HEIGHT: f32 = 1.2;
+    /// The checkmark gutter, as a multiple of the font size — a fixed 20px box
+    /// beside 8px text is a huge gutter and beside 16px text a cramped one.
+    const ICON_COLUMN_EMS: f32 = 1.4;
+    /// The menu's minimum width, in ems of its own font.
+    const MIN_WIDTH_EMS: f32 = 12.0;
+
+    #[must_use]
+    pub fn from_system_style(style: &SystemStyle) -> Self {
+        // The system reports the size in POINTS. A typographic point is 1/72
+        // inch and a CSS pixel 1/96, so on Linux and Windows the point size is
+        // 4/3 as many pixels (KDE's "Noto Sans,10" is 13.3px); used as pixels
+        // it made every menu a quarter smaller than the desktop's. On macOS a
+        // Cocoa point already IS a logical pixel.
+        let px_per_pt = if matches!(style.platform, azul_css::system::Platform::MacOs) {
+            1.0
+        } else {
+            azul_css::props::basic::pixel::PT_TO_PX
+        };
+        // The MENU font, not the generic UI font: KDE and GNOME both let the
+        // user set it separately, and a menu laid out in the wrong face is the
+        // most visible way to not look like the desktop. Falls back to the UI
+        // font, which is what those desktops mean by "unset" anyway.
+        let font_size_px = style
+            .fonts
+            .menu_font_size
+            .as_option()
+            .or(style.fonts.ui_font_size.as_option())
+            .map(|pt| pt * px_per_pt)
+            .unwrap_or(14.0);
+        let font_family = style
+            .fonts
+            .menu_font
+            .as_option()
+            .or(style.fonts.ui_font.as_option())
+            .map(|f| f.as_str().to_string())
+            .unwrap_or_else(|| "sans-serif".to_string());
+
+        // Item padding follows the platform's control padding instead of one
+        // hardcoded number, so a Breeze menu is as tight as Breeze and an
+        // Adwaita one as roomy as Adwaita. Menus are tighter than buttons in
+        // every toolkit, hence the vertical halving.
+        let pad_h = style
+            .metrics
+            .button_padding_horizontal
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0);
+        let pad_v = style
+            .metrics
+            .button_padding_vertical
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0)
+            * 0.5;
+        let border_width = style
+            .metrics
+            .border_width
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(1.0);
+        let corner_radius = style
+            .metrics
+            .corner_radius
+            .map(|p| p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(4.0);
+
+        let icon_size = (font_size_px * Self::ICON_COLUMN_EMS)
+            .round()
+            .clamp(14.0, 24.0);
+        let line_box = (font_size_px * Self::NOMINAL_LINE_HEIGHT).round();
+        // The icon div is always emitted, so it is a flex sibling of the label
+        // and the row is as tall as the taller of the two.
+        let row_height = line_box.max(icon_size);
+
+        Self {
+            font_size_px,
+            font_family,
+            pad_h,
+            pad_v,
+            row_height,
+            item_height: row_height + 2.0 * pad_v,
+            separator_height: border_width + 2.0 * pad_v,
+            frame_pad_v: pad_v,
+            border_width,
+            corner_radius,
+            icon_size,
+            min_width: (font_size_px * Self::MIN_WIDTH_EMS).round(),
+        }
+    }
+
+    /// The size the popup surface is created at, before the DOM is measured.
+    ///
+    /// The WIDTH is the minimum the stylesheet promises and nothing more: a
+    /// menu is laid out at this width and `get_content_size` returns the
+    /// larger of it and thecontent, so it is the MEASUREMENT — not this
+    /// estimate — that decides how wide a menu ends up. An estimate wider
+    /// than the content (the old flat 200px) can never be corrected downwards,
+    /// which is why every menu used to be 200px wide whatever it contained.
+    #[must_use]
+    pub fn estimate_menu_size(&self, menu: &Menu) -> azul_core::geom::LogicalSize {
+        let content: f32 = menu
+            .items
+            .as_slice()
+            .iter()
+            .map(|item| match item {
+                MenuItem::Separator => self.separator_height,
+                _ => self.item_height,
+            })
+            .sum();
+        azul_core::geom::LogicalSize::new(
+            self.min_width,
+            2.0 * self.border_width + 2.0 * self.frame_pad_v + content,
+        )
+    }
+}
+
 /// Extension trait to add menu stylesheet creation to SystemStyle
 ///
 /// Generates a `Css` containing CSS classes for the menu system:
@@ -677,84 +851,58 @@ impl SystemStyleMenuExt for SystemStyle {
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(128, 128, 128)); // Fallback for disabled
+        // A separator is a LINE, and every desktop publishes the colour it
+        // rules its lines in (`Colors:Window/BackgroundAlternate` on KDE, read
+        // by `discover_kde_style`). `colors.background` is the CONTENT surface
+        // — a text field's white — so the rule came out as a bright bar across
+        // a light menu and a near-black one across a dark one.
         let separator_color = self
             .colors
-            .background
+            .separator
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(200, 200, 200)); // Fallback for separator
 
-        // Get font settings. The MENU font, not the generic UI font: KDE and
-        // GNOME both let the user set it separately, and a menu laid out in
-        // the wrong face is the most visible way to not look like the desktop.
-        // Falls back to the UI font, which is what those desktops mean by
-        // "unset" anyway.
-        // The system reports the size in POINTS. A typographic point is 1/72
-        // inch and a CSS pixel 1/96, so on Linux and Windows the point size is
-        // 4/3 as many pixels (KDE's "Noto Sans,10" is 13.3px); used as pixels
-        // it made every menu a quarter smaller than the desktop's. On macOS a
-        // Cocoa point already IS a logical pixel.
-        let px_per_pt = if matches!(self.platform, azul_css::system::Platform::MacOs) {
-            1.0
-        } else {
-            azul_css::props::basic::pixel::PT_TO_PX
-        };
-        let font_size = self
-            .fonts
-            .menu_font_size
-            .as_option()
-            .or(self.fonts.ui_font_size.as_option())
-            .map(|pt| pt * px_per_pt)
-            .unwrap_or(14.0);
-        let font_family = self
-            .fonts
-            .menu_font
-            .as_option()
-            .or(self.fonts.ui_font.as_option())
-            .map(|f| f.as_str().to_string())
-            .unwrap_or_else(|| "sans-serif".to_string());
-
-        // Get metrics
-        let corner_radius = self
-            .metrics
-            .corner_radius
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(4.0);
-        // Item padding follows the platform's control padding instead of one
-        // hardcoded number, so a Breeze menu is as tight as Breeze and an
-        // Adwaita one as roomy as Adwaita. Menus are tighter than buttons in
-        // every toolkit, hence the vertical halving.
-        let pad_h = self
-            .metrics
-            .button_padding_horizontal
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(8.0);
-        let pad_v = self
-            .metrics
-            .button_padding_vertical
-            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
-            .unwrap_or(8.0)
-            * 0.5;
-        // The icon column tracks the text, the way a real menu's checkmark
-        // gutter does — a fixed 20px box beside 8px text is a huge gutter and
-        // beside 16px text is a cramped one.
-        let icon_size = (font_size * 1.4).round().clamp(14.0, 24.0);
-        let padding = pad_h;
+        // One derivation of every menu number, shared with the size the
+        // popup surface is created at (`MenuMetrics::estimate_menu_size`).
+        let m = MenuMetrics::from_system_style(self);
+        let font_size = m.font_size_px;
+        let font_family = m.font_family.clone();
+        let corner_radius = m.corner_radius;
+        let pad_h = m.pad_h;
+        let pad_v = m.pad_v;
+        let icon_size = m.icon_size;
 
         // Menu container
         css.push_str(&format!(
-            ".menu-container {{\nbackground: rgb({}, {}, {});\nborder: 1px solid rgb(180, 180, \
-             180);\nborder-radius: {}px;\nbox-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);\npadding: \
-             4px 0;\nmin-width: 160px;\n}}\n",
-            bg_color.r, bg_color.g, bg_color.b, corner_radius
+            ".menu-container {{\nbackground: rgb({}, {}, {});\nborder: {}px solid rgb({}, {}, \
+             {});\nborder-radius: {}px;\nbox-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);\npadding: \
+             {}px 0;\nmin-width: {}px;\n}}\n",
+            bg_color.r,
+            bg_color.g,
+            bg_color.b,
+            m.border_width,
+            separator_color.r,
+            separator_color.g,
+            separator_color.b,
+            corner_radius,
+            m.frame_pad_v,
+            m.min_width
         ));
 
         // Menu item
         css.push_str(&format!(
             ".menu-item {{\ndisplay: flex;\nflex-direction: row;\nalign-items: center;\npadding: \
-             {}px {}px;\ncolor: rgb({}, {}, {});\nfont-family: {};\nfont-size: {}px;\ncursor: \
-             pointer;\nuser-select: none;\n}}\n",
-            pad_v, pad_h, text_color.r, text_color.g, text_color.b, font_family, font_size
+             {}px {}px;\nmin-height: {}px;\ncolor: rgb({}, {}, {});\nfont-family: \
+             {};\nfont-size: {}px;\ncursor: pointer;\nuser-select: none;\n}}\n",
+            pad_v,
+            pad_h,
+            m.row_height,
+            text_color.r,
+            text_color.g,
+            text_color.b,
+            font_family,
+            font_size
         ));
 
         // Menu item hover state
@@ -826,9 +974,9 @@ impl SystemStyleMenuExt for SystemStyle {
 
         // Separator
         css.push_str(&format!(
-            ".menu-separator {{\nheight: 1px;\nbackground: rgb({}, {}, {});\nmargin: {}px \
+            ".menu-separator {{\nheight: {}px;\nbackground: rgb({}, {}, {});\nmargin: {}px \
              {}px;\n}}\n",
-            separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
+            m.border_width, separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
         ));
 
         // Parse CSS and extract first stylesheet
@@ -994,6 +1142,61 @@ mod menu_stylesheet_tests {
         assert!(
             css.contains("UiFace"),
             "an unset menu font must fall back to the UI font, not to sans-serif"
+        );
+    }
+
+    /// A menu's frame is the desktop's own line, at the desktop's own width.
+    /// A baked `1px solid rgb(180,180,180)` is a light-grey box drawn around
+    /// a Breeze DARK menu - the single most obviously foreign thing about it.
+    #[test]
+    fn the_menu_frame_is_the_systems_own_colour() {
+        use azul_css::props::basic::{ColorU, OptionColorU};
+
+        let mut style = defaults::kde_breeze_dark();
+        style.colors.separator = OptionColorU::Some(ColorU::new_rgb(11, 22, 33));
+        let css = css_text(&style);
+
+        assert!(
+            css.contains("r: 11, g: 22, b: 33"),
+            "the detected separator colour must draw the menu's frame"
+        );
+        assert!(
+            !css.contains("r: 180, g: 180, b: 180"),
+            "the menu frame must not be a hardcoded grey"
+        );
+    }
+
+    /// ...and at the desktop's own width.
+    #[test]
+    fn the_menu_frame_follows_the_detected_border_width() {
+        let mut thin = defaults::kde_breeze_dark();
+        thin.metrics.border_width = OptionPixelValue::Some(PixelValue::px(1.0));
+        let mut thick = defaults::kde_breeze_dark();
+        thick.metrics.border_width = OptionPixelValue::Some(PixelValue::px(3.0));
+
+        assert_ne!(
+            css_text(&thin),
+            css_text(&thick),
+            "the detected border width must reach the menu frame"
+        );
+    }
+
+    /// A separator is a LINE, and every desktop publishes the colour it draws
+    /// its lines in. Drawing it in the CONTENT background (`Colors:View`)
+    /// paints a white bar across a light menu and a near-black one across a
+    /// dark menu - the colour of a text field, not of a rule.
+    #[test]
+    fn the_separator_is_the_systems_separator_colour_not_its_content_background() {
+        use azul_css::props::basic::{ColorU, OptionColorU};
+
+        let mut style = defaults::kde_breeze_dark();
+        style.colors.background = OptionColorU::Some(ColorU::new_rgb(44, 55, 66));
+        style.colors.separator = OptionColorU::Some(ColorU::new_rgb(11, 22, 33));
+        let css = css_text(&style);
+
+        assert!(
+            !css.contains("r: 44, g: 55, b: 66"),
+            "the separator must not be drawn in the content background"
         );
     }
 
