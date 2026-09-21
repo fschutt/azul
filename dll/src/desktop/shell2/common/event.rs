@@ -6364,7 +6364,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(&payload);
+                    set_system_clipboard(self.registry_window_id(), &payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -6377,7 +6377,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(&payload);
+                    set_system_clipboard(self.registry_window_id(), &payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -7293,7 +7293,7 @@ pub trait PlatformWindow {
                     if let Some(clipboard_content) = clipboard_content {
                         match clipboard_content_to_payload(&clipboard_content) {
                             Some(payload) => {
-                                set_system_clipboard(&payload);
+                                set_system_clipboard(self.registry_window_id(), &payload);
                             }
                             None => {
                                 log_debug!(
@@ -7310,6 +7310,10 @@ pub trait PlatformWindow {
 
             SystemChange::CutToClipboard { target } => {
                 let mut affected = false;
+                // Hoisted: the layout-window borrow below is mutable, and the
+                // copy has to name the window it came from (Wayland routes the
+                // selection on it).
+                let asking_window = self.registry_window_id();
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     // MWA-C-text_edit: editing DOM, not hardcoded DomId 0
                     // (see CopyToClipboard above).
@@ -7321,7 +7325,7 @@ pub trait PlatformWindow {
                         layout_window.get_selected_content_for_clipboard(&dom_id)
                     {
                         let committed = clipboard_content_to_payload(&clipboard_content)
-                            .is_some_and(|payload| set_system_clipboard(&payload));
+                            .is_some_and(|payload| set_system_clipboard(asking_window, &payload));
                         if committed {
                             // Cross-block cut: the copy above already joined the
                             // multi-paragraph text; the delete is the atomic
@@ -7349,8 +7353,12 @@ pub trait PlatformWindow {
             }
 
             SystemChange::PasteFromClipboard => {
+                // Hoisted past the mutable layout-window borrow: a Wayland
+                // paste reads THIS window's `wl_data_offer`, not whichever
+                // window the registry listed first.
+                let asking_window = self.registry_window_id();
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let pasted = get_system_clipboard()
+                    let pasted = get_system_clipboard(asking_window)
                         .as_ref()
                         .and_then(payload_to_clipboard_content);
                     if let Some(clipboard_content) = pasted {
@@ -7708,6 +7716,9 @@ pub trait PlatformWindow {
                 // node's stack like the primary's and put the SEAT's caret
                 // where the edit found it.
                 use azul_core::events::KeyboardShortcut;
+                // Hoisted past the mutable layout-window borrow: a Wayland
+                // copy or paste is routed on the window that asked.
+                let asking_window = self.registry_window_id();
                 let Some(layout_window) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
@@ -7728,7 +7739,7 @@ pub trait PlatformWindow {
                             return ProcessEventResult::DoNothing;
                         };
                         let committed = clipboard_content_to_payload(&content)
-                            .is_some_and(|payload| set_system_clipboard(&payload));
+                            .is_some_and(|payload| set_system_clipboard(asking_window, &payload));
                         if !committed || matches!(shortcut, KeyboardShortcut::Copy) {
                             return ProcessEventResult::DoNothing;
                         }
@@ -7745,7 +7756,7 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Paste => {
-                        let pasted = get_system_clipboard()
+                        let pasted = get_system_clipboard(asking_window)
                             .as_ref()
                             .and_then(payload_to_clipboard_content);
                         let Some(clipboard_content) = pasted else {
@@ -11215,7 +11226,7 @@ pub trait PlatformWindow {
                 .iter()
                 .any(|c| matches!(c, SystemChange::PasteFromClipboard));
             if has_paste {
-                let pasted = get_system_clipboard()
+                let pasted = get_system_clipboard(self.registry_window_id())
                     .as_ref()
                     .and_then(payload_to_clipboard_content);
                 if let Some(clipboard_content) = pasted {

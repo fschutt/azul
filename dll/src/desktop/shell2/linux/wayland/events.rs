@@ -502,6 +502,13 @@ pub(super) extern "C" fn registry_global_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let interface_str = unsafe { CStr::from_ptr(interface).to_str().unwrap_or_default() };
 
+    // NOTICED, never bound: `zwlr_data_control_manager_v1` /
+    // `ext_data_control_manager_v1` are what a clipboard MANAGER watches the
+    // selection through, and Wayland's answer to "must a copy outlive the
+    // app" is "run one". Binding it would make this toolkit a second manager;
+    // knowing it is there is what lets the app tell the truth at shutdown.
+    super::clipboard::note_global(interface_str);
+
     match interface_str {
         "wl_compositor" => {
             window.compositor = unsafe {

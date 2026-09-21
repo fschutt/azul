@@ -4605,7 +4605,11 @@ impl WaylandWindow {
                 .as_ref()
                 .is_some_and(|lw| lw.text_edit_manager.has_active_editing()),
         ) {
-            if let Some(text) = clipboard::get_primary_content() {
+            // THIS window's seat, not whichever the registry listed first:
+            // the offer, the device and the serial are all per-connection
+            // here, and the window the click landed in is already on the
+            // stack.
+            if let Some(text) = clipboard::get_primary_content(self) {
                 if !text.is_empty() {
                     if let Some(ref mut layout_window) = self.common.layout_window {
                         layout_window.record_text_input(&text);
@@ -4785,7 +4789,9 @@ impl WaylandWindow {
         if text.is_empty() {
             return;
         }
-        let _ = clipboard::write_to_primary(&text);
+        // The selection belongs to the seat of the window the gesture happened
+        // in — this one.
+        let _ = clipboard::write_to_primary(self, &text);
     }
 
     /// Accumulate one `wl_pointer.axis` event into the current pointer frame.
@@ -5780,56 +5786,53 @@ impl WaylandWindow {
         Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    /// Read EVERY flavor the current clipboard offer advertises that azul has
-    /// a codec for.
+    /// Read the current clipboard offer with EXACTLY ONE pipe transfer.
     ///
     /// Driven by the offer's own advertised mime list (captured at
     /// `wl_data_device.selection`), not by guesswork: `wl_data_offer.receive`
     /// with a mime the source never offered is answered by a pipe the source
     /// is under no obligation to close, so each blind guess costs the full
     /// transfer deadline.
+    ///
+    /// And exactly ONE of the advertised ones, because a transfer costs the UI
+    /// thread `events::PASTE_UI_DEADLINE` whether it is the flavor we end up
+    /// using or not. This used to transfer every flavor it had a codec for and
+    /// hand `decode_payload` the lot, which then kept the richest and threw
+    /// the rest away — four deadlines' worth of frozen event loop to build a
+    /// payload three quarters of which was discarded.
+    /// `clipboard::best_offered_mime` applies the decoder's own ranking to the
+    /// advertised list first, so the one flavor transferred is the one that
+    /// would have survived anyway.
     pub(super) fn read_wayland_selection_payload(
         &mut self,
     ) -> Option<rich_clipboard::ClipboardPayload> {
-        use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
+        use rich_clipboard::Platform;
 
         if self.clipboard_offer.is_null() {
             return None;
         }
-        // Cloned because the receive borrows `self` mutably below.
+        // Cloned because the transport below borrows `self`.
         let offered: Vec<String> = self.drag.clipboard_mimes().to_vec();
         let offer = self.clipboard_offer;
 
-        let mut payload = ClipboardPayload::new(Platform::Unix);
-        // Borrows `offered`, so it must be declared after it (and is dropped
-        // before it). `Flavor` is only `'static` when it came from a literal.
-        let mut seen: Vec<Flavor<'_>> = Vec::new();
-        for mime in &offered {
-            let flavor = Flavor::from_mime(mime);
-            // A flavor nothing here decodes is not worth a pipe transfer, and
-            // two spellings of one flavor (`UTF8_STRING` next to
-            // `text/plain;charset=utf-8`) are one transfer, not two.
-            if matches!(flavor, Flavor::Other(_)) || seen.contains(&flavor) {
-                continue;
-            }
-            let bytes = unsafe { events::receive_offer_bytes(self, offer, mime) };
-            if bytes.is_empty() {
-                continue;
-            }
-            seen.push(flavor);
-            payload.push(ClipboardItem::new(mime.as_str(), bytes));
+        let transferred = {
+            let mut pipe = clipboard::OfferPipe {
+                window: self,
+                offer,
+            };
+            clipboard::read_offer_payload(&offered, &mut pipe)
+        };
+        if let Some(payload) = transferred {
+            return Some(payload);
         }
 
-        if payload.is_empty() {
-            // No advertised mime answered — either the list never arrived
-            // (an offer whose advertisements we missed) or every transfer
-            // failed. Fall back to the single-flavor read, which asks for
-            // plain text unconditionally.
-            let text = self.read_wayland_selection()?;
-            return rich_clipboard::encode(&rich_clipboard::RichItem::Text(text), Platform::Unix)
-                .ok();
-        }
-        Some(payload)
+        // Nothing worth asking for was advertised (an offer whose
+        // advertisements we missed), or the source answered with nothing. Fall
+        // back to the single-flavor read, which asks for plain text
+        // unconditionally — the ONLY path on which a paste costs a second
+        // transfer.
+        let text = self.read_wayland_selection()?;
+        rich_clipboard::encode(&rich_clipboard::RichItem::Text(text), Platform::Unix).ok()
     }
 
     // --- Primary selection (zwp_primary_selection_v1) ---
@@ -8623,6 +8626,15 @@ impl Drop for WaylandWindow {
                 events::destroy_data_offer_for_teardown(self, self.clipboard_offer);
                 self.clipboard_offer = std::ptr::null_mut();
             }
+            // A Wayland selection lives exactly as long as the client that
+            // owns its `wl_data_source`, and every window here is its own
+            // client connection — so closing the window the user copied from
+            // destroyed the app's OWN clipboard while the app was still
+            // running. Hand it to a surviving window before this connection
+            // goes; when there is none left, `hand_off_selection` says whether
+            // a clipboard manager can carry it past the process (Wayland has
+            // no ICCCM SAVE_TARGETS handoff to make).
+            clipboard::hand_off_selection(self.surface as u64);
             // Same for the primary-selection offer, for the same reason: each
             // `selection` event releases its PREDECESSOR, so exactly one is
             // still held at teardown and nothing else will ever release it.

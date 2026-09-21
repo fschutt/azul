@@ -49,9 +49,18 @@ pub const MAX_FLAVOR_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Read the OS clipboard as a typed payload.
 ///
+/// `window` is the asking window's key in the backend's registry
+/// (`PlatformWindow::registry_window_id`); 0 means "no window to name". Most
+/// platforms have one app-wide clipboard and ignore it. Wayland does not: a
+/// selection there belongs to a SEAT, reached through one window's
+/// `wl_data_device` and validated against that window's input serial, so a
+/// paste has to say which window it is for. See
+/// `linux/wayland/clipboard.rs::route_selection`.
+///
 /// `None` means an empty clipboard, an unreachable clipboard, or a platform
 /// without one wired up — callers treat all three as "nothing to paste".
-pub fn get_system_clipboard() -> Option<ClipboardPayload> {
+pub fn get_system_clipboard(window: u64) -> Option<ClipboardPayload> {
+    let _ = window;
     // Every flavor the source offered — one group per pasteboard item on
     // macOS, one flat set everywhere else.
     #[cfg(target_os = "windows")]
@@ -68,7 +77,7 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
         // (it falls back to the X11 worker itself when the compositor has no
         // selection), the X11 worker directly otherwise.
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            crate::desktop::shell2::linux::wayland::clipboard::read_payload()
+            crate::desktop::shell2::linux::wayland::clipboard::read_payload(asking_window(window))
         } else {
             crate::desktop::shell2::linux::x11::clipboard::read_payload()
         }
@@ -97,12 +106,26 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
     }
 }
 
+/// A registry id, as the Wayland router wants it: `None` for "nobody named a
+/// window", which is what 0 means at a call site that has no handle yet.
+#[cfg(target_os = "linux")]
+fn asking_window(window: u64) -> Option<crate::desktop::shell2::linux::registry::LinuxWindowId> {
+    (window != 0).then_some(window)
+}
+
 /// Publish a typed payload to the OS clipboard.
+///
+/// `window` names the asking window, for the same reason it does on the read
+/// side — see [`get_system_clipboard`]. A Wayland copy goes out on THAT
+/// window's `wl_data_source` with THAT window's input serial; sending another
+/// window's is how a copy made in the second window of an app got dropped by
+/// the compositor without a word.
 ///
 /// Returns `true` only when the platform transport accepted the content —
 /// `CutToClipboard` gates the DELETION of the selected text on this, so a
 /// failed copy must never report success.
-pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
+pub fn set_system_clipboard(window: u64, payload: &ClipboardPayload) -> bool {
+    let _ = window;
     // macOS and Windows publish EVERY flavor of the fan-out, which is what
     // makes a paste land in Word as styled text rather than flattened.
     #[cfg(target_os = "macos")]
@@ -123,7 +146,11 @@ pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
         // selection owner serves one target — see `x11/clipboard.rs`), so it
         // gets the plain-text reading.
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            crate::desktop::shell2::linux::wayland::clipboard::write_payload(payload).is_ok()
+            crate::desktop::shell2::linux::wayland::clipboard::write_payload(
+                asking_window(window),
+                payload,
+            )
+            .is_ok()
         } else {
             let Some(text) = payload_plain_text(payload) else {
                 return false;
