@@ -12006,6 +12006,28 @@
                                     "type": "LogicalSize"
                                 },
                                 "fn_body": "object.measure_dom_shrink_to_fit(dom, bound)"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Report a diagnostic from inside this callback.",
+                                    "",
+                                    "The same sink `CallbackInfo::log` writes to, so a binding's callback",
+                                    "boundary can report a failure here instead of only to stderr - which",
+                                    "is what makes a failing virtual-view callback visible to the app's log",
+                                    "pipeline rather than only to whoever is watching the terminal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "level": "AppLogLevel"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(level, message)"
                             }
                         },
                         "repr": "C"
@@ -19647,6 +19669,28 @@
                                     "type": "SafeAreaInsets"
                                 },
                                 "fn_body": "object.get_safe_area_insets()"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Report a diagnostic from inside this callback.",
+                                    "",
+                                    "The same sink `CallbackInfo::log` writes to, so a binding's callback",
+                                    "boundary can report a failure here instead of only to stderr - which",
+                                    "is what makes a failing layout callback visible to the app's log",
+                                    "pipeline rather than only to whoever is watching the terminal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "level": "AppLogLevel"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(level, message)"
                             }
                         },
                         "repr": "C"
@@ -19870,6 +19914,28 @@
                                     }
                                 ],
                                 "fn_body": "object.trigger_virtual_view_rerender(dom_id, node_id)"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Report a diagnostic from inside this callback.",
+                                    "",
+                                    "The same sink `CallbackInfo::log` writes to, so a binding's callback",
+                                    "boundary can report a failure here instead of only to stderr - which",
+                                    "is what makes a failing timer callback visible to the app's log",
+                                    "pipeline rather than only to whoever is watching the terminal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "level": "AppLogLevel"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(level, message)"
                             }
                         },
                         "repr": "C"
@@ -20522,6 +20588,28 @@
                                     "type": "OptionRefAny"
                                 },
                                 "fn_body": "object.get_ctx()"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Report a diagnostic from inside this callback.",
+                                    "",
+                                    "The same sink `CallbackInfo::log` writes to, so a binding's callback",
+                                    "boundary can report a failure here instead of only to stderr - which",
+                                    "is what makes a failing render-image callback visible to the app's log",
+                                    "pipeline rather than only to whoever is watching the terminal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "level": "AppLogLevel"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(level, message)"
                             }
                         },
                         "repr": "C"

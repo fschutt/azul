@@ -7254,6 +7254,26 @@ pub struct RenderImageCallbackInfo {
 }
 
 impl RenderImageCallbackInfo {
+    /// Report a diagnostic from inside this callback.
+    ///
+    /// The same sink `CallbackInfo::log` writes to, so a binding's callback
+    /// boundary can report a failure here instead of only to stderr - which
+    /// is what makes a failing render-image callback visible to the app's log
+    /// pipeline rather than only to whoever is watching the terminal.
+    pub fn log(&mut self, level: azul_core::resources::AppLogLevel, message: impl Into<AzString>) {
+        let level_str = match level {
+            azul_core::resources::AppLogLevel::Off => "off",
+            azul_core::resources::AppLogLevel::Error => "error",
+            azul_core::resources::AppLogLevel::Warn => "warn",
+            azul_core::resources::AppLogLevel::Info => "info",
+            azul_core::resources::AppLogLevel::Debug => "debug",
+            azul_core::resources::AppLogLevel::Trace => "trace",
+        };
+        if level != azul_core::resources::AppLogLevel::Off {
+            azul_core::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+        }
+    }
+
     #[must_use]
     pub const fn new<'a>(
         callback_node_id: DomNodeId,
