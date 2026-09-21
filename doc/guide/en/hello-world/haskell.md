@@ -29,12 +29,9 @@ default-search-keys:
 ## Introduction
 
 To use `libazul` from Haskell, you need the native prebuilt library and the generated `azul`
-cabal package, which calls the C API through GHC's foreign function interface. You write plain
-Haskell: a model type, a layout function that turns the model into a `Dom`, and event handlers
-that return the next model. The package converts between your model and the `RefAny` the
-framework stores, and passes structs through small C shims that cabal compiles with it.
-
-The package is tested with GHC 9.6 and 9.14.
+cabal package, which calls the C API through GHC's foreign function interface. The bindings 
+convert between your data model and the `RefAny` which the framework stores, and passes structs 
+through small C shims that cabal compiles with it. The package is tested with GHC 9.6 and 9.14.
 
 ## Installation
 
@@ -48,38 +45,27 @@ macOS:
 
 ```sh
 mkdir hello-world && cd hello-world
+
+# macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-curl -LO https://azul.rs/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz
-tar xzf azul-haskell-$VERSION.tar.gz
-cabal run --extra-lib-dirs=$PWD hello-world
-```
-
-Linux:
-
-```sh
-mkdir hello-world && cd hello-world
+# Linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -LO https://azul.rs/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz
-tar xzf azul-haskell-$VERSION.tar.gz
-LD_LIBRARY_PATH=. cabal run --extra-lib-dirs=$PWD hello-world
-```
-
-Windows (MSYS2 shell):
-
-```sh
-mkdir hello-world && cd hello-world
+# Windows 
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
+
 curl -LO https://azul.rs/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz
 tar xzf azul-haskell-$VERSION.tar.gz
 cabal run --extra-lib-dirs=$PWD hello-world
 ```
 
-`--extra-lib-dirs` tells the linker where the native library is. It must be an absolute path,
-and it must stay the same between runs: cabal treats it as part of the build configuration and
-rebuilds the whole package when it changes.
+`--extra-lib-dirs` tells the linker where the native library is. 
+It must be an absolute path, and it must stay the same between runs: cabal
+treats it as part of the build configuration and rebuilds the whole package 
+when it changes.
 
-The first run compiles the generated package (about a thousand small modules and the C shims)
-in parallel, about two minutes on an 8-core machine. Later runs only compile your own code.
+The first run compiles the generated package (about a thousand small modules 
+and the C shims) in parallel, which takes about 2-3 minutes on an 8-core machine. 
+Later runs only compile your own code.
 
 ### Building from source
 
@@ -95,8 +81,9 @@ cargo build -p azul-dll --release --features build-dll
 ```
 
 Notice the required `--features build-dll`. The DLL lands in
-`target/release/libazul.{so,dylib}` (or `azul.dll`), the cabal package in
-`target/codegen/haskell/`. The package also needs the C header in its `cbits/` directory:
+`target/release/libazul.{so,dylib}` (or `azul.dll`), the cabal package 
+in `target/codegen/haskell/`. The package also needs the C header in 
+its `cbits/` directory:
 
 ```sh
 cp -R target/codegen/haskell my_app/azul-haskell
@@ -137,32 +124,34 @@ main = do
   AppConfig.create >>= App.create (DataModel 5) >>= App.run window
 ```
 
-- `import Azul` brings the types into scope: `Dom`, `CallbackInfo`, the enums (`ButtonType_Primary`,
-  `Update_RefreshDom`). Each class's constructors and methods live in its own module, imported
-  qualified: `Button.create`, `Dom.withChild`, like `Map.insert` from `Data.Map`.
+Here, `import Azul` brings the types into scope. Each class's constructors and methods 
+live in its own module, imported qualified: `Button.create`, `Dom.withChild`, like 
+`Map.insert` from `Data.Map`.
 
-- `onClick` is a pure function: it gets the current model and returns the new model together
-  with an `Update`. The package stores the new model; `Update_RefreshDom` runs `layout` again.
-  A handler that needs `IO` has the type `DataModel -> CallbackInfo -> IO (DataModel, Update)`.
-- `Button.onClick` attaches the handler to the model of the running callback, here the model
-  `layout` was called with. `App.create` takes the initial model, any Haskell value.
-- If a handler expects another model type, the package logs
-  `azul: ButtonOnClickCallback expected a model of type OtherModel, got DataModel` and does not
-  call it. An exception inside a callback is caught and logged the same way, and the app keeps
-  running.
-- Every function takes its receiver last, so builder calls chain with `>>=`. Arguments passed
-  by value are moved into the library: after `Dom.withChild label`, `label` cannot be used again.
-  Using it anyway raises an `AzulError` instead of crashing.
+`onClick` is a pure function: it gets the current model and returns the new model together
+with an `Update`. The package stores the new model; `Update_RefreshDom` runs `layout` again.
+A handler that needs `IO` has the type `DataModel -> CallbackInfo -> IO (DataModel, Update)`.
+
+`Button.onClick` attaches the handler to the model of the running callback, here the model
+`layout` was called with. `App.create` takes the initial model, any Haskell value.
+
+If a handler expects another model type, the package logs
+`azul: ButtonOnClickCallback expected a model of type OtherModel, got DataModel` and doesn't
+call it. An exception inside a callback is caught and logged the same way, and the app keeps
+running.
+
+Every function takes its receiver last, so builder calls chain with `>>=`. Arguments passed
+by value are moved into the library: after `Dom.withChild label`, `label` cannot be used again.
+Using it anyway raises an `AzulError` instead of crashing.
 
 ## Build and run
 
 From the directory containing `cabal.project` and the native library:
 
 ```sh
-# macOS, Windows
+export LD_LIBRARY_PATH=. # Linux only
+
 cabal run --extra-lib-dirs=$PWD hello-world
-# Linux
-LD_LIBRARY_PATH=. cabal run --extra-lib-dirs=$PWD hello-world
 ```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md).
