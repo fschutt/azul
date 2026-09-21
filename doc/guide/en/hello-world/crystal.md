@@ -51,10 +51,6 @@ curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
 Next, download the Azul shard and the native library for your platform into the project root:
 
 ```sh
-# Download and extract the Azul shard
-curl -LO https://azul.rs/ui/release/$VERSION/azul-crystal-$VERSION.tar.gz
-mkdir azul-crystal && tar xzf azul-crystal-$VERSION.tar.gz -C azul-crystal
-
 # macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
 # Linux
