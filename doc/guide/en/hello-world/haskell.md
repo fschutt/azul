@@ -37,11 +37,8 @@ through small C shims that cabal compiles with it. The package is tested with GH
 
 You need GHC and cabal, for example from [GHCup](https://www.haskell.org/ghcup/) or with
 `brew install ghc cabal-install`. On Windows, use the MSYS2 shell that GHCup installs.
-
 The release bundle contains the example (`HelloWorld.hs`, `azul-example.cabal`,
 `cabal.project`) and the generated `azul` package in `azul-haskell/`.
-
-macOS:
 
 ```sh
 mkdir hello-world && cd hello-world
@@ -111,17 +108,24 @@ onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
 
 layout :: DataModel -> LayoutCallbackInfo -> IO Dom
 layout model _ = do
-  label <- Dom.createPWithText (show (counter model)) >>= Dom.withCss "font-size: 32px; margin: 0;"
+  label <- Dom.createPWithText (show (counter model)) 
+    >>= Dom.withCss "font-size: 32px; margin: 0;"
+
   button <- Button.create "Increase counter"
     >>= Button.withButtonType ButtonType_Primary
     >>= Button.onClick onClick
     >>= Button.dom
-  Dom.createBody >>= Dom.withChild label >>= Dom.withChild button
+
+  Dom.createBody 
+    >>= Dom.withChild label 
+    >>= Dom.withChild button
 
 main :: IO ()
 main = do
   window <- WindowCreateOptions.create layout
-  AppConfig.create >>= App.create (DataModel 5) >>= App.run window
+  AppConfig.create 
+    >>= App.create (DataModel 5) 
+    >>= App.run window
 ```
 
 ## Notes

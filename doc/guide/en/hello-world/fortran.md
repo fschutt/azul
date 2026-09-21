@@ -172,18 +172,12 @@ A model of any other type is a programming error, so `class default` reports it 
 `info%log` - which reaches the application's log sink, not just the terminal -
 and returns the callback's no-op result (`Update_DoNothing`).
 
-### Constructors: `button_t(...)` or `button_create(...)`
-
-In modern Fortran, you can often use the type name as a constructor (e.g., `button_t('Increase counter')` or `app_t(model, config)`). Under the hood, this routes to the explicit constructor function (like `button_create(...)`). You can use either spelling freely.
-
-However, some types like `dom_t` have dozens of constructors with identical argument signatures (e.g., `create_body()` and `create_div()` both take zero arguments). Because Fortran cannot resolve overloaded interfaces with identical signatures, `dom_t` does not have a generic constructor. For these types, you must call the explicit creation functions by name, such as `dom_create_body()` or `dom_create_p_with_text(text)`.
-
 `call button%with_on_click(model, on_click)` binds the model the layout callback is
 running with, not a copy, so the click changes the same counter.
-  
+
 `layout` and `on_click` are ordinary module functions. Their dummy arguments must
-match the binding's interfaces exactly (`class(*), intent(inout)` for the model,
-`intent(inout)` for `info`); a mismatch is a compile error.
+match the binding's interfaces (`class(*), intent(inout)` for the model, `intent(inout)` 
+for `info`); a mismatch is a compile error.
 
 Methods like `with_css` or `with_child` change the object in place and are called
 with `call`. `button%dom()` turns the button into a `dom_t`. Arguments are passed 
@@ -199,6 +193,19 @@ result (`Update_DoNothing`) instead:
 ```
 [azul][error] azul: ButtonOnClickCallback expected an Update (0 to 2), got 7
 ```
+
+### Class Constructors
+
+In modern Fortran, you can often use the type name as a constructor 
+(e.g., `button_t('Increase counter')` or `app_t(model, config)`). Under the hood, 
+this routes to the explicit constructor function (like `button_create(...)`). You 
+can use either spelling freely.
+
+However, some types like `dom_t` have dozens of constructors with identical argument 
+signatures (e.g., `create_body()` and `create_div()` both take zero arguments). 
+Because Fortran cannot resolve overloaded interfaces with identical signatures, `dom_t` 
+does not have a generic constructor. For these types, you must call the explicit creation 
+functions by name, such as `dom_create_body()` or `dom_create_p_with_text(text)`.
 
 ## Build and run
 
