@@ -104,7 +104,9 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
-This snippet leverages advanced Zig features to erase boilerplate:
+## Binding Internals
+
+The snippet above uses advanced Zig features to erase boilerplate:
 
 1. `comptime` Type Reflection (`azul.ReflectModel`): By passing the state struct 
    into the `comptime` wrapper, the bindings generate a smart-pointer `Ref` type for you.
