@@ -3294,6 +3294,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         slot.clone_from(&layout_result.outgoing_token);
     }
     let content_size = layout_result.output.overflow_size;
+    // A descendant discovered a space-reserving scrollbar while being sized
+    // against the unreserved width. Hand the need to the document-level loop.
+    if layout_result.scrollbar_reflow_needed {
+        *reflow_needed_for_scrollbars = true;
+    }
 
     // If layout_formatting_context adjusted this node's used_size (e.g.
     // layout_flex_grid auto-applying box-sizing:border-box on the root),

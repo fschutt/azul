@@ -288,6 +288,8 @@ mod root_box_sizing_regression;
 mod run_remap;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
+#[path = "scroll_box_reserves_its_gutter.rs"]
+mod scroll_box_reserves_its_gutter;
 #[path = "scroll_degenerate_ifc.rs"]
 mod scroll_degenerate_ifc;
 #[path = "scroll_id_identity.rs"]
