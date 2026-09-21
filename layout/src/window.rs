@@ -3726,19 +3726,20 @@ impl LayoutWindow {
             (focus_node, focus_cursor, anchor_node, anchor_cursor)
         };
 
-        // Walk first -> last along the sibling chain, collecting middles.
-        let mut middles: Vec<NodeId> = Vec::new();
-        let mut cur = first;
-        loop {
-            let Some(next) = self.block_sibling(dom_id, cur, true) else {
-                return false; // ran off the chain: not siblings
-            };
-            if next == last {
-                break;
-            }
-            middles.push(next);
-            cur = next;
-        }
+        // The blocks between the two ends IN DOCUMENT ORDER - every text
+        // block the selection passes over, wherever it sits in the tree.
+        //
+        // This used to walk the SIBLING chain and reject the selection the
+        // moment it ran off it, so a drag from a paragraph in one container
+        // into a paragraph in another - a heading in a wrapper, a list, two
+        // cards: every real document - was refused and the drag collapsed
+        // back to the anchor's paragraph.
+        let ifc_roots = self.ifc_roots_in_document_order(dom_id);
+        let index_of = |n: NodeId| ifc_roots.iter().position(|&x| x == n);
+        let (Some(i_first), Some(i_last)) = (index_of(first), index_of(last)) else {
+            return false; // an end that is not a text block of this dom
+        };
+        let middles: Vec<NodeId> = ifc_roots[i_first + 1..i_last].to_vec();
 
         let node_start = |_n: NodeId| TextCursor {
             cluster_id: GraphemeClusterId {
@@ -4033,6 +4034,25 @@ impl LayoutWindow {
     /// the `<ul>`, so the merge is a no-op. (The previous version returned
     /// the raw sibling unfiltered, so Backspace at a block start could merge
     /// a whole block INTO an XML whitespace text node.)
+    /// Every IFC root (text block) of `dom_id`, in DOCUMENT order.
+    ///
+    /// The layout tree is built in pre-order, so its own order IS document
+    /// order; anonymous boxes carry no `dom_node_id` and are skipped.
+    #[must_use]
+    pub fn ifc_roots_in_document_order(&self, dom_id: DomId) -> Vec<NodeId> {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let tree = &lr.layout_tree;
+        (0..tree.nodes.len())
+            .filter(|idx| {
+                tree.warm(LayoutNodeId::new(*idx))
+                    .is_some_and(|w| w.inline_layout_result.is_some())
+            })
+            .filter_map(|idx| tree.nodes[idx].dom_node_id)
+            .collect()
+    }
+
     fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
         use azul_core::dom::NodeType;
 
@@ -20143,6 +20163,28 @@ impl LayoutWindow {
 
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
+        // A DOCUMENT selection spans several text blocks and is held beside
+        // the primary cursor, not on it: deleting through the single-node
+        // path below would trim only the anchor's paragraph and leave every
+        // other selected block untouched (Backspace over a multi-paragraph
+        // selection deleted inside one of them). Copy and Cut already go
+        // through the cross-block path; every delete does now.
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            let affected: Vec<DomNodeId> = self
+                .text_edit_manager
+                .get_cross_block_selection()
+                .map(|sel| {
+                    sel.affected_nodes
+                        .keys()
+                        .map(|n| DomNodeId {
+                            dom: dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(*n)),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            return self.delete_cross_block_selection().map(|_| affected);
+        }
         // `target` is the focused HOST (the undo stack's key); the content
         // is keyed to the caret's IFC owner, exactly like typing is. Keying
         // deletions to the host spliced the host-flattened blob at per-IFC
