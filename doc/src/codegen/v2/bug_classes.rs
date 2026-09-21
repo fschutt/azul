@@ -2212,3 +2212,69 @@ fn generated_rust_has_no_colliding_inherent_methods() {
     }
     assert_none("colliding inherent methods in generated Rust", offenders);
 }
+
+/// Every public Vec-typed field of a wrapped struct is reachable from Python.
+///
+/// `generate_field_accessors` gates non-primitive fields on
+/// `!is_direct_ffi_type`, which excludes BOTH the `String` and the `Vec`
+/// category. Strings have their own branch above it; Vec fields had none, so
+/// each one fell through to no accessor at all and the field was simply
+/// absent from the Python class - silently, because nothing in the generator
+/// or the compiler notices a field it declined to emit.
+/// (`ComponentLibrary.components`, `Dom.children`, ~115 more.)
+///
+/// A Vec Python reaches through a builtin (`bytes` for `U8Vec`, a list) is
+/// excluded on purpose: those have no wrapper struct, so there is no `.inner`
+/// to read and no class to hold the accessor.
+#[test]
+fn every_wrapped_vec_field_has_a_python_accessor() {
+    let py = generated("python_api.rs");
+    let ir = ir();
+
+    // The classes the generator actually emitted, so a type skipped for an
+    // unrelated reason cannot fail this test.
+    let emitted: BTreeSet<String> = py
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("#[pyclass(name = \""))
+        .filter_map(|l| l.split('"').next())
+        .map(str::to_string)
+        .collect();
+
+    let mut missing = Vec::new();
+    for s in &ir.structs {
+        if !emitted.contains(&s.name) {
+            continue;
+        }
+        // The accessors of ONE class: everything between its `impl` line and
+        // the closing brace at column 0.
+        let Some(start) = py.find(&format!("\nimpl Az{} {{\n", s.name)) else {
+            continue;
+        };
+        let body = &py[start..];
+        let end = body.find("\n}\n").unwrap_or(body.len());
+        let body = &body[..end];
+
+        for f in &s.fields {
+            if !f.is_public || f.ref_kind != crate::codegen::v2::ir::FieldRefKind::Owned {
+                continue;
+            }
+            let t = f.type_name.as_str();
+            let is_wrapped_vec = ir
+                .find_struct(t)
+                .map(|d| d.category == TypeCategory::Vec)
+                .unwrap_or(false)
+                && emitted.contains(t);
+            if is_wrapped_vec && !body.contains(&format!("#[getter({})]", f.name)) {
+                missing.push(format!("{}.{}: {}", s.name, f.name, t));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "{} Vec-typed field(s) are unreachable from Python - `generate_field_accessors` emitted \
+         no accessor:\n  {}",
+        missing.len(),
+        missing.join("\n  ")
+    );
+}

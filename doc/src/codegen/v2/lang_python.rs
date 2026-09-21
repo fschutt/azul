@@ -2142,7 +2142,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 ));
                 builder.blank();
             } else if self.is_python_compatible_type(t, ir)
-                && !is_direct_ffi_type(t, ir)
+                && (!is_direct_ffi_type(t, ir)
+                    // A Vec-typed FIELD is not a Vec ARGUMENT. The direct-FFI
+                    // exclusion exists because a Vec crosses a CALL as a Python
+                    // list; as a field it is an attribute, and the wrapper class
+                    // for it already exists. Excluding it here silently dropped
+                    // the accessor for every Vec field in the API
+                    // (`ComponentLibrary.components`, `Dom.children`, ...) -
+                    // the field was simply unreachable from Python. Strings keep
+                    // the exclusion: they are handled by the branch above.
+                    || (category_of(t, ir) == Some(TypeCategory::Vec)
+                        // ... but only a Vec that HAS a wrapper. A Vec Python
+                        // reaches through a builtin (`bytes`, `list`) is the
+                        // raw C struct with no `inner`, so a wrapper accessor
+                        // would not compile.
+                        && !has_no_pyclass(t, TypeCategory::Vec)))
                 && is_clone(t)
             {
                 builder.line(&format!("#[getter({})]", n));
