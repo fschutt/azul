@@ -109,7 +109,7 @@ fn build_dom(state: RefAny) -> Dom {
 }
 ```
 
-See [Canvas and GL Textures](images/canvas-gl.md) for the full texture allocation, drawing, and FXAA flow used by the `opengl` example.
+An image callback is not GL-specific: it may return a raw CPU image just as well as a texture, and it is how a paint canvas, a chart or a video frame is drawn. See [Image Callbacks](images/image-callbacks.md) for the general shape - repainting one node with `update_image_callback`, caching by revision, and animating - and [Canvas and GL Textures](images/canvas-gl.md) for the texture allocation, drawing and FXAA flow used by the `opengl` example.
 
 ## Sizing and aspect ratio
 
@@ -125,8 +125,12 @@ Image content is stretched without filtering hints. For icon-quality output you 
 
 `ImageRef` is intern-keyed: passing a clone in two consecutive `Dom`s reuses the same upload. To swap pixels you build a new `ImageRef`. Drop the old clone if you want the GPU memory freed.
 
-For animation, use a render-image callback (`ImageRef::callback`) and a [timer](animations/timers.md) to flag the DOM for repaint each frame. The callback re-runs and returns a fresh texture; the previous one is freed automatically when the new clone replaces it.
+From a callback, `change_node_image(dom_id, node_id, image, update_type)` swaps a node's image in place - `UpdateImageType::Content` for the image itself, `UpdateImageType::Background` for its CSS background - with no `layout()` pass. `add_image_to_cache(name, image)` puts an image under a name any later layout pass can reference, which is how a decoder thread hands its result to the UI.
+
+For animation, use a render-image callback (`ImageRef::callback`) and a [timer](animations/timers.md) to repaint each frame. See [Image Callbacks](images/image-callbacks.md).
 
 ## Image masks
 
-`ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect`, and `repeat: bool`. Apply one to a `Dom` with `Dom::with_clip_mask`.
+`ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect` (element-local), and `repeat: bool`. Apply one with `Dom::with_clip_mask`, and change it from a callback with `change_node_image_mask` - masks are a paint-time effect, so changing one never reflows. A node carrying SVG path geometry is clipped to that path instead.
+
+See [Clip Masks](images/clip-masks.md) for both kinds, including animating a mask and using an image callback as one.
