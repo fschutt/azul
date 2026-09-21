@@ -27,12 +27,10 @@ default-search-keys:
 
 ## Introduction
 
-To use `libazul` from Free Pascal, you need the native prebuilt library and the generated
-`Azul` unit (`azul.pas`). The unit wraps the C API in classes: you write a model class,
-plain functions as callbacks, and pass ordinary Pascal strings.
-
-The example below needs FPC 3.2.0 or newer. The unit itself builds with FPC 3.0.4 
-and newer, see [Supported Compilers](#supported-compilers).
+To use `libazul` from Free Pascal (3.2.0+), you need the native prebuilt library and the generated
+`Azul` bindings (`azul.pas`). The bindings wrap the C API in classes: you write a model class,
+plain functions as callbacks, and pass ordinary Pascal strings. For older compilers, see the 
+[Supported Compilers](#supported-compilers) section.
 
 ## Installation
 
@@ -56,10 +54,10 @@ DYLD_LIBRARY_PATH=. ./hello-world # hello-world.exe on Windows
 ```
 
 
-The `azul.pas` unit links the library by name, so `-Fl.` (the library search path) 
-is the only flag you need. You will find the precompiled `.so` and `.dylib` files
-for various different architectures on the release page, download and rename 
-it to link properly.
+The bindings link the library by name, so `-Fl.` (the library search path) 
+is the only flag you need. You will find the precompiled `.so` and `.dylib` 
+files for various different architectures on the release page, download and 
+rename it to link properly.
 
 ### Building from source
 
@@ -128,19 +126,17 @@ begin
   App.Run;
 
   App.Free;
-  Model.Free;
 end.
 ```
 
-`TAzApp<TMyModel>` only borrows your model, so you need free the model yourself after the app.
+`TAzApp<TMyModel>` takes ownership of your model: `App.Free` frees the app and then the
+model, so do not free the model yourself. Callbacks are plain functions that receive your 
+model and the callback info. 
 
-Callbacks are plain functions that receive your model and the callback info. The unit
-automatically downcasts the `RefAny` model to the expected type and logs an error (returning `DoNothing`)
-if the downcast fails. An exception raised inside a callback is caught and logged the same way, 
-so that the app keeps running, even if a callback fails.
-
-Builder methods take ownership of their arguments: `AddChild` consumes the child,
-`Btn.Dom` consumes the button, and the unit frees the `TDom` that `Layout` returns.
+The bindings automatically downcast the `RefAny` model to the type expected by the callbacks 
+first argument and logs an error (returning `DoNothing`) if the downcast fails. An exception 
+raised inside a callback is caught and logged the same way, so that the app keeps running, 
+even if a callback fails.
 
 ## Supported Compilers
 
@@ -158,7 +154,7 @@ type
   App := TMyApp.Create(Model, @Layout);
 ```
 
-The `azul.pas` unit is written for Free Pascal and does not compile with Embarcadero Delphi. 
+The `azul.pas` bindings are written for Free Pascal and does not compile with Embarcadero Delphi. 
 It masks floating-point exceptions when it loads, because the library relies on IEEE-754 NaN and
 infinity values. If you enable FPU exceptions in your own code, mask them again before
 calling into Azul.
@@ -204,8 +200,8 @@ Click the button: the counter should increment, the layout callback then re-runs
 1. `App.Run` opens a native window and runs `Layout` once with your model.
 2. The returned DOM is styled, laid out, and rendered.
 3. The framework then continuously queries whether anything matches the event filter set up
-   in the DOM. On click, the framework borrows your data model mutably, runs the click
-   callback, observes the refresh return, and re-invokes the layout callback.
+   in the DOM. On receiving a click event, the framework borrows your data model mutably, runs the
+   click callback, observes the `RefreshDom` return, and re-invokes the layout callback.
 4. The framework determines the diff between the previous frame's DOM and the current one,
    and only re-updates and re-paints the counter, not the entire window.
 

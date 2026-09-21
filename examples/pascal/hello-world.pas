@@ -44,6 +44,6 @@ begin
   App.Window.Height := 300;
   App.Run;
 
+  { App owns the model: freeing the app frees it too. }
   App.Free;
-  Model.Free;
 end.
