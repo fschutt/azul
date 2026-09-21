@@ -32,9 +32,13 @@ library and the `azul.d` module, which wraps the underlying C API.
 
 ## Installation
 
-The preferred way to use Azul in D is via the `dub` package manager. Azul provides a pre-configured `dub` package containing the API wrappers split into parallel-compilable modules (`source/azul/*.d`), which compiles significantly faster than the single-file module.
+The preferred way to use Azul in D is via the `dub` package manager. Azul 
+provides a pre-configured `dub` package containing the API wrappers split 
+into parallel-compilable modules (`source/azul/*.d`), which compiles 
+significantly faster than the single-file module.
 
-First, create a new `dub` project and download the native `libazul` engine for your operating system into the project root:
+First, create a new `dub` project and download the native `libazul` engine 
+for your operating system into the project root:
 
 ```sh
 mkdir hello-world && cd hello-world
@@ -65,7 +69,13 @@ Update your app's `dub.json` to link the local `azul-d` package and the native l
         "azul": { "path": "./azul-d" }
     },
     "lflags-posix": ["-L."],
-    "lflags-osx": ["-framework", "Foundation", "-framework", "AppKit", "-framework", "OpenGL", "-framework", "CoreGraphics", "-framework", "CoreText"],
+    "lflags-osx": [
+      "-framework", "Foundation", 
+      "-framework", "AppKit", 
+      "-framework", "OpenGL", 
+      "-framework", "CoreGraphics", 
+      "-framework", "CoreText"
+    ],
     "lflags-windows": ["+azul.dll.lib"]
 }
 ```
@@ -80,9 +90,10 @@ LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. dub run
 dub run
 ```
 
-### Manual Compilation (Without Dub)
+### Manual Compilation
 
-If you prefer to compile manually without a package manager, you can download the single-file wrapper (`azul.d`) and compile everything directly:
+If you prefer to compile manually without a package manager, you 
+can download the single-file wrapper (`azul.d`) and compile everything directly:
 
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/azul.d
@@ -103,6 +114,8 @@ dmd hello-world.d azul.d -L/LIBPATH:. azul.dll.lib -of=hello-world.exe
 hello-world.exe
 ```
 
+Note on the weird `-L-L. -L-lazul`: 
+
 ### Building from source
 
 Only needed if you want to track `master` or patch the library locally:
@@ -119,12 +132,10 @@ cargo build -p azul-dll --release --features build-dll
 Notice the required `--features build-dll`. The DLL lands in 
 `target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings are generated 
 in `target/codegen/`: `azul.d` is the one-file module, and `target/codegen/d/` 
-is the same code as a dub package (`source/azul/*.d`, one module per API area), 
-which compiles faster in parallel.
+is the same code as a dub package (one module per API area - which compiles faster 
+in parallel).
 
 ## Simple "Counter" Example
-
-This is the exact program shipped as `examples/d/hello-world.d`:
 
 ```d
 module hello_world;
@@ -169,25 +180,15 @@ void main()
 }
 ```
 
-1. **The model is a plain class.** `App(new Counter, AppConfig())` hands
-   any D object to the framework. The binding wraps it in a `RefAny` and
-   registers it with `GC.addRoot`: the D garbage collector cannot see
-   libazul's heap, so without the root it would free the model while the
-   window still uses it. The root is dropped when libazul releases its
-   last reference.
-2. **Callbacks are free functions.** `onClick` is an ordinary function
-   whose parameters are D types (`Counter`, `CallbackInfo`), and you pass
-   its address, `&onClick`, exactly like `&layout`. There is no closure
-   involved: libazul calls a C trampoline, and an invoker the binding
-   generates per callback type and model class
-   (`_azulInvoke_ButtonOnClickCallbackType!Counter`) downcasts the `RefAny`
-   back to `Counter`, calls your function, and converts the D `Update` it
-   returns to the C `AzUpdate`. The model class is checked at compile
-   time: `withOnClick(counter, &onClick)` only compiles when `onClick`
-   takes a `Counter`.
-3. **D strings and builders.** `string` arguments convert to `AzString`
-   on the way in, and every `with*` method returns the updated value, so
-   a DOM is one expression.
+## Internals
+
+Internally, the `new Counter` is tracked via a `GC.addRoot`, so that the
+GC doesn't free the object while the layout callback still needs it. Internally, 
+the D object is wrapped in an opaque `RefAny`
+
+`onClick` automatically downcasts said `RefAny` again automatically and
+returns `Update.doNothing` if the downcast fails (with a log message).
+The API auto-converts strings to the expected Rust structs.
 
 ## Build and run
 
@@ -201,15 +202,25 @@ LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. dub run
 dub run
 ```
 
-If you compiled manually, run the resulting executable ensuring the native library is in the library path.
+If you compiled manually, run the resulting executable ensuring the native 
+library is in the library path.
 
-Note: On macOS, linking requires five `-framework` flags (`Foundation`, `AppKit`, `OpenGL`, `CoreGraphics`, `CoreText`). `libazul` calls into these system frameworks, and a link without them fails with undefined symbols. The `lflags-osx` in the `dub.json` configuration handles this automatically.
-
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
 1. `app.run` opens a native window and runs `layout` once with your `Counter`.
 2. The returned `Dom` is styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs `onClick`, observes the `Update.refreshDom` return, and re-invokes the layout callback.
-4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
+3. The framework then continuously queries whether anything matches the event filter set 
+   up in the `Dom`. On a click event, the framework borrows your model mutably, runs `onClick`, 
+   observes the `Update.refreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's `Dom` and the current one, 
+   and only re-updates and re-paints the counter, not the entire window.
 
-Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
+Congratulations - once you've got the hello-world example running, you've already mastered 80% 
+of the framework. As you might have guessed, more complex UI and styling are only composing more 
+Dom objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or explore 
+what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!
