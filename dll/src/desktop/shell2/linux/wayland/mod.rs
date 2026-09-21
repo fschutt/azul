@@ -4945,6 +4945,11 @@ impl WaylandWindow {
         // rather than deferred: a popup has no axis entry point yet, which is
         // why a long menu cannot scroll its own list on any backend.
         if self.pointer_over_popup && self.active_popup.is_some() {
+            let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
+            let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_axis(dx, dy, is_trackpad);
+            }
             return;
         }
 
@@ -5261,6 +5266,11 @@ impl WaylandWindow {
         // rather than deferred: a popup has no axis entry point yet, which is
         // why a long menu cannot scroll its own list on any backend.
         if self.pointer_over_popup && self.active_popup.is_some() {
+            let is_trackpad = axis_source_is_trackpad(axis_source);
+            let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_axis(dx, dy, is_trackpad);
+            }
             return;
         }
         let is_trackpad = axis_source_is_trackpad(axis_source);
@@ -10091,6 +10101,59 @@ impl WaylandPopup {
         self.apply_event_result(r);
     }
 
+    /// A wheel or a trackpad pan over the popup.
+    ///
+    /// A menu is a LIST, and a list longer than the output has to scroll
+    /// itself. No backend gave a popup an axis entry point at all, so the
+    /// frame fell through to the parent (which now stops at an open popup
+    /// instead) and a long menu could not be scrolled on any platform.
+    pub fn pointer_axis(&mut self, delta_x: f32, delta_y: f32, is_trackpad: bool) {
+        use azul_core::task::Instant;
+        use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
+
+        if delta_x == 0.0 && delta_y == 0.0 {
+            return;
+        }
+        self.snapshot_window_state_baseline("wayland.popup.pointer_axis");
+        let pos = self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+            .get_position();
+        if let Some(pos) = pos {
+            self.update_hit_test_at(pos);
+        }
+        let (source, device) = if is_trackpad {
+            (
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            )
+        } else {
+            (
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+            )
+        };
+        let input_id = InputPointId::Mouse;
+        let now = Instant::from(std::time::Instant::now());
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            layout_window.scroll_manager.record_scroll_from_hit_test(
+                delta_x,
+                delta_y,
+                source,
+                device,
+                &layout_window.hover_manager,
+                &input_id,
+                now,
+            );
+        }
+        let r = self.process_window_events(0);
+        self.apply_event_result(r);
+    }
+
     /// The gesture manager's button bitfield from the popup's mouse state.
     fn pressed_button_state(&self) -> u8 {
         use crate::desktop::shell2::common::event::{
@@ -11985,6 +12048,18 @@ mod popup_axis_tests {
                 body.contains("pointer_over_popup"),
                 "{flush} delivers the wheel to the parent while a popup is open, so scrolling \
                  over a menu scrolls the page behind it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_frame_reaches_the_popup_rather_than_being_dropped() {
+        // A menu is a list, and a list longer than the output scrolls itself.
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            assert!(
+                body.contains("popup.pointer_axis("),
+                "{flush} swallows the wheel over an open menu instead of scrolling the menu"
             );
         }
     }
