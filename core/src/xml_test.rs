@@ -3200,6 +3200,108 @@ mod autotest_generated {
         assert_eq!(dom.children.as_ref().len(), 2);
     }
 
+    /// Every text node in `dom`, in document order.
+    fn all_text(dom: &Dom, out: &mut Vec<String>) {
+        if let NodeType::Text(t) = dom.root.get_node_type() {
+            out.push(t.as_ref().as_str().to_string());
+        }
+        for child in dom.children.as_ref() {
+            all_text(child, out);
+        }
+    }
+
+    /// An icon theme is a directory of Inkscape-authored SVGs, and Inkscape
+    /// writes an RDF block into every file it saves:
+    ///
+    /// ```text
+    /// <metadata><rdf:RDF><cc:Work><dc:format>image/svg+xml</dc:format>…
+    /// ```
+    ///
+    /// None of it is drawing. `<metadata>` is defined to render nothing, and
+    /// an element in a foreign namespace is not rendered either - so the only
+    /// thing a renderer takes out of that file is the `<path>`.
+    ///
+    /// Here every unrecognised tag became a `<div>` and every text child
+    /// became a text node, so an icon drew the literal string
+    /// `image/svg+xml`, clipped to the 16px icon box. That is what the window
+    /// controls of a client-side titlebar came out as: the letters `im`, in
+    /// place of a minimise bar.
+    #[test]
+    fn an_svg_metadata_block_is_not_drawn_as_text() {
+        let map = ComponentMap::default();
+        let svg = node(
+            "svg",
+            &[("width", "16"), ("height", "16")],
+            vec![
+                elem(node(
+                    "metadata",
+                    &[],
+                    vec![elem(node(
+                        "rdf:RDF",
+                        &[],
+                        vec![elem(node(
+                            "cc:Work",
+                            &[],
+                            vec![elem(node("dc:format", &[], vec![txt("image/svg+xml")]))],
+                        ))],
+                    ))],
+                )),
+                elem(node("path", &[("d", "M4 10v1h8v-1z")], vec![])),
+            ],
+        );
+
+        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+
+        let mut texts = Vec::new();
+        all_text(&dom, &mut texts);
+        assert!(
+            texts.is_empty(),
+            "an icon's metadata is ABOUT the drawing, not in it - but it drew {texts:?}"
+        );
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "and the <path> is the one thing that survives"
+        );
+    }
+
+    /// The same law, on the other half of what Inkscape leaves behind:
+    /// `<sodipodi:namedview>` and `<inkscape:grid>` are editor state in a
+    /// foreign namespace. They carry no text, so they were invisible - but
+    /// they still became boxes in the middle of the artwork.
+    #[test]
+    fn a_foreign_namespaced_element_is_not_a_box() {
+        let map = ComponentMap::default();
+        let svg = node(
+            "svg",
+            &[],
+            vec![
+                elem(node(
+                    "sodipodi:namedview",
+                    &[],
+                    vec![elem(node("inkscape:grid", &[], vec![]))],
+                )),
+                elem(node("path", &[], vec![])),
+            ],
+        );
+        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "only the <path> is part of the drawing"
+        );
+    }
+
+    /// A prefix is not by itself foreign: `<svg:path>` is the same element as
+    /// `<path>`, written by a document that declares the SVG namespace.
+    #[test]
+    fn the_svg_prefix_still_draws() {
+        let map = ComponentMap::default();
+        let svg = node("svg", &[], vec![elem(node("svg:path", &[], vec![]))]);
+        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+        assert_eq!(dom.children.as_ref().len(), 1, "<svg:path> IS a path");
+    }
+
     #[test]
     fn xml_node_to_dom_fast_at_and_past_the_depth_cap_truncates_instead_of_panicking() {
         let map = ComponentMap::default();

@@ -6264,6 +6264,40 @@ fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
     }
 }
 
+/// Is this element one that DRAWS NOTHING, subtree and all?
+///
+/// Not "unknown" - unknown tags are ordinary boxes and stay `<div>`s. These
+/// are elements that a renderer is DEFINED not to draw, so whatever they
+/// contain is about the document rather than in it, and turning their text
+/// into text nodes puts prose on screen.
+///
+/// Two kinds, and a real icon theme hands us both in every file:
+///
+///   * `<metadata>` (SVG 1.1 §5.10), which is where Inkscape parks an RDF block - and inside it
+///     `<dc:format>image/svg+xml</dc:format>`, whose text drew across the window controls of a
+///     client-side titlebar, clipped to 16px, as the letters `im`;
+///   * anything in a FOREIGN NAMESPACE (SVG 1.1 §23.2), which is the rest of what Inkscape leaves
+///     behind: `<sodipodi:namedview>`, `<inkscape:grid>`, `<rdf:RDF>`, `<cc:Work>`.
+///
+/// A prefix alone does not make an element foreign: a document that declares
+/// the SVG or XHTML namespace may well write `<svg:path>`, which is a path.
+///
+/// `<style>` belongs to this family too but is handled separately at the call
+/// site: its text is not nothing, it is a stylesheet, and it is lifted onto
+/// the element that contains it.
+fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
+    if normalized_tag == "metadata" {
+        return true;
+    }
+    match raw_tag.split_once(':') {
+        Some((prefix, _)) => !matches!(
+            prefix.trim().to_lowercase().as_str(),
+            "svg" | "html" | "xhtml"
+        ),
+        None => false,
+    }
+}
+
 // `component_map` is threaded through purely to reach the recursive calls; it
 // stays in the signature because the sibling `xml_node_to_fast_dom` reads it and
 // the two must keep the same shape. `RenderDomError` is large but is the crate's
@@ -6334,6 +6368,16 @@ fn xml_node_to_dom_fast<'a>(
                     }
                 }
             }
+            // Draws nothing, subtree and all - see `element_draws_nothing`.
+            // Dropped rather than emitted-and-hidden because there is no node
+            // type to hang a `display: none` on: an unrecognised tag becomes a
+            // `<div>`, and a `<div>` full of an icon's RDF block renders the
+            // RDF.
+            XmlNodeChild::Element(child_node)
+                if element_draws_nothing(
+                    child_node.node_type.as_str(),
+                    &normalize_casing(&child_node.node_type),
+                ) => {}
             XmlNodeChild::Element(child_node) => {
                 let child_dom =
                     xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
@@ -6507,6 +6551,13 @@ fn xml_node_to_fast_dom<'a>(
         // Recursively convert children
         for child in xml_node.children.as_ref() {
             match child {
+                // The same law as in the tree builder: an element that draws
+                // nothing contributes nothing, subtree and all.
+                XmlNodeChild::Element(child_node)
+                    if element_draws_nothing(
+                        child_node.node_type.as_str(),
+                        &normalize_casing(&child_node.node_type),
+                    ) => {}
                 XmlNodeChild::Element(child_node) => {
                     xml_node_to_fast_dom(
                         child_node,
