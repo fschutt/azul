@@ -192,7 +192,75 @@ macro_rules! focus_trace {
 }
 
 const AUTO_SCROLL_EDGE_THRESHOLD: f32 = 30.0;
-const AUTO_SCROLL_MAX_SPEED: f32 = 15.0;
+/// Pixels PER SECOND the scrollport travels while the pointer is held at the
+/// very edge of the band. 900 px/s is the 15 px per tick this used to move at
+/// 60 Hz - the same speed on a 60 Hz screen, and now the same speed on a 144
+/// Hz one and across a dropped frame, both of which used to change it.
+const AUTO_SCROLL_MAX_SPEED_PX_PER_SEC: f32 = 900.0;
+/// Longest tick the speed is scaled by. A window that was starved for a
+/// second must not answer with a second's worth of scrolling in one jump.
+const AUTO_SCROLL_MAX_TICK_SECS: f32 = 1.0 / 20.0;
+
+/// What one drag-autoscroll timer remembers between its ticks.
+///
+/// The timer fires at the refresh rate, so "how much to scroll" is a SPEED,
+/// and a speed needs the length of the tick it is being applied over.
+#[derive(Debug, Clone, Default)]
+struct AutoScrollTimerState {
+    /// `frame_start` of the previous tick; `None` on the first one, which
+    /// therefore scrolls by nothing and only starts the clock.
+    last_tick: Option<azul_core::task::Instant>,
+}
+
+/// How deep the band at a scrollport's edge is, on an axis of the given
+/// extent.
+///
+/// Capped at a THIRD of the box: at the flat 30px, a control shorter than
+/// twice the band - a single-line `TextInput` is about 24px tall - lies
+/// ENTIRELY inside its own top band, so holding the pointer still anywhere
+/// in the field scrolled it upwards for as long as the drag lasted, and the
+/// field had no middle where a selection drag could rest.
+fn auto_scroll_edge_band(extent: f32) -> f32 {
+    if !extent.is_finite() || extent <= 0.0 {
+        return 0.0;
+    }
+    AUTO_SCROLL_EDGE_THRESHOLD.min(extent / 3.0)
+}
+
+/// How far the scrollport travels this tick, given where the pointer is
+/// relative to it and how long since the last tick.
+///
+/// Positive is towards the content's end (down / right), which is what the
+/// pointer past the bottom or right edge asks for.
+fn auto_scroll_delta(
+    container: azul_core::geom::LogicalRect,
+    mouse: LogicalPosition,
+    tick_secs: f32,
+) -> LogicalPosition {
+    let tick = if tick_secs.is_finite() {
+        tick_secs.clamp(0.0, AUTO_SCROLL_MAX_TICK_SECS)
+    } else {
+        0.0
+    };
+    let axis = |start: f32, extent: f32, pos: f32| -> f32 {
+        let band = auto_scroll_edge_band(extent);
+        if band <= 0.0 || !pos.is_finite() || !start.is_finite() {
+            return 0.0;
+        }
+        let past = if pos < start + band {
+            pos - (start + band)
+        } else if pos > start + extent - band {
+            pos - (start + extent - band)
+        } else {
+            return 0.0;
+        };
+        (past / band).clamp(-1.0, 1.0) * AUTO_SCROLL_MAX_SPEED_PX_PER_SEC * tick
+    };
+    LogicalPosition::new(
+        axis(container.origin.x, container.size.width, mouse.x),
+        axis(container.origin.y, container.size.height, mouse.y),
+    )
+}
 /// One wheel detent / one scroll "line", in logical pixels — the engine's
 /// canonical unit for DISCRETE scroll input. Every backend converts its
 /// native tick to this (X11 button-4/5 ticks, Win32 WHEEL_DELTA notches
@@ -308,10 +376,30 @@ use super::clipboard::{
 /// - Mouse button is released (no longer dragging)
 /// - Mouse returns to within container bounds (no scroll needed)
 extern "C" fn auto_scroll_timer_callback(
-    _data: RefAny,
+    mut data: RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
+
+    // How long this tick covers. The scroll speed is per SECOND, so the
+    // drag moves the same distance on a 60 Hz and a 144 Hz screen, and a
+    // frame the compositor delayed does not become a slower drag.
+    let frame_start = timer_info.frame_start.clone();
+    let tick_secs = match data.downcast_mut::<AutoScrollTimerState>() {
+        Some(mut state) => {
+            let elapsed = state.last_tick.as_ref().map_or(0.0, |last| {
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    frame_start.duration_since(last).as_nanos() as f32 / 1_000_000_000.0
+                }
+            });
+            state.last_tick = Some(frame_start.clone());
+            elapsed
+        }
+        // A timer created before this state existed: fall back to one frame
+        // at the rate the timer was scheduled with rather than not scrolling.
+        None => 1.0 / 60.0,
+    };
 
     // Access window state through callback_info
     let callback_info = &timer_info.callback_info;
@@ -433,33 +521,8 @@ extern "C" fn auto_scroll_timer_callback(
         ),
         size: scroll_info.container_rect.size,
     };
-    let edge_threshold = AUTO_SCROLL_EDGE_THRESHOLD;
-    let max_speed = AUTO_SCROLL_MAX_SPEED;
-
-    let mut delta_x = 0.0_f32;
-    let mut delta_y = 0.0_f32;
-
-    // Check vertical edges
-    if mouse_position.y < container.origin.y + edge_threshold {
-        // Mouse above container — scroll up
-        let distance = (container.origin.y + edge_threshold) - mouse_position.y;
-        delta_y = -(distance / edge_threshold * max_speed).min(max_speed);
-    } else if mouse_position.y > container.origin.y + container.size.height - edge_threshold {
-        // Mouse below container — scroll down
-        let distance =
-            mouse_position.y - (container.origin.y + container.size.height - edge_threshold);
-        delta_y = (distance / edge_threshold * max_speed).min(max_speed);
-    }
-
-    // Check horizontal edges
-    if mouse_position.x < container.origin.x + edge_threshold {
-        let distance = (container.origin.x + edge_threshold) - mouse_position.x;
-        delta_x = -(distance / edge_threshold * max_speed).min(max_speed);
-    } else if mouse_position.x > container.origin.x + container.size.width - edge_threshold {
-        let distance =
-            mouse_position.x - (container.origin.x + container.size.width - edge_threshold);
-        delta_x = (distance / edge_threshold * max_speed).min(max_speed);
-    }
+    let delta = auto_scroll_delta(container, mouse_position, tick_secs);
+    let (delta_x, delta_y) = (delta.x, delta.y);
 
     if delta_x.abs() < 0.01 && delta_y.abs() < 0.01 {
         // Mouse within container bounds — no scroll needed but keep timer running
@@ -8387,7 +8450,7 @@ pub trait PlatformWindow {
                         let external = ExternalSystemCallbacks::rust_internal();
 
                         let timer = Timer::create(
-                            RefAny::new(()),
+                            RefAny::new(AutoScrollTimerState::default()),
                             auto_scroll_timer_callback as TimerCallbackType,
                             external.get_system_time_fn,
                         )
@@ -15057,5 +15120,125 @@ mod initial_window_theme_tests {
                 assert_eq!(initial_window_theme(requested, probed), expected);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod auto_scroll_tests {
+    //! The drag-autoscroll band and speed. A selection drag asks the
+    //! scrollport to move when the pointer nears its edge; how deep that
+    //! band is and how fast the content travels are the whole of the
+    //! behaviour, and both were wrong for a small box and a fast screen.
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    use super::{
+        auto_scroll_delta, auto_scroll_edge_band, AUTO_SCROLL_EDGE_THRESHOLD,
+        AUTO_SCROLL_MAX_SPEED_PX_PER_SEC, AUTO_SCROLL_MAX_TICK_SECS,
+    };
+
+    const FRAME: f32 = 1.0 / 60.0;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(w, h),
+        }
+    }
+
+    #[test]
+    fn the_band_is_never_deeper_than_a_third_of_the_box() {
+        // A roomy page keeps the flat band.
+        assert!((auto_scroll_edge_band(600.0) - AUTO_SCROLL_EDGE_THRESHOLD).abs() < 0.001);
+        // A single-line TextInput does not: at 30px its top and bottom bands
+        // would cover it twice over.
+        assert!((auto_scroll_edge_band(24.0) - 8.0).abs() < 0.001);
+        // Degenerate boxes have no band at all rather than a NaN one.
+        for extent in [0.0, -10.0, f32::NAN] {
+            assert_eq!(auto_scroll_edge_band(extent), 0.0, "extent {extent}");
+        }
+    }
+
+    #[test]
+    fn a_pointer_resting_in_a_single_line_field_does_not_scroll_it() {
+        // 24px tall, pointer in the middle of it: there IS a middle now.
+        let d = auto_scroll_delta(
+            rect(0.0, 0.0, 200.0, 24.0),
+            LogicalPosition::new(100.0, 12.0),
+            FRAME,
+        );
+        assert_eq!((d.x, d.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_pointer_in_the_middle_of_a_page_does_not_scroll_it() {
+        let d = auto_scroll_delta(
+            rect(0.0, 0.0, 800.0, 600.0),
+            LogicalPosition::new(400.0, 300.0),
+            FRAME,
+        );
+        assert_eq!((d.x, d.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_pointer_drags_the_content_towards_the_edge_it_is_past() {
+        let page = rect(100.0, 50.0, 400.0, 300.0);
+        let up = auto_scroll_delta(page, LogicalPosition::new(300.0, 40.0), FRAME);
+        let down = auto_scroll_delta(page, LogicalPosition::new(300.0, 360.0), FRAME);
+        let left = auto_scroll_delta(page, LogicalPosition::new(90.0, 200.0), FRAME);
+        let right = auto_scroll_delta(page, LogicalPosition::new(510.0, 200.0), FRAME);
+        assert!(up.y < 0.0 && up.x == 0.0, "{up:?}");
+        assert!(down.y > 0.0 && down.x == 0.0, "{down:?}");
+        assert!(left.x < 0.0 && left.y == 0.0, "{left:?}");
+        assert!(right.x > 0.0 && right.y == 0.0, "{right:?}");
+    }
+
+    #[test]
+    fn the_speed_is_per_second_not_per_tick() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let far_below = LogicalPosition::new(400.0, 1000.0);
+        let at_60 = auto_scroll_delta(page, far_below, FRAME).y;
+        let at_120 = auto_scroll_delta(page, far_below, FRAME / 2.0).y;
+        assert!(
+            (at_60 - at_120 * 2.0).abs() < 0.001,
+            "two 120Hz ticks travel one 60Hz tick: {at_60} vs {at_120}"
+        );
+        assert!(
+            (at_60 - AUTO_SCROLL_MAX_SPEED_PX_PER_SEC * FRAME).abs() < 0.001,
+            "and one 60Hz tick is the speed for a sixtieth of a second: {at_60}"
+        );
+    }
+
+    #[test]
+    fn a_stalled_frame_does_not_arrive_as_one_long_jump() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let far_below = LogicalPosition::new(400.0, 1000.0);
+        let stalled = auto_scroll_delta(page, far_below, 5.0).y;
+        let capped =
+            auto_scroll_delta(page, far_below, AUTO_SCROLL_MAX_TICK_SECS).y;
+        assert!((stalled - capped).abs() < 0.001, "{stalled} vs {capped}");
+    }
+
+    #[test]
+    fn the_speed_saturates_one_band_past_the_edge() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let one_band = auto_scroll_delta(
+            page,
+            LogicalPosition::new(400.0, 600.0 + AUTO_SCROLL_EDGE_THRESHOLD),
+            FRAME,
+        )
+        .y;
+        let a_screen_away =
+            auto_scroll_delta(page, LogicalPosition::new(400.0, 5000.0), FRAME).y;
+        assert!((one_band - a_screen_away).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_nonsense_tick_or_pointer_scrolls_by_nothing_rather_than_by_nan() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let nan_tick = auto_scroll_delta(page, LogicalPosition::new(400.0, 1000.0), f32::NAN);
+        assert_eq!((nan_tick.x, nan_tick.y), (0.0, 0.0));
+        let nan_pointer =
+            auto_scroll_delta(page, LogicalPosition::new(f32::NAN, f32::NAN), FRAME);
+        assert_eq!((nan_pointer.x, nan_pointer.y), (0.0, 0.0));
     }
 }
