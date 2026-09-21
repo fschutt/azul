@@ -75,6 +75,25 @@ sbt assembly
 java -Djna.library.path=. -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
 ```
 
+
+#### Without sbt (using javac and scala-cli)
+
+If you don't want to use `sbt`, you can manually compile the Java bindings using `javac` and run the project using [Scala CLI](https://scala-cli.virtuslab.org/) (which Scala 3.5+ installs as `scala`):
+
+```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
+tar xzf azul-scala-$VERSION.tar.gz
+
+# 1. Download JNA (required to compile the Java bindings)
+curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
+
+# 2. Compile the raw .java bindings into a `classes/` directory
+javac -cp jna.jar -d classes azul-java/*.java
+
+# 3. Run the Scala app against the compiled Java classes
+scala-cli run HelloWorld.scala --extra-jars classes --extra-jars jna.jar --java-opt -Djna.library.path=.
+```
+
 ### Building from source
 
 Only needed if you want to track `master` or patch the library locally:
