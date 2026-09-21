@@ -57,7 +57,7 @@ use super::{
     },
     ffi_type_name,
     functions::{fortran_alias_for, should_emit_function},
-    map_type_to_fortran, sanitize_identifier, truncate_identifier, wrapper_type_name,
+    map_type_to_fortran, sanitize_identifier, truncate_identifier, types, wrapper_type_name,
 };
 
 // ============================================================================
@@ -225,6 +225,12 @@ impl<'a> Ctx<'a> {
         for f in &self.ir.functions {
             self.names
                 .insert(fortran_alias_for(&f.c_name).to_lowercase());
+        }
+        // The named constants are module-scope `parameter`s of the types
+        // layer, which `azul_api` use-associates wholesale: a wrapper that
+        // claimed one of their names would be a duplicate declaration.
+        for c in &self.ir.constants {
+            self.names.insert(types::constant_name(c).to_lowercase());
         }
         for n in super::ISO_C_REEXPORTS {
             self.names.insert(n.to_lowercase());
@@ -438,6 +444,11 @@ fn find_string_class(ir: &CodegenIR) -> Option<StringClass> {
     {
         let copy = ir.functions.iter().find(|f| {
             f.class_name == s.name
+                // The String class carries several `(ptr, len) -> String`
+                // constructors; a host `character(len=*)` must go through
+                // the one that copies the bytes, never the strict UTF-8 one
+                // that can fail on them.
+                // allow-api-name: only the name tells those constructors apart.
                 && f.method_name == "copy_from_bytes"
                 && f.args.len() == 3
                 && f.return_type

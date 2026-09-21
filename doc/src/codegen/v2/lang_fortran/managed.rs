@@ -517,6 +517,10 @@ fn kind_logger(ctx: &Ctx, cb: &CallbackTypedefDef) -> Option<Logger> {
         let ty = a.type_name.trim();
         let Some(f) = ctx.ir.functions.iter().find(|f| {
             f.class_name == ty
+                // Does this callback argument offer the log sink? The shape
+                // test below - a level enum plus a String, by reference - is
+                // not enough on its own, and the IR carries no other mark.
+                // allow-api-name: one named method is the only signal there is.
                 && f.method_name == "log"
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
                 && f.args.len() == 3

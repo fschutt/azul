@@ -10,9 +10,12 @@
 //!    (F2003), tagged unions as ABI-opaque blob types with the exact C
 //!    size/alignment (Fortran has no native `union`; the blob keeps every
 //!    embedding struct layout-identical to `azul.h` — see [`layout`]), and
-//!    callback typedefs as `abstract interface`s. A chunk imports the
-//!    types it names from the chunks declaring them (`use ..., only:`,
-//!    which keeps every `.mod` small); `azul_types` re-exports them all.
+//!    callback typedefs as `abstract interface`s, plus the named constants
+//!    of the classes it declares (`AzGlContextPtr_ACCUM_ALPHA_BITS` and
+//!    the 1400-odd other OpenGL enum values) as `integer(kind),
+//!    parameter`s. A chunk imports the types it names from the chunks
+//!    declaring them (`use ..., only:`, which keeps every `.mod` small);
+//!    `azul_types` re-exports them all.
 //! 2. `azul_ffi_<module>.f90` — one module per api.json module declaring
 //!    that module's C-API functions inside an `interface ... end interface`
 //!    block, each with the verbatim C symbol carried via
@@ -682,7 +685,19 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
         // For pointer-to-void use `type(c_ptr)`.
         "void" | "c_void" | "()" => "type(c_ptr)".to_string(),
 
-        // Booleans
+        // Booleans. The OpenGL scalar typedefs (`GLuint`, `GLsizeiptr`,
+        // ...) are NOT listed in this table: api.json declares each of
+        // them as a type alias of a Rust primitive, so the alias arm at
+        // the bottom resolves them to the very same Fortran kinds, and a
+        // second, hand-kept copy of that mapping here could only ever
+        // drift from it. `GLboolean` is the one exception and it is a
+        // deliberate one.
+        //
+        // It aliases `u8` but is a BOOLEAN by contract (GL_TRUE /
+        // GL_FALSE), and `logical(c_bool)` is the same single byte, so
+        // Fortran callers get `.true.`/`.false.` instead of 1/0; nothing
+        // but the name tells it apart from any other `u8`.
+        // allow-api-name: the one GL scalar whose Fortran type is not its alias target's.
         "bool" | "GLboolean" => "logical(c_bool)".to_string(),
 
         // Signed / unsigned integers via iso_c_binding kind selectors.
@@ -691,15 +706,12 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
         // approach the Pascal/Ada bindings take.
         "i8" | "u8" | "c_char" | "char" | "c_uchar" => "integer(c_int8_t)".to_string(),
         "i16" | "u16" => "integer(c_int16_t)".to_string(),
-        "i32" | "u32" | "c_int" | "c_uint" | "GLint" | "GLuint" | "GLenum" | "GLbitfield"
-        | "GLsizei" => "integer(c_int32_t)".to_string(),
-        "i64" | "u64" | "GLint64" | "GLuint64" => "integer(c_int64_t)".to_string(),
-        "f32" | "GLfloat" | "GLclampf" => "real(c_float)".to_string(),
-        "f64" | "GLdouble" | "GLclampd" => "real(c_double)".to_string(),
+        "i32" | "u32" | "c_int" | "c_uint" => "integer(c_int32_t)".to_string(),
+        "i64" | "u64" => "integer(c_int64_t)".to_string(),
+        "f32" => "real(c_float)".to_string(),
+        "f64" => "real(c_double)".to_string(),
         "usize" | "size_t" | "uintptr_t" => "integer(c_size_t)".to_string(),
-        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => {
-            "integer(c_intptr_t)".to_string()
-        }
+        "isize" | "ssize_t" | "intptr_t" => "integer(c_intptr_t)".to_string(),
 
         // Anything else: assume it's a known IR type and emit a
         // `type(AzFoo)`. Unit enums (no payload variants) are emitted
@@ -806,8 +818,12 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// Fortran reserved words that are likely to collide with field /
 /// argument names in api.json. The full list is much larger (>100); we
 /// include only those plausibly emitted from user-facing field names.
+///
+/// This is Fortran's grammar, not api.json's vocabulary: that `end`,
+/// `contains`, `bind`, `min` and `max` are also api.json method names is
+/// the reason they are listed, not a decision keyed on those methods.
 pub fn is_fortran_reserved(name: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: a keyword table - Fortran's words, not the API's.
         name.to_lowercase().as_str(),
         "if" | "then"
             | "else"
