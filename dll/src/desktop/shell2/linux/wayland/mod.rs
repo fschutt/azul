@@ -4914,6 +4914,18 @@ impl WaylandWindow {
         let (raw_x, raw_y) = std::mem::replace(&mut self.pending_axis_value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
 
+        // THE WHEEL BELONGS TO WHAT THE POINTER IS OVER, and an open menu
+        // popup is a surface of its own. `handle_pointer_motion` and
+        // `handle_pointer_button` both stop here; the axis frame did not, so
+        // it fell through to the parent, re-hit-tested at the parent's stale
+        // cursor position and scrolled the page BEHIND the open menu. The
+        // accumulators above are already drained, so the frame is consumed
+        // rather than deferred: a popup has no axis entry point yet, which is
+        // why a long menu cannot scroll its own list on any backend.
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            return;
+        }
+
         let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
         // `wl_pointer.axis_source` is the ONLY place Wayland says whether the
         // pointer behind this scroll is a wheel or a finger — the motion
@@ -5214,7 +5226,22 @@ impl WaylandWindow {
         frame.value120_seen = false;
         let (raw_x, raw_y) = std::mem::replace(&mut frame.value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut frame.discrete, (0.0, 0.0));
-        let is_trackpad = axis_source_is_trackpad(frame.source);
+        // Ends the `seat_axis` borrow before the popup guard below reads the
+        // rest of `self`.
+        let axis_source = frame.source;
+
+        // THE WHEEL BELONGS TO WHAT THE POINTER IS OVER, and an open menu
+        // popup is a surface of its own. `handle_pointer_motion` and
+        // `handle_pointer_button` both stop here; the axis frame did not, so
+        // it fell through to the parent, re-hit-tested at the parent's stale
+        // cursor position and scrolled the page BEHIND the open menu. The
+        // accumulators above are already drained, so the frame is consumed
+        // rather than deferred: a popup has no axis entry point yet, which is
+        // why a long menu cannot scroll its own list on any backend.
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            return;
+        }
+        let is_trackpad = axis_source_is_trackpad(axis_source);
         let (delta_x, delta_y) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
         if delta_x == 0.0 && delta_y == 0.0 {
             return;
@@ -11837,5 +11864,61 @@ mod wayland_input_state_tests {
         assert!(!axis_source_is_trackpad(WL_AXIS_SOURCE_WHEEL));
         assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_FINGER));
         assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_CONTINUOUS));
+    }
+}
+
+#[cfg(test)]
+mod popup_axis_tests {
+    //! An open menu popup owns the wheel over it.
+    //!
+    //! `handle_pointer_motion` and `handle_pointer_button` both stop at an
+    //! open popup and never touch the parent's hover or hit-test state. The
+    //! axis frame did not, so a wheel over an open menu fell through to the
+    //! parent, re-hit-tested at the parent's stale cursor position and
+    //! scrolled the page behind the menu.
+    //!
+    //! Neither flush can be called without a compositor, so the law is read
+    //! off the code, the way `clipboard.rs` reads its own.
+
+    /// The body of a free-standing `fn <name>` in this module's source, up to
+    /// the first line that is de-indented back to its own `fn` level.
+    fn body_of(name: &str) -> String {
+        let source = include_str!("mod.rs");
+        let source = source.split_once("mod popup_axis_tests {").map_or(source, |(b, _)| b);
+        let start = source
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("{name} exists"));
+        let rest = &source[start..];
+        let end = rest[1..]
+            .find("\n    fn ")
+            .map_or(rest.len(), |i| i + 1);
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn an_axis_frame_stops_at_an_open_popup_like_every_other_pointer_event() {
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            assert!(
+                body.contains("pointer_over_popup"),
+                "{flush} delivers the wheel to the parent while a popup is open, so scrolling \
+                 over a menu scrolls the page behind it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_guard_runs_after_the_accumulators_are_drained() {
+        // Consumed, not deferred: a frame held back would be replayed against
+        // the parent the moment the menu closed.
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            let drained = body.find("std::mem::replace").expect("the frame is drained");
+            let guarded = body.find("pointer_over_popup").expect("the guard is there");
+            assert!(
+                drained < guarded,
+                "{flush} returns before draining its accumulators"
+            );
+        }
     }
 }
