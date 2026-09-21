@@ -826,6 +826,25 @@ pub struct ConstantDef {
     pub module: String,
 }
 
+impl ConstantDef {
+    /// The spelling a binding uses for this constant INSIDE the owning type's
+    /// scope, where the class name is not already part of the identifier.
+    ///
+    /// Prefixed `AZ_`, never bare and never `GL_`. These are the OpenGL enum
+    /// values, and a bare `TRUE`, `FALSE`, `NO_ERROR`, `RGB` or `DOMAIN` is an
+    /// object-like macro in `<windows.h>` / `<math.h>` while every `GL_*` name
+    /// is one in `<GL/gl.h>`. A macro ignores scope, so either spelling would
+    /// rewrite the member's name and break any C++ translation unit that
+    /// included such a header first. `AZ_` is defined by nothing.
+    ///
+    /// A binding whose constants already carry the class (`AzGlContextPtr_…`
+    /// in C, Zig, Fortran and Pascal) is unambiguous already and keeps that.
+    pub fn member_name(&self) -> String {
+        let bare = self.name.split_once('_').map_or(self.name.as_str(), |(_, n)| n);
+        format!("AZ_{bare}")
+    }
+}
+
 // ============================================================================
 // Callback Typedef Definition
 // ============================================================================

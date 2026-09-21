@@ -104,7 +104,7 @@ pub fn generate_reexports_with_config(ir: &CodegenIR, config: &ReexportConfig) -
     // Add type aliases (but skip primitive aliases like GLuint)
     for type_alias in &ir.type_aliases {
         // Skip primitive type aliases that are already defined in ffi
-        if is_primitive_alias(&type_alias.name) {
+        if is_primitive_alias(type_alias) {
             continue;
         }
         let module = normalize_module_name(&type_alias.module);
@@ -205,31 +205,23 @@ fn normalize_module_name(module: &str) -> String {
     name
 }
 
-/// Check if a type alias is a primitive (GL types, etc.)
-fn is_primitive_alias(name: &str) -> bool {
-    matches!(
-        name,
-        "GLuint"
-            | "GLint"
-            | "GLenum"
-            | "GLboolean"
-            | "GLbitfield"
-            | "GLbyte"
-            | "GLshort"
-            | "GLsizei"
-            | "GLubyte"
-            | "GLushort"
-            | "GLfloat"
-            | "GLclampf"
-            | "GLdouble"
-            | "GLclampd"
-            | "GLintptr"
-            | "GLsizeiptr"
-            | "GLint64"
-            | "GLuint64"
-            | "c_void"
-            | "c_char"
-    )
+/// Is this alias already defined by the `ffi` module, so that re-exporting it
+/// here would be a duplicate definition?
+///
+/// That is exactly what `azul_core::gl` owns - the GL scalar typedefs, which
+/// the dll module re-exports wholesale - plus the two C scalar aliases.
+/// Derived from the alias's external path rather than listed by name, so a GL
+/// typedef added to api.json tomorrow needs no edit here. (The list this
+/// replaced named eight typedefs api.json does not have.)
+fn is_primitive_alias(alias: &TypeAliasDef) -> bool {
+    const GL_MODULE: &str = "azul_core::gl::";
+    alias
+        .external_path
+        .as_deref()
+        .is_some_and(|p| p.starts_with(GL_MODULE))
+        // allow-api-name: `c_void`/`c_char` are Rust core scalars that api.json
+        // spells as aliases; they are not API types of ours to re-export.
+        || matches!(alias.name.as_str(), "c_void" | "c_char")
 }
 
 /// Generate the prelude module with commonly used types
@@ -242,8 +234,11 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
     builder.line("pub mod prelude {");
     builder.indent();
 
-    // List of commonly used types to include in prelude
-    // NOTE: Module is automatically determined - just list the type names
+    // The curated set of names `use azul::prelude::*` brings in. A prelude IS
+    // a hand-picked list of API types - that is what makes it a prelude - so
+    // it names them directly; the module each one lives in is still looked up
+    // from the IR below, never hardcoded.
+    // allow-api-name: a prelude is a curated selection of API type names.
     let prelude_types: &[&str] = &[
         // Core application types
         "App",

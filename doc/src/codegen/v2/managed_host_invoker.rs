@@ -159,10 +159,37 @@ pub fn managed_c_symbol(func: &super::ir::FunctionDef) -> String {
 ///
 /// Returns `None` if the wrapper isn't a known callback wrapper or if
 /// no field of type `OptionRefAny` is found.
+/// The accessor that hands a firing callback its context: the method on a
+/// callback INFO type (`CallbackInfo`, `LayoutCallbackInfo`,
+/// `RenderImageCallbackInfo`, `VirtualViewCallbackInfo`) that borrows `self`
+/// and returns the `OptionRefAny` the wrapper stored.
+///
+/// Found by SHAPE, not by name. Four bindings each spelled the method's name
+/// out, so renaming it in api.json would have silently stranded every
+/// trampoline that needs the context - the failure would be a callback whose
+/// model is suddenly `None` at runtime, not a build error. Across the whole
+/// API exactly four functions have this shape, and they are exactly those
+/// accessors.
+pub fn ctx_getter<'a>(
+    info_type: &str,
+    ir: &'a super::ir::CodegenIR,
+) -> Option<&'a super::ir::FunctionDef> {
+    use super::ir::ArgRefKind;
+    ir.functions.iter().find(|f| {
+        f.class_name == info_type
+            && f.args.len() == 1
+            && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::Ptr)
+            // allow-api-name: the context a callback carries IS an OptionRefAny.
+            && f.return_type.as_deref() == Some("OptionRefAny")
+    })
+}
+
 pub fn callback_ctx_field(wrapper: &str, ir: &super::ir::CodegenIR) -> Option<String> {
     let s = ir.structs.iter().find(|s| s.name == wrapper)?;
     s.fields
         .iter()
+        // allow-api-name: a callback wrapper's context slot IS an OptionRefAny;
+        // that is the structural definition this whole module is built on.
         .find(|f| f.type_name.trim() == "OptionRefAny")
         .map(|f| f.name.clone())
 }
@@ -334,6 +361,8 @@ pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(Stri
     if func.args.len() != 3 {
         return None;
     }
+    // allow-api-name: the host-invoker shape is defined as (self, RefAny data,
+    // callback wrapper); the data slot is a RefAny by definition.
     if func.args[1].type_name != "RefAny" {
         return None;
     }

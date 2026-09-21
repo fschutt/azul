@@ -405,6 +405,8 @@ impl<'a> IRBuilder<'a> {
                 if let Some(repr) = &class_data.repr {
                     if class_data.struct_fields.is_some() {
                         // Struct: must be repr(C)
+                        // allow-api-name: `transparent` is the Rust #[repr] spelling
+                        // here, not the API method that happens to share the name.
                         if repr != "C" && repr != "transparent" {
                             errors.push(format!(
                                 "Invalid repr for struct {}: got repr({}), expected repr(C). \
@@ -1557,6 +1559,8 @@ impl<'a> IRBuilder<'a> {
             let contexts: Vec<&FieldDef> = struct_def
                 .fields
                 .iter()
+                // allow-api-name: this is where the IR DEFINES the callback-wrapper
+                // shape - the context slot is an `OptionRefAny` by definition.
                 .filter(|f| f.ref_kind == FieldRefKind::Owned && f.type_name == "OptionRefAny")
                 .collect();
             if let ([cb], [ctx]) = (callbacks.as_slice(), contexts.as_slice()) {
@@ -2175,6 +2179,7 @@ impl<'a> IRBuilder<'a> {
                     doc: None,
                     callback_info: None,
                 }],
+                // allow-api-name: `_toDbgString` returns the API's String by definition.
                 return_type: Some("String".to_string()),
                 fn_body: None,
                 doc: vec![format!(
@@ -2306,10 +2311,14 @@ fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
 /// These would need Box<> indirection which the C-API doesn't have
 const RECURSIVE_TYPE_NAMES: &[&str] = &[];
 
-/// String type name
+/// String type name.
+// allow-api-name: the IR defining the two fundamental API types every
+// binding special-cases; naming them here is what lets everything else
+// ask the IR instead of spelling them out again.
 const STRING_TYPE_NAME: &str = "String";
 
 /// RefAny type name
+// allow-api-name: see STRING_TYPE_NAME.
 const REFANY_TYPE_NAME: &str = "RefAny";
 
 /// The struct fields of `class_data` as `(name, data)` pairs, in order.
@@ -2616,6 +2625,8 @@ fn is_callback_data_pair(class_data: &ClassData, version_data: &VersionData) -> 
             let field_type = &field_data.r#type;
 
             // Check for RefAny field
+            // allow-api-name: the IR deciding which struct carries a type-erased
+            // data slot - `RefAny` is that type, there is no other spelling.
             if field_type == "RefAny" {
                 has_refany_field = true;
             }

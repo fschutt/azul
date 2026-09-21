@@ -191,7 +191,7 @@ pub fn generate_cpp_header(api_data: &ApiData, standard: CppStandard) -> Result<
 /// Generate public Rust API as String
 pub fn generate_rust_public_api(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
-    let config = CodegenConfig::rust_public_api();
+    let config = CodegenConfig::rust_public_api(&ir);
     CodeGenerator::generate(&ir, &config)
 }
 

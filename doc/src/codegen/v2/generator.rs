@@ -167,7 +167,7 @@ impl GenerationTargets {
         println!("[11/35] Generating public Rust API...");
         CodeGenerator::generate_to_file(
             ir,
-            &CodegenConfig::rust_public_api(),
+            &CodegenConfig::rust_public_api(ir),
             &codegen_dir.join("azul.rs"),
         )?;
 
