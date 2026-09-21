@@ -124,6 +124,8 @@ main = do
   AppConfig.create >>= App.create (DataModel 5) >>= App.run window
 ```
 
+## Notes
+
 Here, `import Azul` brings the types into scope. Each class's constructors and methods 
 live in its own module, imported qualified: `Button.create`, `Dom.withChild`, like 
 `Map.insert` from `Data.Map`.
@@ -137,7 +139,7 @@ A handler that needs `IO` has the type `DataModel -> CallbackInfo -> IO (DataMod
 
 If a handler expects another model type, the package logs
 `azul: ButtonOnClickCallback expected a model of type OtherModel, got DataModel` and doesn't
-call it. An exception inside a callback is caught and logged the same way, and the app keeps
+call it. An exception inside a callback is caught and logged the same way and the app keeps
 running.
 
 Every function takes its receiver last, so builder calls chain with `>>=`. Arguments passed
