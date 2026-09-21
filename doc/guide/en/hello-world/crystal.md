@@ -27,60 +27,68 @@ default-search-keys:
 
 ## Introduction
 
-The Crystal binding is one generated file, `azul.cr`, that declares the C
-API as a `lib LibAzul` block and wraps it in ordinary Crystal classes and
-enums under the `Azul` namespace. There is no extra runtime and
-no code generator to run on your side.
-
-You need Crystal (`brew install crystal`, or the packages from
-[crystal-lang.org](https://crystal-lang.org/install/)). Linux and macOS are
-the supported platforms. Crystal's Windows (MSVC) port works, but it is
-still a preview upstream, so the Windows steps below are best-effort and
-CI does not gate on them.
+In order to use `libazul.so` from Crystal, you need the native library and
+the generated API bindings which wrap the C API in ordinary Crystal classes.
 
 ## Installation
 
-The example does `require "azul"`, which Crystal resolves through `lib/`
-(where `shards install` puts dependencies), so the binding goes into
-`lib/azul.cr`:
+First, you need to install Crystal (`brew install crystal`, or from [crystal-lang.org](https://crystal-lang.org/install/)).
 
-Linux:
+The preferred way to manage dependencies in Crystal is using `shards`. Azul provides a pre-packaged shard containing the generated API bindings.
+
+Create a new directory for your project and initialize a `shard.yml` file:
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-mkdir -p lib && curl -o lib/azul.cr https://azul.rs/ui/release/$VERSION/lib/azul.cr
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
-crystal build hello-world.cr --link-flags "-L$PWD"
-LD_LIBRARY_PATH=. ./hello-world
+mkdir hello-world && cd hello-world
+cat << 'YML' > shard.yml
+name: hello_world
+version: 0.1.0
+
+dependencies:
+  azul:
+    path: ./azul-crystal
+
+targets:
+  hello-world:
+    main: src/hello-world.cr
+YML
 ```
 
-macOS:
+Next, download the Azul shard and the native library for your platform into the project root:
 
 ```sh
+# Download and extract the Azul shard
+curl -LO https://azul.rs/ui/release/$VERSION/azul-crystal-$VERSION.tar.gz
+mkdir azul-crystal && tar xzf azul-crystal-$VERSION.tar.gz -C azul-crystal
+
+# macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-mkdir -p lib && curl -o lib/azul.cr https://azul.rs/ui/release/$VERSION/lib/azul.cr
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
-crystal build hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
-DYLD_LIBRARY_PATH=. ./hello-world
-```
-
-Windows (PowerShell):
-
-```sh
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+# Windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-mkdir lib
-curl -o lib/azul.cr https://azul.rs/ui/release/$VERSION/lib/azul.cr
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
-crystal build hello-world.cr --link-flags "$PWD\azul.dll.lib"
-hello-world.exe
+```
+
+Now, run `shards install` to link the dependency into the `lib/` folder:
+
+```sh
+shards install
 ```
 
 The library path **must be absolute** (`-L$PWD`, not `-L.`): Crystal runs
 the linker from its own cache directory, so a relative `-L.` points
-there and the link fails with `unable to find library -lazul` (Linux) or
-`library not found for -lazul` (macOS). The binary embeds no rpath, which
+there and the link fails. The binary embeds no rpath, which
 is why the run step needs `LD_LIBRARY_PATH=.` / `DYLD_LIBRARY_PATH=.`.
+
+### Manual Compilation (Without Shards)
+
+If you prefer a single-file script without a `shard.yml`, you can manually download the single-file wrapper to a `lib/` folder:
+
+```sh
+mkdir -p lib && curl -o lib/azul.cr https://azul.rs/ui/release/$VERSION/lib/azul.cr
+# Then compile directly using `crystal build`
+```
 
 ### Building from source
 
@@ -158,17 +166,20 @@ app.run(window)
 
 ## Build and run
 
-From the directory containing `hello-world.cr`, `lib/azul.cr` and the
-native library:
+Copy the example code above into `src/hello-world.cr`. From the directory containing your `shard.yml` and the native library, build and run your application:
 
 ```sh
 # Linux
-crystal build hello-world.cr --link-flags "-L$PWD"
+crystal build src/hello-world.cr --link-flags "-L$PWD"
 LD_LIBRARY_PATH=. ./hello-world
 
 # macOS
-crystal build hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
+crystal build src/hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
 DYLD_LIBRARY_PATH=. ./hello-world
+
+# Windows (PowerShell)
+crystal build src/hello-world.cr --link-flags "$PWD\azul.dll.lib"
+.\hello-world.exe
 ```
 
 On macOS the five `-framework` flags are required: `libazul` calls into
