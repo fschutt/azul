@@ -369,6 +369,25 @@ pub fn sanitize_identifier(name: &str) -> String {
     name.to_string()
 }
 
+/// Sanitize a name that will stand ALONE as a Pascal identifier — a
+/// constructor name, a scoped enum member — where the keyword test has to
+/// be case-insensitive, because Pascal is.
+///
+/// [`sanitize_identifier`] compares the keyword list verbatim, which is
+/// right for the names it is fed (api.json's lowercase field and argument
+/// names) and for everything that carries a prefix: the UNSCOPED enum
+/// member `TAzLayoutAlignContent_End` is not the keyword `end`, it already
+/// compiles, and user code already spells it that way. Widening that
+/// function would rename it. A bare `End` or `Div` is the keyword, whatever
+/// the casing, so those get the same trailing underscore the rest of the
+/// binding uses.
+pub(super) fn sanitize_bare_identifier(name: &str) -> String {
+    if is_pascal_reserved(&name.to_ascii_lowercase()) {
+        return format!("{}_", name);
+    }
+    sanitize_identifier(name)
+}
+
 /// Names that — although not Pascal keywords — collide with common
 /// methods we emit on wrapper classes (`Len`, `Capacity`, `Clone`) or
 /// with the implicit function result variable (`Result`: every wrapper

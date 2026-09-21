@@ -41,7 +41,7 @@
 //! per-role callback is built with `ffi.cast` on a pointer-arg signature.
 
 use super::super::{
-    ir::{CallbackTypedefDef, CodegenIR},
+    ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, TypeCategory},
     managed_host_invoker::{c_typename, emit_cdef_block, host_invoker_kinds, wrapper_name},
     managed_lang_helpers::is_refany_type,
 };
@@ -145,6 +145,70 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
     out.push('\n');
 }
 
+/// Where a failing callback's error is reported, and how.
+struct LogSink {
+    /// Index of the invoker argument that carries the sink.
+    arg: usize,
+    /// Its C type name (`AzCallbackInfo`), for the qualifier-stripping cast.
+    c_type: String,
+    /// The C symbol of the logging method (`AzCallbackInfo_log`).
+    symbol: String,
+    /// The C constant for the most severe level (`AzAppLogLevel_Error`).
+    level: String,
+}
+
+/// The log sink among a callback's arguments: the first argument whose IR
+/// type has an instance method shaped `(self, <unit enum> level, owned
+/// <string> message) -> ()`.
+///
+/// Matched by SHAPE, never by the method being spelled `log` or the argument
+/// being called `info`: a binding that keyed on either would lose the
+/// capability the day api.json renames it, and would pick up an unrelated
+/// method that happened to share the name. `CallbackInfo` is the only type
+/// with the shape today. Mirrors the same detector in the JVM and Pascal
+/// bindings, down to the level it picks.
+fn failure_log_sink(cb: &CallbackTypedefDef, ir: &CodegenIR) -> Option<LogSink> {
+    for (i, a) in cb.args.iter().enumerate() {
+        let ty = a.type_name.trim();
+        let Some(f) = ir.functions.iter().find(|f| {
+            f.class_name == ty
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                // Reports, never answers: a logging call returns nothing.
+                && f.return_type.is_none()
+                // (self, level, message)
+                && f.args.len() == 3
+                && ir
+                    .find_enum(f.args[1].type_name.trim())
+                    .is_some_and(|e| !e.is_union && !e.variants.is_empty())
+                // The engine's UTF-8 string type, by IR category.
+                && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+                && ir
+                    .find_struct(f.args[2].type_name.trim())
+                    .is_some_and(|s| matches!(s.category, TypeCategory::String))
+        }) else {
+            continue;
+        };
+        let level_ty = f.args[1].type_name.trim();
+        let Some(level_enum) = ir.find_enum(level_ty) else {
+            continue;
+        };
+        // The most severe level the ladder has; an enum without an `Error`
+        // rung falls back to its first variant rather than to no report.
+        let variant = level_enum
+            .variants
+            .iter()
+            .find(|v| v.name == "Error")
+            .unwrap_or(&level_enum.variants[0]);
+        return Some(LogSink {
+            arg: i,
+            c_type: format!("Az{ty}"),
+            symbol: f.c_name.clone(),
+            level: format!("Az{level_ty}_{}", variant.name),
+        });
+    }
+    None
+}
+
 fn emit_invoker_registration(out: &mut String, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
     let ret = cb.return_type.as_deref().unwrap_or("void");
@@ -193,14 +257,56 @@ fn emit_invoker_registration(out: &mut String, cb: &CallbackTypedefDef, ir: &Cod
     ));
     out.push_str("        local fn = _lua_handles[_tonum(id)]\n");
     out.push_str("        if fn == nil then return end\n");
+    // `fn` is the FIRST element of the pcall argument list, not a fixed
+    // prefix the arguments are joined onto: a callback typedef with no
+    // arguments (`RegisterComponentLibraryFnType`, `GetSystemTimeCallbackType`)
+    // leaves the list empty, and `pcall(fn, )` is a syntax error that stops
+    // `require 'azul'` for the entire module.
+    let pcall_args: Vec<&str> = std::iter::once("fn")
+        .chain(user_call_args.iter().map(String::as_str))
+        .collect();
     out.push_str(&format!(
-        "        local ok, ret = pcall(fn, {})\n",
-        user_call_args.join(", ")
+        "        local ok, ret = pcall({})\n",
+        pcall_args.join(", ")
     ));
+    // What the user's callback raised is caught here, AT THE BOUNDARY (an
+    // error escaping an FFI callback is fatal under LuaJIT). Report it
+    // through the callback's own log sink when it has one, so the failure
+    // reaches the application's log destinations instead of only this
+    // process's stderr, then return and let the engine's thunk supply the
+    // default result.
     out.push_str("        if not ok then\n");
-    out.push_str(&format!(
-        "            io.stderr:write(\"[azul] {wrapper} error: \", tostring(ret), \"\\n\")\n"
-    ));
+    match failure_log_sink(cb, ir) {
+        Some(sink) => {
+            let var = arg_name(sink.arg, &cb.args[sink.arg].name);
+            // The invoker is handed the sink by pointer and it stays valid
+            // for the duration of the call, so the report goes out before
+            // the `return` below — nothing to keep alive afterwards.
+            //
+            // Two conversions the FFI needs: the invoker's parameter is
+            // `const T*` while the logging method takes `T*`, which LuaJIT
+            // refuses to convert implicitly (`ffi.cast` is the documented
+            // way to drop the qualifier), and the message crosses as an
+            // owned `AzString` the call consumes — `azul._az_string`
+            // returns exactly that unarmed transient.
+            out.push_str(
+                "            -- Report through the callback's own log sink (stderr only sees \
+                 this\n            -- process; the sink is what reaches the app's log \
+                 destinations).\n",
+            );
+            out.push_str(&format!(
+                "            C.{sym}(ffi.cast('{ct}*', {var}), C.{level}, azul._az_string('azul: \
+                 {wrapper} raised ' .. tostring(ret)))\n",
+                sym = sink.symbol,
+                ct = sink.c_type,
+                level = sink.level,
+            ));
+        }
+        // No sink among the arguments: stderr is the only destination left.
+        None => out.push_str(&format!(
+            "            io.stderr:write(\"[azul] {wrapper} error: \", tostring(ret), \"\\n\")\n"
+        )),
+    }
     out.push_str("            return\n");
     out.push_str("        end\n");
     if has_return {

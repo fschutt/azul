@@ -344,8 +344,18 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
     builder.line("(* Pinned releaser closure — must outlive libazul's reference. *)");
     builder.line("let _azul_releaser_pin =");
     builder.indent();
+    // Total, like the per-kind invokers: this closure is called BY libazul,
+    // and an OCaml exception unwinding through a libffi trampoline into Rust
+    // is undefined behaviour. `Hashtbl.remove` does not raise on a missing
+    // key, so the handler is a guard rather than a live path - but the
+    // guarantee has to hold for whatever this body becomes.
     builder.line("let releaser id =");
-    builder.line("  Hashtbl.remove _azul_handles (Unsigned.UInt64.to_int64 id)");
+    builder.line("  try Hashtbl.remove _azul_handles (Unsigned.UInt64.to_int64 id)");
+    builder.line("  with e ->");
+    builder.line(
+        "    Printf.eprintf \"[azul][error] azul: handle releaser raised %s\\n%s%!\" \
+         (Printexc.to_string e) (Printexc.get_backtrace ())",
+    );
     builder.line("in");
     builder.line("_az_app_set_host_handle_releaser releaser;");
     builder.line("releaser");
@@ -488,7 +498,12 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
         else {
             continue;
         };
-        let default_snake = to_snake_case(&info.default_c_name);
+        // The `_default` entry point is named by the SAME function the FFI
+        // layer binds it under - never by re-spelling the C symbol here, or
+        // a change to that spelling leaves this helper naming a value that
+        // does not exist (which is exactly what happened when the FFI values
+        // dropped their `ffi_` prefix).
+        let default_binding = super::functions::ocaml_binding_name(&info.default_c_name);
         let cb_snake = to_snake_case(&info.callback_wrapper);
         builder.line(&format!(
             "(* Build a {} with a host-invoker-routed {} callback (ctx preserved). *)",
@@ -508,7 +523,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
             "  : {} =",
             wrapper_return_type(&info.class_name, records)
         ));
-        builder.line(&format!("let wco = ffi_{} () in", default_snake));
+        builder.line(&format!("let wco = {} () in", default_binding));
         builder.line(&format!(
             "let cb = _az_{}_create_from_host_handle",
             cb_snake
@@ -731,11 +746,51 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         }
     }
     builder.dedent();
-    // A failed RefAny.lift downcast is reported like every other binding
-    // reports it: `info.log(Error, "...")` on the first argument whose class
-    // has `log(level, message)` (CallbackInfo), else stderr.
-    let log_failure = cb
-        .args
+    // EVERY exception is reported here and none leaves the closure: an
+    // OCaml exception crossing a libffi trampoline back into Rust is
+    // undefined behaviour, and a failure the app can see in its log (and
+    // so in Grafana) beats one that takes the process down.
+    //
+    // The report goes to `info.log(Error, "...")` - the first argument
+    // whose class has `log(level, message)`, i.e. a CallbackInfo - and to
+    // stderr for the kinds that have no such argument.
+    let report = error_report(cb, ir);
+    builder.line(&format!("with Azul_downcast_failed msg -> {}", report));
+    builder.line("   | e ->");
+    builder.line(&format!(
+        "     let msg = \"azul: {} raised \" ^ Printexc.to_string e in",
+        wrapper
+    ));
+    // The out-pointer is deliberately NOT written on this path. libazul
+    // pre-fills it with `HostOut::unwritten()` - a value that owns nothing
+    // and is safe to drop - and substitutes the kind's own `default_ret`
+    // when the host leaves it that way (core/src/host_invoker.rs). Writing
+    // a default here would instead claim the callback ANSWERED, and the
+    // engine's fallback is the better one: it may read the call's
+    // arguments (a merge's fresh dataset, the current caret rectangle).
+    builder.line(&format!("     {})", report));
+    builder.dedent();
+    builder.dedent();
+    builder.line("in");
+    builder.line(&format!("{} invoker;", setter_name));
+    builder.line("invoker");
+    builder.dedent();
+    builder.blank();
+    builder.line(&format!("let _ = _azul_{}_invoker_pin", snake));
+    builder.blank();
+}
+
+/// How one callback kind reports a failure, as an OCaml expression over a
+/// bound `msg : string`.
+///
+/// `info.log(Error, msg)` when one of the kind's arguments is a class that
+/// exports `log(level, message)` - the engine's own diagnostic sink, so the
+/// message lands wherever the app sends its log rather than in a terminal
+/// nobody is watching. Otherwise stderr, with the backtrace of the raise
+/// (empty unless the program records them - `OCAMLRUNPARAM=b`; a library
+/// must not turn that on for its host).
+fn error_report(cb: &CallbackTypedefDef, ir: &CodegenIR) -> String {
+    cb.args
         .iter()
         .enumerate()
         .find_map(|(i, a)| {
@@ -751,7 +806,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
                     && is_string_type(ir, &f.args[2].type_name)
             })?;
             let level = f.args[1].type_name.trim();
-            ir.find_enum(level)?.variants.iter().find(|v| v.name == "Error")?;
+            ir.find_enum(level)?
+                .variants
+                .iter()
+                .find(|v| v.name == "Error")?;
             Some(format!(
                 "{} (Ctypes.from_voidp {} arg{}) ({m}.to_int {m}.Error) (azul_az_string msg)",
                 super::functions::ocaml_binding_name(&f.c_name),
@@ -760,21 +818,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
                 m = ocaml_module_name(level),
             ))
         })
-        .unwrap_or_else(|| "Printf.eprintf \"[azul][error] %s\\n%!\" msg".to_string());
-    builder.line(&format!("with Azul_downcast_failed msg -> {}", log_failure));
-    builder.line(&format!(
-        "   | e -> Printf.eprintf \"[azul] {} invoker error: %s\\n%!\" (Printexc.to_string e))",
-        wrapper
-    ));
-    builder.dedent();
-    builder.dedent();
-    builder.line("in");
-    builder.line(&format!("{} invoker;", setter_name));
-    builder.line("invoker");
-    builder.dedent();
-    builder.blank();
-    builder.line(&format!("let _ = _azul_{}_invoker_pin", snake));
-    builder.blank();
+        .unwrap_or_else(|| {
+            "Printf.eprintf \"[azul][error] %s\\n%s%!\" msg (Printexc.get_backtrace ())"
+                .to_string()
+        })
 }
 
 /// Mirror of `types.rs::sanitize_field_identifier`: snake-case the IR field

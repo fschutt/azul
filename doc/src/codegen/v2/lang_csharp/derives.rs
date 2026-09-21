@@ -80,7 +80,7 @@ fn may_free(type_name: &str, category: TypeCategory, ir: &CodegenIR) -> bool {
 }
 
 /// The interface list to append to the value type's declaration, e.g.
-/// `" : System.IComparable<AzDpiScaleFactor>, System.IDisposable"`.
+/// `" : global::System.IComparable<AzDpiScaleFactor>, global::System.IDisposable"`.
 /// Empty when the type derives neither ordering nor a destructor.
 pub fn value_type_interfaces(
     type_name: &str,
@@ -91,12 +91,12 @@ pub fn value_type_interfaces(
     let ffi = ffi_type_name(type_name);
     let mut ifaces: Vec<String> = Vec::new();
     if ordering_fn(ir, config, type_name).is_some() {
-        ifaces.push(format!("System.IComparable<{}>", ffi));
+        ifaces.push(format!("global::System.IComparable<{}>", ffi));
     }
     if may_free(type_name, category, ir)
         && derive_fn(ir, config, type_name, FunctionKind::Delete).is_some()
     {
-        ifaces.push("System.IDisposable".to_string());
+        ifaces.push("global::System.IDisposable".to_string());
     }
     if ifaces.is_empty() {
         String::new()
@@ -273,7 +273,7 @@ pub fn emit_value_derives(
 /// shares. Emitted once per file, before or after its callers (C# has no
 /// declaration order).
 pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
-    let m = "System.Runtime.InteropServices.Marshal";
+    let m = "global::System.Runtime.InteropServices.Marshal";
 
     builder.line("// --------------------------------------------------------------------------");
     builder.line("// __AzDerive: the marshalling the Az<T>_<derive> exports need.");
@@ -290,8 +290,8 @@ pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
 
     builder.line("/// <summary>Call an export that takes the value by pointer.</summary>");
     builder.line(
-        "internal static R Call<T, R>(T value, System.Func<System.IntPtr, R> call) where T : \
-         struct",
+        "internal static R Call<T, R>(T value, global::System.Func<global::System.IntPtr, R> \
+         call) where T : struct",
     );
     builder.line("{");
     builder.indent();
@@ -316,8 +316,8 @@ pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
          destructor).</summary>",
     );
     builder.line(
-        "internal static void Consume<T>(T value, System.Action<System.IntPtr> call) where T : \
-         struct",
+        "internal static void Consume<T>(T value, global::System.Action<global::System.IntPtr> \
+         call) where T : struct",
     );
     builder.line("{");
     builder.indent();
@@ -339,8 +339,8 @@ pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
 
     builder.line("/// <summary>Call an export that takes two values by pointer.</summary>");
     builder.line(
-        "private static R Both<T, R>(T a, T b, System.Func<System.IntPtr, System.IntPtr, R> call) \
-         where T : struct",
+        "private static R Both<T, R>(T a, T b, global::System.Func<global::System.IntPtr, \
+         global::System.IntPtr, R> call) where T : struct",
     );
     builder.line("{");
     builder.indent();
@@ -368,15 +368,15 @@ pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
 
     builder.line("/// <summary>Value equality.</summary>");
     builder.line(
-        "internal static bool Eq<T>(T a, T b, System.Func<System.IntPtr, System.IntPtr, bool> \
-         call) where T : struct => Both(a, b, call);",
+        "internal static bool Eq<T>(T a, T b, global::System.Func<global::System.IntPtr, \
+         global::System.IntPtr, bool> call) where T : struct => Both(a, b, call);",
     );
     builder.blank();
 
     builder.line("/// <summary>Value hash, folded from the 64-bit C hash into an int.</summary>");
     builder.line(
-        "internal static int Hash<T>(T value, System.Func<System.IntPtr, ulong> call) where T : \
-         struct",
+        "internal static int Hash<T>(T value, global::System.Func<global::System.IntPtr, ulong> \
+         call) where T : struct",
     );
     builder.line("{");
     builder.indent();
@@ -388,8 +388,8 @@ pub fn emit_derive_runtime(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
 
     builder.line("/// <summary>Ordering.</summary>");
     builder.line(
-        "internal static int Cmp<T>(T a, T b, System.Func<System.IntPtr, System.IntPtr, byte> \
-         call) where T : struct",
+        "internal static int Cmp<T>(T a, T b, global::System.Func<global::System.IntPtr, \
+         global::System.IntPtr, byte> call) where T : struct",
     );
     builder.line("{");
     builder.indent();
@@ -430,7 +430,7 @@ fn emit_dbg_helper(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCo
     let Some((vec_field, ptr_field, len_field)) = string_byte_path(string_struct, ir) else {
         return;
     };
-    let m = "System.Runtime.InteropServices.Marshal";
+    let m = "global::System.Runtime.InteropServices.Marshal";
     let ffi = ffi_type_name(&string_struct.name);
 
     builder.line(&format!(
@@ -438,8 +438,8 @@ fn emit_dbg_helper(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCo
         ffi
     ));
     builder.line(&format!(
-        "internal static string Dbg<T>(T value, System.Func<System.IntPtr, {ffi}> call) where T : \
-         struct",
+        "internal static string Dbg<T>(T value, global::System.Func<global::System.IntPtr, {ffi}> \
+         call) where T : struct",
         ffi = ffi
     ));
     builder.line("{");
@@ -451,12 +451,12 @@ fn emit_dbg_helper(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenCo
         vec_field, len_field
     ));
     builder.line("var __text = \"\";");
-    builder.line("if (__p != System.IntPtr.Zero && __n > 0)");
+    builder.line("if (__p != global::System.IntPtr.Zero && __n > 0)");
     builder.line("{");
     builder.indent();
     builder.line("var __bytes = new byte[__n];");
     builder.line(&format!("{m}.Copy(__p, __bytes, 0, (int)__n);", m = m));
-    builder.line("__text = System.Text.Encoding.UTF8.GetString(__bytes);");
+    builder.line("__text = global::System.Text.Encoding.UTF8.GetString(__bytes);");
     builder.dedent();
     builder.line("}");
     builder.line("// The export handed us an owned string; free it before returning the copy.");

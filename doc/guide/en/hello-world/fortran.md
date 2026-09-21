@@ -92,7 +92,8 @@ next to your program.
 module counter
   use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
                   dom_create_body, dom_create_p_with_text, button_create, &
-                  ButtonType_Primary, Update_DoNothing, Update_RefreshDom
+                  ButtonType_Primary, Update_DoNothing, Update_RefreshDom, &
+                  AppLogLevel_Error
   implicit none
 
   type :: model_t
@@ -122,7 +123,7 @@ contains
       call body%with_child(label)
       call body%with_child(button%dom())
     class default
-      error stop 'layout: the model is not a model_t'
+      call info%log(AppLogLevel_Error, 'layout: the model is not a model_t')
     end select
   end function layout
 
@@ -137,7 +138,8 @@ contains
       model%counter = model%counter + 1
       update = Update_RefreshDom
     class default
-      error stop 'on_click: the model is not a model_t'
+      call info%log(AppLogLevel_Error, 'on_click: the model is not a model_t')
+      update = Update_DoNothing
     end select
   end function on_click
 
@@ -164,8 +166,12 @@ There are a few Fortran-specific things in this example:
    callback receives that copy as `class(*), intent(inout) :: model`, and changes made
    inside `type is (model_t)` are kept: `class(*)` is "any type", the model as
    libazul holds it, and `select type` is the checked downcast back to yours. A model
-   of any other type is a programming error, so `class default` stops the program
-   with a message instead of silently rendering an empty body or ignoring the click.
+   of any other type is a programming error, so `class default` reports it through
+   `info%log` - which reaches the application's log sink, not just the terminal -
+   and returns the callback's no-op result, instead of silently rendering an empty
+   body or ignoring the click. Assign that result explicitly, as `on_click` does:
+   the engine reads it, so an unassigned `update` would hand over whatever was on
+   the stack.
 3. `call button%with_on_click(model, on_click)` binds the model the layout callback is
    running with, not a copy, so the click changes the same counter.
 4. `layout` and `on_click` are ordinary module functions. Their dummy arguments must

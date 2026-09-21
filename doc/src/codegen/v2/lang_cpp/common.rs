@@ -357,7 +357,6 @@ pub fn generate_class_constants(
     code
 }
 
-
 // ============================================================================
 // Type Classification
 // ============================================================================
@@ -2179,6 +2178,8 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <cstddef>\r\n");
         code.push_str("#include <cstring>\r\n");
         code.push_str("#include <cstdlib>\r\n"); // std::abort in Option::value()
+        code.push_str("#include <cstdio>\r\n"); // std::fprintf in the RefAny destructor guard
+        code.push_str("#include <exception>\r\n"); // std::exception in the same guard
         code.push_str("#include <new>\r\n"); // placement new in RefAny::create
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
@@ -2189,6 +2190,8 @@ pub fn generate_includes(standard: CppStandard) -> String {
         code.push_str("#include <stddef.h>\r\n");
         code.push_str("#include <string.h>\r\n");
         code.push_str("#include <stdlib.h>\r\n"); // abort in Option::value()
+        code.push_str("#include <stdio.h>\r\n"); // fprintf(stderr) in the AZ_REFLECT guard
+        code.push_str("#include <exception>\r\n"); // std::exception in the same guard
     }
 
     if standard.has_optional() {
@@ -2248,6 +2251,64 @@ pub fn generate_az_string_from_literal_helper(standard: CppStandard) -> String {
     code
 }
 
+// ============================================================================
+// Exceptions must not cross back into Rust
+// ============================================================================
+
+/// The preprocessor condition under which a `try`/`catch` can be compiled at
+/// all. `-fno-exceptions` (gcc/clang) and `/EHs-c-` (MSVC) are real build
+/// configurations, and a `try` emitted into such a translation unit is a hard
+/// error - so every guard these headers emit is bracketed by this and
+/// degrades to the bare, unguarded call when exceptions are off (where
+/// nothing can be thrown to begin with).
+///
+///   * `__cpp_exceptions` - the standard feature-test macro;
+///   * `__EXCEPTIONS` - what gcc/clang defined before feature-test macros existed, which is the
+///     C++03 toolchains this header still has to serve;
+///   * `_CPPUNWIND` - MSVC's spelling.
+pub const CPP_EXCEPTIONS_GUARD: &str =
+    "defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)";
+
+/// The `catch` arms of a boundary guard, for a frame the C ABI calls into:
+/// report and swallow, never rethrow.
+///
+/// WHY THERE IS NO `CallbackInfo` HERE
+/// ----------------------------------
+/// The Pascal/Python/managed bindings generate a trampoline per callback kind:
+/// the C ABI enters emitter-written code, which unpacks the arguments, calls
+/// the user's function and can therefore log through the `CallbackInfo` it is
+/// holding. These headers generate no such trampoline - a C++ callback IS the
+/// raw `AzCallbackType` function pointer the user wrote, handed straight to
+/// the C API (`AzDom_withCallback(..., callback)`). The one frame the headers
+/// do own on the far side of the ABI is the RefAny model's destructor, which
+/// Rust's drop glue calls while dropping a value: there is no event being
+/// dispatched and no `CallbackInfo` in scope, so stderr is the sink.
+///
+/// `fprintf(stderr, ...)` rather than `std::cerr`: the two write to the same
+/// place, but `<iostream>` would drop an `ios_base::Init` object into every
+/// translation unit that includes an azul header, and this guard's whole cost
+/// budget is "nothing at all until a destructor actually throws". Neither
+/// `fprintf` nor `what()` throws, so the handler cannot itself escape.
+///
+/// `indent` is the leading whitespace of the enclosing block; `line_end` is
+/// the terminator (`"\r\n"` in a function, `" \\\r\n"` inside a macro body).
+fn boundary_catch_arms(standard: CppStandard, what: &str, indent: &str, line_end: &str) -> String {
+    let printf = if standard.has_move_semantics() {
+        "std::fprintf"
+    } else {
+        "fprintf"
+    };
+    format!(
+        "{i}}} catch (const std::exception& e) {{{le}{i}    {p}(stderr, \"azul: {w} raised: \
+         %s\\n\", e.what());{le}{i}}} catch (...) {{{le}{i}    {p}(stderr, \"azul: {w} raised a \
+         non-std exception\\n\");{le}{i}}}{le}",
+        i = indent,
+        le = line_end,
+        p = printf,
+        w = what
+    )
+}
+
 /// Generate AZ_REFLECT macro for RTTI support
 pub fn generate_reflect_macro(standard: CppStandard) -> String {
     let mut code = String::new();
@@ -2268,7 +2329,8 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
     // with a different arity is -Wmacro-redefined on clang/gcc and C4005 on MSVC.
     code.push_str("#undef AZ_REFLECT\r\n");
     code.push_str("#undef AZ_REFLECT_JSON\r\n");
-    code.push_str("#undef AZ_REFLECT_FULL\r\n\r\n");
+    code.push_str("#undef AZ_REFLECT_FULL\r\n");
+    code.push_str("#undef AZ_REFLECT_DESTRUCTOR\r\n\r\n");
 
     if standard.has_move_semantics() {
         // C++11+: the macro is a thin shim over the template members of
@@ -2313,6 +2375,40 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("        return data.downcast_mut<structName>(); \\\r\n");
         code.push_str("    }\r\n\r\n");
     } else {
+        // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
+        // which Rust deallocates itself after invoking this destructor - a
+        // `delete` here would free the same pointer twice, across allocators.
+        //
+        // This is the ONE frame these headers own on the far side of the C
+        // ABI (C++11+ reaches the same place through
+        // `detail::type_destructor<T>`), so the guard lives here. C++03 has no
+        // `noexcept` to fall back on, which makes it the dialect where a
+        // throwing `~structName()` really would unwind into Rust's drop glue.
+        //
+        // It is a separate macro because a `#if` cannot live inside a
+        // `#define` body: the exception-support test has to bracket the
+        // DEFINITION, and doing that around all of AZ_REFLECT_FULL would mean
+        // maintaining the whole macro twice.
+        code.push_str(&format!("#if {}\r\n", CPP_EXCEPTIONS_GUARD));
+        code.push_str("#define AZ_REFLECT_DESTRUCTOR(structName) \\\r\n");
+        code.push_str("    static void structName##_destructor(void* ptr) { \\\r\n");
+        code.push_str("        try { \\\r\n");
+        code.push_str("            ((structName*)ptr)->~structName(); \\\r\n");
+        code.push_str(&boundary_catch_arms(
+            standard,
+            "RefAny model destructor",
+            "        ",
+            " \\\r\n",
+        ));
+        code.push_str("    }\r\n");
+        code.push_str("#else\r\n");
+        code.push_str("#define AZ_REFLECT_DESTRUCTOR(structName) \\\r\n");
+        code.push_str(
+            "    static void structName##_destructor(void* ptr) { \
+             ((structName*)ptr)->~structName(); }\r\n",
+        );
+        code.push_str("#endif\r\n\r\n");
+
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
         code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
         code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
@@ -2326,13 +2422,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
             "    static uint64_t structName##_type_id() { return \
              (uint64_t)(&structName##_type_id_storage); } \\\r\n",
         );
-        // Destroy-in-place only: the pointer belongs to the Rust-side alloc,
-        // which Rust deallocates itself after invoking this destructor - a
-        // `delete` here would free the same pointer twice, across allocators.
-        code.push_str(
-            "    static void structName##_destructor(void* ptr) { \
-             ((structName*)ptr)->~structName(); } \\\r\n",
-        );
+        code.push_str("    AZ_REFLECT_DESTRUCTOR(structName) \\\r\n");
         // C++03 has no alignas/placement-new-into-stack idiom, so the value is
         // staged on the heap; AzRefAny_newC memcpys the bytes into a Rust-side
         // allocation that takes over ownership of the bits, after which the
@@ -2413,9 +2503,29 @@ pub fn generate_template_reflection(standard: CppStandard) -> String {
     code.push_str("    // (AzRefAny_newC memcpys the model into its own alloc and deallocates\r\n");
     code.push_str("    // that alloc itself right after invoking this destructor). A `delete`\r\n");
     code.push_str("    // here would free the same pointer twice, across two allocators.\r\n");
+    code.push_str("    //\r\n");
+    code.push_str("    // This is the ONE frame these headers own on the far side of the C\r\n");
+    code.push_str("    // ABI: Rust's drop glue holds this function pointer and calls it when\r\n");
+    code.push_str("    // the last reference to the RefAny goes away. An exception leaving it\r\n");
+    code.push_str("    // would unwind through Rust frames, which is undefined behaviour, so\r\n");
+    code.push_str("    // it is caught, reported on stderr and swallowed. (`noexcept` stays:\r\n");
+    code.push_str("    // it is the C signature's contract and the backstop if the guard is\r\n");
+    code.push_str("    // compiled out.) A throwing destructor is a bug in the model type -\r\n");
+    code.push_str("    // the point here is that it becomes a visible one, not a crash.\r\n");
     code.push_str("    template<class T>\r\n");
     code.push_str("    inline void type_destructor(void* ptr) noexcept {\r\n");
+    code.push_str(&format!("#if {}\r\n", CPP_EXCEPTIONS_GUARD));
+    code.push_str("        try {\r\n");
+    code.push_str("            static_cast<T*>(ptr)->~T();\r\n");
+    code.push_str(&boundary_catch_arms(
+        standard,
+        "RefAny model destructor",
+        "        ",
+        "\r\n",
+    ));
+    code.push_str("#else\r\n");
     code.push_str("        static_cast<T*>(ptr)->~T();\r\n");
+    code.push_str("#endif\r\n");
     code.push_str("    }\r\n");
     code.push_str("} // namespace detail\r\n\r\n");
 

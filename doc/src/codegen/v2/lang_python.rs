@@ -45,25 +45,122 @@ use crate::utils::analyze::analyze_type;
 // Constants
 // ============================================================================
 
-/// Types that are C-API type aliases (not structs with .inner field)
-/// These types use `type AzFoo = dll::AzFoo;` not `struct AzFoo { inner: ... }`
-const CAPI_TYPE_ALIASES: &[&str] = &[
-    "String",
+/// The Vec classes this emitter hands to Python as a BUILTIN instead of a
+/// pyclass: the C type itself carries the `FromPyObject`/`IntoPyObject` impls
+/// that `generate_pyo3_traits` writes out, so a Python `bytes` / `list[int]` /
+/// `list[str]` flows straight through the FFI struct and no `.inner` wrapper
+/// exists to route it through.
+///
+/// This is not a decision keyed on a name, it IS the index of the
+/// hand-written conversion block in `generate_pyo3_traits` -- the two must
+/// name the same classes or the binding stops compiling. Every OTHER Vec goes
+/// through the ordinary pyclass path, which is why the IR's
+/// `TypeCategory::Vec` cannot stand in for this list.
+const PY_BUILTIN_VEC_CLASSES: &[&str] = &[ // allow-api-name: the index of the conversion block
     "U8Vec",
     "StringVec",
     "GLuintVec",
     "GLintVec",
-    "RefAny",
-    "U8VecDestructor",
-    "StringVecDestructor",
-    "InstantPtr",
-    "StringMenuItem",
-    "ParsedSvgXmlNode",
 ];
 
-/// Check if a type is a C-API type alias (no .inner field)
-fn is_capi_type_alias(type_name: &str) -> bool {
-    CAPI_TYPE_ALIASES.contains(&type_name)
+/// Classes with no Python shape at all: they are neither a builtin nor a
+/// pyclass, so a method that mentions one is not emitted.
+///
+/// A class is listed here because of what it HOLDS, and the IR does not model
+/// that yet: one carries its own clone/destructor function pointers next to an
+/// opaque `*const c_void` (there is nothing for Python to hold onto), the
+/// other is the recursive knot of the menu tree (a menu item holds the vector
+/// of its own children). Both want an IR flag; until one exists the names have
+/// to be written down.
+const PY_UNMODELLED_CLASSES: &[&str] = &[ // allow-api-name: no IR flag for these shapes yet
+    "InstantPtr",
+    "StringMenuItem",
+];
+
+/// Whether Python reaches this class through a builtin rather than a pyclass
+/// wrapper: the two fundamental types every binding maps natively (the IR
+/// classifies them, so no name appears here) plus the hand-bridged vectors.
+///
+/// A method taking or returning one of these is still emitted -- the value is
+/// converted in the body -- which is why this is separate from
+/// [`PythonGenerator::type_is_excluded`].
+fn is_py_builtin_class(type_name: &str, ir: &CodegenIR) -> bool {
+    if PY_BUILTIN_VEC_CLASSES.contains(&type_name) {
+        return true;
+    }
+    matches!(
+        category_of(type_name, ir),
+        Some(TypeCategory::String) | Some(TypeCategory::RefAny)
+    )
+}
+
+/// Whether this class gets no `#[pyclass]` wrapper: it is either reached
+/// through a Python builtin or has no Python shape at all.
+fn has_no_pyclass(type_name: &str, category: TypeCategory) -> bool {
+    matches!(category, TypeCategory::String | TypeCategory::RefAny)
+        || PY_BUILTIN_VEC_CLASSES.contains(&type_name)
+        || PY_UNMODELLED_CLASSES.contains(&type_name)
+}
+
+/// The IR's classification of a class, or `None` when the name is not one
+/// (a primitive, a generic parameter, a pointer spelling).
+fn category_of(type_name: &str, ir: &CodegenIR) -> Option<TypeCategory> {
+    ir.find_struct(type_name)
+        .map(|s| s.category)
+        .or_else(|| ir.find_enum(type_name).map(|e| e.category))
+}
+
+/// The application's own opaque data, which crosses as the Python object
+/// itself rather than as a wrapper. The IR classifies it, so the decision
+/// survives a rename.
+fn is_refany(type_name: &str, ir: &CodegenIR) -> bool {
+    category_of(type_name, ir) == Some(TypeCategory::RefAny)
+}
+
+/// The string class, which crosses as a Python `str`.
+fn is_string_class(type_name: &str, ir: &CodegenIR) -> bool {
+    category_of(type_name, ir) == Some(TypeCategory::String)
+}
+
+/// A bare function-pointer typedef: the IR keeps these in their own list, and
+/// nothing Python can hold has that shape (a callable travels in the WRAPPER
+/// that pairs the pointer with a context).
+fn is_callback_typedef(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.callback_typedefs.iter().any(|c| c.name == type_name)
+}
+
+/// The type of a callback wrapper's context slot, read off the first wrapper
+/// the IR linked (they all use the same optional-object type -- that is what
+/// makes them wrappers). Used to recognise the accessor that hands the
+/// context back, without naming either the type or the accessor.
+fn context_slot_type(ir: &CodegenIR) -> Option<&str> {
+    ir.structs.iter().find_map(|s| {
+        let info = s.callback_wrapper_info.as_ref()?;
+        s.fields
+            .iter()
+            .find(|f| f.name == info.context_field_name)
+            .map(|f| f.type_name.as_str())
+    })
+}
+
+/// The method of `class_name` that hands the stored context back to a
+/// callback, if it has one.
+///
+/// A callback trampoline has to find the Python callable the binding put in
+/// the wrapper's context slot, and it can only do that through an argument
+/// whose class exposes that slot. The shape is unambiguous: an instance
+/// method taking nothing but the receiver and returning the context type.
+/// (Keying on the accessor's NAME instead meant the trampoline broke the day a
+/// callback typedef gained a plain-data argument.)
+fn context_accessor_name(class_name: &str, ir: &CodegenIR) -> Option<String> {
+    let slot = context_slot_type(ir)?;
+    ir.functions_for_class(class_name)
+        .find(|f| {
+            f.kind == FunctionKind::Method
+                && f.return_type.as_deref() == Some(slot)
+                && f.args.iter().all(|a| f.is_receiver_arg(a))
+        })
+        .map(|f| f.method_name.clone())
 }
 
 /// Replace `Name::` path prefixes inside a fn_body with their fully-qualified
@@ -101,6 +198,246 @@ fn replace_type_paths(body: &str, replacements: &[(String, String)]) -> String {
         }
     }
     out
+}
+
+// ============================================================================
+// Monomorphized generic aliases
+// ============================================================================
+
+/// The classes api.json spells as a generic instantiation, presented as the
+/// struct or enum they instantiate.
+///
+/// WHY THIS EXISTS
+/// ---------------
+/// The entire CSS property-value surface is declared as a type alias:
+/// `BoxDecorationBreakValue: { type_alias: { target: CssPropertyValue,
+/// generic_args: [BoxDecorationBreak] } }`. `ir.find_struct` and
+/// `ir.find_enum` return None for such a name, so every pass that walks
+/// `ir.structs` / `ir.enums` alone skips 180 REAL types -- the C header emits
+/// `union AzBoxDecorationBreakValue` for each of them, and the mirror in
+/// `__dll_api_inner::dll` emits the instantiation as a `pub type`. Python had
+/// no class for a single CSS value, and no way to build one.
+///
+/// The IR does carry the definition: `TypeAliasDef::monomorphized_def` is the
+/// instantiated shape with the type parameter already substituted. Turning it
+/// back into the `EnumDef` / `StructDef` it instantiates means the wrapper,
+/// clone, debug, pymethods, dunder and registration passes treat an alias as
+/// any other class, instead of each of them growing an alias branch that
+/// drifts.
+struct AliasClasses {
+    /// Instantiations of a generic enum (`CssPropertyValue<T>`, `BoxOrStatic<T>`).
+    enums: Vec<EnumDef>,
+    /// Instantiations of a generic struct (`PhysicalSize<u32>`).
+    structs: Vec<StructDef>,
+}
+
+/// Rebuild the `derive` list from the trait flags, so the helpers that ask a
+/// def "were you declared `Clone`?" (`struct_supports_clone`,
+/// `enum_supports_clone`) answer for a synthesized class exactly what they
+/// answer for a declared one. The flags themselves come from api.json:
+/// `ir_builder::inherited_alias_traits` keeps a target's derive only when
+/// every type argument implements it too, which is the same bound the mirror's
+/// `#[derive]` imposes on the instantiation.
+fn derives_from_traits(traits: &super::ir::TypeTraits) -> Vec<String> {
+    let mut out = Vec::new();
+    for (has, name) in [
+        (traits.is_copy, "Copy"),
+        (traits.is_clone, "Clone"),
+        (traits.is_debug, "Debug"),
+        (traits.is_partial_eq, "PartialEq"),
+        (traits.is_eq, "Eq"),
+        (traits.is_partial_ord, "PartialOrd"),
+        (traits.is_ord, "Ord"),
+        (traits.is_hash, "Hash"),
+        (traits.is_default, "Default"),
+    ] {
+        if has {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// The traits the MIRROR really implements for a monomorphized alias.
+///
+/// api.json's `derive` list for an alias says what the REAL type implements;
+/// the pyclass wrapper can only delegate to what the mirror's INSTANTIATION
+/// implements, and those two differ. The Rust emitter writes generic trait
+/// impls for a generic ENUM template (`impl<T: PartialEq> PartialEq for
+/// AzCssPropertyValue<T>`, and the same for Debug/Eq/Ord/Hash) but not for a
+/// generic STRUCT template, which keeps only what `#[derive]` put on it. A
+/// dunder that delegates to a trait the mirror does not have is a build
+/// break, so the flags are narrowed to the instantiation's reality here --
+/// once, rather than in each of the passes that reads them.
+///
+/// `Default` is deliberately left alone: the wrapper's default value is built
+/// from the REAL type behind `external_path` (see
+/// [`PythonGenerator::default_inner_expr`]), never from the mirror.
+fn alias_mirror_traits(alias: &super::ir::TypeAliasDef, ir: &CodegenIR) -> super::ir::TypeTraits {
+    let mut traits = alias.traits.clone();
+    if ir.find_enum(&alias.target).is_some() {
+        return traits;
+    }
+    // A generic struct template: `#[derive(Copy)] #[derive(Clone)]` and
+    // nothing else reaches the instantiation.
+    traits.is_debug = false;
+    traits.is_partial_eq = false;
+    traits.is_eq = false;
+    traits.is_partial_ord = false;
+    traits.is_ord = false;
+    traits.is_hash = false;
+    // ... and even Clone only when the template DERIVED it; a hand-written
+    // `impl Clone` is not generic, so the emitter skips it for a template.
+    if let Some(target) = ir.find_struct(&alias.target) {
+        traits.is_clone = target.traits.is_clone && target.traits.clone_is_derived;
+    }
+    traits
+}
+
+/// A variant payload's type as the rest of this file must read it: a payload
+/// held behind a raw pointer (`BoxOrStatic::Boxed(*mut T)`) keeps the pointer
+/// IN THE NAME, because that is the spelling every compatibility check in this
+/// file already rejects. Python cannot be handed a `*mut StyleBoxShadow`, and
+/// silently dropping the pointer would emit `Boxed(v.inner)` against a
+/// pointer-typed variant: a type error in generated code.
+fn payload_type_name(type_name: &str, ref_kind: super::ir::FieldRefKind) -> String {
+    use super::ir::FieldRefKind;
+    match ref_kind {
+        FieldRefKind::Ptr => format!("*const {}", type_name),
+        FieldRefKind::PtrMut => format!("*mut {}", type_name),
+        _ => type_name.to_string(),
+    }
+}
+
+/// Synthesize the class definitions of every monomorphized alias.
+fn alias_classes(ir: &CodegenIR) -> AliasClasses {
+    use super::ir::{EnumVariantDef, MonomorphizedKind};
+
+    let mut out = AliasClasses {
+        enums: Vec::new(),
+        structs: Vec::new(),
+    };
+
+    for alias in &ir.type_aliases {
+        let Some(mono) = alias.monomorphized_def.as_ref() else {
+            continue;
+        };
+        let traits = alias_mirror_traits(alias, ir);
+        let derives = derives_from_traits(&traits);
+        match &mono.kind {
+            MonomorphizedKind::TaggedUnion { repr, variants } => {
+                let variants = variants
+                    .iter()
+                    .map(|v| EnumVariantDef {
+                        name: v.name.clone(),
+                        doc: None,
+                        kind: match &v.payload_type {
+                            None => EnumVariantKind::Unit,
+                            Some(t) => EnumVariantKind::Tuple(vec![(
+                                payload_type_name(t, v.payload_ref_kind),
+                                v.payload_ref_kind,
+                            )]),
+                        },
+                    })
+                    .collect();
+                out.enums.push(EnumDef {
+                    name: alias.name.clone(),
+                    doc: alias.doc.clone(),
+                    variants,
+                    external_path: alias.external_path.clone(),
+                    module: alias.module.clone(),
+                    derives,
+                    has_explicit_derive: true,
+                    // A tagged union by construction: that is what this arm means.
+                    is_union: true,
+                    repr: repr.clone(),
+                    // Send-ness is decided structurally from the payloads by
+                    // `enum_needs_unsendable`, never asserted here.
+                    is_send_safe: false,
+                    traits: traits.clone(),
+                    generic_params: Vec::new(),
+                    // The instantiation is concrete; only the TEMPLATE it
+                    // instantiates is a `GenericTemplate` (and stays skipped).
+                    category: TypeCategory::Regular,
+                    dependencies: Vec::new(),
+                    sort_order: 0,
+                    needs_forward_decl: false,
+                });
+            }
+            MonomorphizedKind::SimpleEnum { repr, variants } => {
+                out.enums.push(EnumDef {
+                    name: alias.name.clone(),
+                    doc: alias.doc.clone(),
+                    variants: variants
+                        .iter()
+                        .map(|name| EnumVariantDef {
+                            name: name.clone(),
+                            doc: None,
+                            kind: EnumVariantKind::Unit,
+                        })
+                        .collect(),
+                    external_path: alias.external_path.clone(),
+                    module: alias.module.clone(),
+                    derives,
+                    has_explicit_derive: true,
+                    is_union: false,
+                    repr: repr.clone(),
+                    is_send_safe: false,
+                    traits: traits.clone(),
+                    generic_params: Vec::new(),
+                    category: TypeCategory::Regular,
+                    dependencies: Vec::new(),
+                    sort_order: 0,
+                    needs_forward_decl: false,
+                });
+            }
+            MonomorphizedKind::Struct { fields } => {
+                out.structs.push(StructDef {
+                    name: alias.name.clone(),
+                    doc: alias.doc.clone(),
+                    fields: fields.clone(),
+                    external_path: alias.external_path.clone(),
+                    module: alias.module.clone(),
+                    derives,
+                    has_explicit_derive: true,
+                    custom_impls: Vec::new(),
+                    is_boxed: false,
+                    repr: Some("C".to_string()),
+                    is_send_safe: false,
+                    generic_params: Vec::new(),
+                    traits: traits.clone(),
+                    category: TypeCategory::Regular,
+                    dependencies: Vec::new(),
+                    sort_order: 0,
+                    needs_forward_decl: false,
+                    callback_wrapper_info: None,
+                });
+            }
+        }
+    }
+
+    out
+}
+
+/// Whether `type_name` is a monomorphized alias that therefore HAS a Python
+/// class (see [`alias_classes`]).
+fn is_alias_class(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_type_alias(type_name)
+        .is_some_and(|a| a.monomorphized_def.is_some())
+}
+
+/// Whether the class is `Clone`, whichever of the three lists declares it.
+///
+/// It decides whether a value of that class can be handed OUT by value (a
+/// field getter, an `as_<variant>()`), and a monomorphized alias answers here
+/// like any other class -- without this it silently answered "no", which is
+/// why the CSS property values could be built but never read back.
+fn class_is_clone(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(type_name)
+        .map(|s| s.traits.is_clone)
+        .or_else(|| ir.find_enum(type_name).map(|e| e.traits.is_clone))
+        .or_else(|| ir.find_type_alias(type_name).map(|a| alias_mirror_traits(a, ir).is_clone))
+        .unwrap_or(false)
 }
 
 // ============================================================================
@@ -168,6 +505,11 @@ impl PythonGenerator {
         builder.line("use core::mem;");
         builder.line("use pyo3::{pyclass, pymethods, pymodule, Bound, Py, PyResult};");
         builder.line("use pyo3::{Python, PyErr, FromPyObject};");
+        // A `PyRefMut` guard is how a method borrows ANOTHER pyclass mutably
+        // for the length of a call: the argument shape for a C function that
+        // writes through a pointer into the caller's own object.
+        builder.line("#[allow(unused_imports)]");
+        builder.line("use pyo3::PyRefMut;");
         builder.line(
             "use pyo3::types::{PyAny, PyAnyMethods, PyBytes, PyList, PyModule, PyModuleMethods, \
              PyString};",
@@ -209,8 +551,15 @@ impl PythonGenerator {
         builder.line("// These types use internal pointers but are semantically safe to Send");
         builder.blank();
 
-        // Python-specific: Types that wrap & or Box<> and are semantically Send
-        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+        // A Send/Sync ASSERTION about mirrors the IR cannot make: each of
+        // these holds a `*const`/`*mut c_void` that is really a `&` or a
+        // `Box`, so the shape says "not Send" while the value is. The IR's own
+        // `is_send_safe` covers only the `vec` module (the loop below), so
+        // until it can carry this the claim has to be written out. It is a
+        // claim, not a fallback: getting it wrong is a data race, which is why
+        // each entry says what it wraps.
+        // allow-api-name: a per-class safety claim the IR has no flag for.
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[ // allow-api-name: see above
             "CssPropertyCachePtr",
             "VirtualViewCallbackInfo",
             "VirtualViewReturn",
@@ -502,6 +851,72 @@ impl AzStringVec {
     }
 }
 
+// The two GL vectors are `list[int]` on the Python side. Without these impls
+// the whole `gen_*` / `get_*_iv` family of the OpenGL surface had no shape to
+// return into and was dropped from the binding.
+//
+// Ownership: extracting ALLOCATES (the Rust buffer is handed over with the
+// DefaultRust destructor, so the library frees it), and returning COPIES into
+// the Python list and then drops `self`, whose `Drop` frees the C buffer. No
+// buffer is ever shared between the two runtimes.
+impl FromPyObject<'_, '_> for AzGLuintVec {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<u32> = ob.extract()?;
+        let ptr = v.as_ptr();
+        let len = v.len();
+        let cap = v.capacity();
+        core::mem::forget(v);
+
+        Ok(AzGLuintVec {
+            ptr,
+            len,
+            cap,
+            destructor: AzGLuintVecDestructor::DefaultRust,
+        })
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzGLuintVec {
+    type Target = PyList;
+    type Output = Bound<'py, PyList>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        PyList::new(py, az_gluintvec_to_py_vecu32(self))
+    }
+}
+
+impl FromPyObject<'_, '_> for AzGLintVec {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<i32> = ob.extract()?;
+        let ptr = v.as_ptr();
+        let len = v.len();
+        let cap = v.capacity();
+        core::mem::forget(v);
+
+        Ok(AzGLintVec {
+            ptr,
+            len,
+            cap,
+            destructor: AzGLintVecDestructor::DefaultRust,
+        })
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzGLintVec {
+    type Target = PyList;
+    type Output = Bound<'py, PyList>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        PyList::new(py, az_glintvec_to_py_veci32(self))
+    }
+}
+
 "#,
         );
     }
@@ -649,7 +1064,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // special: it reaches its callable through the context like every
         // other kind.
         for callback in super::managed_host_invoker::host_invoker_kinds(ir) {
-            if trampoline_bridges(callback) {
+            if trampoline_bridges(callback, ir) {
                 self.generate_callback_trampoline(builder, callback, ir, prefix);
             }
         }
@@ -671,43 +1086,28 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let mut args_sig = String::new();
         let mut ctx_source_type = String::new();
         let mut ctx_source_arg_name = String::new();
+        let mut ctx_source_getter = String::new();
 
-        // Find the first non-RefAny argument that can provide get_ctx()
-        // All non-RefAny, non-primitive types have get_ctx() method
-        // For callbacks like (RefAny, RefAny, CallbackInfo) -> Update, we want CallbackInfo
-        // For callbacks like (RefAny, TimerCallbackInfo) -> Update, we want TimerCallbackInfo
-        // For callbacks like (RefAny, ThreadSender, ThreadReceiver) -> (), we want ThreadSender
+        // Find the first argument whose class can hand the stored context
+        // back (the info object of the kind: a CallbackInfo, a
+        // TimerCallbackInfo, ...). Only a class that actually EXPOSES the
+        // context slot can carry the Python callable -- the older "first
+        // non-data, non-primitive argument" assumption broke as soon as a
+        // callback typedef gained a plain-data argument (an op name, a tween
+        // description).
         for (i, arg) in callback.args.iter().enumerate() {
-            // Only types that actually DEFINE `get_ctx` in the IR can carry
-            // the Python callable. The old "first non-RefAny non-primitive
-            // arg" assumption broke when callback typedefs gained plain-data
-            // args (AzString op names, CaretTweenInfo/SelectionTweenInfo).
-            if arg.type_name != "RefAny"
-                && !is_primitive_type(&arg.type_name)
-                && ctx_source_type.is_empty()
-                && ir
-                    .functions_for_class(&arg.type_name)
-                    .any(|f| f.method_name == "get_ctx")
-            {
+            if !ctx_source_type.is_empty() || is_refany(&arg.type_name, ir) {
+                continue;
+            }
+            if let Some(getter) = context_accessor_name(&arg.type_name, ir) {
                 ctx_source_type = arg.type_name.clone();
-                ctx_source_arg_name = if i == 0 {
-                    "data".to_string()
-                } else if i == 1 {
-                    "info".to_string()
-                } else {
-                    format!("arg{}", i)
-                };
+                ctx_source_getter = getter;
+                ctx_source_arg_name = trampoline_arg_name(i);
             }
         }
 
         for (i, arg) in callback.args.iter().enumerate() {
-            let arg_name = if i == 0 {
-                "data".to_string()
-            } else if i == 1 {
-                "info".to_string()
-            } else {
-                format!("arg{}", i)
-            };
+            let arg_name = trampoline_arg_name(i);
 
             let arg_type_external = if is_primitive_type(&arg.type_name) {
                 arg.type_name.clone()
@@ -766,24 +1166,78 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             "/// Trampoline for {} - bridges Python to Rust",
             callback.name
         ));
-        builder.line(&format!("extern \"C\" fn {}(", trampoline_name));
-        builder.line(&format!("    {}", args_sig));
-        builder.line(&format!(") -> {} {{", return_type_external));
+        if args_sig.is_empty() {
+            builder.line(&format!(
+                "extern \"C\" fn {}() -> {} {{",
+                trampoline_name, return_type_external
+            ));
+        } else {
+            builder.line(&format!("extern \"C\" fn {}(", trampoline_name));
+            builder.line(&format!("    {}", args_sig));
+            builder.line(&format!(") -> {} {{", return_type_external));
+        }
         builder.indent();
 
         builder.line(&format!("let default = {};", default_expr));
         builder.blank();
 
-        builder.line("let mut data_core = data;");
-        builder.line("let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {");
-        builder.line("    Some(s) => s,");
-        builder.line("    None => return default,");
-        builder.line("};");
-        builder.line("let py_data = match py_data_wrapper._py_data.as_ref() {");
-        builder.line("    Some(s) => s,");
-        builder.line("    None => return default,");
-        builder.line("};");
-        builder.blank();
+        // WHERE A FAILING CALLBACK IS REPORTED
+        // ------------------------------------
+        // An exception must never unwind out of this `extern "C"` frame and
+        // into the engine -- that is undefined behaviour, not a crash with a
+        // traceback -- so the boundary catches it and returns the kind's own
+        // fallback. Catching it is not enough: a failure nobody sees is a
+        // blank window with no explanation. It goes to stderr AND, when one
+        // of this kind's arguments carries the application's log sink, to
+        // that sink, which is what reaches whatever the app pipes its logs
+        // into. The sink is found by SHAPE (see `log_sink_method`), so a
+        // kind gains one the moment its info object declares one.
+        //
+        // The handle is taken here, before anything is handed to Python: the
+        // argument itself is moved into the call further down. A clone is as
+        // good as the original -- the sink writes to the process-wide log,
+        // not into the value.
+        let log_sink = callback.args.iter().enumerate().find_map(|(i, arg)| {
+            let (method, level) = log_sink_method(&arg.type_name, ir)?;
+            let arg_external = self
+                .find_external_path(&arg.type_name, ir)
+                .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+            let level_external = self
+                .find_external_path(&level.name, ir)
+                .unwrap_or_else(|| format!("crate::{}", level.name));
+            Some((
+                trampoline_arg_name(i),
+                arg_external,
+                method.method_name.clone(),
+                level_external,
+            ))
+        });
+        if let Some((arg_name, arg_external, _, _)) = &log_sink {
+            builder.line(&format!(
+                "let mut __log_sink: {} = {}.clone();",
+                arg_external, arg_name
+            ));
+            builder.blank();
+        }
+
+        // The application's own object, unwrapped back into the Python object
+        // it holds. A kind that takes no arguments has none to unwrap: nothing
+        // is passed to the callable, and the context comes from the
+        // invocation slot below.
+        let carries_data = callback_carries_data(callback, ir);
+        if carries_data {
+            builder.line("let mut data_core = data;");
+            builder
+                .line("let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {");
+            builder.line("    Some(s) => s,");
+            builder.line("    None => return default,");
+            builder.line("};");
+            builder.line("let py_data = match py_data_wrapper._py_data.as_ref() {");
+            builder.line("    Some(s) => s,");
+            builder.line("    None => return default,");
+            builder.line("};");
+            builder.blank();
+        }
 
         {
             if ctx_source_type.is_empty() {
@@ -810,7 +1264,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     "let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};",
                     ctx_external
                 ));
-                builder.line("let callable_opt = ctx_source_rust.get_ctx();");
+                builder.line(&format!(
+                    "let callable_opt = ctx_source_rust.{}();",
+                    ctx_source_getter
+                ));
             }
             builder.line("let callable_refany = match callable_opt {");
             builder.line("    azul_core::refany::OptionRefAny::Some(r) => r,");
@@ -845,13 +1302,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 .iter()
                 .position(|arg| &arg.type_name == info_type)
                 .unwrap();
-            let info_arg_name = if info_arg_idx == 0 {
-                "data".to_string()
-            } else if info_arg_idx == 1 {
-                "info".to_string()
-            } else {
-                format!("arg{}", info_arg_idx)
-            };
+            let info_arg_name = trampoline_arg_name(info_arg_idx);
             builder.line(&format!(
                 "let info_ffi_py: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}) }};",
                 prefix, info_type, info_arg_name
@@ -862,8 +1313,12 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             ));
         }
 
-        // Pass every argument, not just (data, info).
-        let mut call_args: Vec<String> = vec!["py_data.clone_ref(py)".to_string()];
+        // Pass every argument, not just (data, info). A kind with no
+        // arguments calls the callable with an empty tuple.
+        let mut call_args: Vec<String> = Vec::new();
+        if carries_data {
+            call_args.push("py_data.clone_ref(py)".to_string());
+        }
         if info_type_for_python.is_some() {
             call_args.push("info_py".to_string());
         }
@@ -871,13 +1326,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if i == 0 || info_type_for_python.as_deref() == Some(arg.type_name.as_str()) {
                 continue; // `data` and the info object are already in the tuple
             }
-            let arg_name = if i == 1 {
-                "info".to_string()
-            } else {
-                format!("arg{}", i)
-            };
+            let arg_name = trampoline_arg_name(i);
             let py_name = format!("extra_arg{}_py", i);
-            if arg.type_name == "RefAny" {
+            if is_refany(&arg.type_name, ir) {
                 // A write-back's incoming data: the Python object inside, if any.
                 builder.line(&format!(
                     "let {}: Option<Py<PyAny>> = {{ let mut refany = {}; \
@@ -887,14 +1338,14 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 ));
             } else if is_primitive_type(&arg.type_name) {
                 builder.line(&format!("let {} = {};", py_name, arg_name));
-            } else if arg.type_name == "String" {
+            } else if is_string_class(&arg.type_name, ir) {
                 builder.line(&format!(
                     "let {}: String = {{ let s: azul_css::corety::AzString = unsafe {{ \
                      mem::transmute({}) }}; s.as_str().to_string() }};",
                     py_name, arg_name
                 ));
             } else if self.is_python_compatible_type(&arg.type_name, ir)
-                && !is_direct_ffi_type(&arg.type_name)
+                && !is_direct_ffi_type(&arg.type_name, ir)
             {
                 builder.line(&format!(
                     "let {} = {}{} {{ inner: unsafe {{ mem::transmute({}) }} }};",
@@ -918,7 +1369,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         if return_type == "()" {
             builder.line("()");
-        } else if return_type == "RefAny" {
+        } else if is_refany(return_type, ir) {
             // A RefAny result (a merged dataset): the Python object the
             // callable returned, in a fresh RefAny; `None` keeps the fallback.
             builder.line("if result.is_none(py) {");
@@ -928,7 +1379,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 "    create_py_refany_with_json(PyDataWrapper { _py_data: Some(result) })",
             );
             builder.line("}");
-        } else if return_type == "String" {
+        } else if is_string_class(return_type, ir) {
             builder.line("match result.extract::<String>(py) {");
             builder.line("    Ok(s) => azul_css::corety::AzString::from(s),");
             builder.line("    Err(e) => {");
@@ -983,6 +1434,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             callback.name
         ));
         builder.line("e.print(py);");
+        if let Some((_, _, method, level_external)) = &log_sink {
+            // ... and into the application's log, where a monitored app can
+            // see it. `PyErr`'s Display is `TypeName: message`, the same
+            // shape every binding reports. The traceback stays on stderr:
+            // the sink takes one line, not a stack.
+            builder.line(&format!(
+                "__log_sink.{method}({level}::{severity}, \
+                 azul_css::corety::AzString::from(format!(\"azul: unhandled Python exception in \
+                 {kind} callback: {{}}\", e)));",
+                method = method,
+                level = level_external,
+                severity = SEVERITY_ERROR,
+                kind = callback.name,
+            ));
+        }
         builder.line("default");
         builder.dedent();
         builder.line("}");
@@ -1029,6 +1495,32 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.blank();
 
         for enum_def in &ir.enums {
+            if !self.should_include_enum(enum_def, config) {
+                continue;
+            }
+            self.generate_enum_wrapper(builder, enum_def, prefix, ir);
+        }
+
+        builder.line(
+            "// ============================================================================",
+        );
+        builder.line("// MONOMORPHIZED GENERIC ALIASES");
+        builder.line(
+            "// ============================================================================",
+        );
+        builder.blank();
+
+        // The mirror emits each of these as `pub type AzFooValue =
+        // AzCssPropertyValue<AzFoo>;`, so the wrapper below is a pyclass over a
+        // concrete instantiation and needs no generic machinery of its own.
+        let aliases = alias_classes(ir);
+        for struct_def in &aliases.structs {
+            if !self.should_include_struct(struct_def, config) {
+                continue;
+            }
+            self.generate_struct_wrapper(builder, struct_def, prefix, ir);
+        }
+        for enum_def in &aliases.enums {
             if !self.should_include_enum(enum_def, config) {
                 continue;
             }
@@ -1213,6 +1705,33 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.blank();
         }
 
+        // Monomorphized aliases. The mirror's `#[derive(Clone)]` on the
+        // TEMPLATE carries a `T: Clone` bound, and the alias only claims
+        // `Clone` when every type argument declares it (see
+        // `derives_from_traits`), so these two conditions are the same one.
+        let aliases = alias_classes(ir);
+        for def in aliases
+            .structs
+            .iter()
+            .filter(|s| self.should_include_struct(s, config) && self.struct_supports_clone(s))
+            .map(|s| &s.name)
+            .chain(
+                aliases
+                    .enums
+                    .iter()
+                    .filter(|e| self.should_include_enum(e, config) && self.enum_supports_clone(e))
+                    .map(|e| &e.name),
+            )
+        {
+            let name = format!("{}{}", prefix, def);
+            builder.line(&format!("impl Clone for {} {{", name));
+            builder.line("    fn clone(&self) -> Self {");
+            builder.line("        Self { inner: self.inner.clone() }");
+            builder.line("    }");
+            builder.line("}");
+            builder.blank();
+        }
+
         Ok(())
     }
 
@@ -1259,6 +1778,41 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.blank();
         }
 
+        // Monomorphized aliases. Unlike a declared class, the mirror does NOT
+        // implement `Debug` for every instantiation: the template's impl reads
+        // `impl<T: Debug> Debug for AzCssPropertyValue<T>`, so delegating is
+        // only legal when the type argument is `Debug` -- which is exactly what
+        // the alias's own `is_debug` records. The impl is still emitted in the
+        // other case (printing the class name), because `__str__` and
+        // `__repr__` format the wrapper with `{:?}` and a class without Debug
+        // would not compile at all.
+        let aliases = alias_classes(ir);
+        for (class, is_debug) in aliases
+            .structs
+            .iter()
+            .filter(|s| self.should_include_struct(s, config))
+            .map(|s| (&s.name, s.traits.is_debug))
+            .chain(
+                aliases
+                    .enums
+                    .iter()
+                    .filter(|e| self.should_include_enum(e, config))
+                    .map(|e| (&e.name, e.traits.is_debug)),
+            )
+        {
+            let name = format!("{}{}", prefix, class);
+            builder.line(&format!("impl core::fmt::Debug for {} {{", name));
+            builder.line("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
+            if is_debug {
+                builder.line("        core::fmt::Debug::fmt(&self.inner, f)");
+            } else {
+                builder.line(&format!("        f.write_str(\"{}\")", class));
+            }
+            builder.line("    }");
+            builder.line("}");
+            builder.blank();
+        }
+
         Ok(())
     }
 
@@ -1287,6 +1841,23 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         }
 
         for enum_def in &ir.enums {
+            if !self.should_include_enum(enum_def, config) {
+                continue;
+            }
+            self.generate_enum_pymethods(builder, enum_def, ir, prefix, config);
+        }
+
+        // Monomorphized aliases get the SAME treatment, which is the point of
+        // synthesizing them: variant constructors (`StyleCursorValue.Exact(c)`),
+        // variant tests, the derive dunders, `clone` and `createDefault`.
+        let aliases = alias_classes(ir);
+        for struct_def in &aliases.structs {
+            if !self.should_include_struct(struct_def, config) {
+                continue;
+            }
+            self.generate_struct_pymethods(builder, struct_def, ir, prefix, config);
+        }
+        for enum_def in &aliases.enums {
             if !self.should_include_enum(enum_def, config) {
                 continue;
             }
@@ -1325,11 +1896,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     /// `#[pymethods]` block from api.json. It matters for exactly one name:
     /// several classes declare their own `default` method, and pyo3 rejects two
     /// methods with the same Python name.
+    ///
+    /// `default_inner` is the expression that produces a default INNER value
+    /// (see [`PythonGenerator::default_inner_expr`]); it differs between a
+    /// declared class and a monomorphized alias.
     fn generate_derive_dunders(
         &self,
         builder: &mut CodeBuilder,
         traits: &super::ir::TypeTraits,
         taken: &BTreeSet<String>,
+        default_inner: &str,
     ) {
         // Mirrors `generate_capi_derived_trait_impls`: `PartialOrd: PartialEq`
         // and `Ord: Eq + PartialOrd`, so a class declaring only the stronger
@@ -1394,15 +1970,115 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.line("    Self { inner: self.inner.clone() }");
             builder.line("}");
             builder.blank();
+
+            // The api.json trait function itself (`Az{T}_clone`, the
+            // `DeepCopy` kind), under the name every other binding gives it.
+            // It carries no fn_body -- the IR synthesises it from the derive
+            // list -- so `generate_pymethod` can only leave a comment behind,
+            // and Python was left with a deep copy it could reach from
+            // `copy.deepcopy` but not call. A class that declares its own
+            // `clone` in api.json keeps that one.
+            if !taken.contains("clone") {
+                builder.line("fn clone(&self) -> Self {");
+                builder.line("    Self { inner: self.inner.clone() }");
+                builder.line("}");
+                builder.blank();
+            }
         }
 
-        if traits.is_default && !taken.contains("default") {
-            builder.line("#[staticmethod]");
-            builder.line("fn default() -> Self {");
-            builder.line("    Self { inner: Default::default() }");
-            builder.line("}");
+        if traits.is_default {
+            if !taken.contains("default") {
+                builder.line("#[staticmethod]");
+                builder.line("fn default() -> Self {");
+                builder.line(&format!("    Self {{ inner: {} }}", default_inner));
+                builder.line("}");
+                builder.blank();
+            }
+            // Same value under the api.json name of the `Default` trait
+            // function (`Az{T}_createDefault`), for the same reason as
+            // `clone` above: it is a declared entry point of the API, and
+            // `default` alone leaves it unreachable for anyone following the
+            // api.json or another binding.
+            if !taken.contains("createDefault") {
+                builder.line("#[staticmethod]");
+                builder.line("fn createDefault() -> Self {");
+                builder.line(&format!("    Self {{ inner: {} }}", default_inner));
+                builder.line("}");
+                builder.blank();
+            }
+        }
+    }
+
+    /// api.json's constants, as class attributes of the class that owns them.
+    ///
+    /// WHAT WAS MISSING
+    /// ----------------
+    /// All 1436 constants are the OpenGL enum values (`ACCUM_ALPHA_BITS =
+    /// 0x0D5B`), and Python reached NONE of them: every GL call from Python
+    /// had to be handed a magic number typed out by hand, with no way to
+    /// check it against the header. C emits them as `#define`s, Zig as
+    /// `pub const`s; this is the same surface.
+    ///
+    /// HOW THEY ARE PLACED
+    /// -------------------
+    /// The IR names a constant `<Class>_<NAME>` (`build_constants`), which is
+    /// how it records which class owns it -- so the owner is read back the
+    /// same way, not matched against any name. pyo3 turns an associated const
+    /// carrying `#[classattr]` into a class attribute, so the value reads
+    /// `azul.GlContextPtr.ACCUM_ALPHA_BITS`: the constant's own spelling, on
+    /// the class whose methods take it.
+    ///
+    /// A constant never shadows a method: `taken` holds the Python-visible
+    /// names already emitted into this block, and a Rust `impl` cannot carry
+    /// a `const` and a `fn` of the same name either.
+    fn generate_class_constants(
+        &self,
+        builder: &mut CodeBuilder,
+        class_name: &str,
+        ir: &CodegenIR,
+        taken: &mut BTreeSet<String>,
+    ) {
+        for constant in &ir.constants {
+            let Some((owner, _)) = constant.name.split_once('_') else {
+                continue;
+            };
+            let name = &constant.member_name();
+            if owner != class_name || !taken.insert(name.to_string()) {
+                continue;
+            }
+            builder.line("#[classattr]");
+            builder.line(&format!(
+                "const {}: {} = {};",
+                name, constant.type_name, constant.value
+            ));
             builder.blank();
         }
+    }
+
+    /// The expression that builds a default INNER value for `class_name`.
+    ///
+    /// A declared class has `impl Default` on its mirror (the transmute impl
+    /// the Rust emitter writes next to the type), so `Default::default()`
+    /// resolves. A monomorphized alias does NOT: its mirror is an
+    /// instantiation of a generic (`AzCssPropertyValue<AzStyleCursor>`), and
+    /// the mirror carries no `Default` impl for the template -- only the real
+    /// type behind `external_path` implements it. So build the real value and
+    /// transmute it into the mirror, which is character-for-character what the
+    /// C API's `Az{T}_createDefault` body does for the same alias.
+    fn default_inner_expr(&self, class_name: &str, ir: &CodegenIR, prefix: &str) -> String {
+        if !is_alias_class(class_name, ir) {
+            return "Default::default()".to_string();
+        }
+        let external = self
+            .find_external_path(class_name, ir)
+            .unwrap_or_else(|| format!("crate::{}", class_name));
+        format!(
+            "unsafe {{ core::mem::transmute::<{ext}, __dll_api_inner::dll::{prefix}{class}>(<{ext} \
+             as Default>::default()) }}",
+            ext = external,
+            prefix = prefix,
+            class = class_name,
+        )
     }
 
     /// `#[getter]`/`#[setter]` for public fields Python can represent.
@@ -1427,19 +2103,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
             "return", "try", "while", "with", "yield", "None", "True", "False",
         ];
-        let is_clone = |type_name: &str| {
-            ir.structs
-                .iter()
-                .find(|s| s.name == type_name)
-                .map(|s| s.traits.is_clone)
-                .or_else(|| {
-                    ir.enums
-                        .iter()
-                        .find(|e| e.name == type_name)
-                        .map(|e| e.traits.is_clone)
-                })
-                .unwrap_or(false)
-        };
+        let is_clone = |type_name: &str| class_is_clone(type_name, ir);
 
         for field in &struct_def.fields {
             let n = field.name.as_str();
@@ -1462,7 +2126,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     n, t, n
                 ));
                 builder.blank();
-            } else if t == "String" {
+            } else if is_string_class(t, ir) {
                 builder.line(&format!("#[getter({})]", n));
                 builder.line(&format!(
                     "fn __get_{}(&self) -> String {{ let s: &azul_css::corety::AzString = \
@@ -1478,7 +2142,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 ));
                 builder.blank();
             } else if self.is_python_compatible_type(t, ir)
-                && !is_direct_ffi_type(t)
+                && !is_direct_ffi_type(t, ir)
                 && is_clone(t)
             {
                 builder.line(&format!("#[getter({})]", n));
@@ -1512,11 +2176,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         builder.line(&format!("impl {} {{", name));
         builder.indent();
 
+        // Only the functions api.json DECLARES: the trait functions the IR
+        // synthesises (`clone`, `createDefault`) carry no fn_body, so
+        // `generate_pymethod` could only leave a comment where a method
+        // belongs. They are emitted from the derive flags instead, next to the
+        // dunders that share their meaning.
         let class_functions: Vec<_> = ir
             .functions
             .iter()
             .filter(|f| f.class_name == struct_def.name)
-            .filter(|f| !f.kind.is_trait_function())
+            .filter(|f| f.kind.is_api_function())
             .collect();
 
         // Check if this struct is a callback wrapper type
@@ -1542,7 +2211,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         }
 
         self.generate_field_accessors(builder, struct_def, ir, prefix, &taken);
-        self.generate_derive_dunders(builder, &struct_def.traits, &taken);
+        self.generate_class_constants(builder, &struct_def.name, ir, &mut taken);
+        let default_inner = self.default_inner_expr(&struct_def.name, ir, prefix);
+        self.generate_derive_dunders(builder, &struct_def.traits, &taken, &default_inner);
 
         builder.line("fn __str__(&self) -> String {");
         builder.line("    format!(\"{:?}\", self)");
@@ -1568,14 +2239,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         c_api_type: &str,
         taken: &mut BTreeSet<String>,
     ) {
-        let is_clone = |type_name: &str| {
-            ir.structs
-                .iter()
-                .find(|s| s.name == type_name)
-                .map(|s| s.traits.is_clone)
-                .or_else(|| ir.enums.iter().find(|e| e.name == type_name).map(|e| e.traits.is_clone))
-                .unwrap_or(false)
-        };
+        let is_clone = |type_name: &str| class_is_clone(type_name, ir);
         for variant in &enum_def.variants {
             let snake = to_snake_case(&variant.name);
             let is_name = format!("is_{}", snake);
@@ -1603,15 +2267,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     let Some((ty, _)) = types.first() else { continue };
                     let (ret, conv) = if is_primitive_type(ty) {
                         (ty.clone(), "*v".to_string())
-                    } else if ty == "String" {
+                    } else if is_string_class(ty, ir) {
                         (
+                            // allow-api-name: the Rust type written into the signature
                             "String".to_string(),
                             "{ let s: &azul_css::corety::AzString = unsafe { mem::transmute(v) }; s.as_str().to_string() }"
                                 .to_string(),
                         )
                     } else if self.is_python_compatible_type(ty, ir)
                         && !self.type_is_excluded(ty, ir, config)
-                        && !is_direct_ffi_type(ty)
+                        && !is_direct_ffi_type(ty, ir)
                         && !is_callback_wrapper_type(ty, ir)
                         && is_clone(ty)
                     {
@@ -1687,7 +2352,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                                 "    Self {{ inner: {}::{}(v) }}",
                                 c_api_type, variant.name
                             ));
-                        } else if ty == "String" {
+                        } else if is_string_class(ty, ir) {
                             // String needs to be converted to AzString and transmuted
                             builder.line(&format!(
                                 "    unsafe {{ Self {{ inner: \
@@ -1753,7 +2418,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             self.generate_variant_accessors(builder, enum_def, ir, prefix, config, &c_api_type, &mut taken);
         }
 
-        self.generate_derive_dunders(builder, &enum_def.traits, &taken);
+        self.generate_class_constants(builder, &enum_def.name, ir, &mut taken);
+        let default_inner = self.default_inner_expr(&enum_def.name, ir, prefix);
+        self.generate_derive_dunders(builder, &enum_def.traits, &taken, &default_inner);
 
         if !enum_def.is_union {
             // Unit variants of C-like enums are exposed as #[classattr]
@@ -1827,10 +2494,6 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let is_static = func.kind == FunctionKind::StaticMethod;
         let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
 
-        // Check if this function has a callback pattern (RefAny + CallbackType)
-        // This needs to be early because we need it for function signature
-        let has_callback_pattern = self.has_callback_pattern(func);
-
         if is_constructor && func.method_name == "new" {
             builder.line("#[new]");
         } else if is_constructor || is_static {
@@ -1855,20 +2518,42 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let args_str: String = args
             .iter()
             .map(|a| {
-                let py_type = self.rust_type_to_python(&a.type_name, prefix, ir);
+                // A borrowed slice is taken as the sequence itself: pyo3
+                // extracts `bytes`/`list[int]`/`list[float]`/`list[str]`/
+                // `list[Node]` into a `Vec<T>` that this function then LENDS
+                // to the callee (see below), and an optional one as
+                // `Optional[...]`. A value the callee MUTATES through a
+                // pointer is taken as a `PyRefMut` guard -- the caller's own
+                // object, borrowed for the call -- so the write lands where
+                // the caller can see it. A shared borrow is taken as the
+                // object itself and needs no adjustment.
+                let py_type = if let Some(slice) = borrowed_slice_arg(&a.type_name, ir) {
+                    format!("Vec<{}>", slice.py_element(prefix))
+                } else if let Some(opt) = optional_slice(&a.type_name, ir) {
+                    format!("Option<Vec<{}>>", opt.slice.py_element(prefix))
+                } else if pointer_borrow(func, a) == Some(PointerBorrow::Mutable) {
+                    format!("PyRefMut<'_, {}{}>", prefix, a.type_name)
+                } else {
+                    self.rust_type_to_python(&a.type_name, prefix, ir)
+                };
                 format!("{}: {}", a.name, py_type)
             })
             .collect::<Vec<_>>()
             .join(", ");
 
-        let return_type = func
-            .return_type
-            .as_ref()
-            .map(|t| self.rust_type_to_python(t, prefix, ir))
-            .unwrap_or_else(|| "()".to_string());
+        // An optional borrowed slice comes back as the bytes themselves (pyo3
+        // maps `Vec<u8>` to `bytes`, any other element to a list), copied out
+        // of the borrow before it dies.
+        let return_type = match func.return_type.as_ref() {
+            Some(t) => match optional_slice(t, ir) {
+                Some(opt) => format!("Option<Vec<{}>>", opt.slice.py_element(prefix)),
+                None => self.rust_type_to_python(t, prefix, ir),
+            },
+            None => "()".to_string(),
+        };
 
         // Functions with RefAny or Callback args need access to Python GIL for clone_ref
-        let has_refany_arg = args.iter().any(|a| a.type_name == "RefAny");
+        let has_refany_arg = args.iter().any(|a| is_refany(&a.type_name, ir));
         let has_callback_arg = args.iter().any(|a| a.callback_info.is_some());
         let needs_py_param = has_refany_arg || has_callback_arg;
 
@@ -1892,7 +2577,12 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             })
             .unwrap_or(true);
         let needs_consume_self = takes_self && self_is_by_value && !class_is_clone_recv;
-        let self_recv = if needs_consume_self {
+        // A `&mut self` method MUTATES the object the caller is holding, so it
+        // must reach that object and not a copy of it. Both cases below need a
+        // mutable receiver for that; pyo3 turns it into a `PyRefMut` borrow of
+        // the pyclass for the duration of the call.
+        let mutates_self = func.kind == FunctionKind::MethodMut;
+        let self_recv = if needs_consume_self || mutates_self {
             "&mut self"
         } else {
             "&self"
@@ -2028,7 +2718,23 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             })
             .unwrap_or(true);
         if takes_self {
-            if needs_consume_self {
+            if is_method_mut {
+                // A `&mut self` method exists to CHANGE the receiver, so
+                // `__cloned` is bound to the real value, not to a copy of it:
+                // every `object.set_x(v)` in a fn_body becomes
+                // `__cloned.set_x(v)` and auto-derefs through this `&mut`, and
+                // every body that passes the receiver on
+                // (`register_dom_icon(iconproviderhandle, ..)`) receives the
+                // same `&mut`. Cloning here instead -- which is what this used
+                // to do for the handful of such methods that were emitted --
+                // mutated a temporary that was then dropped: every setter was
+                // a silent no-op, except on the few classes whose value is
+                // itself a handle to something else.
+                builder.line(&format!(
+                    "let __cloned: &mut {} = core::mem::transmute(&mut self.inner);",
+                    external_path
+                ));
+            } else if needs_consume_self {
                 // By-value consume on a NON-Clone type: MOVE the owned inner out
                 // into `__cloned`, then ZERO the original so the pyclass's later
                 // Drop at dealloc is a harmless no-op (was a RefAny double-free /
@@ -2088,11 +2794,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 .map(|a| a.ref_kind == ArgRefKind::Owned)
                 .unwrap_or(false);
             let self_ref = if is_method_mut {
-                "&mut __cloned"
+                // Already a `&mut` binding (see above), so it is passed on as
+                // it stands; `&mut __cloned` would be a `&mut &mut T`.
+                "__cloned"
             } else if self_is_by_value {
                 "__cloned"
             } else {
                 "&__cloned"
+            };
+            // An explicit `&mut self` / `&self` in the body reborrows rather
+            // than re-references when `__cloned` is ALREADY a `&mut` (the
+            // MethodMut binding above): `&mut __cloned` would be `&mut &mut T`.
+            let (explicit_mut, explicit_ref) = if is_method_mut {
+                ("__cloned", "&*__cloned")
+            } else {
+                ("&mut __cloned", "&__cloned")
             };
             for sv in &self_vars {
                 transformed_body = transformed_body
@@ -2102,17 +2818,20 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     .replace(&format!(", {},", sv), ", __cloned,")
                     .replace(&format!(", {}, ", sv), ", __cloned, ")
                     .replace(&format!(", {})", sv), ", __cloned)")
-                    .replace(&format!("&mut {},", sv), "&mut __cloned,")
-                    .replace(&format!("&mut {})", sv), "&mut __cloned)")
-                    .replace(&format!("&{},", sv), "&__cloned,")
-                    .replace(&format!("&{})", sv), "&__cloned)");
+                    .replace(&format!("&mut {},", sv), &format!("{},", explicit_mut))
+                    .replace(&format!("&mut {})", sv), &format!("{})", explicit_mut))
+                    .replace(&format!("&{},", sv), &format!("{},", explicit_ref))
+                    .replace(&format!("&{})", sv), &format!("{})", explicit_ref));
             }
-            // Any other use of the receiver name (`&earlier < instant`) gets a binding.
+            // Any other use of the receiver name (`&earlier < instant`) gets a
+            // binding. A `&mut` receiver is REBORROWED into it rather than
+            // moved, so the body may still use `__cloned` itself.
+            let fallback_binding = if is_method_mut { "&mut *__cloned" } else { self_ref };
             for sv in &self_vars {
                 let word = regex::Regex::new(&format!(r"(^|[^\w.:]){}($|[^\w:])", regex::escape(sv)))
                     .unwrap();
                 if word.is_match(&transformed_body) {
-                    builder.line(&format!("let {} = {};", sv, self_ref));
+                    builder.line(&format!("let {} = {};", sv, fallback_binding));
                     break;
                 }
             }
@@ -2120,8 +2839,139 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         // Convert arguments to external types
         for arg in &args {
+            // A borrowed slice: the callee gets a `{ptr, len}` pair pointing
+            // into a buffer that lives in THIS function. The buffer is bound
+            // before the call and dropped at the end of the surrounding block,
+            // i.e. strictly after the call returns, which is the whole of the
+            // borrow the C signature asks for. Nothing may be retained: a
+            // callee that stored the pointer would be reading freed memory the
+            // moment this method returns, so only the read-only slices are
+            // bridged (`function_has_unsupported_args` drops the rest).
+            if let Some(slice) = borrowed_slice_arg(&arg.type_name, ir) {
+                let external = self
+                    .find_external_path(&arg.type_name, ir)
+                    .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+                let ffi = format!("__dll_api_inner::dll::{}{}", prefix, arg.type_name);
+                builder.line(&format!(
+                    "let __slice_{n}: Vec<{el}> = {n};",
+                    n = arg.name,
+                    el = slice.py_element(prefix)
+                ));
+                // A slice of borrowed STRINGS needs a second buffer: the
+                // views themselves, each pointing into a string of the first.
+                // Both are locals of this call, so both outlive it and die
+                // with it.
+                let buffer = if slice.kind == SliceElement::BorrowedStr {
+                    let element_path = slice_element_path(&arg.type_name, &external);
+                    builder.line(&format!(
+                        "let __views_{n}: Vec<{el}> = __slice_{n}.iter().map(|s| \
+                         {el}::from(s.as_str())).collect();",
+                        n = arg.name,
+                        el = element_path
+                    ));
+                    format!("__views_{}", arg.name)
+                } else {
+                    format!("__slice_{}", arg.name)
+                };
+                builder.line(&format!(
+                    "let {n}: {ext} = core::mem::transmute({ffi} {{ {ptr}: {buf}.as_ptr() as \
+                     *const c_void, {len}: {buf}.len() }});",
+                    n = arg.name,
+                    ext = external,
+                    ffi = ffi,
+                    ptr = slice.ptr_field,
+                    len = slice.len_field,
+                    buf = buffer,
+                ));
+                continue;
+            }
+
+            // An optional borrowed slice: the same lend, or the option's own
+            // empty variant when Python passed nothing.
+            if let Some(opt) = optional_slice(&arg.type_name, ir) {
+                let external = self
+                    .find_external_path(&arg.type_name, ir)
+                    .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+                let ffi_opt = format!("__dll_api_inner::dll::{}{}", prefix, arg.type_name);
+                let ffi_slice = format!("__dll_api_inner::dll::{}{}", prefix, opt.slice_type);
+                builder.line(&format!(
+                    "let __slice_{n}: Option<Vec<{el}>> = {n};",
+                    n = arg.name,
+                    el = opt.slice.py_element(prefix)
+                ));
+                builder.line(&format!("let __opt_{n} = match &__slice_{n} {{", n = arg.name));
+                builder.line(&format!(
+                    "    Some(v) => {ffi_opt}::{some}({ffi_slice} {{ {ptr}: v.as_ptr() as *const \
+                     c_void, {len}: v.len() }}),",
+                    ffi_opt = ffi_opt,
+                    some = opt.some_variant,
+                    ffi_slice = ffi_slice,
+                    ptr = opt.slice.ptr_field,
+                    len = opt.slice.len_field,
+                ));
+                builder.line(&format!(
+                    "    None => {ffi_opt}::{none},",
+                    ffi_opt = ffi_opt,
+                    none = opt.none_variant
+                ));
+                builder.line("};");
+                builder.line(&format!(
+                    "let {n}: {ext} = core::mem::transmute(__opt_{n});",
+                    n = arg.name,
+                    ext = external
+                ));
+                continue;
+            }
+
+            // A borrowed object: same contract as the slice above, one value
+            // instead of many.
+            match pointer_borrow(func, arg) {
+                // Shared: the value is bound to a local -- alive for the whole
+                // call, dropped when this method returns -- and the callee
+                // gets its address, which the fn_body dereferences
+                // (`unsafe { &*info }`) exactly as the C entry point does.
+                Some(PointerBorrow::Shared) => {
+                    let external = self
+                        .find_external_path(&arg.type_name, ir)
+                        .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+                    builder.line(&format!(
+                        "let __borrowed_{n}: {ext} = core::mem::transmute({n}.inner.clone());",
+                        n = arg.name,
+                        ext = external
+                    ));
+                    builder.line(&format!(
+                        "let {n}: *const {ext} = &__borrowed_{n};",
+                        n = arg.name,
+                        ext = external
+                    ));
+                    continue;
+                }
+                // Mutable: the callee WRITES through this pointer, so it must
+                // point at the caller's own object and not at a copy -- a copy
+                // would make the method a silent no-op. The `PyRefMut` guard
+                // is that object, borrowed mutably from Python for exactly the
+                // length of this call (pyo3 raises instead of aliasing it),
+                // and the pointer is taken through the guard.
+                Some(PointerBorrow::Mutable) => {
+                    let external = self
+                        .find_external_path(&arg.type_name, ir)
+                        .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+                    builder.line(&format!("let mut __guard_{n} = {n};", n = arg.name));
+                    builder.line(&format!(
+                        "let {n}: *mut {ext} = &mut __guard_{n}.inner as *mut \
+                         __dll_api_inner::dll::{prefix}{ty} as *mut {ext};",
+                        n = arg.name,
+                        ext = external,
+                        prefix = prefix,
+                        ty = arg.type_name,
+                    ));
+                    continue;
+                }
+                None => {}
+            }
+
             // RefAny is ALWAYS converted from Py<PyAny> to RefAny with JSON support
-            if arg.type_name == "RefAny" {
+            if is_refany(&arg.type_name, ir) {
                 // Wrap Python data in RefAny via PyDataWrapper with JSON serialization
                 // Use the SAME name as the parameter so fn_body can use it unchanged
                 builder.line(&format!(
@@ -2164,31 +3014,27 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     .find_external_path(&cb_info.callback_wrapper_name, ir)
                     .unwrap_or_else(|| format!("crate::{}", cb_info.callback_wrapper_name));
 
-                // Look up the actual wrapper struct definition to discover its real
-                // field names. The function-pointer field is usually "cb" but may be
-                // named differently (e.g. "resolver"); the foreign-callable storage
-                // field is the OptionRefAny field, named "ctx" or "callable".
-                let wrapper_struct = ir
-                    .structs
-                    .iter()
-                    .find(|s| s.name == cb_info.callback_wrapper_name);
-                let (fn_ptr_field, callable_field) = match wrapper_struct {
-                    Some(sd) => {
-                        let callable = sd
-                            .fields
-                            .iter()
-                            .find(|f| f.type_name == "OptionRefAny")
-                            .map(|f| f.name.clone());
-                        let fn_ptr = sd
-                            .fields
-                            .iter()
-                            .find(|f| f.type_name != "OptionRefAny")
-                            .map(|f| f.name.clone())
-                            .unwrap_or_else(|| "cb".to_string());
-                        (fn_ptr, callable)
-                    }
-                    None => ("cb".to_string(), Some("ctx".to_string())),
-                };
+                // The wrapper's real field names, as the IR recorded them when
+                // it linked a wrapper to its typedef BY SHAPE
+                // (`link_callback_wrappers`): the function-pointer field is
+                // usually `cb` but not always (one spells it `resolver`), and
+                // the context slot is `ctx` on some wrappers and `callable` on
+                // others. Reading them from the IR also gets the answer right
+                // for a wrapper that carries a third field, where "the first
+                // field that is not the context" picked whichever came first.
+                let (fn_ptr_field, callable_field) =
+                    match get_callback_wrapper_info(&cb_info.callback_wrapper_name, ir) {
+                        Some(info) => (
+                            info.callback_field_name.clone(),
+                            Some(info.context_field_name.clone()),
+                        ),
+                        // Unreachable: `detect_callback_arg_info` only ever
+                        // names a struct the IR linked. Left as an empty field
+                        // name so that a future change which breaks that
+                        // invariant fails loudly in the generated file rather
+                        // than filling the wrong slot.
+                        None => (String::new(), None),
+                    };
 
                 // Build the wrapper using the generated FFI inner type
                 // (`__dll_api_inner::dll::Az...`), whose field names are derived
@@ -2231,7 +3077,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 .unwrap_or_else(|| {
                     if is_primitive_type(&arg.type_name) {
                         arg.type_name.clone()
-                    } else if arg.type_name == "String" {
+                    } else if is_string_class(&arg.type_name, ir) {
                         "azul_css::corety::AzString".to_string()
                     } else {
                         format!("crate::{}", arg.type_name)
@@ -2258,13 +3104,13 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     "let {}: {} = core::mem::transmute({});",
                     arg.name, arg_external, arg.name
                 ));
-            } else if arg.type_name == "String" {
+            } else if is_string_class(&arg.type_name, ir) {
                 // String args: convert to AzString, shadow the parameter
                 builder.line(&format!(
                     "let {}: {} = azul_css::corety::AzString::from({}.clone());",
                     arg.name, arg_external, arg.name
                 ));
-            } else if is_direct_ffi_type(&arg.type_name) {
+            } else if is_direct_ffi_type(&arg.type_name, ir) {
                 // Direct FFI types (StringVec, U8Vec, etc.) - no .inner wrapper
                 // These are type-aliased directly to the C-API types
                 builder.line(&format!(
@@ -2299,14 +3145,68 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 builder.line(&format!("let _: () = {};", transformed_body));
             }
         } else if let Some(ret_type) = &func.return_type {
-            if is_primitive_type(ret_type) {
+            if let Some(opt) = optional_slice(ret_type, ir) {
+                // An optional borrowed slice: the pointer belongs to the
+                // callee and stays there. COPY the bytes out while the borrow
+                // is still alive -- the value returned to Python owns itself,
+                // so nothing of the borrow escapes this block, and pyo3 turns
+                // it into `bytes` (or a list, for a wider element).
+                let ret_external = self
+                    .find_external_path(ret_type, ir)
+                    .unwrap_or_else(|| format!("crate::{}", ret_type));
+                let ffi_opt = format!("__dll_api_inner::dll::{}{}", prefix, ret_type);
+                if has_statements {
+                    builder.line(&format!(
+                        "let __result: {} = {{ {} }};",
+                        ret_external, transformed_body
+                    ));
+                } else {
+                    builder.line(&format!(
+                        "let __result: {} = {};",
+                        ret_external, transformed_body
+                    ));
+                }
+                builder.line(&format!(
+                    "let __result: {ffi} = core::mem::transmute(__result);",
+                    ffi = ffi_opt
+                ));
+                builder.line("match __result {");
+                builder.line(&format!(
+                    "    {ffi}::{some}(__borrowed) => Some(",
+                    ffi = ffi_opt,
+                    some = opt.some_variant
+                ));
+                // A null or empty `{ptr, len}` is what an absent buffer looks
+                // like inside a present variant, and `from_raw_parts` is UB on
+                // a null pointer even for length zero.
+                builder.line(&format!(
+                    "        if __borrowed.{len} == 0 || __borrowed.{ptr}.is_null() {{ Vec::new() \
+                     }}",
+                    len = opt.slice.len_field,
+                    ptr = opt.slice.ptr_field
+                ));
+                builder.line(&format!(
+                    "        else {{ core::slice::from_raw_parts(__borrowed.{ptr} as *const \
+                     {el}, __borrowed.{len}).to_vec() }}",
+                    ptr = opt.slice.ptr_field,
+                    el = opt.slice.py_element(prefix),
+                    len = opt.slice.len_field
+                ));
+                builder.line("    ),");
+                builder.line(&format!(
+                    "    {ffi}::{none} => None,",
+                    ffi = ffi_opt,
+                    none = opt.none_variant
+                ));
+                builder.line("}");
+            } else if is_primitive_type(ret_type) {
                 // Primitive return types
                 if has_statements {
                     builder.line(&format!("{{ {} }}", transformed_body));
                 } else {
                     builder.line(&transformed_body);
                 }
-            } else if ret_type == "String" {
+            } else if is_string_class(ret_type, ir) {
                 // String return type: external methods return AzString, convert to Rust String
                 // Use into_library_owned_string() to convert AzString to String
                 if has_statements {
@@ -2321,8 +3221,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     ));
                 }
                 builder.line("__result.into_library_owned_string()");
-            } else if is_capi_type_alias(ret_type) {
-                // C-API type aliases (like U8Vec, StringVec) - transmute directly without wrapper
+            } else if is_py_builtin_class(ret_type, ir) {
+                // A builtin-bridged class has no `.inner` wrapper to fill: the
+                // C type carries the IntoPyObject impl, so the result only has
+                // to be transmuted from the external type into it.
                 let ret_external = self
                     .find_external_path(ret_type, ir)
                     .unwrap_or_else(|| format!("crate::{}", ret_type));
@@ -2410,6 +3312,27 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.line(&format!("m.add_class::<{}{}>()?;", prefix, enum_def.name));
         }
 
+        // A monomorphized alias is a class like any other, so it is importable
+        // from `azul` like any other; leaving it unregistered would hide the
+        // whole CSS property-value surface behind types Python could receive
+        // but never name.
+        let aliases = alias_classes(ir);
+        for class in aliases
+            .structs
+            .iter()
+            .filter(|s| self.should_include_struct(s, config))
+            .map(|s| &s.name)
+            .chain(
+                aliases
+                    .enums
+                    .iter()
+                    .filter(|e| self.should_include_enum(e, config))
+                    .map(|e| &e.name),
+            )
+        {
+            builder.line(&format!("m.add_class::<{}{}>()?;", prefix, class));
+        }
+
         builder.line("Ok(())");
         builder.dedent();
         builder.line("}");
@@ -2438,11 +3361,12 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Types with a hand-written C-API alias (PyO3 conversions on the C
-        // type itself) don't get wrapper structs. This is Python's own list
-        // (`CAPI_TYPE_ALIASES`), not the IR's `Vec` category: every Vec is
-        // `TypeCategory::Vec`, and only these few have hand-written impls.
-        if is_capi_type_alias(&struct_def.name) {
+        // A class Python reaches through a builtin (`str`, `bytes`, `list`)
+        // gets no wrapper struct: the PyO3 conversions sit on the C type
+        // itself. Note this is NOT the IR's `Vec` category -- every Vec is
+        // `TypeCategory::Vec` and all but the hand-bridged few do get a
+        // pyclass -- but `String` and `RefAny` ARE recognised by category.
+        if has_no_pyclass(&struct_def.name, struct_def.category) {
             return false;
         }
 
@@ -2502,9 +3426,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Python-specific: These types use *const/*mut c_void but are semantically Send
-        // because they wrap references (&) or Box<> which are Send
-        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+        // The same Send claim as in `generate_send_sync_impls`, applied to
+        // the pyclass: a class that is Send needs no `unsendable`. The two
+        // lists must agree -- a class marked sendable here whose mirror has
+        // no `unsafe impl Send` there does not compile.
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[ // allow-api-name: a per-class safety claim, see generate_send_sync_impls
             "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
             "VirtualViewCallbackInfo",      // wraps &VirtualViewCallbackInfoInternal
             "VirtualViewReturn",            /* contains OptionDom which may have callbacks with
@@ -2572,9 +3498,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Python-specific: These enum types NEED unsendable because they contain raw pointers
-        // but we want to use them in Python anyway
-        const PYTHON_FORCE_UNSENDABLE_ENUMS: &[&str] = &[
+        // The reverse claim: these enums DO carry a raw pointer through to
+        // Python, so the pyclass must be thread-bound even though the
+        // structural walk below would clear them (their payloads are the
+        // handle structs the list above vouches for).
+        const PYTHON_FORCE_UNSENDABLE_ENUMS: &[&str] = &[ // allow-api-name: a per-class safety claim, see above
             "RawWindowHandle",
             "OptionRawWindowHandle",
             "OptionThread",
@@ -2625,8 +3553,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Python-specific: These types use *const/*mut c_void but are semantically Send
-        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+        // The same Send claim once more, for a class seen as the FIELD of
+        // another: reaching a pointer here would make every holder
+        // thread-bound too. Wider than the list above because a class can be
+        // safe to hold without being safe to hand out on its own.
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[ // allow-api-name: a per-class safety claim, see generate_send_sync_impls
             "CssPropertyCachePtr",
             "VirtualViewCallbackInfo",
             "VirtualViewReturn",
@@ -2693,8 +3624,12 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return true;
         }
 
-        // Types ending with "Callback" contain function pointers - NOT sendable
-        if type_name.ends_with("Callback") || type_name.ends_with("CallbackType") {
+        // A function pointer is not sendable, and the IR knows both shapes it
+        // takes: the bare typedef, and the wrapper struct that pairs one with
+        // its context. A `*Callback`-named struct the IR did NOT link is
+        // caught by the field walk below, whose function-pointer field IS a
+        // typedef.
+        if is_callback_typedef(type_name, ir) || is_callback_wrapper_type(type_name, ir) {
             return true;
         }
 
@@ -2820,39 +3755,84 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     }
 
     fn function_has_unsupported_args(&self, func: &FunctionDef, ir: &CodegenIR) -> bool {
-        // For &mut self methods, only skip if the class is unsendable
-        // Sendable classes can have mutable methods!
-        if func.kind == FunctionKind::MethodMut
-            && self.class_needs_unsendable(&func.class_name, ir) {
-                return true;
-            }
-            // Sendable class - &mut self is allowed, continue checking args
-
+        // NOTE: a `&mut self` method used to be dropped whenever its class was
+        // `unsendable`, which took out 247 methods -- every widget setter, on
+        // classes that are unsendable only because they hold a callback. The
+        // two have nothing to do with each other: pyo3 takes a `PyRefMut` for
+        // a `&mut self` receiver on an unsendable pyclass exactly as it does
+        // on a sendable one. `generate_pymethod` binds the receiver IN PLACE
+        // for these (see the MethodMut arm), so the mutation reaches the
+        // object the caller holds.
         for arg in &func.args {
-            // RefAny is ALWAYS allowed - becomes Py<PyAny>
-            if arg.type_name == "RefAny" {
-                continue;
-            }
-
             // Callback types with callback_info are ALWAYS allowed - become Py<PyAny>
             // This check MUST come before is_python_compatible_type to allow CallbackType args
             if arg.callback_info.is_some() {
                 continue;
             }
 
-            // Skip raw pointer types. The pointer-ness is carried in `ref_kind`
-            // (parse_type_ref_kind strips `*const`/`*mut` from `type_name`), so
-            // a string `.contains` check alone misses e.g. `copy_from_ptr`'s
-            // `ptr: *const ListViewRow` — Python cannot supply a raw pointer.
+            // The application's own data crosses as the Python object itself.
+            if is_refany(&arg.type_name, ir) {
+                continue;
+            }
+
+            // A pointer the callee dereferences as ONE value is a borrow for
+            // the duration of the call, which Python can honour (see
+            // `generate_pymethod`): a shared borrow lends a value bound here,
+            // a mutable one lends the caller's own object through a
+            // `PyRefMut` guard, so the write lands where the caller can see
+            // it. Both need the pointee to be a class Python holds.
+            if let Some(borrow) = pointer_borrow(func, arg) {
+                if !self.is_python_compatible_type(&arg.type_name, ir) {
+                    return true;
+                }
+                // The shared form copies the value to lend it; the mutable
+                // form must NOT copy, so it needs no `Clone`.
+                if borrow == PointerBorrow::Shared && !class_is_clone(&arg.type_name, ir) {
+                    return true;
+                }
+                continue;
+            }
+            // An optional borrowed slice: the same lend, with the absent case
+            // carried by the option's own empty variant.
+            if let Some(opt) = optional_slice(&arg.type_name, ir) {
+                if opt.slice.is_mutable || !is_primitive_type(&opt.slice.element) {
+                    return true;
+                }
+                continue;
+            }
+            // Every other raw pointer stays out, and there the skip is the
+            // honest answer rather than a gap: an array pointer is a promise
+            // about memory the caller owns and keeps alive for `len`
+            // elements, and a `*mut` is a promise to write into the caller's
+            // own object -- neither of which a Python value can be. The
+            // pointer-ness is carried in `ref_kind` (parse_type_ref_kind
+            // strips `*const`/`*mut` from `type_name`), so a string check
+            // alone would miss `copy_from_ptr`'s `ptr: *const ListViewRow`.
+            // Such a method always has a by-value sibling (`from_item`,
+            // `create`) that Python does get.
             if matches!(arg.ref_kind, ArgRefKind::Ptr | ArgRefKind::PtrMut) {
                 return true;
             }
             if arg.type_name.contains("*const") || arg.type_name.contains("*mut") {
                 return true;
             }
-            // Skip VecRef types
-            if arg.type_name.contains("VecRef") || arg.type_name == "Refstr" {
-                return true;
+            // A borrowed slice argument is bridged when Python can build a
+            // buffer with the C element layout: a primitive, or a class whose
+            // `repr(transparent)` wrapper makes `Vec<AzT>` the same bytes as
+            // the C array. Anything else (a slice of borrowed strings, a slice
+            // the callee WRITES into) has no such bridge.
+            if let Some(slice) = borrowed_slice_arg(&arg.type_name, ir) {
+                let element_ok = match slice.kind {
+                    SliceElement::Primitive | SliceElement::BorrowedStr => true,
+                    SliceElement::Class => {
+                        self.is_python_compatible_type(&slice.element, ir)
+                            && class_is_clone(&slice.element, ir)
+                    }
+                };
+                if slice.is_mutable || !element_ok {
+                    return true;
+                }
+                continue;
             }
             // Skip generic instantiations (e.g., CssPropertyValue<StyleBoxShadow>)
             if arg.type_name.contains('<') && arg.type_name.contains('>') {
@@ -2868,13 +3848,23 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 return true;
             }
 
-            // Unrecognized CallbackType (no callback_info) - skip
-            if arg.type_name.ends_with("CallbackType") {
+            // A bare function-pointer typedef the IR could not pair with a
+            // wrapper (no `callback_info`, handled above): there is nowhere to
+            // put the Python callable, so the method cannot be bridged.
+            if is_callback_typedef(&arg.type_name, ir) {
                 return true;
             }
         }
 
         if let Some(ret) = &func.return_type {
+            // An optional borrowed slice is the one borrow that may be
+            // RETURNED: nothing of it escapes, because `generate_pymethod`
+            // copies the bytes out while the borrow is still alive and hands
+            // Python the copy. Every other borrow-shaped return would hand
+            // out a pointer whose owner Python cannot see.
+            if let Some(opt) = optional_slice(ret, ir) {
+                return opt.slice.is_mutable || !is_primitive_type(&opt.slice.element);
+            }
             if ret.contains("*const") || ret.contains("*mut") {
                 return true;
             }
@@ -2907,6 +3897,17 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         if let Some(enum_def) = ir.find_enum(type_name) {
             return !self.should_include_enum(enum_def, config);
         }
+        // A monomorphized alias is a class too, and it answers the same way:
+        // whichever synthesized def carries it decides (see `alias_classes`).
+        if is_alias_class(type_name, ir) {
+            let aliases = alias_classes(ir);
+            if let Some(s) = aliases.structs.iter().find(|s| s.name == type_name) {
+                return !self.should_include_struct(s, config);
+            }
+            if let Some(e) = aliases.enums.iter().find(|e| e.name == type_name) {
+                return !self.should_include_enum(e, config);
+            }
+        }
         false
     }
 
@@ -2923,7 +3924,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         ir.callback_typedefs
             .iter()
             .find(|c| c.name == cb_info.callback_typedef_name)
-            .is_some_and(trampoline_bridges)
+            .is_some_and(|c| trampoline_bridges(c, ir))
     }
 
     /// Skip a function if any of its (non-callback, non-primitive) arg types or
@@ -2947,18 +3948,32 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 }
                 continue;
             }
-            // RefAny args become Py<PyAny>, never a pyclass arg.
-            if arg.type_name == "RefAny" {
+            // A borrowed slice is bridged too: the Python sequence becomes a
+            // buffer this call lends to the callee, so the slice class needs
+            // no pyclass of its own. Its ELEMENT does, when the element is a
+            // class -- that is the type the signature names. (The slices that
+            // cannot be bridged are already gone --
+            // `function_has_unsupported_args` drops them.)
+            if let Some(slice) = borrowed_slice_arg(&arg.type_name, ir) {
+                if slice.kind == SliceElement::Class
+                    && self.type_is_excluded(&slice.element, ir, config)
+                {
+                    return true;
+                }
                 continue;
             }
-            // String args are bridged, not wrapped: Python `str` flows in via
-            // pyo3's built-in FromPyObject, and `generate_pymethod` converts it
-            // to AzString in the body (the `arg.type_name == "String"` arm).
-            // `String` IS a struct in the IR but is emitted C-API-direct (no
-            // pyclass wrapper), so `type_is_excluded` would otherwise drop EVERY
-            // String-taking method (Button::create, Button::with_type,
-            // Css::from_string, …). Mirror the RefAny case above.
-            if arg.type_name == "String" {
+            // An optional borrowed slice is bridged the same way.
+            if optional_slice(&arg.type_name, ir).is_some() {
+                continue;
+            }
+            // A builtin-bridged class is bridged, not wrapped: a Python `str`,
+            // `bytes` or `list` flows in through the C type's own
+            // FromPyObject and `generate_pymethod` converts it in the body.
+            // Those classes have no pyclass ON PURPOSE, so `type_is_excluded`
+            // would otherwise drop every method that takes one -- which is
+            // every String-taking constructor (Button::create,
+            // Css::from_string, ...) and every bytes-taking one.
+            if is_py_builtin_class(&arg.type_name, ir) {
                 continue;
             }
             if self.type_is_excluded(&arg.type_name, ir, config) {
@@ -2966,34 +3981,13 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             }
         }
         if let Some(ret) = &func.return_type {
-            // String return is converted back to a Python `str` in the body
-            // (into_library_owned_string), so the C-API-direct String struct's
-            // lack of a pyclass wrapper must not drop the method.
-            if ret != "String" && self.type_is_excluded(ret, ir, config) {
+            // Same on the way out: the value is converted back to the builtin
+            // in the body, so the missing pyclass must not drop the method.
+            if !is_py_builtin_class(ret, ir) && self.type_is_excluded(ret, ir, config) {
                 return true;
             }
         }
         false
-    }
-
-    /// Check if a function has a recognized callback pattern:
-    /// - Has an argument named "data" with type "RefAny"
-    /// - Has an argument named "callback" with a recognized CallbackType (has callback_info)
-    /// - Or has any argument that is a callback type (Py<PyAny>)
-    fn has_callback_pattern(&self, func: &FunctionDef) -> bool {
-        let has_refany = func
-            .args
-            .iter()
-            .any(|a| a.name == "data" && a.type_name == "RefAny");
-        let has_callback = func
-            .args
-            .iter()
-            .any(|a| a.name == "callback" && a.callback_info.is_some());
-
-        // Also check for any argument that has callback_info (for cases like layout_callback)
-        let has_any_callback = func.args.iter().any(|a| a.callback_info.is_some());
-
-        (has_refany && has_callback) || has_any_callback
     }
 
     /// Check if a type is compatible with Python bindings
@@ -3008,8 +4002,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Skip RefAny and c_void
-        if type_name == "RefAny" || type_name == "c_void" {
+        // The application object and the untyped pointer are not values.
+        if is_refany(type_name, ir) || type_name == "c_void" {
             return false;
         }
 
@@ -3044,104 +4038,53 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             return false;
         }
 
-        // Skip C-API direct types that don't have .inner field.
-        //
-        // `String` is deliberately *not* in this list: AzString has
-        // FromPyObject/IntoPyObject impls so Python `str` flows in
-        // directly, and `generate_pymethod` knows how to shadow the
-        // String-typed parameter with the AzString conversion.
-        const CAPI_DIRECT: &[&str] = &[
-            "U8Vec",
-            "StringVec",
-            "GLuintVec",
-            "GLintVec",
-            "RefAny",
-            "U8VecDestructor",
-            "StringVecDestructor",
-            "InstantPtr",
-            "StringMenuItem",
-        ];
-        if CAPI_DIRECT.contains(&type_name) {
+        // A class Python reaches through a builtin IS representable: `bytes`,
+        // `list[str]` and `list[int]` flow through the C type's own
+        // FromPyObject/IntoPyObject impls, and the body converts. (`RefAny`
+        // took the early return above: it is a Python object, not a value.)
+        if is_py_builtin_class(type_name, ir) {
+            return true;
+        }
+
+        // A class with no Python shape at all.
+        if PY_UNMODELLED_CLASSES.contains(&type_name) {
             return false;
         }
 
-        // Skip type_alias types that resolve to raw pointers (c_void with pointer)
-        // These are platform-specific handles like HwndHandle, X11Visual, etc.
-        const POINTER_TYPE_ALIASES: &[&str] = &[
-            "HwndHandle",
-            "X11Visual",
-            "XWindowType",
-            "XConnection",
-            "WaylandHandle",
-            "IOSHandle",
-            "MacOSHandle",
-            "AndroidHandle",
-            // Add any other type_alias to c_void here
-        ];
-        if POINTER_TYPE_ALIASES.contains(&type_name) {
-            return false;
-        }
-
-        // Skip type_aliases to generic types (like PhysicalPositionI32 → PhysicalPosition<i32>)
-        // These resolve to generic FFI types which don't have FromPyObject impl
-        const GENERIC_TYPE_ALIASES: &[&str] = &[
-            "PhysicalPositionI32",
-            "PhysicalPositionU32",
-            "PhysicalPositionF32",
-            "PhysicalPositionF64",
-            "PhysicalSizeI32",
-            "PhysicalSizeU32",
-            "PhysicalSizeF32",
-            "PhysicalSizeF64",
-            "LogicalPositionI32",
-            "LogicalPositionF32",
-            "LogicalSizeI32",
-            "LogicalSizeF32",
-        ];
-        if GENERIC_TYPE_ALIASES.contains(&type_name) {
-            return false;
-        }
-
-        // Generalized version of GENERIC_TYPE_ALIASES: any type alias whose
-        // target is a generic instantiation (e.g. `BoxOrStaticString` =>
-        // `BoxOrStatic<AzString>`) resolves to a generic FFI type that has
-        // neither a `.inner`-bearing pyclass wrapper nor a FromPyObject impl.
-        // Treat these the same as the hardcoded generic aliases above so the
-        // variants / arguments that reference them are skipped structurally
-        // rather than emitting broken `v.inner` / pyo3-arg code.
-        if let Some(type_alias) = ir.find_type_alias(type_name) {
-            if !type_alias.generic_args.is_empty()
-                || (type_alias.target.contains('<') && type_alias.target.contains('>'))
-            {
+        // Categories the emitter deliberately does not wrap. Every one of them
+        // is the IR's own classification, not a name: a destructor or clone
+        // callback is a bare function pointer, a generic template cannot be
+        // instantiated from Python, and a recursive type has no sized mirror.
+        if let Some(category) = category_of(type_name, ir) {
+            if category.skip_in_python() {
                 return false;
             }
+            return true;
         }
 
-        // Skip type aliases for CssPropertyValue<T> (they end with "Value" and are not
-        // "PixelValue") These can't be used as Python arguments because they resolve to
-        // generic types
-        if type_name.ends_with("Value")
-            && ![
-                "PixelValue",
-                "PixelValueNoPercent",
-                "FloatValue",
-                "PercentageValue",
-                "AngleValue",
-            ]
-            .contains(&type_name)
-        {
-            return false;
+        // Type aliases. A MONOMORPHIZED one has a real class (see
+        // `alias_classes`) and can cross the boundary as long as pyo3 can
+        // extract it, which for a pyclass means `Clone`. Every other alias --
+        // to a raw pointer (`X11Visual`), to a generic template, to anything
+        // the mirror spells as a bare typedef -- has neither a `.inner`
+        // wrapper nor a FromPyObject impl, so a signature naming it would not
+        // compile.
+        if let Some(alias) = ir.find_type_alias(type_name) {
+            if alias.target.contains('*') {
+                return false;
+            }
+            // An alias to a primitive is a number with a name: Python passes
+            // the number, and `generate_pymethod` transmutes it into whatever
+            // newtype the real signature asks for.
+            if is_primitive_type(&alias.target) {
+                return true;
+            }
+            return alias.monomorphized_def.is_some() && alias_mirror_traits(alias, ir).is_clone;
         }
 
-        // Skip destructor types (extern "C" fn types)
-        if type_name.ends_with("Destructor") || type_name.ends_with("DestructorType") {
-            return false;
-        }
-
-        // Note: U8Vec, StringVec, ImageRef, FontRef, Callback types etc. are NOT skipped here.
-        // They ARE Python-compatible and have proper wrapper implementations.
-        // Only truly incompatible types (raw pointers, VecRef, destructors) are skipped.
-        true
+        // Not a class at all (a bare `Refstr`, a generic parameter, a spelling
+        // the IR never saw): nothing to generate against.
+        false
     }
 
     /// Lookup the TypeCategory for a type name
@@ -3175,7 +4118,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         if is_primitive_type(rust_type) {
             return rust_type.to_string();
         }
-        if rust_type == "String" {
+        if is_string_class(rust_type, ir) {
+            // allow-api-name: the Rust type written into the signature, not a decision
             return "String".to_string();
         }
 
@@ -3183,16 +4127,20 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let (ptr_prefix, base_type, array_suffix) = analyze_type(rust_type);
 
         // RefAny → Py<PyAny> (Python object that gets wrapped internally)
-        if base_type == "RefAny" {
+        if is_refany(&base_type, ir) {
             return "Py<PyAny>".to_string();
         }
 
-        // Callback typedef types (e.g., CallbackType, ButtonOnClickCallbackType) → Py<PyAny>
-        // These are raw function pointer types that Python can't use directly
-        // We accept a Python callable and use a trampoline to invoke it
-        // EXCEPTION: Destructor callback types are internal and should NOT be exposed to Python
-        // as Py<PyAny> - they are low-level function pointers for cleanup, not user callbacks
-        if base_type.ends_with("CallbackType") && !base_type.contains("Destructor") {
+        // A raw function-pointer typedef is not something Python can hold: the
+        // signature takes a callable instead, and a trampoline invokes it.
+        // Only the kinds a trampoline bridges -- a destructor or a clone
+        // function is internal cleanup with no callable and no wrapper to
+        // carry one, and never reaches Python.
+        if ir
+            .callback_typedefs
+            .iter()
+            .any(|c| c.name == base_type && trampoline_bridges(c, ir))
+        {
             return "Py<PyAny>".to_string();
         }
 
@@ -3244,20 +4192,103 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     }
 }
 
-/// Whether a Python trampoline bridges this callback kind: it has a wrapper
-/// (the Python callable travels in its context), its first argument is the
-/// application's data `RefAny` (a Python object), and no argument is a raw
-/// pointer. The trampoline finds the callable through the info argument's
-/// `get_ctx`, or through libazul's invocation slot when no argument carries
-/// the context.
-fn trampoline_bridges(callback: &CallbackTypedefDef) -> bool {
+/// The severity a failure at the callback boundary is reported at.
+///
+/// This names a VALUE the binding chooses -- the "something went wrong" level
+/// of whatever log-level enum the API declares -- not an API type: the enum
+/// itself, the method and the message type are all found by shape in
+/// [`log_sink_method`].
+const SEVERITY_ERROR: &str = "Error";
+
+/// The log-sink method `class_name` declares, with the level enum it takes.
+///
+/// A log sink is recognised by SHAPE, so this follows api.json instead of a
+/// list of callback kinds: an instance method that returns nothing and takes
+/// exactly two arguments besides the receiver -- a severity (a fieldless
+/// variant of an enum that has one saying something failed) and a message
+/// (the string class). Exactly one method in the API has that shape, and a
+/// second one could only be another log sink.
+fn log_sink_method<'a>(
+    class_name: &str,
+    ir: &'a CodegenIR,
+) -> Option<(&'a FunctionDef, &'a EnumDef)> {
+    // Not `functions_for_class`: it ties the class name's lifetime to the IR's.
+    ir.functions.iter().find_map(|f| {
+        if f.class_name != class_name
+            || !matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+            || f.return_type.is_some()
+        {
+            return None;
+        }
+        let args: Vec<_> = f.args.iter().filter(|a| !f.is_receiver_arg(a)).collect();
+        let [level, message] = args.as_slice() else {
+            return None;
+        };
+        if !is_string_class(&message.type_name, ir) {
+            return None;
+        }
+        let level_enum = ir.find_enum(&level.type_name)?;
+        let reports_failure = level_enum
+            .variants
+            .iter()
+            .any(|v| v.name == SEVERITY_ERROR && matches!(v.kind, EnumVariantKind::Unit));
+        reports_failure.then_some((f, level_enum))
+    })
+}
+
+/// The name a trampoline gives its `i`-th argument. The data object and the
+/// info object are named for what they are; the rest are positional.
+fn trampoline_arg_name(i: usize) -> String {
+    match i {
+        0 => "data".to_string(),
+        1 => "info".to_string(),
+        i => format!("arg{}", i),
+    }
+}
+
+/// Whether this callback kind hands the callback the application's own data
+/// object as its first argument. A kind that does not (because it takes no
+/// arguments at all) is still bridgeable -- see [`trampoline_bridges`].
+fn callback_carries_data(callback: &CallbackTypedefDef, ir: &CodegenIR) -> bool {
+    callback
+        .args
+        .first()
+        .is_some_and(|a| is_refany(&a.type_name, ir))
+}
+
+/// Whether a Python trampoline bridges this callback kind.
+///
+/// It needs a wrapper, because that is where the Python callable lives (in
+/// the wrapper's context slot), and no argument may be a raw pointer, because
+/// the trampoline hands its arguments to Python.
+///
+/// The ARGUMENTS may take either of two shapes. Usually the first one is the
+/// application's data object, which Python receives; the context then comes
+/// from the info argument's accessor, or -- when no argument can hand it back
+/// -- from libazul's invocation slot. A kind with NO arguments at all
+/// (`fn() -> ComponentLibrary`, the component-library registration) has
+/// neither, and the invocation slot is exactly what the engine provides for
+/// it: `impl_managed_callback!`'s Form 5 keys the context on the callee's
+/// own address, which a trampoline knows. So that shape bridges too, and
+/// calls Python with an empty argument tuple.
+fn trampoline_bridges(callback: &CallbackTypedefDef, ir: &CodegenIR) -> bool {
     callback.wrapper.is_some()
-        && callback.args.first().is_some_and(|a| a.type_name == "RefAny")
+        && (callback_carries_data(callback, ir) || callback.args.is_empty())
         && !callback.args.iter().any(|a| a.type_name.contains('*'))
 }
 
+/// A type the generated file writes into a signature AS ITSELF: a Rust
+/// primitive, a `core::ffi` numeric alias, or one of the GL numeric typedefs.
+///
+/// The GL names are not a classification decision, they are the SPELLING the
+/// generated code uses: the mirror does not re-export them under an `Az`
+/// prefix, so `fn bind_texture(&self, target: GLenum, texture: GLuint)` names
+/// the typedefs the including crate has in scope. Resolving
+/// "alias whose target is a primitive" from the IR instead would also catch
+/// the handful of newtype-ish aliases whose bare name is NOT in scope there,
+/// and emit signatures that do not compile.
 fn is_primitive_type(name: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: the spelling written into generated signatures, see above
         name,
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
@@ -3272,17 +4303,16 @@ fn is_primitive_type(name: &str) -> bool {
     )
 }
 
-/// Check if a type is a callback wrapper struct (contains a function pointer + RefAny data)
-/// These types need special handling: Python receives Py<PyAny>, and we construct
-/// the callback with a trampoline function that invokes the Python callable.
+/// Check if a type is a callback wrapper struct (a function pointer paired
+/// with the context its caller passes back).
 ///
-/// Detection criteria (all must be true):
-/// 1. Type is a struct (not enum, not type_alias)
-/// 2. Type name ends with "Callback" but NOT "CallbackType" or "CallbackInfo"
-/// 3. Type contains a field with a callback_typedef type as direct child
-/// 4. Type has a "callable" field with type "OptionRefAny"
+/// These types need special handling: Python receives Py<PyAny>, and we
+/// construct the callback with a trampoline function that invokes the Python
+/// callable.
 ///
-/// This information is pre-computed in the IR during the link_callback_wrappers phase.
+/// The IR decides this BY SHAPE in `link_callback_wrappers` -- exactly one
+/// field whose type is a callback typedef, and exactly one field that is the
+/// optional context slot -- so no name is consulted here or there.
 fn is_callback_wrapper_type(type_name: &str, ir: &CodegenIR) -> bool {
     // Use the pre-computed callback_wrapper_info from the IR
     if let Some(struct_def) = ir.find_struct(type_name) {
@@ -3300,26 +4330,212 @@ fn get_callback_wrapper_info<'a>(
         .and_then(|s| s.callback_wrapper_info.as_ref())
 }
 
-/// Check if a type is a direct FFI type (not wrapped in a struct with .inner)
-/// These types are type-aliased directly to the C-API types in generate_python_patches_prefix()
-fn is_direct_ffi_type(type_name: &str) -> bool {
-    // Vec types that have direct type aliases (no .inner wrapper)
-    const DIRECT_FFI_TYPES: &[&str] = &[
-        // Core Vec types
-        "StringVec",
-        "U8Vec",
-        "U16Vec",
-        "U32Vec",
-        "I32Vec",
-        "F32Vec",
-        // GL Vec types
-        "GLuintVec",
-        "GLintVec",
-        // These might have FromPyObject/IntoPyObject implementations
-        "String", // Already handled separately, but include for completeness
-    ];
+/// Whether a value of this class is handed to the C layer AS ITSELF rather
+/// than through a `.inner` field: the two categories the IR gives the
+/// `ptr`/`len`/`cap`/`destructor` layout and the string layout. The wrapper
+/// for such a class is `repr(transparent)` when it exists at all, so a
+/// transmute of the whole value is the conversion.
+fn is_direct_ffi_type(type_name: &str, ir: &CodegenIR) -> bool {
+    matches!(
+        category_of(type_name, ir),
+        Some(TypeCategory::Vec) | Some(TypeCategory::String)
+    )
+}
 
-    DIRECT_FFI_TYPES.contains(&type_name) || type_name.ends_with("Vec")
+/// The element of a borrowed STRING slice.
+///
+/// api.json declares neither this type nor an element for the slice that
+/// holds it, and the C header has no `AzRefstr` either -- only the slice. So
+/// this is the one element name the IR cannot supply. The type itself is real
+/// and public (`azul_core::gl::Refstr`: a `{ptr, len}` view of UTF-8 with a
+/// `From<&str>`), and the bridge builds it from the Python strings it is
+/// handed; its PATH is derived from the slice's own external path, not
+/// written down.
+const PY_BORROWED_STR_ELEMENT: &str = "Refstr";
+
+/// What a borrowed slice's elements are, which decides what Python lends.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum SliceElement {
+    /// A number: the Python sequence IS the buffer (`bytes`, `list[int]`).
+    Primitive,
+    /// A class: its `repr(transparent)` wrapper makes a `Vec` of wrappers the
+    /// same bytes as the C array, so that `Vec` is the buffer.
+    Class,
+    /// A borrowed string view: the strings live in one buffer and a second
+    /// buffer of views points into them. Both live on this call's stack.
+    BorrowedStr,
+}
+
+/// A borrowed `{ptr, len}` slice parameter -- what the IR classifies as
+/// [`TypeCategory::VecRef`].
+struct BorrowedSlice {
+    /// Element type as the IR spells it (`u8`, `GLuint`, `TessellatedSvgNode`).
+    element: String,
+    /// The callee WRITES through the pointer (the `RefMut` half of the family).
+    is_mutable: bool,
+    /// What the elements are.
+    kind: SliceElement,
+    /// Field names of the mirror struct, read from the IR rather than assumed.
+    ptr_field: String,
+    len_field: String,
+}
+
+impl BorrowedSlice {
+    /// The element type as the generated signature spells it.
+    fn py_element(&self, prefix: &str) -> String {
+        match self.kind {
+            SliceElement::Primitive => self.element.clone(),
+            SliceElement::Class => format!("{}{}", prefix, self.element),
+            // A Python `str` owns its bytes; the view is built from it below.
+            // The spelling is Rust's own String, the type written into the
+            // signature -- not the API class that shares the name.
+            // allow-api-name: the Rust type written into the signature
+            SliceElement::BorrowedStr => "String".to_string(),
+        }
+    }
+}
+
+/// Describe `type_name` as a borrowed slice, if that is what it is.
+///
+/// The IR classifies the type (`TypeCategory::VecRef`) but does not keep the
+/// element -- api.json declares the pointer as `c_void`, and the element is
+/// recovered from the name the same way `ir_builder::vecref_layout_element`
+/// recovers it for the classification itself: the part before the suffix
+/// either names a class or is a primitive spelled in CamelCase (`U8` -> `u8`).
+fn borrowed_slice_arg(type_name: &str, ir: &CodegenIR) -> Option<BorrowedSlice> {
+    use super::ir::FieldRefKind;
+
+    if category_of(type_name, ir) != Some(TypeCategory::VecRef) {
+        return None;
+    }
+    let (prefix, is_mutable) = match type_name.strip_suffix("VecRefMut") {
+        Some(p) => (p, true),
+        None => (type_name.strip_suffix("VecRef")?, false),
+    };
+    let lowered = prefix.to_ascii_lowercase();
+    let (element, kind) = if ir.find_struct(prefix).is_some() || ir.find_enum(prefix).is_some() {
+        (prefix.to_string(), SliceElement::Class)
+    } else if ir.find_type_alias(prefix).is_some() && is_primitive_type(prefix) {
+        // A GL scalar typedef: a number under another name.
+        (prefix.to_string(), SliceElement::Primitive)
+    } else if is_primitive_type(&lowered) {
+        (lowered, SliceElement::Primitive)
+    } else if prefix == PY_BORROWED_STR_ELEMENT {
+        (prefix.to_string(), SliceElement::BorrowedStr)
+    } else {
+        // An element shape nothing here can build.
+        return None;
+    };
+
+    // The two fields, told apart by shape: one is the pointer, the other is
+    // the length.
+    let def = ir.find_struct(type_name)?;
+    let ptr_field = def
+        .fields
+        .iter()
+        .find(|f| matches!(f.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut))?;
+    let len_field = def.fields.iter().find(|f| f.name != ptr_field.name)?;
+
+    Some(BorrowedSlice {
+        element,
+        is_mutable,
+        kind,
+        ptr_field: ptr_field.name.clone(),
+        len_field: len_field.name.clone(),
+    })
+}
+
+/// The external path of a borrowed slice's ELEMENT: the slice's own external
+/// path without the suffix that makes it a slice (`azul_core::gl::RefstrVecRef`
+/// -> `azul_core::gl::Refstr`), which is the same relationship the element
+/// name has to the slice name.
+fn slice_element_path(slice_type: &str, external: &str) -> String {
+    let suffix = if slice_type.ends_with("VecRefMut") {
+        "VecRefMut"
+    } else {
+        "VecRef"
+    };
+    external.strip_suffix(suffix).unwrap_or(external).to_string()
+}
+
+/// What a raw-pointer argument points AT, as the body itself states it.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum PointerBorrow {
+    /// `&*name`: one value, borrowed for the call and only read.
+    Shared,
+    /// `&mut *name`: one value, borrowed for the call and WRITTEN THROUGH.
+    Mutable,
+}
+
+/// Whether a raw-pointer argument is ONE borrowed object rather than the head
+/// of an array, and if so how it is borrowed.
+///
+/// Python can lend a value for the duration of a call -- the same contract
+/// the borrowed-slice bridge honours -- but a value has one address, not
+/// `len` of them, so the array form cannot be bridged at all. api.json states
+/// which one it is in the BODY, the only place that knows: a single borrowed
+/// object is dereferenced there (`&*info`, `&mut *model`), while an array
+/// pointer is passed straight on next to its length
+/// (`copy_from_ptr(ptr, len)`). Keying on the body keeps the 124
+/// `copy_from_ptr`s out by construction instead of by a name test -- handing
+/// one of those a single value and a caller-chosen `len` would read past the
+/// end of it.
+fn pointer_borrow(func: &FunctionDef, arg: &super::ir::FunctionArg) -> Option<PointerBorrow> {
+    let body = func.fn_body.as_deref()?;
+    // The deref at a word boundary, so `&*dom` does not match `&*dom_id`.
+    // `&\*` cannot match the `&mut *` form, so the two are never confused.
+    let derefs = |head: &str| {
+        regex::Regex::new(&format!(r"{}\*{}($|[^\w])", head, regex::escape(&arg.name)))
+            .map(|re| re.is_match(body))
+            .unwrap_or(false)
+    };
+    match arg.ref_kind {
+        ArgRefKind::Ptr if derefs("&") => Some(PointerBorrow::Shared),
+        ArgRefKind::PtrMut if derefs("&mut ") => Some(PointerBorrow::Mutable),
+        _ => None,
+    }
+}
+
+/// An `Option<borrowed slice>` -- the optional form of [`BorrowedSlice`].
+struct OptionalSlice {
+    slice: BorrowedSlice,
+    /// The payload's own class name, for naming its mirror struct.
+    slice_type: String,
+    /// Variant names, read from the IR so neither spelling is assumed.
+    some_variant: String,
+    none_variant: String,
+}
+
+/// Describe `type_name` as an optional borrowed slice, if that is its shape.
+///
+/// Structural, not the IR's `Option` category: exactly two variants, one
+/// carrying a borrowed slice and one carrying nothing. That is the whole of
+/// what the bridge needs to know -- which variant to build for a Python
+/// value, and which for `None`.
+fn optional_slice(type_name: &str, ir: &CodegenIR) -> Option<OptionalSlice> {
+    let def = ir.find_enum(type_name)?;
+    if def.variants.len() != 2 {
+        return None;
+    }
+    let mut payload: Option<(String, String, BorrowedSlice)> = None;
+    let mut empty: Option<String> = None;
+    for variant in &def.variants {
+        match &variant.kind {
+            EnumVariantKind::Unit => empty = Some(variant.name.clone()),
+            EnumVariantKind::Tuple(types) => {
+                let (ty, _) = types.first()?;
+                payload = Some((variant.name.clone(), ty.clone(), borrowed_slice_arg(ty, ir)?));
+            }
+            EnumVariantKind::Struct(_) => return None,
+        }
+    }
+    let (some_variant, slice_type, slice) = payload?;
+    Some(OptionalSlice {
+        slice,
+        slice_type,
+        some_variant,
+        none_variant: empty?,
+    })
 }
 
 fn to_snake_case(s: &str) -> String {

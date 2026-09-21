@@ -930,6 +930,36 @@ impl<'a> Model<'a> {
         })
     }
 
+    /// The function a binding reports a boundary failure through, if `class`
+    /// has one: a `&mut self` method that returns nothing and takes a log
+    /// LEVEL (a fieldless enum) and a message (the string). Exactly one
+    /// function in api.json has that shape. It writes to libazul's global
+    /// diagnostics sink rather than into the receiver, so logging through a
+    /// copy of the value reaches the same place.
+    ///
+    /// Returns the C symbol and the level enum's class name.
+    pub fn log_fn(&self, class: &str) -> Option<(String, String)> {
+        self.functions_of(class).iter().find_map(|f| {
+            let void = f
+                .return_type
+                .as_deref()
+                .is_none_or(|r| matches!(self.owned(r), Ty::Void));
+            if !void || f.args.len() != 3 {
+                return None;
+            }
+            if !matches!(f.args[0].ref_kind, ArgRefKind::RefMut | ArgRefKind::PtrMut)
+                || f.args[1].ref_kind != ArgRefKind::Owned
+                || f.args[2].ref_kind != ArgRefKind::Owned
+            {
+                return None;
+            }
+            let level = f.args[1].type_name.trim();
+            (self.enums.contains_key(level)
+                && matches!(self.owned(&f.args[2].type_name), Ty::Str))
+            .then(|| (f.c_name.clone(), level.to_string()))
+        })
+    }
+
     /// The `get_ctx` of an info type, if it has one: that is where a closure
     /// stored in a callback's ctx is read back.
     pub fn ctx_getter(&self, info_type: &str) -> Option<String> {

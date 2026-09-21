@@ -21,6 +21,20 @@
 //! The output is a single `String` for the user to write to disk; this
 //! mirrors `lang_python.rs` rather than implementing the
 //! `LanguageGenerator` trait.
+//!
+//! # Emitted code always writes `global::System.…`
+//!
+//! The FIRST identifier of a qualified name is resolved in the enclosing
+//! class scope, so a member named after a namespace hides it for the whole
+//! class body: api.json has a `System` variant on `PixelValueOrSystem`,
+//! `ColorOrSystem`, `Instant`, `Duration` and five more, and once any of
+//! those became a class member every `System.Runtime.InteropServices.…` in
+//! that class stopped compiling (CS0119). `global::` cannot be hidden by a
+//! member, so every namespace this generator writes into a class or struct
+//! body — and into a base-type list — is rooted there. Renaming the member
+//! would fix one variant and leave `Text`, `Threading` and `IO` waiting.
+//! The `using` directives in the file header are the one exception: they
+//! are resolved outside any class and nothing can shadow them.
 
 pub mod constants;
 pub mod csproj;

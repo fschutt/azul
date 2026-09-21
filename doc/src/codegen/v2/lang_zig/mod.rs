@@ -5,6 +5,9 @@
 //! 1. `pub const C = struct { ... }` — the C ABI of `libazul` pre-translated from the IR (see
 //!    [`c_decls`]): every struct/union/enum, callback typedef, constant and `pub extern fn`,
 //!    with the names and layouts of `azul.h`.
+//! 1b. The callback-boundary helpers ([`boundary`]): the api.json-derived half of "a failing
+//!    callback degrades instead of taking the process down" — which type carries the engine's
+//!    log sink, and which callback return types have a fallback the binding may safely invent.
 //! 2. The runtime prelude ([`ZIG_RUNTIME`]): `ReflectModel(T)` (the user's data model behind a
 //!    `RefAny`) and the comptime `_as*` conversions the wrappers call so users can pass Zig
 //!    slices, `?T`, wrapper structs and plain Zig `fn`s where the C ABI wants `AzString`,
@@ -37,6 +40,7 @@
 //!
 //! No header, no include path.
 
+pub mod boundary;
 pub mod build_zig;
 pub mod c_decls;
 pub mod wrappers;
@@ -60,6 +64,10 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
 
     emit_header(&mut builder);
     emit_c_namespace(&mut builder, ir, &CodegenConfig::c_header());
+    // The generated half of the callback boundary (`_logThrough`,
+    // `_hasFallback`, `_fallback`); `_boundaryFailure` in the prelude below
+    // is the generic half that calls them.
+    builder.raw(&boundary::generate_boundary_helpers(ir));
     builder.raw(ZIG_RUNTIME);
     builder.raw(&wrappers::generate_wrappers(ir));
 
@@ -354,24 +362,56 @@ pub inline fn _asRefAny(data: anytype) C.AzRefAny {
 
 // ---- Callbacks -------------------------------------------------------------
 
-/// Convert one C callback parameter to the type the user's `fn` declares.
-inline fn _callbackArgFromC(comptime CT: type, comptime UT: type, value: CT) UT {
+/// Convert one C callback parameter to the type the user's `fn` declares, or
+/// `null` when the value the engine handed over is not what the user's `fn`
+/// asks for.
+///
+/// `null` has exactly one source: a model downcast that failed
+/// (`AzRefAny_isType` says the `RefAny` holds some other type, because the
+/// callback was registered against one model and fired with another). That is
+/// the likeliest real failure at this boundary, and it used to `panic` here —
+/// i.e. abort the process from inside Rust's call, with nothing in the log to
+/// say why. Answering `null` lets `_boundaryFailure` report it through the
+/// engine's log sink and hand back the callback kind's fallback instead.
+///
+/// Everything else here is a COMPILE error, not a runtime one: a parameter
+/// the C ABI can never produce is a mistake in the user's signature.
+inline fn _callbackArgFromC(comptime CT: type, comptime UT: type, value: CT) ?UT {
     if (UT == CT) return value;
     if (CT == C.AzRefAny) {
-        if (comptime _isModelRef(UT)) {
-            return ReflectModel(UT.Model).downcast(&value) orelse
-                std.debug.panic("azul callback: the RefAny does not hold a {s}", .{@typeName(UT.Model)});
-        }
+        if (comptime _isModelRef(UT)) return ReflectModel(UT.Model).downcast(&value);
         if (comptime _isSinglePtr(UT)) {
             const M = _Pointee(UT);
-            const r = ReflectModel(M).downcast(&value) orelse
-                std.debug.panic("azul callback: the RefAny does not hold a {s}", .{@typeName(M)});
+            const r = ReflectModel(M).downcast(&value) orelse return null;
             return r.get();
         }
         @compileError("callback parameter " ++ @typeName(UT) ++ " cannot receive the RefAny: use `ReflectModel(M).Ref`, `*M` or `C.AzRefAny`");
     }
     if (comptime _hasInner(UT, CT)) return UT{ .inner = value };
     @compileError("callback parameter " ++ @typeName(UT) ++ " cannot receive a " ++ @typeName(CT) ++ " (use that type or its wrapper struct)");
+}
+
+/// A callback that could not be made: report it, then answer.
+///
+/// Reported through the first argument that carries the engine's log sink
+/// (`_logThrough`, generated from the IR), so the failure reaches the
+/// application's log — and its metrics — rather than only stderr; kinds whose
+/// arguments carry no sink fall back to stderr.
+///
+/// Then answers with the kind's fallback (`_fallback`). A kind whose return
+/// type the binding cannot safely invent — an owning handle with no `Default`
+/// export, where a zeroed value is not "empty" but a handle Rust would then
+/// DROP — still aborts, but now only after the reason has been logged. That
+/// is the ceiling for Zig: with no unwinding there is nothing to catch, and a
+/// bad handle is a worse outcome than stopping.
+fn _boundaryFailure(comptime Ret: type, c_args: anytype, msg: []const u8) Ret {
+    var reported = false;
+    inline for (c_args) |a| {
+        if (!reported) reported = _logThrough(@TypeOf(a), a, msg);
+    }
+    if (!reported) std.debug.print("{s}\n", .{msg});
+    if (comptime _hasFallback(Ret)) return _fallback(Ret);
+    std.debug.panic("{s}", .{msg});
 }
 
 /// Convert the user's return value to the C return type.
@@ -394,8 +434,21 @@ inline fn _callbackRetToC(comptime Ret: type, res: anytype) Ret {
 /// converted back (`azul.Update` -> `C.AzUpdate`, `azul.Dom` -> `C.AzDom`, ...).
 ///
 /// Ownership: the engine passes its `RefAny` clones BY VALUE and expects the callee to
-/// release them. The trampoline does so after the user function returns, unless the user
-/// took the raw `C.AzRefAny` (then it is theirs to `AzRefAny_delete`).
+/// release them. The trampoline does so on every exit — including the two below — unless
+/// the user took the raw `C.AzRefAny` (then it is theirs to `AzRefAny_delete`).
+///
+/// Failure: the trampoline does not let a failure cross back into Rust as an abort if it
+/// can avoid it (see `_boundaryFailure`). Two things can go wrong here.
+///
+///   * The model downcast fails — the `RefAny` holds some other type than the one the
+///     user's `fn` declares. Logged through the engine's sink, then answered with the
+///     kind's fallback.
+///   * The user's `fn` returns an error. Zig has no exceptions and `@panic` does not
+///     unwind, so this is the only failure a callback can report: declare `!T` and the
+///     error is logged and answered the same way. A plain `T` is unaffected.
+///
+/// A kind whose return type has no safe fallback (an owning handle libazul exports no
+/// `Default` for) still aborts, but with the reason logged first.
 ///
 /// A value that already has type `CbT` (or any extern fn pointer) is passed through.
 pub inline fn _asCallback(comptime CbT: type, comptime user_fn: anytype) CbT {
@@ -415,10 +468,10 @@ pub inline fn _asCallback(comptime CbT: type, comptime user_fn: anytype) CbT {
             return c_fn.params[i].type.?;
         }
         fn invoke(c_args: anytype) Ret {
-            var user_args: std.meta.ArgsTuple(UserT) = undefined;
-            inline for (c_fn.params, 0..) |cp, i| {
-                user_args[i] = _callbackArgFromC(cp.type.?, u_fn.params[i].type.?, c_args[i]);
-            }
+            // The engine passes its RefAny clones BY VALUE and expects the
+            // callee to release them — whether or not the user function ends
+            // up being called. Registered BEFORE the first fallible step so
+            // the failure path releases them too.
             defer {
                 inline for (c_fn.params, 0..) |cp, i| {
                     if (cp.type.? == C.AzRefAny and u_fn.params[i].type.? != C.AzRefAny) {
@@ -427,7 +480,30 @@ pub inline fn _asCallback(comptime CbT: type, comptime user_fn: anytype) CbT {
                     }
                 }
             }
-            return _callbackRetToC(Ret, @call(.auto, user_fn, user_args));
+            var user_args: std.meta.ArgsTuple(UserT) = undefined;
+            inline for (c_fn.params, 0..) |cp, i| {
+                user_args[i] = _callbackArgFromC(cp.type.?, u_fn.params[i].type.?, c_args[i]) orelse
+                    return _boundaryFailure(Ret, c_args, "azul callback: the RefAny does not hold a " ++ @typeName(u_fn.params[i].type.?));
+            }
+            const res = @call(.auto, user_fn, user_args);
+            // An error union is the ONE way a Zig callback can tell us it
+            // failed: there are no exceptions to catch, and a `@panic` does
+            // not unwind, so a user who wants a failure degraded rather than
+            // fatal declares `!T` and returns an error. Opt-in and free: the
+            // condition is comptime, so a plain `T` callback compiles to
+            // exactly what it did before.
+            if (comptime @typeInfo(@TypeOf(res)) == .error_union) {
+                return _callbackRetToC(Ret, res catch |err| {
+                    var buf: [256]u8 = undefined;
+                    const m: []const u8 = std.fmt.bufPrint(
+                        &buf,
+                        "azul callback: {s} failed with {s}",
+                        .{ @typeName(UserT), @errorName(err) },
+                    ) catch @errorName(err);
+                    return _boundaryFailure(Ret, c_args, m);
+                });
+            }
+            return _callbackRetToC(Ret, res);
         }
     };
     const N = c_fn.params.len;

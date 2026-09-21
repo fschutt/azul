@@ -112,7 +112,20 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
     builder.line("val releaser = AzulNativeManaged.HostHandleReleaserCallback { id ->");
     builder.indent();
+    // A JNA boundary like any other: nothing here is expected to throw, but
+    // an OutOfMemoryError unwinding into Rust is undefined all the same.
+    builder.line("try {");
+    builder.indent();
     builder.line("synchronized(handles) { handles.remove(id) }");
+    builder.dedent();
+    builder.line("} catch (__t: Throwable) {");
+    builder.indent();
+    builder.line(
+        "System.err.println(\"azul: releasing a host handle raised \" + __t.javaClass.name + \
+         \": \" + (__t.message ?: \"<no message>\"))",
+    );
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("}");
     builder.line("livePins.add(releaser)");
@@ -145,6 +158,22 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
             p = params.join(", ")
         ));
         builder.indent();
+        // THE boundary. This lambda is what libazul calls, so a Throwable
+        // that leaves it unwinds through Rust — undefined behaviour. Every
+        // failure below is caught here, including one from a raw
+        // `<Wrapper>InvokerCallback` the user registered directly (the typed
+        // bridges further down catch their own first, for a better message).
+        //
+        // Catching is not swallowing: the report goes at Error level through
+        // the engine's log sink when this kind carries one, so a broken
+        // callback shows up in the app's log (and its Grafana) instead of
+        // taking the process down.
+        //
+        // The kind's FALLBACK comes for free: `outPtr` is left untouched, and
+        // the engine pre-filled it with an "unwritten" sentinel it answers
+        // with the kind's own default (`core::host_invoker::HostOut`).
+        builder.line("try {");
+        builder.indent();
         // Per-kind dispatch: look up the registered user callback by
         // id (it was stashed by `register<Wrapper>(fn)` below), then
         // if it implements the matching `<Wrapper>InvokerCallback`
@@ -157,6 +186,26 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         ));
         builder.indent();
         builder.line(&format!("fn.invoke({})", forward_args.join(", ")));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        // `Throwable`, not `Exception`: an `Error` (a StackOverflowError from
+        // a callback that recursed, say) crossing the ABI is just as
+        // undefined as a RuntimeException.
+        builder.line("} catch (__t: Throwable) {");
+        builder.indent();
+        let sink = kt_failure_sink(cb, ir);
+        let target = match &sink {
+            // The dispatcher's args are positional (`arg0`, `arg1`, …), so
+            // the sink is addressed by INDEX, never by the api.json name.
+            Some(s) => KtLogTarget::Pointer {
+                var: format!("arg{}", s.arg_index),
+                sink: s,
+            },
+            None => KtLogTarget::Stderr,
+        };
+        emit_kt_failure_report(builder, &target, &kt_throwable_message(wrapper, "__t"));
+        builder.line("__t.printStackTrace()");
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -339,6 +388,12 @@ fn emit_kt_typed_invoker_sam(builder: &mut CodeBuilder, cb: &CallbackTypedefDef,
     builder.line(&format!("val raw = {} {{", raw_sam));
     builder.indent();
     builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
+    // The user's callback runs inside the try: whatever it throws is
+    // reported through the engine's log sink (or stderr) and never reaches
+    // JNA. `outPtr` stays unwritten on that path, which is exactly how the
+    // engine is told to answer this kind's own fallback.
+    builder.line("try {");
+    builder.indent();
     builder.line(&format!(
         "val result = fn.invoke({})",
         typed_args.join(", ")
@@ -353,6 +408,23 @@ fn emit_kt_typed_invoker_sam(builder: &mut CodeBuilder, cb: &CallbackTypedefDef,
     builder.line("outPtr?.write(0, rawStruct.pointer.getByteArray(0, sz), 0, sz)");
     // libazul takes ownership of the struct bytes via outPtr.
     builder.line("result.__consume()");
+    builder.dedent();
+    builder.line("} catch (__t: Throwable) {");
+    builder.indent();
+    let sink = kt_failure_sink(cb, ir);
+    let target = match &sink {
+        // This lambda names its args after the IR, so the sink is addressed
+        // through the same list the parameters were built from.
+        Some(s) => KtLogTarget::Pointer {
+            var: raw_lambda_args[s.arg_index + 1].clone(),
+            sink: s,
+        },
+        None => KtLogTarget::Stderr,
+    };
+    emit_kt_failure_report(builder, &target, &kt_throwable_message(wrapper, "__t"));
+    builder.line("__t.printStackTrace()");
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("}");
     builder.line(&format!("return register{}(raw as Any)", wrapper));
@@ -410,21 +482,38 @@ pub(super) struct KtDataSamShape {
     pub return_decl: String,
 }
 
-
-/// The first callback argument whose class can REPORT a failure, as
-/// `(Kotlin variable, Error level expression)`.
+/// How a failing callback of one kind reaches the application's log sink.
 ///
-/// Found by SHAPE, not by name: an instance method taking a severity (a
-/// unit enum that has an `Error` level) and an owned message string.
-/// Exactly one function in the whole API has that shape, and it is the
-/// one we want. Spelling its name here instead would mean a rename in
-/// api.json silently stopped every failing callback from reporting
-/// anything — at runtime, with no build error to notice it by.
-fn kt_failure_logger(
-    cb: &CallbackTypedefDef,
-    shape: &KtDataSamShape,
-    ir: &CodegenIR,
-) -> Option<(String, String)> {
+/// A Throwable that leaves a JNA callback unwinds through Rust, which is
+/// undefined behaviour, so every trampoline below catches one. Catching is
+/// only half of it: an error nobody sees is an error nobody fixes, so the
+/// report goes through the ENGINE's log sink (and therefore the app's
+/// Grafana) whenever the kind carries an argument that can take one.
+struct KtFailureSink {
+    /// Position in `cb.args` of the argument that can log.
+    arg_index: usize,
+    /// Kotlin wrapper class to build over that argument's pointer.
+    class: String,
+    /// The wrapper's type has a `_delete`, so its constructor takes an
+    /// `owned` flag. A failure report BORROWS the engine's value — it must
+    /// never register a cleaner that frees it.
+    borrowed: bool,
+    /// The wrapper method that logs, as `wrappers.rs` spells it.
+    method: String,
+    /// The severity argument, e.g. `AppLogLevel.Error.value`.
+    level: String,
+}
+
+/// `(log method, Error severity expression)` when `class` is a type through
+/// which a callback can report a failure.
+///
+/// Found by SHAPE, not by name: an instance method taking a severity (a unit
+/// enum that has an `Error` level) and an owned message string. Exactly one
+/// function in the whole API has that shape, and it is the one we want.
+/// Spelling its name here instead would mean a rename in api.json silently
+/// stopped every failing callback from reporting anything — at runtime, with
+/// no build error to notice it by.
+fn kt_error_log_call(class: &str, ir: &CodegenIR) -> Option<(String, String)> {
     let is_message = |t: &str| {
         ir.find_struct(t.trim())
             .is_some_and(|s| matches!(s.category, TypeCategory::String))
@@ -434,29 +523,105 @@ fn kt_failure_logger(
             .filter(|e| !e.is_union)
             .is_some_and(|e| e.variants.iter().any(|v| v.name == "Error"))
     };
-    for ((kind, name), a) in shape.extra_args.iter().zip(cb.args.iter().skip(1)) {
-        if !matches!(kind, KtSamArg::Wrapper { .. }) {
-            continue;
-        }
+    let f = ir.functions.iter().find(|f| {
+        f.class_name == class
+            && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+            && f.args.len() == 3
+            && f.is_receiver_arg(&f.args[0])
+            && has_error_level(f.args[1].type_name.as_str())
+            && is_message(f.args[2].type_name.as_str())
+            && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+    })?;
+    let level_ty = f.args[1].type_name.trim();
+    let e = ir.find_enum(level_ty).filter(|e| !e.is_union)?;
+    let variant = e.variants.iter().find(|v| v.name == "Error")?;
+    Some((
+        super::wrappers::idiomatic_method_name(&f.method_name),
+        format!("{}.{}.value", user_enum_type_name(level_ty), variant.name),
+    ))
+}
+
+/// The first argument of `cb` that can carry a failure report, or `None` for
+/// a kind whose signature has none — those report on stderr.
+fn kt_failure_sink(cb: &CallbackTypedefDef, ir: &CodegenIR) -> Option<KtFailureSink> {
+    cb.args.iter().enumerate().find_map(|(i, a)| {
         let ty = a.type_name.trim();
-        let f = ir.functions.iter().find(|f| {
-            f.class_name == ty
-                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
-                && f.args.len() == 3
-                && f.is_receiver_arg(&f.args[0])
-                && has_error_level(f.args[1].type_name.as_str())
-                && is_message(f.args[2].type_name.as_str())
-                && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
-        })?;
-        let level_ty = f.args[1].type_name.trim();
-        let e = ir.find_enum(level_ty).filter(|e| !e.is_union)?;
-        let variant = e.variants.iter().find(|v| v.name == "Error")?;
-        return Some((
-            format!("__{}", name),
-            format!("{}.{}.value", user_enum_type_name(level_ty), variant.name),
-        ));
+        // The report calls the log method on the WRAPPER, so the type has to
+        // have one; every info type that logs does.
+        if !has_wrapper_class(ty, ir) {
+            return None;
+        }
+        let (method, level) = kt_error_log_call(ty, ir)?;
+        Some(KtFailureSink {
+            arg_index: i,
+            class: kotlin_class_name(ty, ir),
+            borrowed: has_delete_function(ty, ir),
+            method,
+            level,
+        })
+    })
+}
+
+/// Where one emitted report writes.
+enum KtLogTarget<'a> {
+    /// A wrapper instance already in scope (the data bridge builds its
+    /// argument wrappers before it can fail).
+    Wrapper {
+        var: String,
+        method: &'a str,
+        level: &'a str,
+    },
+    /// A raw `Pointer?` in scope: the report builds a borrowed wrapper over
+    /// it, and falls back to stderr when the engine passed null.
+    Pointer {
+        var: String,
+        sink: &'a KtFailureSink,
+    },
+    /// The kind has no argument that can log.
+    Stderr,
+}
+
+/// Emit one failure report: bind the message, then push it at `Error` level
+/// through the log sink, or to stderr when the kind has none.
+fn emit_kt_failure_report(builder: &mut CodeBuilder, target: &KtLogTarget<'_>, msg_expr: &str) {
+    builder.line(&format!("val __msg = {}", msg_expr));
+    match target {
+        KtLogTarget::Wrapper { var, method, level } => {
+            builder.line(&format!("{}.{}({}, __msg)", var, method, level));
+        }
+        KtLogTarget::Pointer { var, sink } => {
+            builder.line(&format!("val __sink = {}", var));
+            builder.line("if (__sink == null) {");
+            builder.indent();
+            builder.line("System.err.println(__msg)");
+            builder.dedent();
+            builder.line("} else {");
+            builder.indent();
+            // `owned = false`: the info value belongs to the engine for the
+            // duration of the call. An owning wrapper here would register a
+            // cleaner that frees it at GC time.
+            let ctor = if sink.borrowed {
+                format!("{}(__sink, owned = false)", sink.class)
+            } else {
+                format!("{}(__sink)", sink.class)
+            };
+            builder.line(&format!("{}.{}({}, __msg)", ctor, sink.method, sink.level));
+            builder.dedent();
+            builder.line("}");
+        }
+        KtLogTarget::Stderr => builder.line("System.err.println(__msg)"),
     }
-    None
+}
+
+/// The message a caught Throwable produces: the callback KIND (so the app
+/// knows which of its callbacks broke), the throwable's class and its
+/// message. Mirrors the Pascal binding's wording.
+fn kt_throwable_message(kind: &str, var: &str) -> String {
+    format!(
+        "\"azul: {} raised \" + {v}.javaClass.name + \": \" + ({v}.message ?: \"<no message>\")",
+        kind,
+        v = var
+    )
 }
 
 /// THE predicate for "a `<Kind>WithData<T>` typed SAM is emitted for this
@@ -504,7 +669,10 @@ pub(super) fn kt_data_typed_sam_shape(
         None | Some("void") | Some("()") => ("Unit".to_string(), KtSamRet::Void),
         Some(rt) => {
             if has_wrapper_class(rt, ir) {
-                (kotlin_class_name(rt, ir), KtSamRet::Wrapper(ffi_type_name(rt)))
+                (
+                    kotlin_class_name(rt, ir),
+                    KtSamRet::Wrapper(ffi_type_name(rt)),
+                )
             } else if ir.find_enum(rt).is_some_and(|e| !e.is_union) {
                 (user_enum_type_name(rt), KtSamRet::UnitEnum)
             } else if ir.find_struct(rt).is_some() {
@@ -636,7 +804,10 @@ fn emit_kt_data_typed_invoker_sam(
             // The SAM args are platform-typed `Pointer?`; the C thunk
             // always fills these slots, so `!!` documents the contract.
             if *has_delete {
-                builder.line(&format!("val __{} = {}({}!!, owned = false)", name, class, name));
+                builder.line(&format!(
+                    "val __{} = {}({}!!, owned = false)",
+                    name, class, name
+                ));
             } else {
                 builder.line(&format!("val __{} = {}({}!!)", name, class, name));
             }
@@ -644,20 +815,34 @@ fn emit_kt_data_typed_invoker_sam(
         }
     }
     // A model of the wrong class or a throwing callback is reported through
-    // the first argument with a `log(level, message)` method (CallbackInfo),
-    // else on stderr, and never reaches JNA: the engine pre-filled the out
-    // slot with the kind's default, so a failed call leaves it alone.
-    let logger = kt_failure_logger(cb, &shape, ir);
-    let report = |builder: &mut CodeBuilder, msg: &str| match &logger {
-        Some((arg, level)) => builder.line(&format!("{}.log({}, {})", arg, level, msg)),
-        None => builder.line(&format!("System.err.println({})", msg)),
+    // the argument that can reach the engine's log sink, else on stderr, and
+    // never reaches JNA. The sink's wrapper is one this bridge already built
+    // above, so the report costs nothing on the happy path.
+    //
+    // A failed call leaves `outPtr` alone on purpose: the engine pre-filled
+    // it with an "unwritten" sentinel and answers this kind's own fallback
+    // when it sees it (`core::host_invoker::HostOut`).
+    let sink = kt_failure_sink(cb, ir);
+    let target = match &sink {
+        // `arg_index` counts `cb.args`; `extra_args` is that list minus the
+        // RefAny at 0, and the bridge named each built wrapper `__<name>`.
+        Some(s) if s.arg_index >= 1 => match shape.extra_args.get(s.arg_index - 1) {
+            Some((KtSamArg::Wrapper { .. }, name)) => KtLogTarget::Wrapper {
+                var: format!("__{}", name),
+                method: s.method.as_str(),
+                level: s.level.as_str(),
+            },
+            _ => KtLogTarget::Stderr,
+        },
+        _ => KtLogTarget::Stderr,
     };
     builder.line("try {");
     builder.indent();
     builder.line("if (__data == null || !klass.isInstance(__data)) {");
     builder.indent();
-    report(
+    emit_kt_failure_report(
         builder,
+        &target,
         &format!(
             "\"azul: {} expected a model of class \" + klass.name + \", got \" + (__data?.javaClass?.name ?: \"null\")",
             wrapper
@@ -742,10 +927,12 @@ fn emit_kt_data_typed_invoker_sam(
         }
     }
     builder.dedent();
-    builder.line("} catch (__e: Throwable) {");
+    // `Throwable`, not `Exception`: an `Error` crossing the ABI is as
+    // undefined as a RuntimeException.
+    builder.line("} catch (__t: Throwable) {");
     builder.indent();
-    report(builder, &format!("\"azul: {} raised \" + __e", wrapper));
-    builder.line("__e.printStackTrace()");
+    emit_kt_failure_report(builder, &target, &kt_throwable_message(wrapper, "__t"));
+    builder.line("__t.printStackTrace()");
     builder.dedent();
     if borrowed.is_empty() {
         builder.line("}");

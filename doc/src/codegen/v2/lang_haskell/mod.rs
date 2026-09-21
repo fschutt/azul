@@ -509,13 +509,19 @@ fn generate_reexport_facade(
 /// guaranteed to be UTF-8; libazul strings always are.
 fn generate_types_common(config: &CodegenConfig) -> String {
     let mut builder = CodeBuilder::new(&config.indent);
-    generated_header(&mut builder, "UTF-8 codec shared by every \"Azul.Types\" chunk.");
+    generated_header(
+        &mut builder,
+        "The UTF-8 codec every \"Azul.Types\" chunk may need, and the callback guard every tier above it uses. This module imports nothing of the binding's own, so it is the one place BOTH the raw FFI layer and the idiomatic layer can reach.",
+    );
     builder.blank();
     builder.line("module Azul.Types.Common where");
     builder.blank();
+    builder.line("import Control.Exception (SomeException(..), catch, displayException, evaluate)");
     builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
     builder.line("import Data.Char (chr, ord)");
+    builder.line("import Data.Typeable (typeOf)");
     builder.line("import Data.Word (Word8)");
+    builder.line("import System.IO (hPutStrLn, stderr)");
     builder.blank();
     builder.line("-- | Encode a Haskell String as UTF-8 bytes (what every AzString holds).");
     builder.line("encodeUtf8 :: String -> [Word8]");
@@ -558,7 +564,98 @@ fn generate_types_common(config: &CodegenConfig) -> String {
     builder.dedent();
     builder.dedent();
     builder.blank();
+    emit_callback_guard(&mut builder);
     builder.finish()
+}
+
+/// The callback guard, in "Azul.Types.Common" so that BOTH tiers that hand
+/// libazul a C function pointer can use the same one: the managed invokers
+/// in `Azul.Internal.Callbacks` and the raw `register<X>Callback` wrappers
+/// in `Azul.Internal.FFI.<Module>`. It cannot live in
+/// `Azul.Internal.Runtime` with the rest of the plumbing, because Runtime
+/// imports the FFI layer (for the `AzString` codec) and the FFI layer would
+/// then import Runtime back.
+///
+/// Why it exists at all: an exception that unwinds out of a `foreign import
+/// ccall "wrapper"` frame into Rust is undefined behaviour - the RTS has no
+/// frame to unwind to and ends the process. Every such frame therefore
+/// catches, reports through the callback's own log sink (so the failure
+/// reaches the app's logger, and Grafana, instead of killing the window)
+/// and answers with the fallback.
+///
+/// Laziness is the second half of the problem: a callback can return a
+/// thunk that only explodes when something forces it, which in an unguarded
+/// design is AFTER the handler returned. `azulGuardValue` therefore forces
+/// the answer inside the protected region, and the marshalling that follows
+/// (`poke`, which walks every field it writes) forces the rest of what the
+/// C ABI can observe. `base` is the only dependency, so there is no
+/// `NFData` to force deeper - and deeper is not observable from C anyway.
+fn emit_callback_guard(b: &mut CodeBuilder) {
+    b.line("-- ---------------------------------------------------------------------------");
+    b.line("-- The callback guard: no exception may reach libazul.");
+    b.line("-- ---------------------------------------------------------------------------");
+    b.blank();
+    b.line("-- | Where a callback failure goes when it has no log sink of its own.");
+    b.line("azulStderr :: String -> IO ()");
+    b.line("azulStderr = hPutStrLn stderr");
+    b.blank();
+    b.line("-- | Force a callback's answer to weak head normal form. Called INSIDE");
+    b.line("-- the guarded region: a thunk that raises would otherwise do so after");
+    b.line("-- the handler returned, with libazul on the stack. The `poke` that");
+    b.line("-- marshals the value afterwards is inside the region too, and walks");
+    b.line("-- every field the C ABI reads, so together they force exactly as deep");
+    b.line("-- as the boundary can observe.");
+    b.line("azulForce :: a -> IO a");
+    b.line("azulForce = evaluate");
+    b.blank();
+    b.line("-- | The message every binding logs for a callback that raised, in the");
+    b.line("-- same shape every other binding uses - it starts with");
+    b.line("-- @azul: Callback raised@ - so one query finds them across languages.");
+    b.line("azulCallbackError :: String -> SomeException -> String");
+    b.line("azulCallbackError kind (SomeException e) =");
+    b.indent();
+    b.line(
+        "\"azul: Callback raised \" ++ show (typeOf e) ++ \" in \" ++ kind ++ \": \" \
+         ++ displayException e",
+    );
+    b.dedent();
+    b.blank();
+    b.line("-- | Last resort when the log sink itself raised: the original message,");
+    b.line("-- on stderr.");
+    b.line("azulReportFailed :: String -> SomeException -> IO ()");
+    b.line("azulReportFailed msg _ = azulStderr msg");
+    b.blank();
+    b.line("azulIgnoreError :: SomeException -> IO ()");
+    b.line("azulIgnoreError _ = pure ()");
+    b.blank();
+    b.line("-- | Report a failed callback of kind @kind@ through @report@, falling");
+    b.line("-- back to stderr, and never raising itself.");
+    b.line("azulReport :: String -> (String -> IO ()) -> SomeException -> IO ()");
+    b.line("azulReport kind report e = do");
+    b.indent();
+    b.line("let msg = azulCallbackError kind e");
+    b.line("(report msg `catch` azulReportFailed msg) `catch` azulIgnoreError");
+    b.dedent();
+    b.blank();
+    b.line("-- | Run a callback that answers with a value so that nothing reaches");
+    b.line("-- libazul: force the answer, and on an exception log it and answer");
+    b.line("-- @fallback@ instead.");
+    b.line("azulGuardValue :: String -> (String -> IO ()) -> a -> IO a -> IO a");
+    b.line("azulGuardValue kind report fallback body =");
+    b.indent();
+    b.line("(body >>= azulForce) `catch` \\e -> do");
+    b.indent();
+    b.line("azulReport kind report e");
+    b.line("pure fallback");
+    b.dedent();
+    b.dedent();
+    b.blank();
+    b.line("-- | 'azulGuardValue' for a callback that answers through an");
+    b.line("-- out-pointer libazul pre-filled with the kind's default: on failure");
+    b.line("-- nothing is written and that default stands.");
+    b.line("azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()");
+    b.line("azulGuard kind report = azulGuardValue kind report ()");
+    b.blank();
 }
 
 /// One `Azul.Types.<Unit>` chunk: the declarations of the plan chunk's
@@ -635,7 +732,10 @@ fn generate_ffi_module(
     builder.blank();
     builder.line("import Azul.Types");
     builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr)");
+    // `nullPtr` / `nullFunPtr`: the answer a guarded `register<X>Callback`
+    // wrapper gives the C caller when the user's function raised and the
+    // callback's return type is a pointer.
+    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr, nullFunPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..), poke)");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
@@ -1349,8 +1449,49 @@ mod split_tests {
         let dom = &files["src/Azul/Internal/Api/Dom.hs"];
         assert!(dom.contains("moveDom a1 $"), "{}", dom);
         let runtime = &files["src/Azul/Internal/Runtime.hs"];
-        assert!(runtime.contains("azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()"));
         assert!(runtime.contains("Moved -> throwIO (AzulUseAfterMove cls)"));
+    }
+
+    /// Nothing a user wrote may unwind into libazul, and nothing may stay a
+    /// thunk past the point where it could: BOTH tiers that hand out a C
+    /// function pointer - the managed invokers and the raw
+    /// `register<X>Callback` wrappers - run the user's function under the
+    /// ONE guard in "Azul.Types.Common" and force its answer inside it.
+    #[test]
+    fn every_callback_boundary_catches_forces_and_falls_back() {
+        let files = split_files(&callback_fixture());
+
+        // One implementation, below the FFI layer so both tiers reach it.
+        let common = &files["src/Azul/Types/Common.hs"];
+        for decl in [
+            "azulGuardValue :: String -> (String -> IO ()) -> a -> IO a -> IO a",
+            "azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()",
+            "azulForce :: a -> IO a",
+            "azulForce = evaluate",
+            "(body >>= azulForce) `catch` \\e -> do",
+            "azul: Callback raised ",
+        ] {
+            assert!(common.contains(decl), "missing `{}`:\n{}", decl, common);
+        }
+        assert!(
+            !files["src/Azul/Internal/Runtime.hs"].contains("azulGuard ::"),
+            "the guard is declared once, in Azul.Types.Common"
+        );
+
+        // The managed invoker: guarded, and the answer forced before the
+        // guard ends rather than left to blow up during the poke.
+        let cbs = &files["src/Azul/Internal/Callbacks.hs"];
+        assert!(cbs.contains("azulGuard \"ButtonOnClickCallback\""), "{}", cbs);
+        assert!(cbs.contains(">>= azulForce"), "{}", cbs);
+
+        // The raw wrapper tier: a `foreign import ccall \"wrapper\"` frame
+        // too, and it has no CallbackInfo, so it reports on stderr.
+        let ffi = &files["src/Azul/Internal/FFI/Callbacks.hs"];
+        assert!(
+            ffi.contains("azulGuard \"ButtonOnClickCallbackType\" azulStderr"),
+            "the raw register helper must be guarded too:\n{}",
+            ffi
+        );
     }
 
     /// The per-class surface is grouped by api.json module: the FFI import,

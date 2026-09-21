@@ -29,7 +29,7 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
-        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, TypeCategory},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionKind, TypeCategory},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
@@ -158,7 +158,23 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.line("// Releaser");
             b.line("AzulNativeManaged.HostHandleReleaserCallback releaser = (long id) -> {");
             b.indent();
+            // Same boundary rule as every other trampoline: libazul calls this
+            // one while dropping a RefAny, and a Throwable unwinding out of a
+            // JNA callback frame into Rust is undefined behaviour. There is no
+            // CallbackInfo here, so stderr is the only sink.
+            b.line("try {");
+            b.indent();
             b.line("synchronized (handles) { handles.remove(id); }");
+            b.dedent();
+            b.line("} catch (Throwable __e) {");
+            b.indent();
+            b.line(
+                "System.err.println(\"azul: host-handle releaser threw \" + \
+                 __e.getClass().getName() + \": \" + __e.getMessage());",
+            );
+            b.line("__e.printStackTrace();");
+            b.dedent();
+            b.line("}");
             b.dedent();
             b.line("};");
             b.line("livePins.add(releaser);");
@@ -166,7 +182,7 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.blank();
 
             for cb in host_invoker_kinds(ir) {
-                emit_per_kind_init(b, cb);
+                emit_per_kind_init(b, cb, ir);
             }
 
             b.dedent();
@@ -308,34 +324,18 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
 fn emit_per_kind_init(
     b: &mut super::super::generator::CodeBuilder,
     cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
 ) {
     let wrapper = wrapper_name(cb);
     let cb_has_return = has_return(cb);
 
     let mut params = vec!["long id".to_string()];
     for (i, a) in cb.args.iter().enumerate() {
-        let nm = if a.name.is_empty() {
-            format!("arg{}", i)
-        } else {
-            a.name.clone()
-        };
-        params.push(format!("Pointer {}", nm));
+        params.push(format!("Pointer {}", invoker_arg_name(i, a)));
     }
     if cb_has_return {
         params.push("Pointer outPtr".to_string());
     }
-    let _user_args: Vec<String> = cb
-        .args
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            if a.name.is_empty() {
-                format!("arg{}", i)
-            } else {
-                a.name.clone()
-            }
-        })
-        .collect();
 
     b.line(&format!("// {} invoker", wrapper));
     b.line(&format!(
@@ -345,6 +345,15 @@ fn emit_per_kind_init(
         p = params.join(", ")
     ));
     b.indent();
+    // THE boundary. libazul calls this lambda through JNA, and every
+    // application callback of this kind — the typed SAMs below, a raw
+    // `<Kind>InvokerCallback` the user wrote by hand — is dispatched from
+    // inside it. A Throwable that unwinds from here into Rust is undefined
+    // behaviour, not merely a crash, so everything is caught, reported and
+    // swallowed. The engine pre-filled the out slot with this kind's default
+    // before calling, so not writing it IS returning the fallback.
+    b.line("try {");
+    b.indent();
     b.line("Object fn;");
     b.line("synchronized (handles) { fn = handles.get(id); }");
     b.line("if (fn == null) return;");
@@ -352,16 +361,11 @@ fn emit_per_kind_init(
     b.line("// expose Method.invoke through Callback. The user passes a");
     b.line("// concrete <Wrapper>InvokerCallback to register*Callback.");
     b.line("if (fn instanceof AzulNativeManaged.");
-    let _ = wrapper; // future: refine dispatch
     b.line(&format!("    {}InvokerCallback) {{", wrapper));
     b.indent();
     let mut handler_args = vec!["id".to_string()];
     for (i, a) in cb.args.iter().enumerate() {
-        handler_args.push(if a.name.is_empty() {
-            format!("arg{}", i)
-        } else {
-            a.name.clone()
-        });
+        handler_args.push(invoker_arg_name(i, a));
     }
     if cb_has_return {
         handler_args.push("outPtr".to_string());
@@ -373,6 +377,8 @@ fn emit_per_kind_init(
     ));
     b.dedent();
     b.line("}");
+    b.dedent();
+    emit_boundary_catch(b, wrapper, &pointer_sink(cb, ir), &[]);
     b.dedent();
     b.line("};");
     b.line(&format!("livePins.add({}Invoker);", lower_first(wrapper)));
@@ -435,11 +441,7 @@ fn emit_typed_invoker_sam(
     let mut typed_args = vec!["id".to_string()];
     let mut raw_lambda_params = vec!["long id".to_string()];
     for (i, a) in cb.args.iter().enumerate() {
-        let nm = if a.name.is_empty() {
-            format!("arg{}", i)
-        } else {
-            a.name.clone()
-        };
+        let nm = invoker_arg_name(i, a);
         typed_params.push(format!("Pointer {}", nm));
         typed_args.push(nm.clone());
         raw_lambda_params.push(format!("Pointer {}", nm));
@@ -487,6 +489,11 @@ fn emit_typed_invoker_sam(
         raw_lambda_params.join(", ")
     ));
     b.indent();
+    // Boundary: whatever the application's SAM throws is caught, reported to
+    // its own log sink and swallowed. outPtr keeps the default libazul
+    // pre-filled, which is this kind's fallback. See `emit_boundary_catch`.
+    b.line("try {");
+    b.indent();
     b.line(&format!(
         "{} result = fn.invoke({});",
         wrapper_class,
@@ -506,6 +513,8 @@ fn emit_typed_invoker_sam(
     // libazul takes ownership of the struct bytes via outPtr; the
     // user's wrapper would otherwise double-drop on GC.
     b.line("result.__consume();");
+    b.dedent();
+    emit_boundary_catch(b, wrapper, &pointer_sink(cb, ir), &[]);
     b.dedent();
     b.line("};");
     b.line(&format!("return register{}((Object) raw);", wrapper));
@@ -642,12 +651,7 @@ pub(super) fn data_typed_sam_info(
                 None => SamArg::RawPointer,
             }
         };
-        let name = if a.name.is_empty() {
-            format!("arg{}", i)
-        } else {
-            a.name.clone()
-        };
-        args.push((kind, name));
+        args.push((kind, invoker_arg_name(i, a)));
     }
 
     // Conformance probe #2: the return type must have an out-pointer
@@ -892,22 +896,21 @@ fn emit_data_typed_invoker_sam(
         }
     }
     b.dedent();
-    b.line("} catch (Throwable __e) {");
-    b.indent();
-    report(b, &format!("\"azul: {} raised \" + __e", wrapper));
-    b.line("__e.printStackTrace();");
-    b.dedent();
-    if borrowed.is_empty() {
-        b.line("}");
-    } else {
-        b.line("} finally {");
-        b.indent();
-        for name in &borrowed {
-            b.line(&format!("{}.close();", name));
-        }
-        b.dedent();
-        b.line("}");
-    }
+    // Boundary: see `emit_boundary_catch`. The log sink is the wrapper this
+    // bridge already borrowed for the logging-capable argument, so the catch
+    // has to run before the `finally` that invalidates those borrows.
+    let sink = match &logger {
+        Some((var, level)) => FailureSink::Wrapper {
+            var: var.clone(),
+            level: level.clone(),
+        },
+        None => FailureSink::Stderr,
+    };
+    let finally_lines: Vec<String> = borrowed
+        .iter()
+        .map(|name| format!("{}.close();", name))
+        .collect();
+    emit_boundary_catch(b, wrapper, &sink, &finally_lines);
     b.dedent();
     b.line("};");
     b.line(&format!("return register{}((Object) raw);", wrapper));
@@ -916,27 +919,39 @@ fn emit_data_typed_invoker_sam(
     b.blank();
 }
 
-/// The logging capability among a typed SAM's arguments: the first
-/// wrapper-class arg whose IR type has an instance method of the shape
-/// `(self, <unit enum> level, owned <string> message) -> ()`. That shape is
-/// what a bridge needs to report a failure from inside a firing callback, and
-/// it is matched by SHAPE — a binding that keyed on the method being spelled
-/// `log` would lose the capability the day api.json renames it, and would
-/// pick up an unrelated method that happened to share the name.
+// ============================================================================
+// The callback boundary: nothing the application throws may unwind into Rust
+// ============================================================================
+
+/// The argument of one callback kind that can report a failure to the
+/// application: the first whose IR type has a wrapper class AND an instance
+/// method of the shape `(self, <unit enum> level, owned <string> message) ->
+/// ()`.
 ///
-/// Returns the Java argument variable (`__arg1`) and the level expression for
-/// the enum's `Error` variant (first variant if there is none), spelled the
-/// way the wrapper method takes it (`AppLogLevel.Error.value` for an `int`).
-fn failure_logger(
-    cb: &CallbackTypedefDef,
-    sam: &DataTypedSam,
-    ir: &CodegenIR,
-) -> Option<(String, String)> {
-    for ((kind, name), a) in sam.args.iter().zip(cb.args.iter().skip(1)) {
-        if !matches!(kind, SamArg::Wrapper(_)) {
+/// That shape is what a bridge needs to report a failure from inside a firing
+/// callback, and it is matched by SHAPE — a binding that keyed on the method
+/// being spelled `log` would lose the capability the day api.json renames it,
+/// and would pick up an unrelated method that happened to share the name.
+/// Reaching the application's own log sink is the point: a logged failure
+/// shows up wherever the app already sends its logs, so a broken callback is
+/// visible instead of fatal.
+struct LogSink {
+    /// Index into `cb.args`.
+    index: usize,
+    /// The wrapper class that carries the logging method.
+    class: String,
+    /// The level expression for the enum's `Error` variant (first variant if
+    /// there is none), spelled the way the wrapper method takes it
+    /// (`AppLogLevel.Error.value` for an `int`).
+    level: String,
+}
+
+fn log_sink(cb: &CallbackTypedefDef, ir: &CodegenIR) -> Option<LogSink> {
+    for (i, a) in cb.args.iter().enumerate() {
+        let ty = a.type_name.trim();
+        if !has_wrapper_class(ty, ir) {
             continue;
         }
-        let ty = a.type_name.trim();
         let Some(f) = ir.functions.iter().find(|f| {
             f.class_name == ty
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
@@ -956,17 +971,12 @@ fn failure_logger(
             continue;
         };
         let level_ty = f.args[1].type_name.trim();
-        let Some(e) = ir.find_enum(level_ty) else {
-            continue;
-        };
-        if e.is_union || e.variants.is_empty() {
-            continue;
-        }
+        let e = ir.find_enum(level_ty)?;
         let variant = e
             .variants
             .iter()
             .find(|v| v.name == "Error")
-            .unwrap_or(&e.variants[0]);
+            .or_else(|| e.variants.first())?;
         let constant = format!(
             "{}.{}",
             user_enum_type_name(level_ty),
@@ -977,7 +987,146 @@ fn failure_logger(
         } else {
             constant
         };
-        return Some((format!("__{}", name), level));
+        return Some(LogSink {
+            index: i,
+            class: wrapper_class_name(ty),
+            level,
+        });
     }
     None
+}
+
+/// Where a trampoline sends the text of a failure it caught at the boundary.
+enum FailureSink {
+    /// Through the log sink, on a wrapper the trampoline already built over
+    /// the engine's pointer (the typed-`T` bridge borrows its args up front).
+    Wrapper { var: String, level: String },
+    /// Through the log sink, over a raw `Pointer` parameter the trampoline has
+    /// to wrap first — non-owning, and closed again immediately.
+    Pointer {
+        class: String,
+        expr: String,
+        level: String,
+    },
+    /// The kind has no argument that can log (a layout callback, the
+    /// host-handle releaser): stderr is all there is.
+    Stderr,
+}
+
+/// The Java parameter name the raw `<Kind>InvokerCallback` lambda gives
+/// `cb.args[i]`: api.json's own name, or `arg<i>` when it has none. One
+/// definition, so the lambda's parameter list and everything that refers back
+/// to a parameter cannot drift.
+fn invoker_arg_name(i: usize, a: &FunctionArg) -> String {
+    if a.name.is_empty() {
+        format!("arg{}", i)
+    } else {
+        a.name.clone()
+    }
+}
+
+/// The sink for a trampoline that has the raw invoker's `Pointer` parameters
+/// in scope.
+fn pointer_sink(cb: &CallbackTypedefDef, ir: &CodegenIR) -> FailureSink {
+    match log_sink(cb, ir) {
+        Some(s) => FailureSink::Pointer {
+            expr: invoker_arg_name(s.index, &cb.args[s.index]),
+            class: s.class,
+            level: s.level,
+        },
+        None => FailureSink::Stderr,
+    }
+}
+
+/// Close a trampoline's `try` with the boundary catch.
+///
+/// `Throwable`, not `Exception`: an `Error` crossing the FFI boundary is
+/// exactly as undefined as a checked exception, and a `StackOverflowError`
+/// out of a deep layout callback is the likeliest one of all. The failure is
+/// reported and swallowed; the engine keeps the default it pre-filled for this
+/// kind, so the application carries on.
+///
+/// The caller is left at the `try` body's indentation; on return the whole
+/// `catch` (and `finally_lines`, when there are any) is closed and the builder
+/// is back at the statement level, ready for the closing `};` of the lambda.
+fn emit_boundary_catch(
+    b: &mut super::super::generator::CodeBuilder,
+    kind: &str,
+    sink: &FailureSink,
+    finally_lines: &[String],
+) {
+    b.line("} catch (Throwable __e) {");
+    b.indent();
+    b.line(&format!(
+        "java.lang.String __msg = \"azul: {} threw \" + __e.getClass().getName() + \": \" \
+         + __e.getMessage();",
+        kind
+    ));
+    match sink {
+        FailureSink::Stderr => b.line("System.err.println(__msg);"),
+        FailureSink::Wrapper { var, level } => emit_log_call(b, var, level, None),
+        FailureSink::Pointer { class, expr, level } => {
+            // Non-owning: the engine owns this pointer for the duration of the
+            // call, so the wrapper must never `_delete` it.
+            b.line(&format!("{} __log = {}.__borrow({});", class, class, expr));
+            emit_log_call(b, "__log", level, Some("__log"));
+        }
+    }
+    // The stack trace is the only thing that says WHERE the callback broke,
+    // and the log sink takes a single line of text.
+    b.line("__e.printStackTrace();");
+    b.dedent();
+    if finally_lines.is_empty() {
+        b.line("}");
+    } else {
+        b.line("} finally {");
+        b.indent();
+        for l in finally_lines {
+            b.line(l);
+        }
+        b.dedent();
+        b.line("}");
+    }
+}
+
+/// `var.log(<level>, __msg)`, itself guarded: this is the last line of
+/// defence, so a log sink that fails (the engine is already tearing down, say)
+/// must still not let anything escape into Rust.
+fn emit_log_call(
+    b: &mut super::super::generator::CodeBuilder,
+    var: &str,
+    level: &str,
+    close: Option<&str>,
+) {
+    b.line("try {");
+    b.indent();
+    b.line(&format!("{}.log({}, __msg);", var, level));
+    b.dedent();
+    b.line("} catch (Throwable __logFailed) {");
+    b.indent();
+    b.line("System.err.println(__msg);");
+    b.dedent();
+    match close {
+        Some(v) => {
+            b.line("} finally {");
+            b.indent();
+            b.line(&format!("{}.close();", v));
+            b.dedent();
+            b.line("}");
+        }
+        None => b.line("}"),
+    }
+}
+
+/// [`log_sink`] resolved against a typed-`T` bridge, which has already built a
+/// borrowed wrapper (`__<name>`) for every wrapper-class argument.
+fn failure_logger(
+    cb: &CallbackTypedefDef,
+    sam: &DataTypedSam,
+    ir: &CodegenIR,
+) -> Option<(String, String)> {
+    let sink = log_sink(cb, ir)?;
+    // The typed SAM drops the leading RefAny, so `cb.args[i]` is `sam.args[i - 1]`.
+    let (kind, name) = sam.args.get(sink.index.checked_sub(1)?)?;
+    matches!(kind, SamArg::Wrapper(_)).then(|| (format!("__{}", name), sink.level))
 }

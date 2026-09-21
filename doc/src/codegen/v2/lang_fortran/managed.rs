@@ -65,11 +65,25 @@
 //! `call button%with_on_click(model, on_click)` inside `layout` binds
 //! the SAME model), anything else is copied into a new handle.
 //!
-//! The invoker never lets a bad value reach the engine: a `RefAny` that
-//! holds no Fortran value, an enum result outside the enum, or a
-//! wrapper result that was never assigned is reported through the
-//! kind's `CallbackInfo`-style `log(Error, ...)` argument (stderr when
-//! the kind has none) and the engine's pre-filled default is kept.
+//! ## Failure at the boundary
+//!
+//! Nothing that goes wrong in a callback is allowed to take the process
+//! with it, and nothing is allowed to vanish either: EVERY failure the
+//! invoker can detect is reported through the kind's `CallbackInfo`-style
+//! `log(Error, ...)` argument — stderr when the kind has none — and then
+//! returns, which leaves the out-parameter unwritten and so keeps the
+//! engine's pre-filled default (see `core::host_invoker`: an unwritten
+//! `out` IS the kind's fallback). That covers a handle that names no
+//! registered callback, a slot carrying no procedure of this kind, a
+//! `RefAny` that holds no Fortran value, an enum result outside its enum,
+//! and a wrapper result that was never assigned.
+//!
+//! The one failure this layer CANNOT catch is the `select type`
+//! fallthrough in the user's own procedure: Fortran has no exceptions, an
+//! abstract interface cannot be generic over the user's model type, so the
+//! downcast has to live in their code. The interface header emitted by
+//! [`emit_managed_decls`] tells them to log and return the kind's fallback
+//! there too, spelled the way this api.json spells it.
 
 use super::{
     super::{
@@ -290,6 +304,11 @@ struct Logger {
     arg: usize,
     alias: String,
     level: usize,
+    /// The IR name of the level enum and of the method, kept so the
+    /// user-facing spelling of the same sink can be derived for the
+    /// guidance comment (see [`model_mismatch_advice`]).
+    level_enum: String,
+    method: String,
 }
 
 /// The kind's first argument is the user's model: an owned `RefAny`.
@@ -546,7 +565,40 @@ fn kind_logger(ctx: &Ctx, cb: &CallbackTypedefDef) -> Option<Logger> {
             arg: i,
             alias: fortran_alias_for(&f.c_name),
             level,
+            level_enum: e.name.clone(),
+            method: f.method_name.clone(),
         });
+    }
+    None
+}
+
+/// The user-facing spelling of the same log sink the invoker uses:
+/// `(info dummy, log method, Error constant)`.
+///
+/// The one boundary failure the GENERATED code cannot catch is the
+/// `select type` fallthrough in the user's own callback — Fortran has no
+/// exceptions, and an abstract interface cannot be generic over the user's
+/// model type, so the downcast has to live in their procedure. All this
+/// emitter can do is put the right reflex in front of them, spelled the
+/// way this api.json actually spells it, and that is what the interface
+/// header does with this.
+fn model_mismatch_advice(ctx: &Ctx) -> Option<(String, String, String)> {
+    for cb in &ctx.kinds {
+        let Some(l) = kind_logger(ctx, cb) else {
+            continue;
+        };
+        let Some(info) = iface_dummy_names(ctx, cb).get(l.arg).cloned() else {
+            continue;
+        };
+        let Some(level) = ctx
+            .enum_consts
+            .iter()
+            .find(|(_, v, e)| *e == l.level_enum && *v == l.level)
+            .map(|(n, _, _)| n.clone())
+        else {
+            continue;
+        };
+        return Some((info, l.method, level));
     }
     None
 }
@@ -586,6 +638,31 @@ pub(crate) fn emit_managed_decls(builder: &mut CodeBuilder, ctx: &Ctx, split: &s
     builder.line("! of these and pass it straight to the method that takes the callback");
     builder.line("! (`call button%with_on_click(data, on_click)`); the binding registers");
     builder.line("! it and dispatches through the handle table below.");
+    builder.line("!");
+    builder.line("! A kind whose first argument is your model hands it over as `class(*)`:");
+    builder.line("! recover it with `select type`, and make the `class default` arm REPORT");
+    builder.line("! and return rather than stop. Fortran has no exceptions, so a model");
+    builder.line("! that is not the type you expected is the only failure this boundary");
+    builder.line("! can catch at all, and `error stop` there turns one wrong model into a");
+    if let Some((info, method, level)) = model_mismatch_advice(ctx) {
+        builder.line("! dead application. Logged instead, it reaches the application's own");
+        builder.line("! log sink and its dashboards, and the engine keeps the callback's");
+        builder.line("! default result:");
+        builder.line("!");
+        builder.line("!   class default");
+        builder.line(&format!(
+            "!     call {}%{}({}, 'on_click: the model is not a model_t')",
+            info, method, level
+        ));
+        builder.line("!     <this kind's no-op result>  ! never leave it unassigned");
+        builder.line("!   end select");
+        builder.line("!");
+        builder.line("! A kind with no such argument has nowhere to log: write to");
+        builder.line("! `error_unit` and return the fallback the same way.");
+    } else {
+        builder.line("! dead application. Write to `error_unit` and return the kind's");
+        builder.line("! fallback instead, so the failure is visible without being fatal.");
+    }
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
@@ -924,7 +1001,25 @@ fn emit_invoker(builder: &mut CodeBuilder, ctx: &Ctx, cb: &CallbackTypedefDef) {
     }
     builder.line("integer :: slot");
     builder.line(&format!("slot = {}(id)", HANDLE_SLOT));
-    builder.line("if (slot == 0) return");
+    // A dispatch that finds nothing to call is the same class of failure
+    // as a RefAny that holds no model, and it has the same outcome: the
+    // engine keeps its pre-filled default either way. The only question is
+    // whether anyone ever learns why the callback did nothing, so it goes
+    // through the same sink instead of returning in silence.
+    builder.line("if (slot == 0) then");
+    builder.indent();
+    for l in report(
+        log.as_ref(),
+        &format!(
+            "'azul: {} was invoked with handle ' // {}(int(id)) // ', which names no registered callback'",
+            k, INT_STR
+        ),
+    ) {
+        builder.line(&l);
+    }
+    builder.line("return");
+    builder.dedent();
+    builder.line("end if");
     // Copy the procedure pointer out of the table BEFORE calling: the
     // callback may register more handles, and growing the table moves
     // every entry.
@@ -933,7 +1028,20 @@ fn emit_invoker(builder: &mut CodeBuilder, ctx: &Ctx, cb: &CallbackTypedefDef) {
         HANDLE_TABLE,
         slot_component(k)
     ));
-    builder.line("if (.not. associated(azul_fp)) return");
+    builder.line("if (.not. associated(azul_fp)) then");
+    builder.indent();
+    for l in report(
+        log.as_ref(),
+        &format!(
+            "'azul: handle ' // {}(int(id)) // ' carries no {} procedure'",
+            INT_STR, k
+        ),
+    ) {
+        builder.line(&l);
+    }
+    builder.line("return");
+    builder.dedent();
+    builder.line("end if");
     for (i, a) in args.iter().enumerate() {
         if !a.model {
             for l in &a.unpack {

@@ -189,10 +189,10 @@ fn format_option_delete_block_cs(option_type_name: &str, ir: &CodegenIR) -> Opti
     // copy IntPtr, calls _delete, frees the heap copy.
     Some(format!(
         "{{ var __del_ptr = \
-         System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
-         Marshal.SizeOf<{ffi}>()); System.Runtime.InteropServices.Marshal.StructureToPtr(__ret, \
+         global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
+         Marshal.SizeOf<{ffi}>()); global::System.Runtime.InteropServices.Marshal.StructureToPtr(__ret, \
          __del_ptr, false); NativeMethods.{ffi}_delete(__del_ptr); \
-         System.Runtime.InteropServices.Marshal.FreeHGlobal(__del_ptr); }}",
+         global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__del_ptr); }}",
         ffi = ffi_name,
     ))
 }
@@ -238,15 +238,15 @@ fn emit_cs_option_body(
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
         builder.line("string __out;");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.line("if (__vp == global::System.IntPtr.Zero || __vl <= 0) {");
         builder.indent();
         builder.line("__out = \"\";");
         builder.dedent();
         builder.line("} else {");
         builder.indent();
         builder.line("var __bytes = new byte[__vl];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("__out = global::System.Text.Encoding.UTF8.GetString(__bytes);");
         builder.dedent();
         builder.line("}");
         emit_delete(builder);
@@ -268,14 +268,14 @@ fn emit_cs_option_body(
                 // C ABI, wrap the clone, then drop the Option.
                 builder.line(&format!(
                     "var __nv_ptr = \
-                     System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
+                     global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
                      InteropServices.Marshal.SizeOf<{}>());",
                     raw_payload_cs
                 ));
-                builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
+                builder.line(&"global::System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
                      false);".to_string());
                 builder.line(&format!("var __cloned = {}(__nv_ptr);", clone));
-                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -306,15 +306,15 @@ fn emit_cs_result_body(
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
         builder.line("string __out;");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.line("if (__vp == global::System.IntPtr.Zero || __vl <= 0) {");
         builder.indent();
         builder.line("__out = \"\";");
         builder.dedent();
         builder.line("} else {");
         builder.indent();
         builder.line("var __bytes = new byte[__vl];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("__out = global::System.Text.Encoding.UTF8.GetString(__bytes);");
         builder.dedent();
         builder.line("}");
         emit_delete(builder);
@@ -328,15 +328,15 @@ fn emit_cs_result_body(
             if let Some(ref clone) = clone_call {
                 builder.line(&format!(
                     "var __u_ptr = \
-                     System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
+                     global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
                      InteropServices.Marshal.SizeOf<{}>());",
                     raw_payload_cs
                 ));
                 builder.line(
-                    "System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
+                    "global::System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
                 );
                 builder.line(&format!("var __cloned = {}(__u_ptr);", clone));
-                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -643,19 +643,19 @@ fn emit_wrapper_class(
     let mut extra_iface = match &vec_elem_type {
         Some(elem) if vec_elem_has_wrapper(elem) => {
             format!(
-                ", System.Collections.Generic.IEnumerable<{}>",
+                ", global::System.Collections.Generic.IEnumerable<{}>",
                 sanitize_class_name(elem)
             )
         }
         _ => String::new(),
     };
     if derives::ordering_fn(ir, config, &s.name).is_some() {
-        extra_iface.push_str(&format!(", System.IComparable<{}>", class_name));
+        extra_iface.push_str(&format!(", global::System.IComparable<{}>", class_name));
     }
 
     builder.line(&format!(
         "{}",
-        if has_delete { format!("public sealed class {} : IDisposable{}", class_name, extra_iface) } else { format!("public sealed class {}{}", class_name, if extra_iface.is_empty() { "".to_string() } else { format!(" : {}", &extra_iface[2..]) }) }
+        if has_delete { format!("public sealed class {} : global::System.IDisposable{}", class_name, extra_iface) } else { format!("public sealed class {}{}", class_name, if extra_iface.is_empty() { "".to_string() } else { format!(" : {}", &extra_iface[2..]) }) }
     ));
     builder.line("{");
     builder.indent();
@@ -723,10 +723,10 @@ fn emit_wrapper_class(
         builder.line("if (_disposed) return \"\";");
         builder.line("var ptr = _inner.vec.ptr;");
         builder.line("var len = (long)_inner.vec.len.ToUInt64();");
-        builder.line("if (ptr == System.IntPtr.Zero || len <= 0) return \"\";");
+        builder.line("if (ptr == global::System.IntPtr.Zero || len <= 0) return \"\";");
         builder.line("var bytes = new byte[len];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, bytes, 0, (int)len);");
-        builder.line("return System.Text.Encoding.UTF8.GetString(bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, bytes, 0, (int)len);");
+        builder.line("return global::System.Text.Encoding.UTF8.GetString(bytes);");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -901,10 +901,10 @@ fn emit_enum_wrapper_class(
 
     let mut ifaces: Vec<String> = Vec::new();
     if has_delete {
-        ifaces.push("IDisposable".to_string());
+        ifaces.push("global::System.IDisposable".to_string());
     }
     if derives::ordering_fn(ir, config, &e.name).is_some() {
-        ifaces.push(format!("System.IComparable<{}>", class_name));
+        ifaces.push(format!("global::System.IComparable<{}>", class_name));
     }
     builder.line(&format!(
         "public sealed class {}{}",
@@ -1003,25 +1003,25 @@ fn emit_cs_equals_hashcode_if_supported(
         // heap copy (matching the same pattern other instance methods
         // use), call the helper, then free.
         builder.line(&format!(
-            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
             type_name
         ));
-        builder.line("var aPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
-        builder.line("var bPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var aPtr = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var bPtr = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
         builder
-            .line("System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
+            .line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
         builder.line(&format!("return NativeMethods.{}(aPtr, bPtr);", eq_sym));
         builder.dedent();
         builder.line("}");
         builder.line("finally");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(aPtr);");
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(bPtr);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(aPtr);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(bPtr);");
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -1039,19 +1039,19 @@ fn emit_cs_equals_hashcode_if_supported(
         builder.indent();
         builder.line("if (_disposed) return 0;");
         builder.line(&format!(
-            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
             type_name
         ));
-        builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
         builder.line(&format!("var h = NativeMethods.{}(p);", hash_sym));
         builder.line("return (int)(h ^ (h >> 32));");
         builder.dedent();
         builder.line("}");
-        builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+        builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -1103,42 +1103,42 @@ fn emit_cs_to_string_if_supported(
     builder.line("if (_disposed) return base.ToString() ?? \"\";");
     // Marshal _inner to AllocHGlobal'd pointer (same pattern as Equals).
     builder.line(&format!(
-        "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+        "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
         type_name
     ));
-    builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+    builder.line("var p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
     builder.line("try");
     builder.line("{");
     builder.indent();
-    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
     builder.line(&format!("var s = NativeMethods.{}(p);", dbg_sym));
     // Decode AzString via marshal to pointer, read vec.ptr/.len, free.
     builder.line(
         "var sPtr = \
-         System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
+         global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
          Marshal.SizeOf<AzString>());",
     );
     builder.line("try");
     builder.line("{");
     builder.indent();
-    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(s, sPtr, false);");
-    builder.line("var vecPtr = System.Runtime.InteropServices.Marshal.ReadIntPtr(sPtr, 0);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(s, sPtr, false);");
+    builder.line("var vecPtr = global::System.Runtime.InteropServices.Marshal.ReadIntPtr(sPtr, 0);");
     builder.line(
-        "var vecLen = (int)System.Runtime.InteropServices.Marshal.ReadInt64(sPtr, \
-         System.IntPtr.Size);",
+        "var vecLen = (int)global::System.Runtime.InteropServices.Marshal.ReadInt64(sPtr, \
+         global::System.IntPtr.Size);",
     );
-    builder.line("if (vecPtr == System.IntPtr.Zero || vecLen <= 0) return \"\";");
+    builder.line("if (vecPtr == global::System.IntPtr.Zero || vecLen <= 0) return \"\";");
     builder.line("var bytes = new byte[vecLen];");
-    builder.line("System.Runtime.InteropServices.Marshal.Copy(vecPtr, bytes, 0, vecLen);");
-    builder.line("var result = System.Text.Encoding.UTF8.GetString(bytes);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.Copy(vecPtr, bytes, 0, vecLen);");
+    builder.line("var result = global::System.Text.Encoding.UTF8.GetString(bytes);");
     builder.line("NativeMethods.AzString_delete(sPtr);");
     builder.line("return result;");
     builder.dedent();
     builder.line("}");
-    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(sPtr); }");
+    builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(sPtr); }");
     builder.dedent();
     builder.line("}");
-    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+    builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -1207,17 +1207,17 @@ fn emit_cs_vec_primitive_array(builder: &mut CodeBuilder, _s: &StructDef, elem_r
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "if (_disposed) return System.Array.Empty<{}>();",
+        "if (_disposed) return global::System.Array.Empty<{}>();",
         cs_ty
     ));
     builder.line("var __buf = _inner.ptr;");
     builder.line("var __n = (long)_inner.len;");
     builder.line(&format!(
-        "if (__buf == System.IntPtr.Zero || __n <= 0) return System.Array.Empty<{}>();",
+        "if (__buf == global::System.IntPtr.Zero || __n <= 0) return global::System.Array.Empty<{}>();",
         cs_ty
     ));
     builder.line(&format!("var __out = new {}[(int)__n];", cs_ty));
-    builder.line("System.Runtime.InteropServices.Marshal.Copy(__buf, __out, 0, (int)__n);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__buf, __out, 0, (int)__n);");
     builder.line("return __out;");
     builder.dedent();
     builder.line("}");
@@ -1250,7 +1250,7 @@ fn emit_cs_vec_enumerator(
         );
     }
     builder.line(&format!(
-        "public System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
+        "public global::System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
         elem_wrapper
     ));
     builder.line("{");
@@ -1259,19 +1259,19 @@ fn emit_cs_vec_enumerator(
     builder.line("var __buf = _inner.ptr;");
     builder.line("var __n = (long)_inner.len;");
     builder.line(&format!(
-        "var __sz = System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
+        "var __sz = global::System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
         elem_ffi
     ));
     builder.line("for (long __i = 0; __i < __n; __i++)");
     builder.line("{");
     builder.indent();
-    builder.line("var __ep = System.IntPtr.Add(__buf, (int)(__i * __sz));");
+    builder.line("var __ep = global::System.IntPtr.Add(__buf, (int)(__i * __sz));");
     if let Some(ref clone) = clone_call {
         builder.line(&format!("var __cloned = {}(__ep);", clone));
         builder.line(&format!("yield return new {}(__cloned);", elem_wrapper));
     } else {
         builder.line(&format!(
-            "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+            "var __ev = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
             elem_ffi
         ));
         builder.line(&format!(
@@ -1284,7 +1284,7 @@ fn emit_cs_vec_enumerator(
     builder.dedent();
     builder.line("}");
     builder.line(
-        "System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => \
+        "global::System.Collections.IEnumerator global::System.Collections.IEnumerable.GetEnumerator() => \
          GetEnumerator();",
     );
     builder.blank();
@@ -1314,7 +1314,7 @@ fn emit_dispose_methods(
         builder.line("{");
         builder.indent();
         builder.line("Dispose(true);");
-        builder.line("GC.SuppressFinalize(this);");
+        builder.line("global::System.GC.SuppressFinalize(this);");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -1337,7 +1337,7 @@ fn emit_dispose_methods(
         builder.indent();
         builder.line("_disposed = true;");
         builder.line(&format!(
-            "System.Console.Error.WriteLine(\"[azul] warning: {} finalized on the GC thread while \
+            "global::System.Console.Error.WriteLine(\"[azul] warning: {} finalized on the GC thread while \
              the App event loop is running; skipping the native delete (memory leaked). Call \
              Dispose() before App.Run or keep the object alive.\");",
             class_name
@@ -1352,13 +1352,13 @@ fn emit_dispose_methods(
         // wrapper has no /unsafe option). Slight overhead — one extra alloc
         // — but the call is at Dispose time only.
         builder.line(&format!(
-            "var __p = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
+            "var __p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
              InteropServices.Marshal.SizeOf<{}>());",
             ffi_type_name(raw_type_name)
         ));
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);");
         builder.line(&format!("NativeMethods.Az{}_delete(__p);", raw_type_name));
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
         builder.line("_disposed = true;");
         builder.dedent();
         builder.line("}");
@@ -1382,7 +1382,7 @@ fn emit_dispose_methods(
     builder.line("{");
     builder.indent();
     builder.line("_disposed = true;");
-    builder.line("System.GC.SuppressFinalize(this);");
+    builder.line("global::System.GC.SuppressFinalize(this);");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -1404,7 +1404,7 @@ fn emit_dispose_methods(
     builder.line(&format!("var __w = new {}(inner);", class_name));
     if has_delete {
         builder.line("__w._borrowed = true;");
-        builder.line("System.GC.SuppressFinalize(__w);");
+        builder.line("global::System.GC.SuppressFinalize(__w);");
     }
     builder.line("return __w;");
     builder.dedent();
@@ -1559,17 +1559,17 @@ fn emit_wrapper_method(
             let bytes_name = format!("__{}_bytes", stem);
             let ptr_name = format!("__{}_ptr", stem);
             pre_call_lines.push(format!(
-                "var {bytes} = System.Text.Encoding.UTF8.GetBytes({raw});",
+                "var {bytes} = global::System.Text.Encoding.UTF8.GetBytes({raw});",
                 bytes = bytes_name,
                 raw = raw_name,
             ));
             pre_call_lines.push(format!(
-                "var {ptr} = System.Runtime.InteropServices.Marshal.AllocHGlobal({bytes}.Length);",
+                "var {ptr} = global::System.Runtime.InteropServices.Marshal.AllocHGlobal({bytes}.Length);",
                 ptr = ptr_name,
                 bytes = bytes_name,
             ));
             pre_call_lines.push(format!(
-                "System.Runtime.InteropServices.Marshal.Copy({bytes}, 0, {ptr}, {bytes}.Length);",
+                "global::System.Runtime.InteropServices.Marshal.Copy({bytes}, 0, {ptr}, {bytes}.Length);",
                 bytes = bytes_name,
                 ptr = ptr_name,
             ));
@@ -1582,7 +1582,7 @@ fn emit_wrapper_method(
             // Free the temp buffer once AzString_fromUtf8 has owned the
             // bytes (the AzString takes a copy internally).
             pre_call_lines.push(format!(
-                "System.Runtime.InteropServices.Marshal.FreeHGlobal({ptr});",
+                "global::System.Runtime.InteropServices.Marshal.FreeHGlobal({ptr});",
                 ptr = ptr_name,
             ));
             call_args.push(az_name);
@@ -1753,7 +1753,7 @@ fn emit_wrapper_method(
     if takes_self && !self_by_value {
         builder.line(&format!(
             "var __self = \
-             System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
+             global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
              Marshal.SizeOf<{}>());",
             ffi_class_name
         ));
@@ -1763,7 +1763,7 @@ fn emit_wrapper_method(
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);".to_string());
+        builder.line(&"global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);".to_string());
         if is_app_run {
             builder.line("__AzAppLoopState.Running = true;");
         }
@@ -1775,14 +1775,14 @@ fn emit_wrapper_method(
         if return_cs == "void" {
             builder.line(&format!("{};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1790,7 +1790,7 @@ fn emit_wrapper_method(
         } else if let Some(ref wrapper) = returns_wrapper_other {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1798,7 +1798,7 @@ fn emit_wrapper_method(
         } else {
             builder.line(&format!("var __ret = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1830,7 +1830,7 @@ fn emit_wrapper_method(
             // finalizer thread the outer loop has stopped.
             builder.line("__AzAppLoopState.Running = __prevLoop;");
         }
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
         builder.dedent();
         builder.line("}");
     } else if takes_self && self_by_value {
@@ -2043,7 +2043,10 @@ fn sanitize_class_name(raw: &str) -> String {
 
 /// Convert an api.json method name (typically already camelCase) to a
 /// PascalCase C# method name, with a few special-casings.
-fn idiomatic_method_name(method_name: &str) -> String {
+///
+/// `pub(super)` so managed.rs can name a method this file emitted (the
+/// callback log sink) without re-deriving the spelling and drifting from it.
+pub(super) fn idiomatic_method_name(method_name: &str) -> String {
     // Treat `new` specially — C# `new` is a keyword, surface it as
     // `Create` on the wrapper class.
     if method_name == "new" {

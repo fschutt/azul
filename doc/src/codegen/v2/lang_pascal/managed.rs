@@ -45,17 +45,24 @@
 //!
 //! ## Ownership rules (the whole point of the `Owned` flag)
 //!
-//! * Objects the USER hands in (`azul_refany_create(Model)`, and therefore the
-//!   model passed to `TAz<App><T>.Create`) are BORROWED: the table never
-//!   frees them, the user does (`Model.Free` after `App.Free`, as the guide
-//!   shows).
 //! * Objects the UNIT creates (`TAz<K>Wrapper` / `TAz<K>TypedWrapper<T>`
 //!   instances made by the smart setters and by the app helper) are OWNED by
 //!   the table and freed by the releaser when the engine drops the last
 //!   clone of the callback's context.
+//! * The MODEL handed to `TAz<App><T>.Create` is owned the same way
+//!   (`azul_refany_create_owned`), so `App.Free` releases it: the engine
+//!   drops the app's RefAnys, the releaser fires, the object is freed. That
+//!   is what every other binding does - their runtime reclaims the object
+//!   when the handle drops - and it is why the Pascal guide no longer asks
+//!   for `Model.Free`. Calling it anyway frees the object twice; Pascal has
+//!   no way to detect that, so it is a documented rule, not a guarded one.
+//! * An object the USER registers directly (`azul_refany_create(value)`) stays
+//!   BORROWED: the table never frees it, because the caller may well outlive
+//!   the RefAny and still be using it.
 //! * Registering the same object twice reuses its id and bumps a per-slot
-//!   refcount; the releaser fires once per RefAny group, so the slot goes
-//!   away exactly at the last release.
+//!   refcount, and `Owned` is sticky (ORed in), so a borrowed registration
+//!   cannot disown a model. The releaser fires once per RefAny group, so the
+//!   slot goes away exactly at the last release.
 
 use std::collections::BTreeSet;
 
@@ -168,6 +175,36 @@ impl CallbackSig {
             .map(|p| format!("; {}: {}", p.name, p.pas_type))
             .collect::<String>()
     }
+    /// The parameter list of the UNTYPED callback types (`<K>Event` /
+    /// `<K>Proc`), parentheses included — empty when the kind has no
+    /// parameters at all.
+    ///
+    /// The leading `Model: TAzRefAny` exists only when the kind HAS a model,
+    /// because that is exactly when `call_args` passes one. Two api.json
+    /// typedefs take no arguments whatsoever (`RegisterComponentLibraryFn`
+    /// returns a ComponentLibrary out of nothing), and declaring a Model
+    /// parameter the dispatcher never passes made the declared type and the
+    /// `FEvent(...)` call disagree on arity — FPC: "Wrong number of
+    /// parameters specified for call to <Procedure Variable>". The typed
+    /// `<K>Func<T>` forms below need no such care: they are only emitted
+    /// when there IS a model.
+    fn untyped_params_clause(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if self.model_arg.is_some() {
+            parts.push("Model: TAzRefAny".to_string());
+        }
+        parts.extend(
+            self.params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.pas_type)),
+        );
+        if parts.is_empty() {
+            // FPC rejects an empty `()` in a procedural TYPE declaration.
+            String::new()
+        } else {
+            format!("({})", parts.join("; "))
+        }
+    }
 }
 
 /// Typed pointer spelling for a by-value Pascal type produced by
@@ -267,10 +304,18 @@ pub(super) fn callback_sig(cb: &CallbackTypedefDef, ir: &CodegenIR, targets: &BT
             continue;
         }
         let name = callback_param_name(cb, i, ir, &mut used);
-        let pas_type = match a.ref_kind {
-            ArgRefKind::Owned => map_type_to_pascal(&a.type_name, ir),
-            _ => super::types::ptr_type_for_arg(&a.type_name, ir),
-        };
+        // The host invoker receives EVERY argument as a pointer to the
+        // VALUE (`const Az<T>*`, see managed_host_invoker::invoker_c_arg_list
+        // — it maps the bare type name and ignores the ref kind, because the
+        // static thunk on the Rust side does the by-value plumbing). So the
+        // user-visible parameter is the by-value type whatever api.json's
+        // ref kind says, and the stub dereferences it exactly once.
+        //
+        // Spelling a `&mut T` argument as a pointer instead asked for a
+        // `PP<T>` cast that no unit declares (`MarginBoxCallback`'s
+        // `&mut RefAny` produced `PPAzRefAny(RefAny)^`), and handed the user
+        // a pointer where every sibling argument is a value.
+        let pas_type = map_type_to_pascal(&a.type_name, ir);
         let ptr_type = pascal_pointer_type(&pas_type);
         stub_args.push(name.clone());
         param_types.push((name.clone(), a.type_name.trim()));
@@ -418,10 +463,15 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR, targets
     builder.blank();
 
     builder.line("{ Wrap a Pascal object in a RefAny. The object is BORROWED: the handle  }");
-    builder.line("{ table never frees it, the caller keeps ownership (Model.Free after   }");
-    builder.line("{ the app is gone).                                                    }");
+    builder.line("{ table never frees it, the caller keeps ownership and frees it after  }");
+    builder.line("{ the last thing holding the RefAny is gone.                           }");
     builder.line("function azul_refany_create(value: TObject): TAzRefAny;");
-    builder.line("{ Recover the Pascal object behind a RefAny made by azul_refany_create  }");
+    builder.line("{ The same, but the RefAny OWNS the object: when libazul drops the last }");
+    builder.line("{ clone of it, the releaser frees `value`. This is how the app helper  }");
+    builder.line("{ takes its model, so App.Free is all a program needs; do not Free an  }");
+    builder.line("{ object you passed here.                                              }");
+    builder.line("function azul_refany_create_owned(value: TObject): TAzRefAny;");
+    builder.line("{ Recover the Pascal object behind a RefAny made by either of those    }");
     builder.line("{ (nil for foreign RefAnys).                                           }");
     builder.line("function azul_refany_get(refany: PAzRefAny): TObject;");
     builder.blank();
@@ -445,8 +495,9 @@ pub fn emit_callback_surface_types(builder: &mut CodeBuilder, ir: &CodegenIR, ta
         let ret = sig.ret_clause();
         let kw = sig.fn_kw();
         let params = sig.params_clause();
-        builder.line(&format!("{} = {}(Model: TAzRefAny{}){} of object;", event_type(k), kw, params, ret));
-        builder.line(&format!("{} = {}(Model: TAzRefAny{}){};", proc_type(k), kw, params, ret));
+        let untyped = sig.untyped_params_clause();
+        builder.line(&format!("{} = {}{}{} of object;", event_type(k), kw, untyped, ret));
+        builder.line(&format!("{} = {}{}{};", proc_type(k), kw, untyped, ret));
         if sig.model_arg.is_some() {
             builder.line(&format!("{}<T> = {}(Model: T{}){};", func_type(k), kw, params, ret));
             if sig.has_model_only_form() {
@@ -771,9 +822,10 @@ pub fn emit_app_helper_types(builder: &mut CodeBuilder, ir: &CodegenIR, config: 
     builder.blank();
 
     let base = pascal_class_name(&info.app_class);
-    builder.line(&format!("{{ {}<T>: the app, generic over the model class. Create registers   }}", info.helper_class));
-    builder.line("{ the (borrowed) model once, wraps the typed layout function, owns the  }");
-    builder.line(&format!("{{ root {} options and runs them. T is checked on every callback fire. }}", info.options_prop));
+    builder.line(&format!("{{ {}<T>: the app, generic over the model class. Create takes the    }}", info.helper_class));
+    builder.line("{ model OVER (Free the app, not the model), wraps the typed layout     }");
+    builder.line(&format!("{{ function, owns the root {} options and runs them. T is checked }}", info.options_prop));
+    builder.line("{ on every callback fire.                                              }");
     builder.line(&format!("{{ NOTE: in a mode-objfpc program the bare name {} now means this     }}", info.helper_class));
     builder.line(&format!("{{ generic; reach the raw record through {}.Raw or use mode delphi.  }}", base));
     builder.line(&format!("{}<T: class> = class({})", info.helper_class, base));
@@ -859,7 +911,11 @@ fn emit_app_helper_impl(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Code
     builder.line("begin");
     builder.indent();
     builder.line("FModel := Model;");
-    builder.line("data := azul_refany_create(Model);");
+    builder.line("{ The app OWNS the model: the handle frees it once libazul has dropped");
+    builder.line("  the last clone of this RefAny, which is strictly after the event loop");
+    builder.line("  and every callback are gone. App.Free is therefore enough - a program");
+    builder.line("  that also calls Model.Free frees it twice. }");
+    builder.line("data := azul_refany_create_owned(Model);");
     builder.line("{ Smart On<Event> setters called outside a callback bind to this app. }");
     builder.line("azul_refany_set_default(data);");
     builder.line(&format!("FOptions := {}();", info.options.default_c_name));
@@ -916,6 +972,9 @@ fn emit_app_helper_impl(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Code
     builder.line(&format!("if FOptionsOwned then {}(@FOptions);", info.options_delete));
     builder.line(&format!("F{}.Free;", info.options_prop));
     builder.line("azul_refany_clear_default;");
+    builder.line("{ inherited Destroy deletes the app, which drops its RefAnys; the last");
+    builder.line("  drop runs the releaser, which frees the model. So the model outlives");
+    builder.line("  every callback and the caller needs no Model.Free. }");
     builder.line("inherited Destroy;");
     builder.dedent();
     builder.line("end;");
@@ -1207,6 +1266,15 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR, co
     builder.line("function azul_refany_create(value: TObject): TAzRefAny;");
     builder.line("begin");
     builder.line("  Result := AzRefAny_newHostHandle(azul_alloc_handle(value, False));");
+    builder.line("end;");
+    builder.blank();
+    builder.line("function azul_refany_create_owned(value: TObject): TAzRefAny;");
+    builder.line("begin");
+    builder.line("  { Owned: azul_releaser_impl frees it when the engine drops the last");
+    builder.line("    clone of this RefAny - i.e. after every callback that could still");
+    builder.line("    fire is gone. The flag is sticky (see azul_alloc_handle), so");
+    builder.line("    registering the same object again as borrowed cannot clear it. }");
+    builder.line("  Result := AzRefAny_newHostHandle(azul_alloc_handle(value, True));");
     builder.line("end;");
     builder.blank();
     builder.line("function azul_refany_get(refany: PAzRefAny): TObject;");

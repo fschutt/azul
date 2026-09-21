@@ -306,6 +306,13 @@ void main()
   the `RefAny` back to that class before the call and converts the result to
   its C type after it, and keeps the object alive (a GC root) for as long as
   libazul holds it.
+* Nothing your callback throws reaches libazul. Unwinding a D exception - or
+  an `Error`, an assert failure, an out-of-memory - through Rust frames is
+  undefined behaviour, so the boundary catches `Throwable`, logs it at `Error`
+  level through the callback's `CallbackInfo` when it has one (and to `stderr`
+  when it does not), and returns that callback's default value:
+  `Update.doNothing`, an empty `Dom`. A throwing callback costs you that one
+  callback and a line in your log sink, not the process.
 * Memory is managed. Copying a handle shares its value; the last copy frees
   it. Passing a handle by value moves the value into libazul, as in Rust, and
   using any copy afterwards throws `AzulMovedError`; call `dup()` first to keep

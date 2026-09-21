@@ -57,7 +57,8 @@ use super::{
         ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
         managed_host_invoker::{host_invoker_kinds, smart_callback_setter_info, wrapper_name},
     },
-    ffi_type_name, managed, map_type_to_pascal, record_type_name, sanitize_identifier, to_pascal_case,
+    ffi_type_name, managed, map_type_to_pascal, record_type_name, sanitize_bare_identifier,
+    sanitize_identifier, to_pascal_case,
     types::ptr_type_for_arg,
 };
 
@@ -997,7 +998,7 @@ fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
         let same_signature_taken = used
             .iter()
             .any(|(n, s)| *n == cand_lower && *s == sig);
-        let final_name = if method_names.contains(&cand_lower)
+        let base = if method_names.contains(&cand_lower)
             || collides_with_sibling
             || same_signature_taken
             || super::is_pascal_reserved(&cand_lower)
@@ -1006,6 +1007,22 @@ fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
         } else {
             candidate
         };
+        // Pascal cannot overload two routines with IDENTICAL parameter
+        // lists, and the fallback above can land on a name a sibling
+        // already took with the same arguments (the check before it only
+        // looked at the preferred spelling). Ordinal rather than duplicate
+        // identifier - same rule as `unique_method_name`, but keyed on
+        // (name, signature) because differing signatures are a legitimate
+        // overload here.
+        let mut final_name = base.clone();
+        let mut n = 2;
+        while used
+            .iter()
+            .any(|(name, s)| *name == final_name.to_ascii_lowercase() && *s == sig)
+        {
+            final_name = format!("{}{}", base, n);
+            n += 1;
+        }
         used.push((final_name.to_ascii_lowercase(), sig));
         out.push(final_name);
     }
@@ -1014,6 +1031,12 @@ fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
 
 /// Legacy spelling: `Create` + PascalCase of the api.json name (`new` /
 /// `create` -> plain `Create`, `createDefault` -> `CreateDefault`).
+///
+/// A name that ALREADY opens with `create_` / `new_` loses that word first:
+/// `create_div` PascalCases to `CreateDiv`, and prepending another `Create`
+/// produced `CreateCreateDiv` (and `CreateCreateDivWithText`,
+/// `CreateCreateWithImage`, ...) next to siblings that read `Body`, `P`,
+/// `Span`. The fallback may not double a prefix it is itself adding.
 fn legacy_constructor_name(func: &FunctionDef) -> String {
     if func.kind == FunctionKind::Default {
         return "CreateDefault".to_string();
@@ -1022,7 +1045,11 @@ fn legacy_constructor_name(func: &FunctionDef) -> String {
     if m == "new" || m == "create" {
         return "Create".to_string();
     }
-    format!("Create{}", to_pascal_case(m))
+    let stem = m
+        .strip_prefix("create_")
+        .or_else(|| m.strip_prefix("new_"))
+        .unwrap_or(m);
+    format!("Create{}", to_pascal_case(stem))
 }
 
 /// Preferred spelling (see [`constructor_pascal_names`]).
@@ -1049,7 +1076,14 @@ fn preferred_constructor_name(func: &FunctionDef) -> String {
     if base.is_empty() {
         return "Create".to_string();
     }
-    sanitize_identifier(&to_pascal_case(base))
+    // A constructor name stands alone, so the keyword test has to be
+    // case-insensitive: `create_div` -> `Div`, and `Div` IS Pascal's `div`
+    // operator. Without this the candidate was silently rejected and the
+    // legacy fallback took over, which is where `CreateCreateDiv` came
+    // from; with it the user writes `TDom.Div_`, the same trailing
+    // underscore every other reserved word in this binding carries, and
+    // `create_div_with_text` still collapses into an overload of it.
+    sanitize_bare_identifier(&to_pascal_case(base))
 }
 
 fn idiomatic_method_name(method_name: &str) -> String {

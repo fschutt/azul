@@ -273,10 +273,9 @@ fn class_has_visible_methods(class_name: &str, ir: &CodegenIR) -> bool {
 fn emit_wrapper_record_impl(builder: &mut CodeBuilder, s: &StructDef) {
     let wrapper = ocaml_wrapper_type_name(&s.name);
     let ffi = ocaml_ffi_type_name(&s.name);
-    // The C `_delete` symbol is `Az<TypeName>_delete`; the OCaml-side
-    // `foreign` binding is named by `to_snake_case` of that symbol.
-    // Delete bindings go through `ocaml_binding_name` (the `ffi_`
-    // prefix) so we route through the actual foreign-imported value.
+    // The C `_delete` symbol is `Az<TypeName>_delete`. The name is built
+    // by `ocaml_binding_name`, never spelled here, so the finaliser cannot
+    // be left naming a value the FFI layer no longer defines.
     let delete_binding = ocaml_binding_name(&format!("Az{}_delete", s.name));
 
     if !s.doc.is_empty() {

@@ -909,6 +909,39 @@ impl<'a> Model<'a> {
         }
     }
 
+    /// The diagnostic channel of `class`, if it has one: the method that
+    /// takes a level and a message, with the level enum and the value on it
+    /// that means "this went wrong". A callback reports a failure through the
+    /// first of its arguments that has one, so the message reaches the
+    /// application's log sink instead of only stderr.
+    ///
+    /// Returns `(the method, the level enum, the level's variant)`.
+    pub fn log_sink(&self, class: &str) -> Option<(&'a FunctionDef, &str, &str)> {
+        let f = self.functions_of(class).iter().copied().find(|f| {
+            // api.json marks no capability as "the diagnostic channel", and
+            // the shape alone - a level and a message - fits ordinary methods
+            // too, so this one entry point has to be named. Everything around
+            // it, including which callbacks have one, is derived from the IR.
+            // allow-api-name: the diagnostic channel's api.json name.
+            f.method_name == "log"
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                && f.args.len() == 3
+                && !matches!(f.args[0].ref_kind, ArgRefKind::Owned)
+                && matches!(self.owned(&f.args[2].type_name), Ty::Str)
+                && f.return_type.is_none()
+        })?;
+        let level = self.enums.get(f.args[1].type_name.trim())?;
+        // Rust orders a log level from the most severe; "Error" is what a
+        // failed callback is, and the first variant is the nearest thing to
+        // it in an enum that does not spell it.
+        let variant = level
+            .variants
+            .iter()
+            .find(|v| *v == "Error")
+            .or_else(|| level.variants.first())?;
+        Some((f, level.name.as_str(), variant.as_str()))
+    }
+
     /// The context accessor of an info type, if it has one: the borrowing
     /// no-argument method that hands back the callback's `Option<RefAny>`.
     /// That is where a D function stored in a callback's ctx is read back.

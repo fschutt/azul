@@ -31,10 +31,13 @@
 //!    parameters take, and, for every callback kind in
 //!    `HOST_INVOKER_KINDS`, one closure type, one handler class (the raw
 //!    closure or a function of the typed model) and one invoker registered
-//!    with libazul. The invoker runs the user's function under `azulGuard`:
-//!    a model of another type or an exception is logged through the kind's
-//!    `CallbackInfo.log` (stderr when it has none) and libazul's pre-filled
-//!    default result stays.
+//!    with libazul. The invoker runs the user's function under `azulGuard`
+//!    and forces its answer with `azulForce` before the guard ends: a model
+//!    of another type, an exception, or a thunk that raises when the answer
+//!    is marshalled is logged through the kind's `CallbackInfo.log` (stderr
+//!    when it has none) and libazul's pre-filled default result stays. The
+//!    guard itself lives in `Azul.Types.Common`, which the raw
+//!    `register<X>Callback` wrappers of the FFI layer share.
 //!
 //! 4. **`Azul.<Module>` — constructors and methods**, one Haskell
 //!    function per api.json function of that module's classes:
@@ -373,6 +376,13 @@ fn emit_module_header(b: &mut CodeBuilder, name: &str, what: &str, internal: &[&
     b.line(&format!("module {} where", name));
     b.blank();
     b.line("import qualified Azul.Types as T");
+    // Unqualified, and on purpose: `azulGuard` / `azulGuardValue` /
+    // `azulForce` / `azulStderr` live here rather than in
+    // `Azul.Internal.Runtime`, because the raw `register<X>Callback`
+    // wrappers in the FFI layer need the same handler and Runtime sits
+    // ABOVE that layer. Everything else this module names from
+    // `Azul.Types` still goes through `T.`.
+    b.line("import Azul.Types.Common");
     b.line("import qualified Azul.Internal.FFI as FFI");
     for m in internal {
         b.line(&format!("import {}", m));
@@ -817,9 +827,11 @@ fn emit_prelude(b: &mut CodeBuilder, ctx: &Ctx) {
 ///   parameters is an easy mistake; `azulWith` / `azulMove` turn that
 ///   use-after-move into an 'AzulError' instead of a double free.
 /// - **The guard.** An exception that unwinds into a `foreign import
-///   "wrapper"` frame ends the program (the RTS reports it and exits), so
-///   every invoker runs its whole body under `azulGuard`, which reports the
-///   exception and returns normally. libazul pre-fills the out slot with the
+///   "wrapper"` frame is undefined behaviour - the RTS has no frame to
+///   unwind to - so every invoker runs its whole body under `azulGuard`
+///   (defined in `Azul.Types.Common`, see `emit_callback_guard`), which
+///   reports the exception through the kind's log sink and returns
+///   normally. libazul pre-fills the out slot with the
 ///   kind's default, so a failed callback leaves `Update_DoNothing` / an
 ///   empty `Dom` behind.
 /// - **The current model.** Every callback call-in runs in a fresh Haskell
@@ -905,21 +917,11 @@ azulMove cls clone size align st fp k = do
                 k tmp
 
 -- ---------------------------------------------------------------------------
--- Callback guard.
+-- Callback guard: 'azulGuard', 'azulGuardValue', 'azulStderr' and
+-- 'azulForce' live in "Azul.Types.Common", the one module below the FFI
+-- layer, so the raw `register<X>Callback` wrappers can use the same
+-- handler this tier does. See `generate_types_common` in mod.rs.
 -- ---------------------------------------------------------------------------
-
-azulStderr :: String -> IO ()
-azulStderr = hPutStrLn stderr
-
--- | Run the body of a callback so that no exception reaches libazul: report
--- it through @report@ (stderr when that fails too) and return normally.
-azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()
-azulGuard kind report body = body `catch` \(e :: SomeException) -> do
-    let msg = case fromException e of
-            Just err@(AzulModelMismatch _ _) -> "azul: " ++ kind ++ " " ++ show err
-            _ -> "azul: " ++ kind ++ " raised " ++ show e
-    (report msg `catch` \(_ :: SomeException) -> azulStderr msg)
-        `catch` \(_ :: SomeException) -> pure ()
 
 -- ---------------------------------------------------------------------------
 -- The model of the running callback, per Haskell thread.
@@ -1203,7 +1205,8 @@ refAnyModify r f = do
     case entry >>= fromDynamic of
         Nothing -> pure ()
         Just v -> do
-            v' <- evaluate (f v)
+            -- Forced here, not when the next callback reads it back.
+            v' <- azulForce (f v)
             atomicModifyIORef' azulHandleTable (\m -> (Map.insert h (toDyn v') m, ()))
 
 -- | The model behind a callback's 'RefAny'; 'AzulModelMismatch' when it
@@ -1220,11 +1223,15 @@ azulModel r = do
 -- | Run a state transition on the model behind a 'RefAny': store the new
 -- model and answer with the verdict. The new model is evaluated before it
 -- is stored, so an exception in @step@ leaves the old model in place.
+-- Both forces happen inside the invoker's guard: the pair first, then the
+-- new model, so a state update that raises is reported against the
+-- callback that produced it instead of exploding in the next one, with
+-- libazul on the stack.
 azulTransition :: Typeable a => RefAny -> (a -> IO (a, r)) -> IO r
 azulTransition r step = do
     m <- azulModel r
-    (m', verdict) <- step m >>= evaluate
-    m'' <- evaluate m'
+    (m', verdict) <- step m >>= azulForce
+    m'' <- azulForce m'
     h <- azulRefAnyHandle r
     atomicModifyIORef' azulHandleTable (\t -> (Map.insert h (toDyn m'') t, ()))
     pure verdict
@@ -1481,14 +1488,18 @@ fn emit_callback_kind(b: &mut CodeBuilder, cb: &CallbackTypedefDef, ctx: &Ctx) {
         }
         call.push_str(&format!(" v{}", i));
     }
+    // `azulForce` runs INSIDE the guard: without it the user's answer is
+    // still a thunk here, and a thunk that raises would do so during the
+    // `poke` - or, if the marshalling ever stopped forcing it, after the
+    // guard had already returned, with libazul on the stack.
     match &ret {
         CbRet::Void => b.line(&call),
         CbRet::Poke(_) => {
-            b.line(&format!("r <- {}", call));
+            b.line(&format!("r <- {} >>= azulForce", call));
             b.line("poke out r");
         }
         CbRet::Wrapper(w) => {
-            b.line(&format!("r <- {}", call));
+            b.line(&format!("r <- {} >>= azulForce", call));
             b.line(&format!(
                 "move{} r $ \\src -> copyBytes out src (sizeOf (undefined :: T.{}))",
                 w, w

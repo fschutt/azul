@@ -1513,12 +1513,96 @@ impl<'m, 'a> Emitter<'m, 'a> {
         out
     }
 
+    /// The log sink among a callback's arguments: the argument index, the
+    /// `LibAzul` fun to call, and the level constant to report at.
+    ///
+    /// Structural, never a list of kinds: the first argument whose class
+    /// declares an instance method taking an enum level and a string
+    /// message. A kind without one reports to STDERR instead.
+    fn log_sink(&self, td: &CallbackTypedefDef) -> Option<(usize, String, String)> {
+        let m = self.m;
+        for (j, a) in td.args.iter().enumerate() {
+            // Owned arguments arrive BY VALUE, so a local copy can be
+            // addressed for the `self` pointer the method takes; an argument
+            // passed by reference is an untyped `::Pointer(::Void)` here
+            // (see `cb_lib_arg`) and carries nothing to call through.
+            if a.ref_kind != ArgRefKind::Owned {
+                continue;
+            }
+            let Some(fns) = m.functions.get(a.type_name.trim()) else {
+                continue;
+            };
+            let Some(f) = fns.iter().find(|f| {
+                matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                    // api.json flags no capability as "the diagnostic
+                    // channel", and the shape alone (an enum level plus a
+                    // string message) also matches ordinary methods, so this
+                    // one entry point has to be named. The symbol, the level
+                    // constant and the argument all come from the IR.
+                    // allow-api-name: the diagnostic channel's api.json name.
+                    && f.method_name == "log"
+                    && f.args.len() == 3
+                    && m.ir
+                        .find_struct(f.args[2].type_name.trim())
+                        .is_some_and(|s| s.category == TypeCategory::String)
+            }) else {
+                continue;
+            };
+            let level_ty = f.args[1].type_name.trim();
+            let Some(e) = m.ir.find_enum(level_ty) else { continue };
+            if e.is_union || e.variants.is_empty() {
+                continue;
+            }
+            // A failed callback is an error; the first variant is the only
+            // other thing the IR can offer if the level enum ever loses it.
+            let variant = e
+                .variants
+                .iter()
+                .find(|v| v.name == "Error")
+                .unwrap_or(&e.variants[0]);
+            return Some((
+                j,
+                fun(&f.c_name),
+                format!("{}::{}", lib(level_ty), enum_member_name(&variant.name)),
+            ));
+        }
+        None
+    }
+
+    /// The statement that puts this kind's FALLBACK return value in
+    /// `__result`, for the trampoline arm where the callback raised: the
+    /// return type's default constructor when it has one, else all-zero
+    /// bytes (variant 0 of a fieldless enum, an empty POD).
+    ///
+    /// Before this, that arm returned the `uninitialized` slot - whatever
+    /// was on the stack, read by Rust as a live value of the type, a fresh
+    /// bug class on top of the one being reported.
+    fn ret_fallback(&self, td: &CallbackTypedefDef) -> String {
+        let ctor = td.return_type.as_deref().map(str::trim).and_then(|rt| {
+            self.m
+                .functions
+                .get(rt)?
+                .iter()
+                .find(|f| f.kind == FunctionKind::Default && f.args.is_empty())
+                .map(|f| fun(&f.c_name))
+        });
+        match ctor {
+            Some(c) => format!("__result = {}", c),
+            // `Pointer#clear` zeroes the slot in place, whatever the type -
+            // no need to know whether it is an enum, a POD or a union.
+            None => "pointerof(__result).clear(1)".to_string(),
+        }
+    }
+
     fn emit_trampolines(&mut self, w: &mut W) {
         let m = self.m;
         w.l(0, "# :nodoc:");
         w.l(0, "# One non-capturing C entry point per callback typedef. It finds the");
         w.l(0, "# registered Crystal closure (in the callback's ctx, or in the data RefAny)");
-        w.l(0, "# and calls it.");
+        w.l(0, "# and calls it, catching everything it may raise: an exception crossing");
+        w.l(0, "# back into libazul's frames is undefined behaviour, so each entry point");
+        w.l(0, "# reports it (through the callback's log sink when it has one) and");
+        w.l(0, "# returns its kind's fallback value instead.");
         w.l(0, "module Azul::Trampolines");
         for tdn in self.trampolines.clone() {
             let td = m.callbacks[&tdn];
@@ -1551,10 +1635,11 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(0, "");
             w.l(1, &format!("def self.call_{}({}) : {}", tdn, params.join(", "), ret));
             let void = ret == "::Nil";
+            let sink = self.log_sink(td);
             if !void {
                 w.l(2, &format!("__result = uninitialized {}", ret));
             }
-            w.l(2, &format!("Azul::Native.guard(\"{}\") do", tdn));
+            w.l(2, "begin");
             w.l(3, &format!("__f = nil.as({}?)", erased));
             if let Some((j, getter)) = &ctx {
                 w.l(3, &format!("__i = __c{}", j));
@@ -1575,6 +1660,38 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 w.l(3, &format!("__f.call({})", names.join(", ")));
             } else {
                 w.l(3, &format!("__result = __f.call({})", names.join(", ")));
+            }
+            // A Crystal exception unwinding into libazul's frames is
+            // undefined behaviour across the C ABI, so EVERYTHING the
+            // callback (and the downcast of its data RefAny) can raise stops
+            // here: it is reported and the fallback value above is returned.
+            w.l(2, "rescue __ex : ::Exception");
+            if !void {
+                w.l(3, "# The body never ran to its assignment, so `__result` is still");
+                w.l(3, "# uninitialized: give Rust this kind's fallback value, not");
+                w.l(3, "# whatever was on the stack. (Built HERE and not before the");
+                w.l(3, "# call: a default that the callback then replaces would be an");
+                w.l(3, "# owned value nobody ever frees.)");
+                w.l(3, &self.ret_fallback(td));
+            }
+            match &sink {
+                Some((j, log_fn, level)) => {
+                    w.l(3, "# Through the callback's own log sink, so the failure");
+                    w.l(3, "# reaches the host's log pipeline and not just a terminal.");
+                    w.l(3, &format!("__le = __c{}", j));
+                    w.l(3, &format!("Azul::Native.callback_raised(\"{}\", __ex) do |__msg|", tdn));
+                    // The Crystal 1.21 rule at the top of this file: the
+                    // AzString goes through a local, never straight into the
+                    // argument list of another LibAzul call.
+                    w.l(4, "__ls = Azul::Native.az_string(__msg)");
+                    w.l(4, &format!("{}(pointerof(__le), {}, __ls)", log_fn, level));
+                    w.l(4, "true");
+                    w.l(3, "end");
+                }
+                None => {
+                    w.l(3, "# No argument of this kind offers a log sink: STDERR it is.");
+                    w.l(3, &format!("Azul::Native.callback_raised(\"{}\", __ex) {{ false }}", tdn));
+                }
             }
             w.l(2, "end");
             if data_first {

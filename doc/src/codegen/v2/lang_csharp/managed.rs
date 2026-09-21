@@ -34,12 +34,123 @@
 use super::{
     super::{
         generator::CodeBuilder,
-        ir::{CallbackTypedefDef, CodegenIR, MonomorphizedKind},
+        ir::{
+            ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, FunctionKind,
+            MonomorphizedKind, TypeCategory,
+        },
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_wrapper_class, is_refany_type},
     },
-    ffi_type_name, map_type_to_csharp, user_enum_type_name, DLL_NAME,
+    ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name,
+    wrappers::idiomatic_method_name, DLL_NAME,
 };
+
+// ============================================================================
+// The callback log sink
+// ============================================================================
+
+/// The one class in the API a firing callback can report through, and how
+/// to call it: `CallbackInfo.Log(AppLogLevel.Error, text)`.
+struct LogSinkApi {
+    /// Wrapper class handed the engine's bytes (`CallbackInfo`).
+    class: String,
+    /// The FFI struct behind it (`AzCallbackInfo`).
+    ffi: String,
+    /// The C# method, spelled exactly as wrappers.rs emitted it (`Log`).
+    method: String,
+    /// The error-severity member (`AppLogLevel.Error`).
+    level: String,
+}
+
+/// A method that takes a severity and a message and answers nothing:
+/// `(&self, <unit enum>, <the API's string type>) -> void`.
+///
+/// Found by SHAPE. Exactly one function in the whole API has it
+/// (`CallbackInfo.log(AppLogLevel, String)`), so the search needs neither
+/// the method's name, nor the callback argument's name, nor a list of
+/// callback kinds — a kind that gains such an argument tomorrow reports
+/// through it on its own, and a rename in api.json cannot silently strand
+/// the reporting (which would show up as callbacks failing in silence, not
+/// as a build error).
+fn log_method<'a>(class: &str, ir: &'a CodegenIR) -> Option<&'a FunctionDef> {
+    let is_string = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    };
+    // Not `functions_for_class`: it ties the class name's lifetime to the IR's.
+    ir.functions.iter().find(|f| {
+        f.class_name == class
+            && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+            && f.return_type
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(|r| r == "void" || r == "()")
+            && f.args.len() == 3
+            && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::RefMut)
+            && matches!(f.args[1].ref_kind, ArgRefKind::Owned)
+            && unit_enum_name(f.args[1].type_name.trim(), ir).is_some()
+            && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
+            && is_string(&f.args[2].type_name)
+    })
+}
+
+/// The error-severity member of a severity enum, e.g. `AppLogLevel.Error`.
+///
+/// Matched on the variant's spelling, case-insensitively: severity is the
+/// one thing about a log level the IR does not encode, so there is nothing
+/// structural to key on. Deliberately NOT an ordinal — `Off, Error, Warn,
+/// Info, Debug, Trace` looks like "index 1 is the loudest" until someone
+/// inserts a variant, and an ordinal would then silently report at the
+/// wrong level. When no such variant exists the caller falls back to
+/// stderr instead of guessing.
+fn error_level_member(level_type: &str, ir: &CodegenIR) -> Option<String> {
+    let e = ir.find_enum(level_type)?;
+    let v = e
+        .variants
+        .iter()
+        .find(|v| v.name.eq_ignore_ascii_case("error"))?;
+    Some(format!(
+        "{}.{}",
+        user_enum_type_name(level_type),
+        sanitize_identifier(&v.name)
+    ))
+}
+
+/// The API's log sink, if it has one (see [`log_method`]).
+fn log_sink_api(ir: &CodegenIR) -> Option<LogSinkApi> {
+    ir.structs
+        .iter()
+        .filter(|s| has_wrapper_class(&s.name, ir))
+        .find_map(|s| {
+            let f = log_method(&s.name, ir)?;
+            let level = error_level_member(f.args[1].type_name.trim(), ir)?;
+            Some(LogSinkApi {
+                class: s.name.clone(),
+                ffi: ffi_type_name(&s.name),
+                method: idiomatic_method_name(&f.method_name),
+                level,
+            })
+        })
+}
+
+/// The invoker parameter pointing at this kind's log sink, if it has one.
+/// The data slot is skipped: it is the model's `RefAny`, never a sink.
+fn log_sink_param(cb: &CallbackTypedefDef, ir: &CodegenIR) -> Option<String> {
+    cb.args.iter().enumerate().skip(1).find_map(|(i, a)| {
+        let ty = a.type_name.trim();
+        (has_wrapper_class(ty, ir) && log_method(ty, ir).is_some()).then(|| arg_name(a, i))
+    })
+}
+
+/// The `__ReportCallbackError(...)` call a trampoline's catch block makes:
+/// through this kind's log sink when it has one, stderr otherwise.
+fn report_call(cb: &CallbackTypedefDef, ir: &CodegenIR) -> String {
+    format!(
+        "__ReportCallbackError(\"{}\", e, {});",
+        wrapper_name(cb),
+        log_sink_param(cb, ir).unwrap_or_else(|| "IntPtr.Zero".to_string())
+    )
+}
 
 // ============================================================================
 // Typed-delegate classification (shared by managed.rs and wrappers.rs)
@@ -366,12 +477,12 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Storage
     builder.line(
-        "private static readonly System.Collections.Generic.Dictionary<ulong, object> _handles = \
+        "private static readonly global::System.Collections.Generic.Dictionary<ulong, object> _handles = \
          new();",
     );
     builder.line("private static ulong _nextHandleId = 0;");
     builder.line(
-        "private static readonly System.Collections.Generic.List<Delegate> _livePins = new();",
+        "private static readonly global::System.Collections.Generic.List<Delegate> _livePins = new();",
     );
     builder.line("private static readonly object _initLock = new();");
     builder.line("private static volatile bool _initialized = false;");
@@ -392,6 +503,8 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
+    emit_error_reporter(builder, ir);
+
     // EnsureInitialized
     builder.line("private static void EnsureInitialized()");
     builder.line("{");
@@ -407,18 +520,32 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("HostHandleReleaserDelegate releaser = (ulong id) =>");
     builder.line("{");
     builder.indent();
+    // The engine's RefAny destructor calls this, so it is a managed frame
+    // Rust unwinds through just like an invoker: guarded for the same
+    // reason, even though no user code runs inside it.
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
     builder.line("lock (_handles) { _handles.Remove(id); }");
+    builder.dedent();
+    builder.line("}");
+    builder.line("catch (global::System.Exception e)");
+    builder.line("{");
+    builder.indent();
+    builder.line("__ReportCallbackError(\"HostHandleReleaser\", e, IntPtr.Zero);");
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("};");
     builder.line("__Pin(releaser);");
     builder.line(
-        "NativeMethodsManaged.AzApp_setHostHandleReleaser(System.Runtime.InteropServices.Marshal.\
+        "NativeMethodsManaged.AzApp_setHostHandleReleaser(global::System.Runtime.InteropServices.Marshal.\
          GetFunctionPointerForDelegate(releaser));",
     );
     builder.blank();
 
     for cb in host_invoker_kinds(ir) {
-        emit_per_kind_invoker_init(builder, cb);
+        emit_per_kind_invoker_init(builder, cb, ir);
     }
 
     // Published last: a second thread racing past the outer check must
@@ -451,7 +578,7 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     for cb in host_invoker_kinds(ir) {
         emit_register_raw(builder, cb);
         if let Some(info) = typed_delegate_info(cb, ir) {
-            emit_typed_delegate_and_register(builder, cb, &info);
+            emit_typed_delegate_and_register(builder, cb, &info, ir);
         }
     }
 
@@ -504,12 +631,91 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 }
 
+/// Emit `__ReportCallbackError`: what every trampoline's catch block does
+/// with an exception that escaped user code.
+///
+/// An exception must never unwind out of a managed callback and through
+/// the engine's Rust frames — that is undefined behaviour, not a clean
+/// crash — so each trampoline catches at the boundary and calls this. The
+/// line goes to the callback's own log sink, and therefore to whatever the
+/// application logs to (the same place a Rust-side error would appear), so
+/// a failing callback is visible instead of fatal; kinds with no sink
+/// argument fall back to stderr.
+fn emit_error_reporter(builder: &mut CodeBuilder, ir: &CodegenIR) {
+    let sink = log_sink_api(ir);
+    builder.line("/// <summary>Internal: report an exception that escaped user callback code —");
+    builder.line("/// to the callback's log sink when the kind has one, to stderr otherwise.");
+    builder.line("/// Never rethrows: letting it unwind into the engine's native frames is");
+    builder.line("/// undefined behaviour.</summary>");
+    builder.line(
+        "private static void __ReportCallbackError(string kind, global::System.Exception e, \
+         IntPtr sinkPtr)",
+    );
+    builder.line("{");
+    builder.indent();
+    // .NET wraps a non-CLS-compliant throw in RuntimeWrappedException, so
+    // `catch (Exception)` at the call sites really is every throw — no
+    // separate "raised a non-Exception object" branch is reachable here.
+    builder.line(
+        "var __text = \"azul: \" + kind + \" raised \" + e.GetType().FullName + \": \" + \
+         e.Message;",
+    );
+    if let Some(ref s) = sink {
+        builder.line("if (sinkPtr != IntPtr.Zero)");
+        builder.line("{");
+        builder.indent();
+        builder.line("try");
+        builder.line("{");
+        builder.indent();
+        // Borrowed, never owned: these are the engine's bytes for the
+        // duration of the call.
+        builder.line(&format!(
+            "var __sink = {cls}.__Borrow(global::System.Runtime.InteropServices.Marshal.\
+             PtrToStructure<{ffi}>(sinkPtr));",
+            cls = s.class,
+            ffi = s.ffi,
+        ));
+        builder.line(&format!(
+            "__sink.{method}({level}, __text);",
+            method = s.method,
+            level = s.level,
+        ));
+        builder.line("return;");
+        builder.dedent();
+        builder.line("}");
+        builder.line("catch (global::System.Exception __sinkFailure)");
+        builder.line("{");
+        builder.indent();
+        builder.line("// The sink itself failed; say so and keep going to stderr. Rethrowing");
+        builder.line("// out of the handler that exists to stop an unwind would defeat it.");
+        builder.line(
+            "__text = __text + \" (the log sink also failed: \" + \
+             __sinkFailure.GetType().FullName + \")\";",
+        );
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+    }
+    builder.line(
+        "global::System.Console.Error.WriteLine(__text + global::System.Environment.NewLine + \
+         e.StackTrace);",
+    );
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
 /// The per-kind static invoker: looks the handle up and calls it
 /// directly. Every handle registered through `Register<X>` IS a
 /// `<X>InvokerDelegate`, so no reflection is involved; a user exception
-/// is logged (the thunk then returns the kind's default) rather than
-/// unwinding into native frames.
-fn emit_per_kind_invoker_init(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
+/// is reported at the boundary (the thunk then returns the kind's default)
+/// rather than unwinding into native frames.
+fn emit_per_kind_invoker_init(
+    builder: &mut CodeBuilder,
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
     let wrapper = wrapper_name(cb);
     let var = format!("{}Invoker", lower_first(wrapper));
     let args = invoker_arg_names(cb);
@@ -532,8 +738,8 @@ fn emit_per_kind_invoker_init(builder: &mut CodeBuilder, cb: &CallbackTypedefDef
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "if (__entry != null) Console.Error.WriteLine($\"[azul] {} invoker: handle {{id}} is a \
-         {{__entry.GetType().Name}}, not a {}InvokerDelegate\");",
+        "if (__entry != null) global::System.Console.Error.WriteLine($\"[azul] {} invoker: handle \
+         {{id}} is a {{__entry.GetType().Name}}, not a {}InvokerDelegate\");",
         wrapper, wrapper
     ));
     builder.line("return;");
@@ -545,21 +751,19 @@ fn emit_per_kind_invoker_init(builder: &mut CodeBuilder, cb: &CallbackTypedefDef
     builder.line(&format!("fn({});", args.join(", ")));
     builder.dedent();
     builder.line("}");
-    builder.line("catch (Exception e)");
+    builder.line("catch (global::System.Exception e)");
     builder.line("{");
     builder.indent();
-    builder.line(&format!(
-        "Console.Error.WriteLine($\"[azul] {} error: {{e.GetType().Name}}: \
-         {{e.Message}}\\n{{e.StackTrace}}\");",
-        wrapper
-    ));
+    // Returning without writing outPtr leaves the engine's pre-filled
+    // default there — this kind's fallback return value.
+    builder.line(&report_call(cb, ir));
     builder.dedent();
     builder.line("}");
     builder.dedent();
     builder.line("};");
     builder.line(&format!("__Pin({});", var));
     builder.line(&format!(
-        "NativeMethodsManaged.AzApp_set{}Invoker(System.Runtime.InteropServices.Marshal.\
+        "NativeMethodsManaged.AzApp_set{}Invoker(global::System.Runtime.InteropServices.Marshal.\
          GetFunctionPointerForDelegate({}));",
         wrapper, var
     ));
@@ -610,6 +814,7 @@ fn emit_typed_delegate_and_register(
     builder: &mut CodeBuilder,
     cb: &CallbackTypedefDef,
     info: &TypedDelegateInfo,
+    ir: &CodegenIR,
 ) {
     let wrapper = &info.wrapper;
 
@@ -665,6 +870,13 @@ fn emit_typed_delegate_and_register(
     ));
     builder.line("{");
     builder.indent();
+    // The whole body, not just the user call: unmarshalling the engine's
+    // arguments and writing the result back are equally forbidden to throw
+    // into Rust. Leaving `outPtr` untouched is what returns the kind's
+    // fallback — the engine's thunk pre-filled it with the default.
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
     let data_slot = arg_name(&cb.args[0], 0);
     builder.line(&format!("var __data = RefanyGet({}) as T;", data_slot));
     builder.line("if (__data == null) return;");
@@ -673,7 +885,7 @@ fn emit_typed_delegate_and_register(
         match kind {
             TypedArg::Wrapper(ty) => {
                 builder.line(&format!(
-                    "var __{n} = {ty}.__Borrow(System.Runtime.InteropServices.Marshal.\
+                    "var __{n} = {ty}.__Borrow(global::System.Runtime.InteropServices.Marshal.\
                      PtrToStructure<{ffi}>({n}));",
                     n = name,
                     ty = ty,
@@ -683,7 +895,7 @@ fn emit_typed_delegate_and_register(
             }
             TypedArg::UnitEnum(e) => {
                 builder.line(&format!(
-                    "var __{n} = ({e}) System.Runtime.InteropServices.Marshal.ReadInt32({n});",
+                    "var __{n} = ({e}) global::System.Runtime.InteropServices.Marshal.ReadInt32({n});",
                     n = name,
                     e = e
                 ));
@@ -691,14 +903,14 @@ fn emit_typed_delegate_and_register(
             }
             TypedArg::Bool => {
                 builder.line(&format!(
-                    "var __{n} = System.Runtime.InteropServices.Marshal.ReadByte({n}) != 0;",
+                    "var __{n} = global::System.Runtime.InteropServices.Marshal.ReadByte({n}) != 0;",
                     n = name
                 ));
                 call_args.push(format!("__{}", name));
             }
             TypedArg::Value(cs) => {
                 builder.line(&format!(
-                    "var __{n} = System.Runtime.InteropServices.Marshal.PtrToStructure<{cs}>({n});",
+                    "var __{n} = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{cs}>({n});",
                     n = name,
                     cs = cs
                 ));
@@ -713,19 +925,19 @@ fn emit_typed_delegate_and_register(
         TypedRet::UnitEnum(_) => {
             builder.line(&format!("var __result = {};", call));
             builder
-                .line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, (int)__result);");
+                .line("global::System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, (int)__result);");
         }
         TypedRet::Bool => {
             builder.line(&format!("var __result = {};", call));
             builder.line(
-                "System.Runtime.InteropServices.Marshal.WriteByte(outPtr, __result ? (byte)1 : \
+                "global::System.Runtime.InteropServices.Marshal.WriteByte(outPtr, __result ? (byte)1 : \
                  (byte)0);",
             );
         }
         TypedRet::Value(_) => {
             builder.line(&format!("var __result = {};", call));
             builder.line(
-                "System.Runtime.InteropServices.Marshal.StructureToPtr(__result, outPtr, false);",
+                "global::System.Runtime.InteropServices.Marshal.StructureToPtr(__result, outPtr, false);",
             );
         }
         TypedRet::Wrapper(ty) => {
@@ -739,11 +951,19 @@ fn emit_typed_delegate_and_register(
                 ffi_type_name(ty)
             ));
             builder.line(
-                "System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);",
+                "global::System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);",
             );
             builder.line("__result.__Consume();");
         }
     }
+    builder.dedent();
+    builder.line("}");
+    builder.line("catch (global::System.Exception e)");
+    builder.line("{");
+    builder.indent();
+    builder.line(&report_call(cb, ir));
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("};");
     builder.line(&format!("return Register{}(raw);", wrapper));

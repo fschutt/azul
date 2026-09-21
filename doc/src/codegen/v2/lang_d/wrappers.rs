@@ -35,6 +35,13 @@
 //! back to its C type - in the callback's `ctx` (read back through the info
 //! type's `getCtx`) and/or in the data `RefAny` passed next to it. The data
 //! argument itself is any class object, handed back with its static type `T`.
+//!
+//! The trampoline is also the containment wall: it catches `Throwable` around
+//! the application's function, reports it through the first argument that has
+//! a diagnostic channel (else to `stderr`) and returns the kind's fallback
+//! value, because a D exception unwinding through libazul's `extern (C)`
+//! frames is undefined behaviour. See `runtime.rs` for why that path cannot
+//! throw or allocate.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -2457,6 +2464,52 @@ impl<'m, 'a> Emitter<'m, 'a> {
         Some(())
     }
 
+    /// How a failing `td` reports: the C log entry point, the level to log
+    /// at and the receiver expression, taken from the first of its arguments
+    /// whose type carries a diagnostic channel. `None` when no argument does,
+    /// and the trampoline falls back to stderr.
+    fn log_of(&self, td: &CallbackTypedefDef) -> Option<(String, String, String)> {
+        td.args.iter().enumerate().find_map(|(j, a)| {
+            let class = a.type_name.trim();
+            let (f, level, variant) = self.m.log_sink(class)?;
+            // Only through an argument nothing has freed by now. A by-value
+            // argument of a type with a destructor was moved into a handle
+            // inside the invoker, and that handle ran it while the throwable
+            // unwound; a type without one (and a pointer argument) is a view
+            // libazul owns for the length of the call, which is exactly the
+            // frame this runs in.
+            if a.ref_kind == ArgRefKind::Owned && self.m.delete_fn(class).is_some() {
+                return None;
+            }
+            // The argument is a value in the trampoline's own frame when the
+            // typedef passes it by value, and already a pointer otherwise.
+            let receiver = match a.ref_kind {
+                ArgRefKind::Owned => format!("&__c{}", j),
+                _ => format!("__c{}", j),
+            };
+            Some((
+                f.c_name.clone(),
+                format!("Az{}.{}", level, super::raw_identifier(variant)),
+                receiver,
+            ))
+        })
+    }
+
+    /// What a failing `td` returns: the return type's own default constructor
+    /// when the API has one, else its zero value - `Update.DoNothing`, an
+    /// empty struct - which is what every other binding hands back too.
+    /// `None` for a kind that returns nothing.
+    fn fallback_value(&self, td: &CallbackTypedefDef) -> Option<String> {
+        let ret = td.return_type.as_deref().map(str::trim)?;
+        if matches!(self.m.owned(ret), Ty::Void) {
+            return None;
+        }
+        Some(match self.m.trait_fn(ret, FunctionKind::Default) {
+            Some(f) => format!("return {}();", f),
+            None => "return typeof(return).init;".to_string(),
+        })
+    }
+
     fn emit_trampolines(&mut self, w: &mut W) {
         let m = self.m;
         // The ctx a trampoline reads back is the API's `Option<RefAny>`.
@@ -2539,12 +2592,37 @@ impl<'m, 'a> Emitter<'m, 'a> {
             if ret == "void" {
                 w.l(2, &format!("__f.invoke(__f.user, {});", names.join(", ")));
             } else {
-                w.l(2, &format!("return __f.invoke(__f.user, {});", names.join(", ")));
+                w.l(
+                    2,
+                    &format!("return __f.invoke(__f.user, {});", names.join(", ")),
+                );
             }
             w.l(1, "}");
+            // Nothing may unwind into libazul: report and hand the kind its
+            // fallback value. `Throwable`, not `Exception`, because an `Error`
+            // crossing an `extern (C)` frame is just as undefined.
             w.l(1, "catch (Throwable __t)");
             w.l(1, "{");
-            w.l(2, &format!("_azulUncaught(__t, \"{}\");", tdn));
+            w.l(2, "char[512] __buf = void;");
+            w.l(
+                2,
+                &format!(
+                    "auto __err = _azulCallbackError(__buf[], __t, \"{}\");",
+                    tdn
+                ),
+            );
+            match self.log_of(td) {
+                Some((sink, level, receiver)) => {
+                    w.l(
+                        2,
+                        &format!("{}({}, {}, _azulString(__err));", sink, receiver, level),
+                    );
+                }
+                None => w.l(2, "_azulReportError(__err);"),
+            }
+            if let Some(fallback) = self.fallback_value(td) {
+                w.l(2, &fallback);
+            }
             w.l(1, "}");
             w.l(0, "}");
             w.l(0, "");

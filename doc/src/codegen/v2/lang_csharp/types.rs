@@ -482,7 +482,7 @@ fn generate_tagged_union(
                     name
                 ));
                 builder.line(&format!(
-                    "throw new System.InvalidOperationException(\"{} unwrap on Err: \" + \
+                    "throw new global::System.InvalidOperationException(\"{} unwrap on Err: \" + \
                      Err.payload.ToString());",
                     name
                 ));
@@ -582,7 +582,7 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "if (ptr == System.IntPtr.Zero || len == System.UIntPtr.Zero) return new {}[0];",
+        "if (ptr == global::System.IntPtr.Zero || len == global::System.UIntPtr.Zero) return new {}[0];",
         elem_cs
     ));
     builder.line("var __n = (int)len.ToUInt64();");
@@ -603,30 +603,30 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         match elem_cs.as_str() {
             "byte" | "short" | "int" | "long" | "float" | "double" => {
                 builder.line(&format!(
-                    "System.Runtime.InteropServices.Marshal.{}(ptr, __out, 0, __n);",
+                    "global::System.Runtime.InteropServices.Marshal.{}(ptr, __out, 0, __n);",
                     marshal_method
                 ));
             }
             "sbyte" => {
                 // Marshal has no Copy(IntPtr, sbyte[], ...). Use a byte buffer and reinterpret.
                 builder.line("var __buf = new byte[__n];");
-                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (sbyte)__buf[__i];");
             }
             "ushort" => {
                 builder.line("var __buf = new short[__n];");
-                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder
                     .line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ushort)__buf[__i];");
             }
             "uint" => {
                 builder.line("var __buf = new int[__n];");
-                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (uint)__buf[__i];");
             }
             "ulong" => {
                 builder.line("var __buf = new long[__n];");
-                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ulong)__buf[__i];");
             }
             _ => unreachable!(),
@@ -635,14 +635,14 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     } else {
         // Struct element — use Marshal.PtrToStructure per element.
         builder.line(&format!(
-            "int __size = System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
+            "int __size = global::System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
             elem_cs
         ));
         builder.line("for (int __i = 0; __i < __n; __i++) {");
         builder.indent();
-        builder.line("var __ep = System.IntPtr.Add(ptr, __i * __size);");
+        builder.line("var __ep = global::System.IntPtr.Add(ptr, __i * __size);");
         builder.line(&format!(
-            "__out[__i] = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+            "__out[__i] = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
             elem_cs
         ));
         builder.dedent();

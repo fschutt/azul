@@ -1,7 +1,8 @@
 module counter
   use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
                   dom_create_body, dom_create_p_with_text, button_create, &
-                  ButtonType_Primary, Update_DoNothing, Update_RefreshDom
+                  ButtonType_Primary, Update_DoNothing, Update_RefreshDom, &
+                  AppLogLevel_Error
   implicit none
 
   type :: model_t
@@ -31,7 +32,10 @@ contains
       call body%with_child(label)
       call body%with_child(button%dom())
     class default
-      error stop 'layout: the model is not a model_t'
+      ! Log and return the empty body rather than stopping: the message
+      ! reaches the app's log sink, and one mistyped model does not take
+      ! the whole program down.
+      call info%log(AppLogLevel_Error, 'layout: the model is not a model_t')
     end select
   end function layout
 
@@ -46,7 +50,11 @@ contains
       model%counter = model%counter + 1
       update = Update_RefreshDom
     class default
-      error stop 'on_click: the model is not a model_t'
+      ! As above. `update` must be assigned explicitly here - the engine
+      ! reads the result, so leaving it unset would hand over whatever was
+      ! on the stack.
+      call info%log(AppLogLevel_Error, 'on_click: the model is not a model_t')
+      update = Update_DoNothing
     end select
   end function on_click
 

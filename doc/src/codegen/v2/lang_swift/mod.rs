@@ -268,7 +268,13 @@ App(Counter(), AppConfig()).run(window)
   argument has no label; later ones are labeled unless the name repeats the
   type. The C API stays available as `import CAzul`.
 * Callbacks take a closure, capturing or not. Application state is any class
-  instance and comes back to the callback with its own type.
+  instance and comes back to the callback with its own type. If the data does
+  not hold the type the closure declares, or no closure is registered for the
+  slot, the trampoline reports it through `CallbackInfo.log` at `.error` (when
+  that callback carries a `CallbackInfo`) and returns the callback's fallback
+  - `.doNothing`, an empty value - instead of stopping the program. A Swift
+  runtime failure INSIDE the closure (a force-unwrap of nil, an out-of-range
+  index) is a trap, which nothing in-process can catch.
 * Memory is managed: an object frees its value in `deinit`. Passing a class
   instance by value moves it into libazul, as in Rust; using it afterwards
   stops the program with the type's name (call `copy()` first to keep one).

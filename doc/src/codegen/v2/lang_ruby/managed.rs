@@ -47,10 +47,11 @@ use super::{
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionKind, TypeCategory},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
     },
     functions::ruby_attach_name,
+    types::ruby_const_name,
 };
 
 /// True when `arg`'s (unprefixed) IR type is the struct the IR classifies
@@ -295,9 +296,22 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.blank();
 
     // Releaser: clears the hash entry. Pinned for process lifetime.
+    //
+    // It runs no user code, but it is still a Ruby closure libazul calls
+    // across the FFI: an Interrupt or a NoMemoryError arriving here would
+    // unwind into Rust exactly like a raising callback would. Same rule,
+    // same guard — and it has no `CallbackInfo` to log through.
     builder.line("releaser = FFI::Function.new(:void, [:uint64]) do |id|");
     builder.indent();
+    builder.line("begin");
+    builder.indent();
     builder.line("@_ruby_handles.delete(id)");
+    builder.dedent();
+    builder.line("rescue Exception => e");
+    builder.indent();
+    builder.line("$stderr.puts \"azul: host-handle releaser raised #{e.class}: #{e.message}\"");
+    builder.dedent();
+    builder.line("end");
     builder.dedent();
     builder.line("end");
     builder.line("@_live_pins << releaser");
@@ -307,7 +321,7 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     // Per-kind invoker registration.
     builder.line("# --- Per-kind invoker registrations ---");
     for cb in host_invoker_kinds(ir) {
-        emit_invoker_registration(builder, cb, ir, &app_prefixed, refany);
+        emit_invoker_registration(builder, cb, ir, config, &app_prefixed, refany);
     }
     builder.blank();
 
@@ -435,10 +449,90 @@ fn emit_native_attach_for_kind(
     builder.dedent();
 }
 
+/// The diagnostic channel one callback kind can reach from inside its own
+/// invoker: an argument whose type declares `log(<level enum>, <string>)`
+/// as an instance method.
+///
+/// Found structurally, from the argument's IR *type* — never from the
+/// argument's name and never from a list of kinds — so a second info type
+/// that grows a log method lights this up on its own. A kind with no such
+/// argument (a timer or thread callback) has `$stderr` and nothing else.
+struct LogSink {
+    /// Index into the invoker's pointer arguments.
+    arg_index: usize,
+    /// The Ruby `attach_function` name of the `log` export.
+    attach: String,
+    /// Ruby expression for the most severe level the enum offers.
+    level: String,
+}
+
+fn callback_log_sink(
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<LogSink> {
+    let is_string = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| s.category == TypeCategory::String)
+    };
+    for (i, arg) in cb.args.iter().enumerate() {
+        let ty = arg.type_name.trim();
+        let Some(f) = ir.functions.iter().find(|f| {
+            f.class_name == ty
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                // (receiver, level, message)
+                && f.args.len() == 3
+                && is_string(&f.args[2].type_name)
+                // api.json flags no capability as "the diagnostic channel", and
+                // the shape alone (an enum plus a string) also matches ordinary
+                // methods, so this one entry point has to be named. Everything
+                // around it is derived. Mirrors lang_pascal's mismatch_logger.
+                // allow-api-name: the diagnostic channel's api.json name
+                && f.method_name == "log"
+        }) else {
+            continue;
+        };
+        let level_ty = f.args[1].type_name.trim();
+        let Some(level_enum) = ir.find_enum(level_ty) else {
+            continue;
+        };
+        if level_enum.is_union || level_enum.variants.is_empty() {
+            continue;
+        }
+        // A failed callback is an error; a level enum that does not spell it
+        // that way falls back to its first (most severe) variant.
+        let variant = level_enum
+            .variants
+            .iter()
+            .find(|v| v.name == "Error")
+            .unwrap_or(&level_enum.variants[0]);
+        return Some(LogSink {
+            arg_index: i,
+            attach: ruby_attach_name(&f.c_name),
+            level: format!(
+                "Native::{}::{}",
+                config.apply_prefix(level_ty),
+                ruby_const_name(&variant.name)
+            ),
+        });
+    }
+    None
+}
+
+/// The last-resort report: the message plus the top of the Ruby backtrace.
+/// Used by a kind whose arguments cannot log, and when the log sink itself
+/// fails. Expects `_msg` and the rescued `e` to be in scope.
+fn emit_stderr_report(builder: &mut CodeBuilder) {
+    builder.line("$stderr.puts _msg");
+    builder.line("_bt = e.backtrace&.first(5)");
+    builder.line("$stderr.puts _bt if _bt");
+}
+
 fn emit_invoker_registration(
     builder: &mut CodeBuilder,
     cb: &CallbackTypedefDef,
     ir: &CodegenIR,
+    config: &CodegenConfig,
     app_prefixed: &str,
     refany: &str,
 ) {
@@ -519,12 +613,51 @@ fn emit_invoker_registration(
         builder.line("fn.call(*unwrapped_args)");
     }
     builder.dedent();
-    builder.line("rescue => e");
+
+    // Nothing the user's callable (or the RefAny downcast in front of it)
+    // raises may leave this block. A Ruby exception unwinding out of an FFI
+    // closure and through Rust frames is undefined behaviour, not merely a
+    // crash — hence `Exception`, not `StandardError`: a NoMemoryError or an
+    // Interrupt arriving mid-callback crosses the same boundary.
+    //
+    // The fallback needs no code here. `impl_managed_callback!`
+    // (core/src/host_invoker.rs) pre-fills `out` with `HostOut::unwritten()`
+    // and answers with the kind's own `$default` when the host wrote
+    // nothing, so *leaving out_ptr untouched is* returning the fallback —
+    // and it cannot leak, because the sentinel owns nothing.
+    builder.line("rescue Exception => e");
     builder.indent();
+    builder.line("# Never unwind into Rust: an exception crossing an FFI callback");
+    builder.line("# boundary is undefined behaviour. out_ptr stays untouched, which is");
+    builder.line("# how the engine's thunk hands the kind's own fallback back.");
     builder.line(&format!(
-        "$stderr.puts \"[azul] {} error: #{{e.message}}\"",
+        "_msg = \"azul: {} raised #{{e.class}}: #{{e.message}}\"",
         wrapper
     ));
+    match callback_log_sink(cb, ir, config) {
+        Some(sink) => {
+            // Through the app's log sink, so the failure reaches wherever
+            // the application sends its logs (and therefore Grafana)
+            // instead of only a terminal nobody is reading.
+            builder.line("begin");
+            builder.indent();
+            builder.line(&format!(
+                "Native.{}(ptr_args[{}], {}, Azul._az_string(_msg))",
+                sink.attach, sink.arg_index, sink.level
+            ));
+            builder.dedent();
+            builder.line("rescue Exception");
+            builder.indent();
+            builder.line("# The log sink itself failed; stderr is all that is left.");
+            emit_stderr_report(builder);
+            builder.dedent();
+            builder.line("end");
+        }
+        None => {
+            builder.line("# This kind carries no argument that can log.");
+            emit_stderr_report(builder);
+        }
+    }
     builder.dedent();
     builder.line("end");
     builder.dedent();

@@ -328,6 +328,15 @@ fn emit_one_register_helper(
     builder.indent();
     let args_vars: Vec<String> = (0..cb.args.len()).map(|i| format!("a{}", i)).collect();
     let call_args = args_vars.join(" ");
+    // The lambda below becomes a C function pointer through
+    // `foreign import ccall "wrapper"`. An exception that unwinds out of
+    // such a frame into Rust is undefined behaviour - the RTS has no frame
+    // to unwind to - so the user's function runs under the same guard the
+    // managed invokers use (`Azul.Types.Common`). This tier has no
+    // `CallbackInfo` to log through - it holds raw pointers, not the
+    // wrapper types the idiomatic layer builds `log` on - so the report
+    // goes to stderr; the managed path in `Azul.Internal.Callbacks` logs
+    // through the callback's own sink.
     if ret_is_aggregate {
         let args_pat = if args_vars.is_empty() {
             String::from("outPtr")
@@ -335,24 +344,71 @@ fn emit_one_register_helper(
             format!("{} outPtr", args_vars.join(" "))
         };
         builder.line(&format!(
-            "innerFn <- mk_{}_inner $ \\{} -> do",
-            cb.name, args_pat,
+            "innerFn <- mk_{}_inner $ \\{} -> azulGuard \"{}\" azulStderr $ do",
+            cb.name, args_pat, cb.name,
         ));
         builder.indent();
-        builder.line(&format!("__ret <- userFn {}", call_args));
+        // Forced inside the guard: `poke` would force it anyway, but only
+        // because it happens to be inside too.
+        builder.line(&format!("__ret <- userFn {} >>= azulForce", call_args));
         builder.line("poke outPtr __ret");
         builder.dedent();
     } else {
-        let args_pat = args_vars.join(" ");
-        builder.line(&format!(
-            "innerFn <- mk_{}_inner $ \\{} -> userFn {}",
-            cb.name, args_pat, call_args,
-        ));
+        // `\ -> e` is not a lambda: a callback typedef that takes no
+        // arguments binds none.
+        let lambda = if args_vars.is_empty() {
+            String::new()
+        } else {
+            format!("\\{} -> ", args_vars.join(" "))
+        };
+        let applied = if call_args.is_empty() {
+            "userFn".to_string()
+        } else {
+            format!("(userFn {})", call_args)
+        };
+        if returns_void {
+            builder.line(&format!(
+                "innerFn <- mk_{}_inner $ {}azulGuard \"{}\" azulStderr {}",
+                cb.name, lambda, cb.name, applied,
+            ));
+        } else {
+            // A value answer: the guard forces it and, if the user raised,
+            // hands the C caller the neutral value of the FFI type instead.
+            builder.line(&format!(
+                "innerFn <- mk_{}_inner $ {}azulGuardValue \"{}\" azulStderr {} {}",
+                cb.name,
+                lambda,
+                cb.name,
+                ffi_fallback_value(&ret_raw),
+                applied,
+            ));
+        }
     }
     builder.line(&format!("c_Az{}_set_inner innerFn", cb.name));
     builder.line(&format!("pure p_Az{}_trampoline", cb.name));
     builder.dedent();
     builder.blank();
+}
+
+/// The value a guarded callback answers with when the user's function
+/// raised: the neutral value of the FFI return type, never a half-built
+/// one. Numeric zero for every C integer and float, a null pointer for a
+/// pointer, NUL for a character.
+fn ffi_fallback_value(ret_raw: &str) -> &'static str {
+    let t = ret_raw
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .trim();
+    if t.starts_with("FunPtr ") {
+        "nullFunPtr"
+    } else if t.starts_with("Ptr ") {
+        "nullPtr"
+    } else if t == "Char" {
+        "'\\0'"
+    } else {
+        "0"
+    }
 }
 
 /// The ONE inclusion predicate for this binding. `cshim::should_emit_shim_for`

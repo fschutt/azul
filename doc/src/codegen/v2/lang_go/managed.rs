@@ -95,13 +95,27 @@ fn arg_go_type(t: &str, wrapper_types: &[String], ir: &CodegenIR) -> String {
     }
 }
 
-/// Does the class have a `log` method (the observability sink a callback
-/// info offers)? Such an argument is where binding errors are reported.
+/// Does the class have a `log(level, message)` method (the observability
+/// sink a callback info offers)? Such an argument is where binding errors
+/// and escaped panics are reported.
+///
+/// The SHAPE is checked too - an instance method taking an enum level and a
+/// string message - because that is what the emitted `azGoLogger` interface
+/// requires: a `log` of any other shape would not satisfy it, and the
+/// reports would silently fall back to the standard logger.
 fn class_has_log(t: &str, ir: &CodegenIR) -> bool {
     ir.functions_for_class(t).any(|f| {
-        // allow-api-name: "does this type offer the log sink" is a question
-        // about one named method; the IR has no other mark for it.
-        matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) && f.method_name == "log"
+        matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+            // allow-api-name: "does this type offer the log sink" is a
+            // question about one named method; the IR has no other mark for
+            // it, and the shape below matches ordinary methods too.
+            && f.method_name == "log"
+            // self, the level, the message.
+            && f.args.len() == 3
+            && ir.find_enum(f.args[1].type_name.trim()).is_some()
+            && ir
+                .find_struct(f.args[2].type_name.trim())
+                .is_some_and(|s| s.category == TypeCategory::String)
     })
 }
 
@@ -291,10 +305,30 @@ pub fn generate_trampolines(ir: &CodegenIR, config: &CodegenConfig) -> Result<St
         let params: Vec<String> = (0..*n).map(|i| format!("p{} unsafe.Pointer", i)).collect();
         let fwd: Vec<String> = (0..*n).map(|i| format!("p{}", i)).collect();
         b.line(&format!(
-            "func azGoInvoker{}(handle uint64, {}) uintptr {{",
+            "func azGoInvoker{}(handle uint64, {}) (ret uintptr) {{",
             n,
             params.join(", ")
         ));
+        // The named result is the point: a bare recover in a function with
+        // an unnamed result returns the zero value of whatever the compiler
+        // had in the slot, not a value this function chose.
+        b.line("    // A Go panic must never unwind into libazul's C frames. The per-kind");
+        b.line("    // adapter guards the user's callback with its own log sink; this is");
+        b.line("    // the last resort for a panic raised beside it (a pointer argument");
+        b.line("    // that will not convert, a sink that fails), reported through the");
+        b.line("    // standard logger because the raw pointers here carry no type to log");
+        b.line("    // through. The callback's own result travels through the out-pointer,");
+        b.line("    // which libazul pre-filled with that kind's default - untouched, that");
+        b.line("    // default is what the engine reads back.");
+        b.line("    defer func() {");
+        b.line("        if r := recover(); r != nil {");
+        b.line("            ret = 0");
+        b.line(&format!(
+            "            azGoReportPanic(\"host-invoker trampoline (arity {})\", r)",
+            n
+        ));
+        b.line("        }");
+        b.line("    }()");
         b.line(&format!("    azGoDispatch(handle, {})", fwd.join(", ")));
         b.line("    return 0");
         b.line("}");
@@ -303,7 +337,14 @@ pub fn generate_trampolines(ir: &CodegenIR, config: &CodegenConfig) -> Result<St
     b.line("// azGoHostHandleRelease is libazul's host-handle releaser: the last clone of");
     b.line("// a RefAny carrying a Go handle was dropped, so the registry entry goes and");
     b.line("// the Go value becomes collectable.");
-    b.line("func azGoHostHandleRelease(id uint64) uintptr {");
+    b.line("func azGoHostHandleRelease(id uint64) (ret uintptr) {");
+    b.line("    // Called from a Rust destructor: a panic here would unwind into it.");
+    b.line("    defer func() {");
+    b.line("        if r := recover(); r != nil {");
+    b.line("            ret = 0");
+    b.line("            azGoReportPanic(\"host-handle releaser\", r)");
+    b.line("        }");
+    b.line("    }()");
     b.line("    azGoHandles.Delete(id)");
     b.line("    return 0");
     b.line("}");
@@ -360,7 +401,9 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("//      calls the registered trampoline with POINTER arguments only; the");
     b.line("//      adapter stored in the registry casts them back and calls your Go");
     b.line("//      function. A non-nil result is written through the out-pointer; nil");
-    b.line("//      leaves libazul's default for that kind in place.");
+    b.line("//      leaves libazul's default for that kind in place. A PANIC never");
+    b.line("//      leaves the adapter (it would unwind into C): it is logged through");
+    b.line("//      the callback info's Log and leaves that default in place too.");
     b.line("//   4. When the last clone of the ctx RefAny drops, libazul fires the");
     b.line("//      releaser and the registry entry is removed.");
     b.line("//");
@@ -565,6 +608,26 @@ fn emit_error_reporting(b: &mut CodeBuilder) {
     b.line("    log.Print(msg)");
     b.line("}");
     b.blank();
+    b.line("// azGoReportPanic reports a Go panic that was caught at the C boundary,");
+    b.line("// where `what` names the frame that caught it. A panic reaching a C caller");
+    b.line("// unwinds through frames Go cannot unwind - undefined behaviour - so every");
+    b.line("// function libazul calls into recovers instead and leaves its kind's");
+    b.line("// default result standing.");
+    b.line("func azGoReportPanic(what string, r any, sinks ...any) {");
+    b.line("    // fmt renders a panicking String()/Error() as %!v(PANIC=...) rather");
+    b.line("    // than panicking again, so building the message cannot fail here.");
+    b.line("    msg := fmt.Sprintf(\"azul: %s panicked: %v\", what, r)");
+    b.line("    // The sink is engine state reached from inside a failed callback; if");
+    b.line("    // logging through it panics too, the standard logger still gets the");
+    b.line("    // message and nothing escapes this deferred call either.");
+    b.line("    defer func() {");
+    b.line("        if again := recover(); again != nil {");
+    b.line("            log.Print(msg)");
+    b.line("        }");
+    b.line("    }()");
+    b.line("    azGoReportError(msg, sinks...)");
+    b.line("}");
+    b.blank();
 }
 
 fn emit_refany_helpers(b: &mut CodeBuilder, refany: &RefAnyInfo) {
@@ -759,6 +822,24 @@ fn emit_register_fns(
                 b.line(&format!("        {} := args[{}]", nm, i));
             }
         }
+        // Whatever the user's function panics with stops HERE, at the last
+        // Go frame before libazul's C caller: crossing it would be undefined
+        // behaviour. The report goes through the same sinks as a binding
+        // error (the callback info's Log, so it reaches the observability
+        // pipeline), and because the out-pointer is only written on the way
+        // out, libazul's pre-filled default for this kind is what the engine
+        // reads back - the same fallback a `nil` return produces.
+        //
+        // Placed after the argument conversions so the sinks exist; a panic
+        // in one of those is caught by the arity trampoline instead.
+        b.line("        defer func() {");
+        b.line("            if r := recover(); r != nil {");
+        b.line(&format!(
+            "                azGoReportPanic(\"{w}\", r{sinks})",
+            w = k.wrapper
+        ));
+        b.line("            }");
+        b.line("        }()");
         let call_args = names.join(", ");
         match &rk {
             RetKind::Void => b.line(&format!("        fn({})", call_args)),

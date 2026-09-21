@@ -2380,6 +2380,114 @@ impl<'m, 'a> Emitter<'m, 'a> {
         Some(format!("({}) -> {}", args.join(", "), self.cb_c_ret(td)?))
     }
 
+    /// What a trampoline hands back when the BOUNDARY fails - there is no
+    /// model of the caller's type behind the data RefAny, or no Swift
+    /// closure is registered for the slot libazul just called.
+    ///
+    /// `None` when the IR names no value of the return type: fabricating
+    /// bytes for a type that owns memory would corrupt libazul, so those
+    /// failures stay fatal.
+    fn cb_fallback(&self, td: &CallbackTypedefDef) -> Option<String> {
+        let m = self.m;
+        let t = match td.return_type.as_deref() {
+            None => Ty::Void,
+            Some(r) => m.owned(r),
+        };
+        let default_of = |n: &str| m.trait_fn(n, FunctionKind::Default).map(|f| format!("{}()", f));
+        Some(match t {
+            Ty::Void => "return".to_string(),
+            Ty::Prim(Prim::Bool) => "return false".to_string(),
+            Ty::Prim(_) => "return 0".to_string(),
+            Ty::Str => format!("return {}", default_of(m.string_class()?)?),
+            // A fieldless enum owns nothing, so every discriminant is a
+            // valid value. With no `Default` the binding hands back the
+            // first variant it declares - what zero-initializing the C enum
+            // gives, and for an "what should happen next" enum the one that
+            // means "nothing".
+            Ty::Enum(n) => match default_of(&n) {
+                Some(d) => format!("return {}", d),
+                None if m.enums.get(&n).is_some_and(|e| !e.variants.is_empty()) => {
+                    format!("return Az{}(rawValue: 0)", n)
+                }
+                None => return None,
+            },
+            Ty::Plain(n)
+            | Ty::Union(n)
+            | Ty::Class(n)
+            | Ty::Option { name: n, .. }
+            | Ty::Vec { name: n, .. }
+            | Ty::Result { name: n, .. } => format!("return {}", default_of(&n)?),
+            Ty::RefAny | Ty::RawPtr(_) | Ty::Callback(_) | Ty::Unsupported(_) => return None,
+        })
+    }
+
+    /// The body of a failed boundary: report it where one of the callback's
+    /// arguments carries libazul's log, dispose of the arguments the user's
+    /// closure never received (they arrive by value, so nothing else will),
+    /// and hand back the fallback.
+    ///
+    /// `None` when there is no fallback - then the failure has no survivable
+    /// answer and the caller keeps stopping the process. The data RefAny is
+    /// never freed here: the trampoline owns it and frees it either way.
+    fn cb_boundary_failure(
+        &self,
+        td: &CallbackTypedefDef,
+        data_first: bool,
+        message: &str,
+    ) -> Option<Vec<String>> {
+        let m = self.m;
+        let fallback = self.cb_fallback(td)?;
+        let mut out = Vec::new();
+        // `log` writes to libazul's diagnostics sink, which is what the
+        // observability lane reads - not into the value it is called on, so
+        // a copy of the argument reports just as well as the original.
+        let sink = td.args.iter().enumerate().find_map(|(j, a)| {
+            if a.ref_kind != ArgRefKind::Owned {
+                return None;
+            }
+            let (sym, level) = m.log_fn(a.type_name.trim())?;
+            // The most severe level the enum has below "off": a boundary
+            // that dropped an event is an error, not a warning.
+            let idx = m
+                .enums
+                .get(&level)?
+                .variants
+                .iter()
+                .position(|v| v == "Error")?;
+            Some((j, sym, level, idx))
+        });
+        if let Some((j, sym, level, idx)) = &sink {
+            out.push(format!(
+                "var __log: Az{} = __c{}",
+                td.args[*j].type_name.trim(),
+                j
+            ));
+            out.push(format!(
+                "{}(&__log, Az{}(rawValue: {}), _Native.azString(\"azul: {}\"))",
+                sym, level, idx, message
+            ));
+        }
+        for (j, a) in td.args.iter().enumerate() {
+            if (j == 0 && data_first) || a.ref_kind != ArgRefKind::Owned {
+                continue;
+            }
+            let ty = m.not_result(m.owned(&a.type_name));
+            if m.cleanup(&ty, "__x").is_none() {
+                continue; // nothing of its own to free
+            }
+            let src = if sink.as_ref().is_some_and(|(s, ..)| *s == j) {
+                "__log".to_string()
+            } else {
+                format!("__c{}", j)
+            };
+            if let Some(e) = m.take_expr(&ty, &src) {
+                out.push(format!("_ = {}", e));
+            }
+        }
+        out.push(fallback);
+        Some(out)
+    }
+
     /// The closure the trampoline calls: C values in, the user's closure in
     /// the middle, a C value out.
     fn erased_closure(
@@ -2407,8 +2515,21 @@ impl<'m, 'a> Emitter<'m, 'a> {
         let mut call = Vec::new();
         for j in 0..td.args.len() {
             if j == 0 && data_first {
+                // The downcast back to the application's model. It fails when
+                // the RefAny names something else, which is a boundary failure
+                // the binding can survive - unlike a Swift runtime trap inside
+                // the closure, which no binding can catch.
+                let miss = "the callback data is not a \\(T.self)";
                 out.push("    var __p0: AzRefAny = __c0".to_string());
-                out.push("    let __u0: T = _Handles.object(&__p0, T.self)".to_string());
+                out.push("    guard let __u0: T = _Handles.object(&__p0, T.self) else {".to_string());
+                match self.cb_boundary_failure(td, data_first, miss) {
+                    Some(lines) => out.extend(lines.iter().map(|l| format!("        {}", l))),
+                    None => out.push(format!(
+                        "        preconditionFailure(\"azul: {} (pass the object itself as the data argument)\")",
+                        miss
+                    )),
+                }
+                out.push("    }".to_string());
             } else {
                 let (_, ty) = self.cb_user_arg(td, j, data_first).unwrap();
                 let e = match ty {
@@ -2520,14 +2641,21 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 );
                 w.l(2, "}");
             }
+            // libazul called a slot whose RefAny carries no Swift closure:
+            // report it and hand back the fallback instead of stopping.
+            let missing = format!("no Swift closure is registered for this {}", tdn);
             w.l(2, "guard let __call = __f else {");
-            w.l(
-                3,
-                &format!(
-                    "preconditionFailure(\"azul: no Swift closure is registered for this {}\")",
-                    tdn
-                ),
-            );
+            match self.cb_boundary_failure(td, data_first, &missing) {
+                Some(lines) => {
+                    if let (true, Some(d)) = (data_first, &drop_data) {
+                        w.l(3, d);
+                    }
+                    for l in &lines {
+                        w.l(3, l);
+                    }
+                }
+                None => w.l(3, &format!("preconditionFailure(\"azul: {}\")", missing)),
+            }
             w.l(2, "}");
             if ret == "Void" {
                 w.l(2, &format!("__call({})", names.join(", ")));

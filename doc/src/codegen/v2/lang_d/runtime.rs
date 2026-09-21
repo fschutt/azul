@@ -308,23 +308,56 @@ package void _azulAttachThread() nothrow
     }
 }
 
-/// A D exception must never unwind into libazul's frames: an escaping one is
-/// reported and ends the process.
-package noreturn _azulUncaught(Throwable t, string where) nothrow @trusted
+// ---- callback failures -------------------------------------------------------
+//
+// Nothing may leave a callback: unwinding a D exception - or an `Error`, an
+// assert failure or an out-of-memory - through libazul's `extern (C)` frames
+// is UNDEFINED, not merely fatal, because those frames carry no unwind tables
+// for it. So every trampoline catches `Throwable`, reports it and returns the
+// kind's fallback value: a throwing callback costs that one callback, and the
+// report reaches the application's log sink (and from there its telemetry)
+// instead of taking the process down.
+//
+// Every step of it is `nothrow` and allocates nothing. It runs with a
+// throwable already in flight, and a second one raised while reporting the
+// first is exactly the undefined behaviour it exists to prevent - and when
+// the first one is an `OutOfMemoryError`, allocating to report it raises the
+// second. That rules out `Throwable.toString` (it formats, allocates and can
+// throw): the text is built from `msg` and the class name, both plain fields,
+// into a stack buffer the trampoline owns.
+
+/// `azul: <where> raised <Class>: <msg>`, written into `buf`. The sentence is
+/// the one every other binding logs, so one query finds them all.
+package const(char)[] _azulCallbackError(char[] buf, Throwable t, string where) nothrow @trusted
+{
+    import core.stdc.stdio : snprintf;
+
+    if (buf.length < 2)
+        return "azul: a callback raised an error";
+    // `typeid(t).name` reads the class name through the object's own vtable:
+    // no allocation and no call into the runtime's formatting machinery.
+    const(char)[] cls = t is null ? "Throwable" : typeid(t).name;
+    const(char)[] msg = t is null ? "" : t.msg;
+    const n = snprintf(buf.ptr, buf.length, "azul: %.*s raised %.*s: %.*s",
+        cast(int) where.length, where.ptr,
+        cast(int) cls.length, cls.ptr,
+        cast(int) msg.length, msg.ptr);
+    if (n <= 0)
+        return "azul: a callback raised an error";
+    // snprintf returns what it WOULD have written; the buffer holds at most
+    // its own length minus the terminator.
+    immutable size_t len = cast(size_t) n;
+    return buf[0 .. (len < buf.length ? len : buf.length - 1)];
+}
+
+/// Where a callback failure goes when the kind has no argument to log
+/// through: the one channel that is always there.
+package void _azulReportError(scope const(char)[] text) nothrow @nogc @trusted
 {
     import core.stdc.stdio : fflush, fprintf, stderr;
 
-    try
-    {
-        auto s = t.toString();
-        fprintf(stderr, "azul: unhandled exception in a %.*s callback:\n%.*s\n",
-            cast(int) where.length, where.ptr, cast(int) s.length, s.ptr);
-    }
-    catch (Throwable)
-    {
-    }
+    fprintf(stderr, "%.*s\n", cast(int) text.length, text.ptr);
     fflush(stderr);
-    abort();
 }
 
 package noreturn _azulNoCallback(string where) nothrow @trusted
