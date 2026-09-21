@@ -45,7 +45,8 @@ java -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
 ```
 
 The Java artifact (`rs.azul:azul`) bundles the compiled `com.azul` binding 
-and `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources:
+and `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources.
+To use it, add the following to your `build.sbt`:
 
 ```scala
 resolvers += "azul-rs" at "https://azul.rs/ui/maven"
@@ -53,13 +54,13 @@ resolvers += "azul-rs" at "https://azul.rs/ui/maven"
 libraryDependencies += "rs.azul" % "azul" % "$VERSION"
 ```
 
-Alternatively, compile the generated sources yourself:
+Alternatively, you can compile the Java bindings from source instead of using the pre-built `.jar`:
 
-1. Download the native library from the
-   [release page](https://azul.rs/ui/release/$VERSION) (`libazul.dylib`
-   / `libazul.so` / `azul.dll`) and keep it in your working directory or pass
-   `-Djna.library.path=.`.
-2. Download the Scala bundle and build with the sources:
+1. **Install `sbt`**: If you haven't already, install the Scala Build Tool. You can use [SDKMAN!](https://sdkman.io/) (`sdk install sbt`), Homebrew (`brew install sbt`), or follow the [official instructions](https://www.scala-sbt.org/download.html).
+2. **Download the native library**: Grab the compiled native engine (`libazul.dylib` / `libazul.so` / `azul.dll`) from the [release page](https://azul.rs/ui/release/$VERSION) and place it in your working directory (or pass `-Djna.library.path=.` when running). This is the pre-compiled C++ GUI engine that the bindings talk to via JNA.
+3. **Download and build the bindings**: Download the `azul-scala-$VERSION.tar.gz` bundle. This bundle contains `HelloWorld.scala`, the uncompiled `.java` binding files, and a pre-configured `build.sbt`.
+
+   `sbt` natively handles mixed Scala/Java projects. It will automatically compile the Java binding sources alongside your Scala code into JVM `.class` files (under `target/scala-X/classes/`), and package them into an executable jar:
 
    ```sh
    curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
