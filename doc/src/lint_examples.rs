@@ -13,7 +13,7 @@
 //!
 //!   C           AzDom_createText
 //!   Crystal     azDom_createText
-//!   Haskell     c_AzDom_createText_via
+//!   Haskell     c_AzDom_createText_byref
 //!   Fortran     az_dom_create_text
 //!   C#          Dom.CreateText
 //!   Pascal      TDom.CreateText
@@ -30,7 +30,7 @@
 //! generated bindings needs no allowlist at all — a symbol exists exactly when
 //! the generator emitted it.
 //!
-//! It only speaks when sure. A prefixed symbol (`Az…`, `az…`, `c_…_via`) is
+//! It only speaks when sure. A prefixed symbol (`Az…`, `az…`, `c_…_byref`) is
 //! unambiguously ours, so it must appear verbatim in the generated output. A
 //! bare `Class.member` is only checked when `Class` is a name api.json
 //! defines, or `Console.WriteLine` and every other host call is a finding.
@@ -77,7 +77,7 @@ fn norm(s: &str) -> String {
 
 // Haskell wraps each C symbol; the inner symbol is what must exist.
 static RE_HASKELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bc_(Az[A-Za-z0-9]+_[A-Za-z0-9_]+)_via\b").unwrap());
+    LazyLock::new(|| Regex::new(r"\bc_(Az[A-Za-z0-9]+_[A-Za-z0-9_]+)_byref\b").unwrap());
 // C, C++, and every binding that re-exports the raw symbol.
 static RE_C: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bAz[A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+\b").unwrap());
@@ -439,7 +439,7 @@ fn check_line(
         });
     };
 
-    // Haskell's c_<symbol>_via.
+    // Haskell's c_<symbol>_byref.
     let mut covered: Vec<(usize, usize)> = Vec::new();
     for c in RE_HASKELL.captures_iter(line) {
         let m = c.get(0).unwrap();
@@ -459,7 +459,7 @@ fn check_line(
                 continue;
             }
             // Prose sometimes writes the Haskell wrapper without its `c_`.
-            let sym = m.as_str().strip_suffix("_via").unwrap_or(m.as_str());
+            let sym = m.as_str().strip_suffix("_byref").unwrap_or(m.as_str());
             if !s.exports(sym) {
                 flag(sym, m.as_str(), out);
             }

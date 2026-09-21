@@ -58,6 +58,7 @@ use super::super::ir::{
     MonomorphizedKind, StructDef, TypeCategory,
 };
 use super::super::managed_host_invoker;
+use super::super::managed_lang_helpers;
 use super::functions::{ffi_signature, host_invoker_signature};
 use super::{haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc, Split};
 
@@ -142,10 +143,11 @@ pub fn generate_api_module(ctx: &Ctx, api_module: &str) -> String {
             "Azul.Internal.Callbacks",
         ],
     );
+    let module = api_module_name(api_module);
     for s in &ctx.ir.structs {
         if ctx.wrapped.contains(&s.name) && ctx.split.module_of(&s.name) == api_module {
-            emit_layout_factory(&mut b, s, ctx);
-            emit_class_functions(&mut b, s, ctx);
+            emit_layout_factory(&mut b, s, ctx, &module);
+            emit_class_functions(&mut b, &s.name, ctx, &module, true);
         }
     }
     b.finish()
@@ -154,6 +156,97 @@ pub fn generate_api_module(ctx: &Ctx, api_module: &str) -> String {
 /// The internal module holding the class functions of an api.json module.
 pub fn api_module_name(api_module: &str) -> String {
     format!("Azul.Internal.Api.{}", super::module_segment(api_module))
+}
+
+/// `Azul.Internal.Api.Values<n>`: the surface of the classes the idiomatic
+/// layer represents as plain `Azul.Types` VALUES rather than managed
+/// wrappers - every enum, every monomorphized generic alias
+/// (`BoxDecorationBreakValue` and the 118 others) and the POD structs that
+/// own no resource.
+///
+/// They are their own modules, not extra pages of
+/// `Azul.Internal.Api.<Area>`, for build time: there are ~1600 such
+/// classes and folding them into ~40 area modules would produce a handful
+/// of 30k-line units that every one of their per-class alias modules then
+/// waits on. Size-bounded chunks compile in parallel and each alias module
+/// reads one small interface file.
+pub fn generate_value_module(ctx: &Ctx, module: &str, classes: &[String]) -> String {
+    let mut b = CodeBuilder::new(&ctx.config.indent);
+    emit_module_header(
+        &mut b,
+        module,
+        "Constructors, variant constructors, methods and derives of the classes the binding represents as plain \"Azul.Types\" values. Internal: each class's module (\"Azul.CssProperty\", ...) exports them by short name.",
+        &[
+            "Azul.Internal.Runtime",
+            "Azul.Internal.Handles",
+            "Azul.Internal.Callbacks",
+        ],
+    );
+    for class in classes {
+        emit_class_functions(&mut b, class, ctx, module, false);
+    }
+    b.finish()
+}
+
+/// How many classes one `Azul.Internal.Api.Values<n>` chunk holds. Small
+/// enough that no chunk becomes a compile-time bottleneck, large enough
+/// that the chunk count stays in the dozens rather than the hundreds.
+const VALUE_CLASSES_PER_CHUNK: usize = 48;
+
+/// The value classes, in IR order, split into chunks: `(module name, the
+/// classes it holds)`.
+///
+/// A class qualifies when the binding does NOT wrap it, `Azul.Types`
+/// declares its Haskell type (so its values can be named at all) and it
+/// has at least one function the idiomatic layer can reach.
+/// `DestructorOrClone` is left out: those types exist only to carry a
+/// destructor function pointer between libazul and itself, and api.json
+/// gives them no surface a user would call.
+pub fn value_class_chunks(ctx: &Ctx) -> Vec<(String, Vec<String>)> {
+    let mut classes: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    // Structs first, then enums, then the monomorphized aliases - the IR's
+    // own order inside each, so the chunking is reproducible.
+    let candidates = ctx
+        .ir
+        .structs
+        .iter()
+        .map(|s| (s.name.as_str(), s.category))
+        .chain(ctx.ir.enums.iter().map(|e| (e.name.as_str(), e.category)))
+        .chain(
+            // A monomorphized alias has no `StructDef`/`EnumDef` of its own
+            // (`ir.find_struct`/`find_enum` answer None for it), yet it is a
+            // real C union that libazul exports variant constructors and
+            // derives for, and `types.rs` emits its Haskell type.
+            ctx.ir
+                .type_aliases
+                .iter()
+                .map(|a| (a.name.as_str(), TypeCategory::Regular)),
+        );
+    for (name, category) in candidates {
+        if ctx.wrapped.contains(name)
+            // Plumbing: these types exist to carry a destructor function
+            // pointer between libazul and itself; api.json gives them no
+            // surface a user would ever call.
+            || category == TypeCategory::DestructorOrClone
+            || !seen.insert(name.to_string())
+            // No Haskell type to name the values of.
+            || ctx.value_type(name).is_none()
+        {
+            continue;
+        }
+        let reachable = ctx.ir.functions_for_class(name).any(|f| {
+            emits_function(f, ctx.ir) && super::functions::should_emit_function(f, ctx.ir, ctx.config)
+        });
+        if reachable {
+            classes.push(name.to_string());
+        }
+    }
+    classes
+        .chunks(VALUE_CLASSES_PER_CHUNK)
+        .enumerate()
+        .map(|(i, chunk)| (format!("Azul.Internal.Api.Values{}", i + 1), chunk.to_vec()))
+        .collect()
 }
 
 /// `Azul.<Class>`: a class's constructors and methods under their short
@@ -190,10 +283,15 @@ pub fn generate_class_module(ctx: &Ctx, class: &str, aliases: &[Alias]) -> Strin
     b.dedent();
     b.blank();
     b.line("import Prelude ()");
-    b.line(&format!(
-        "import qualified {} as I",
-        api_module_name(&ctx.split.module_of(class))
-    ));
+    // The module that declares the class's functions: its area module for
+    // a managed wrapper, one of the `Values<n>` chunks for a value class.
+    let home = ctx
+        .homes
+        .borrow()
+        .get(class)
+        .cloned()
+        .unwrap_or_else(|| api_module_name(&ctx.split.module_of(class)));
+    b.line(&format!("import qualified {} as I", home));
     for a in aliases {
         b.blank();
         for (i, d) in a.doc.iter().enumerate() {
@@ -318,12 +416,24 @@ pub struct Ctx<'a> {
     /// `AzString_copyFromBytes` / `AzString_delete` C names, when present.
     string_from_bytes: Option<String>,
     string_delete: Option<String>,
-    /// `AzRefAny_clone` C name, when present.
+    /// The api.json name of the type-erased handle class, found by
+    /// `TypeCategory::RefAny` rather than by its name.
+    refany: Option<String>,
+    /// That class's deep-copy C name, when present.
     refany_clone: Option<String>,
     /// Every class function emitted so far, by class: what the per-class
     /// module (`Azul.Button` -> `create`, `withOnClick`, ...) re-exports
     /// under its short name. Filled while the API modules are emitted.
     pub aliases: std::cell::RefCell<BTreeMap<String, Vec<Alias>>>,
+    /// The internal module that declares a class's functions, for the
+    /// per-class alias module to import. Wrapped classes live in their
+    /// area's module; the value classes are spread over size-bounded
+    /// chunks, so the mapping cannot be recomputed from the class alone.
+    pub homes: std::cell::RefCell<BTreeMap<String, String>>,
+    /// Every function name each internal module has declared, so two
+    /// classes that camel-case to the same `<class><Method>` cannot
+    /// collide inside one module (GHC-29916).
+    taken: std::cell::RefCell<BTreeMap<String, BTreeSet<String>>>,
 }
 
 /// One class function under its short name in the per-class module.
@@ -350,6 +460,34 @@ impl<'a> Ctx<'a> {
                 short: super::sanitize_value_identifier(short),
                 doc: doc.to_vec(),
             });
+    }
+
+    /// Reserve `base` as a top-level name of the Haskell module `module`,
+    /// priming it (`fooBar'`) until it is free.
+    ///
+    /// Two classes can camel-case to the same `<class><Method>` -
+    /// `Foo.bar_baz` and `FooBar.baz` both want `fooBarBaz` - and so can a
+    /// class whose api.json method collides with one of its derives. GHC
+    /// rejects the pair with GHC-29916, and dropping one of them would be a
+    /// silent hole in the surface, so the second one gets a prime instead.
+    /// Nothing user-facing shifts: a class module exports the SHORT name,
+    /// which is this name minus the class prefix.
+    fn unique_name(&self, module: &str, base: &str) -> String {
+        let mut taken = self.taken.borrow_mut();
+        let names = taken.entry(module.to_string()).or_default();
+        let mut name = base.to_string();
+        while !names.insert(name.clone()) {
+            name.push('\'');
+        }
+        name
+    }
+
+    /// Record which internal module declares `class`'s functions, so its
+    /// per-class alias module knows what to import.
+    fn set_home(&self, class: &str, module: &str) {
+        self.homes
+            .borrow_mut()
+            .insert(class.to_string(), module.to_string());
     }
 
     pub fn new(ir: &'a CodegenIR, config: &'a CodegenConfig, split: &'a Split) -> Self {
@@ -386,6 +524,10 @@ impl<'a> Ctx<'a> {
                     .map(|f| f.c_name.clone())
             })
         };
+        // The byte constructor of the class in the IR's String category.
+        // The IR has no `FunctionKind` for it - it is an ordinary api.json
+        // constructor - so the method name is the only handle there is.
+        // allow-api-name: no kind or shape distinguishes this constructor.
         let string_from_bytes = find(&string_class, "copy_from_bytes");
         let string_delete = string_class.as_ref().and_then(|c| {
             ir.functions
@@ -393,11 +535,20 @@ impl<'a> Ctx<'a> {
                 .find(|f| &f.class_name == c && f.kind == FunctionKind::Delete)
                 .map(|f| f.c_name.clone())
         });
-        let refany_clone = ir
-            .functions
+        // The type-erased handle: found by category, like the String class
+        // above, so the managed-callback plumbing survives an api.json
+        // rename.
+        let refany = ir
+            .structs
             .iter()
-            .find(|f| f.class_name == "RefAny" && f.kind == FunctionKind::DeepCopy)
-            .map(|f| f.c_name.clone());
+            .find(|s| s.category == TypeCategory::RefAny)
+            .map(|s| s.name.clone());
+        let refany_clone = refany.as_ref().and_then(|c| {
+            ir.functions
+                .iter()
+                .find(|f| &f.class_name == c && f.kind == FunctionKind::DeepCopy)
+                .map(|f| f.c_name.clone())
+        });
         Self {
             ir,
             config,
@@ -407,8 +558,11 @@ impl<'a> Ctx<'a> {
             kinds,
             string_from_bytes,
             string_delete,
+            refany,
             refany_clone,
             aliases: Default::default(),
+            homes: Default::default(),
+            taken: Default::default(),
         }
     }
 
@@ -437,7 +591,40 @@ impl<'a> Ctx<'a> {
         if self.ir.find_type_alias(t).is_some() && self.config.should_include_type(t) {
             return Some(format!("T.{}", haskell_data_name(t)));
         }
+        // A callback typedef is a C function pointer; `types.rs` gives it a
+        // pointer-sized `newtype <X> = <X> (FunPtr ())` with a `Storable`,
+        // so it marshals exactly like any other `Azul.Types` value. Without
+        // this branch every function taking a raw callback argument
+        // (`AzRefAny_newC`, `AzFontRef_create`, the `Az<K>Callback_create`
+        // family) had no shape and was dropped from the idiomatic layer.
+        if self
+            .ir
+            .callback_typedefs
+            .iter()
+            .any(|c| c.name.trim() == t)
+            && self.config.should_include_type(t)
+        {
+            return Some(format!("T.{}", haskell_data_name(t)));
+        }
         None
+    }
+
+    /// Is the type-erased handle class (`TypeCategory::RefAny`) one this
+    /// binding wraps? Everything the managed-callback plumbing does with it
+    /// hangs off this, so it is derived from the category and never from
+    /// the literal name.
+    fn wraps_refany(&self) -> bool {
+        self.refany
+            .as_deref()
+            .is_some_and(|c| self.wrapped.contains(c))
+    }
+
+    /// The Haskell wrapper-type name of the type-erased handle class.
+    fn refany_hs(&self) -> String {
+        self.refany
+            .as_deref()
+            .map(haskell_data_name)
+            .unwrap_or_default()
     }
 }
 
@@ -593,7 +780,7 @@ fn emit_prelude(b: &mut CodeBuilder, ctx: &Ctx) {
         b.line("withAzStringArg :: String -> (Ptr T.AzString -> IO a) -> IO a");
         b.line("withAzStringArg s k = withArrayLen (T.encodeUtf8 s) $ \\n bytes -> alloca $ \\p -> do");
         b.indent();
-        b.line(&format!("FFI.c_{}_via bytes 0 (fromIntegral n) p", from_bytes));
+        b.line(&format!("FFI.c_{}_byref bytes 0 (fromIntegral n) p", from_bytes));
         b.line("k p");
         b.dedent();
         b.blank();
@@ -861,6 +1048,7 @@ fn emit_wrapper_class(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
 
     emit_show_instance(b, s, ctx);
     emit_eq_instance(b, s, ctx);
+    emit_ord_instance(b, s, ctx);
 }
 
 /// The FFI binding of `s`'s deep copy when it has the `(src, out)` shape
@@ -894,7 +1082,7 @@ fn emit_show_instance(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
         w
     ));
     b.indent();
-    b.line(&format!("FFI.c_{}_via p buf", helper));
+    b.line(&format!("FFI.c_{}_byref p buf", helper));
     b.line("azulTakeString buf");
     b.dedent();
     b.dedent();
@@ -921,18 +1109,60 @@ fn emit_eq_instance(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
     b.blank();
 }
 
+/// `instance Ord <X>` through `_cmp` when api.json derives Ord AND the
+/// class already got its 'Eq' instance above (`Eq` is `Ord`'s superclass,
+/// so an `Ord` without one would not compile). `PartialOrd` alone is not
+/// enough: `_partialCmp` answers 255 for "incomparable", which `Ord` has
+/// no way to express.
+fn emit_ord_instance(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
+    if !s.traits.is_partial_eq {
+        return;
+    }
+    let eq = format!("Az{}_partialEq", s.name);
+    let Some(cmp) = ctx
+        .ir
+        .functions_for_class(&s.name)
+        .find(|f| f.kind == FunctionKind::Cmp)
+        .filter(|f| super::functions::should_emit_function(f, ctx.ir, ctx.config))
+        .map(|f| ffi_signature(f, ctx.ir).binding)
+    else {
+        return;
+    };
+    if !ctx.ir.functions.iter().any(|f| f.c_name == eq) {
+        return;
+    }
+    let w = haskell_data_name(&s.name);
+    b.line(&format!("instance Ord {} where", w));
+    b.indent();
+    b.line(&format!(
+        "compare a b = unsafePerformIO $ with{} a $ \\pa -> with{} b $ \\pb -> do",
+        w, w
+    ));
+    b.indent();
+    b.line(&format!("r <- FFI.{} pa pb", cmp));
+    // libazul answers Rust's Ordering as 0 = Less, 1 = Equal, 2 = Greater
+    // (see the `FunctionKind::Cmp` body in lang_rust.rs), so comparing the
+    // answer against Equal recovers the Ordering without a lookup table.
+    // The literal stays untyped so it takes whatever integer type the
+    // import declares for the answer.
+    b.line("pure (compare r 1)");
+    b.dedent();
+    b.dedent();
+    b.blank();
+}
+
 // ============================================================================
 // Managed RefAny
 // ============================================================================
 
 fn emit_managed_refany(b: &mut CodeBuilder, ctx: &Ctx) {
-    if !ctx.wrapped.contains("RefAny") {
+    if !ctx.wraps_refany() {
         return;
     }
     b.raw(MANAGED_REFANY);
     b.blank();
     if let Some(clone) = &ctx.refany_clone {
-        b.raw(&MANAGED_REFANY_CLONE.replace("{clone}", &format!("FFI.c_{}_via", clone)));
+        b.raw(&MANAGED_REFANY_CLONE.replace("{clone}", &format!("FFI.c_{}_byref", clone)));
         b.blank();
     }
 }
@@ -950,7 +1180,7 @@ refAnyCreate v = do
     azulEnsureManaged
     h <- azulAllocHandle (toDyn v)
     r <- allocRefAny
-    withRefAny r (FFI.c_AzRefAny_newHostHandle_via h)
+    withRefAny r (FFI.c_AzRefAny_newHostHandle_byref h)
     pure r
 
 azulRefAnyHandle :: RefAny -> IO Word64
@@ -1110,11 +1340,11 @@ fn closure_type(cb: &CallbackTypedefDef, ctx: &Ctx) -> Option<String> {
 /// Does the kind's first argument carry the model (`RefAny`)? Only those
 /// kinds get the model-typed handler forms and a current model.
 fn model_first(cb: &CallbackTypedefDef, ctx: &Ctx) -> bool {
-    ctx.wrapped.contains("RefAny")
+    ctx.wraps_refany()
         && cb
             .args
             .first()
-            .map(|a| a.type_name.trim() == "RefAny")
+            .map(|a| managed_lang_helpers::is_refany_type(&a.type_name, ctx.ir))
             .unwrap_or(false)
 }
 
@@ -1132,12 +1362,18 @@ fn mismatch_logger<'b>(
             continue;
         }
         let ir: &'b CodegenIR = ctx.ir;
+        // The `log(level, message)` reporting rule every managed binding
+        // shares (see the module header): the IR has no kind for it, so the
+        // method name is the only handle, and the shape check below - three
+        // arguments whose last one is the IR's String category - is what
+        // keeps an unrelated `log` from being mistaken for it.
         let Some(f) = ir.functions.iter().find(|f| {
             f.class_name == t
+                // allow-api-name: the shared reporting rule, shape-checked below.
                 && f.method_name == "log"
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
                 && f.args.len() == 3
-                && f.args[2].type_name.trim() == "String"
+                && ctx.is_string(f.args[2].type_name.trim())
         }) else {
             continue;
         };
@@ -1176,7 +1412,7 @@ fn emit_logger(b: &mut CodeBuilder, f: &FunctionDef, ctx: &Ctx) {
     let (Some(plans), Some(ret)) = (plans, ret_plan(f, ctx)) else {
         return;
     };
-    emit_function(b, f, &logger_name(f), true, &plans, &ret, ctx);
+    emit_function(b, f, &logger_name(f), true, &plans, &ret, None, ctx);
 }
 
 fn emit_callback_kind(b: &mut CodeBuilder, cb: &CallbackTypedefDef, ctx: &Ctx) {
@@ -1279,7 +1515,7 @@ fn emit_callback_kind(b: &mut CodeBuilder, cb: &CallbackTypedefDef, ctx: &Ctx) {
     b.line("h <- azulAllocHandle (toDyn f)");
     b.line("alloca $ \\p -> do");
     b.indent();
-    b.line(&format!("FFI.c_Az{}_createFromHostHandle_via h p", kind));
+    b.line(&format!("FFI.c_Az{}_createFromHostHandle_byref h p", kind));
     b.line("k p");
     b.dedent();
     b.dedent();
@@ -1418,7 +1654,7 @@ fn emit_ensure_managed(b: &mut CodeBuilder, ctx: &Ctx) {
 /// `create(LayoutCallbackType)` takes a bare fn pointer: build the default
 /// value and splice the host-handle callback struct into the field the IR
 /// says holds it, at the oracle's `offsetof`.
-fn emit_layout_factory(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
+fn emit_layout_factory(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &str) {
     let Some(info) = managed_host_invoker::layout_callback_factory_info(s, ctx.ir) else {
         return;
     };
@@ -1458,20 +1694,20 @@ fn emit_layout_factory(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
         w
     ));
     b.line("-- a bare function pointer and cannot carry a closure).");
-    b.line(&format!(
-        "{}Create :: {}Handler h => h -> IO {}",
-        l, cb_hs, w
-    ));
+    // Reserved through the module's name table like any other function,
+    // so nothing emitted later can land on the same name.
+    let create = ctx.unique_name(module, &format!("{}Create", l));
+    b.line(&format!("{} :: {}Handler h => h -> IO {}", create, cb_hs, w));
     ctx.record_alias(
         &s.name,
-        &format!("{}Create", l),
+        &create,
         "create",
         &[format!("A '{w}' whose layout is the given function of your model.")],
     );
-    b.line(&format!("{}Create f = do", l));
+    b.line(&format!("{} f = do", create));
     b.indent();
     b.line(&format!("h <- alloc{}", w));
-    b.line(&format!("with{} h FFI.c_{}_via", w, info.default_c_name));
+    b.line(&format!("with{} h FFI.c_{}_byref", w, info.default_c_name));
     b.line(&format!(
         "azulRegister{} ({}Handler f) $ \\cb -> with{} h $ \\p ->",
         info.callback_wrapper,
@@ -1531,21 +1767,31 @@ enum RetPlan {
 fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
     let t = a.type_name.trim();
     let by_value = matches!(a.ref_kind, ArgRefKind::Owned);
+    // A callback-wrapper struct whose kind has a host invoker takes a
+    // Haskell closure. One WITHOUT an invoker - or whose closure type has
+    // no shape - is still an ordinary wrapper value the caller can build
+    // and pass, so it falls through rather than sinking the whole function.
     if managed_host_invoker::is_callback_wrapper(ctx.ir, t) {
-        let cb = ctx
+        let closure = ctx
             .kinds
             .iter()
-            .find(|cb| managed_host_invoker::wrapper_name(cb) == t)?;
-        let hs = closure_type(cb, ctx)?;
-        return Some(ArgPlan::Closure {
-            kind: t.to_string(),
-            hs: haskell_data_name(t),
-        })
-        .filter(|_| !hs.is_empty());
+            .find(|cb| managed_host_invoker::wrapper_name(cb) == t)
+            .and_then(|cb| closure_type(cb, ctx))
+            .filter(|hs| !hs.is_empty());
+        if closure.is_some() {
+            return Some(ArgPlan::Closure {
+                kind: t.to_string(),
+                hs: haskell_data_name(t),
+            });
+        }
     }
-    if ctx.ir.callback_typedefs.iter().any(|c| c.name == t) {
-        return None;
-    }
+    // A raw callback typedef (`AzRefAnyDestructorType`, `AzLayoutCallbackType`)
+    // is NOT a host-invoker wrapper: it is the bare C function pointer, and
+    // `types.rs` gives it a `newtype <X> = <X> (FunPtr ())` with a Storable.
+    // It therefore falls through to the `Value` shape below, like any other
+    // `Azul.Types` value. The managed closure path above still wins for the
+    // kinds that have an invoker, so nothing that used to take a closure
+    // starts taking a `FunPtr` instead.
     if t.starts_with("*const ") || t.starts_with("*mut ") || t.starts_with('&') {
         return Some(ArgPlan::Direct {
             hs: hs_type_q(t, ctx),
@@ -1571,12 +1817,12 @@ fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
             ArgPlan::StringRef
         });
     }
-    if t == "RefAny" && ctx.wrapped.contains(t) {
+    if managed_lang_helpers::is_refany_type(t, ctx.ir) && ctx.wrapped.contains(t) {
         return Some(if by_value && ctx.refany_clone.is_some() {
             ArgPlan::RefAnyArg
         } else {
             ArgPlan::Wrapper {
-                hs: "RefAny".to_string(),
+                hs: haskell_data_name(t),
                 consume: false,
             }
         });
@@ -1626,8 +1872,8 @@ fn ret_plan(func: &FunctionDef, ctx: &Ctx) -> Option<RetPlan> {
 }
 
 /// Haskell-side name of one api.json function: `<class><Method>`.
-fn function_name(s: &StructDef, func: &FunctionDef) -> String {
-    let class = lower_first(&haskell_data_name(&s.name));
+fn function_name(class: &str, func: &FunctionDef) -> String {
+    let class = lower_first(&haskell_data_name(class));
     let method = match func.kind {
         FunctionKind::DeepCopy => "Clone".to_string(),
         FunctionKind::Default => "Default".to_string(),
@@ -1636,35 +1882,58 @@ fn function_name(s: &StructDef, func: &FunctionDef) -> String {
     format!("{}{}", class, method)
 }
 
-fn emit_class_functions(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
-    let has_factory = managed_host_invoker::layout_callback_factory_info(s, ctx.ir).is_some();
-    let mut seen: BTreeMap<String, String> = BTreeMap::new();
-    for func in ctx.ir.functions_for_class(&s.name) {
-        if !matches!(
-            func.kind,
-            FunctionKind::Constructor
-                | FunctionKind::StaticMethod
-                | FunctionKind::Method
-                | FunctionKind::MethodMut
-                | FunctionKind::DeepCopy
-                | FunctionKind::Default
-        ) {
+/// Does the idiomatic layer surface this function? Everything except two
+/// shapes:
+///
+/// - `Delete`. A managed wrapper releases itself through `dispose<X>` and
+///   a value type owns nothing the Haskell side may free, so a
+///   hand-callable `_delete` is the one shape that can only cause a double
+///   free.
+/// - The variant constructors of a UNIT enum. `Azul.Types` already
+///   declares that enum as a Haskell data type whose constructors ARE its
+///   variants - `T.NodeTypeTag_Div`, with `Eq`, `Enum` and `Bounded`
+///   derived - so an `IO` action that pays an FFI call to fetch a constant
+///   the type system hands out for free would be strictly worse. A union
+///   enum is different: its variants carry payloads libazul has to build,
+///   and those constructors ARE surfaced.
+fn emits_function(func: &FunctionDef, ir: &CodegenIR) -> bool {
+    if func.kind == FunctionKind::Delete {
+        return false;
+    }
+    if func.kind == FunctionKind::EnumVariantConstructor {
+        // A monomorphized alias has no `EnumDef`; it is a C union by
+        // construction, so its constructors stay.
+        if let Some(e) = ir.find_enum(&func.class_name) {
+            return e.is_union;
+        }
+    }
+    true
+}
+
+/// Every idiomatic function of one class, into the module `module`.
+///
+/// `wrapped` says which tier the class lives in: a managed wrapper type
+/// (its receiver is a handle, it may own a layout-callback factory and the
+/// model-bound callback setters) or a plain `Azul.Types` value - an enum, a
+/// monomorphized generic alias or a POD struct, whose receiver is
+/// `alloca`-d and poked for the call. Both tiers share every step below;
+/// only the two wrapper-only rules are gated.
+fn emit_class_functions(b: &mut CodeBuilder, class: &str, ctx: &Ctx, module: &str, wrapped: bool) {
+    let struct_def = ctx.ir.find_struct(class);
+    let has_factory = wrapped
+        && struct_def
+            .is_some_and(|s| managed_host_invoker::layout_callback_factory_info(s, ctx.ir).is_some());
+    let class_prefix = lower_first(&haskell_data_name(class));
+    let mut emitted_any = false;
+    for func in ctx.ir.functions_for_class(class) {
+        if !emits_function(func, ctx.ir) {
             continue;
         }
         if !super::functions::should_emit_function(func, ctx.ir, ctx.config) {
             continue;
         }
-        let name = function_name(s, func);
         // The layout factory replaces the raw `create(fn ptr)`.
-        if has_factory && name == format!("{}Create", lower_first(&haskell_data_name(&s.name))) {
-            continue;
-        }
-        if let Some(prev) = seen.get(&name) {
-            b.line(&format!(
-                "-- SKIPPED: {} ({}) would repeat {} ({})",
-                name, func.c_name, name, prev
-            ));
-            b.blank();
+        if has_factory && function_name(class, func) == format!("{}Create", class_prefix) {
             continue;
         }
         // The IR spells a method's receiver as its first argument (named
@@ -1688,7 +1957,8 @@ fn emit_class_functions(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
         if !ok {
             b.line(&format!(
                 "-- SKIPPED: {} ({}): an argument has no Haskell shape yet",
-                name, func.c_name
+                function_name(class, func),
+                func.c_name
             ));
             b.blank();
             continue;
@@ -1696,7 +1966,8 @@ fn emit_class_functions(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
         let Some(ret) = ret_plan(func, ctx) else {
             b.line(&format!(
                 "-- SKIPPED: {} ({}): the return type has no Haskell shape yet",
-                name, func.c_name
+                function_name(class, func),
+                func.c_name
             ));
             b.blank();
             continue;
@@ -1709,43 +1980,61 @@ fn emit_class_functions(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
                 plans[i - 1] = ArgPlan::RefAnyClone;
             }
         }
-        seen.insert(name.clone(), func.c_name.clone());
-        emit_function(b, func, &name, receiver, &plans, &ret, ctx);
-        let class_prefix = lower_first(&haskell_data_name(&s.name));
+        // `&mut self` on a VALUE receiver writes into the buffer this
+        // wrapper allocated for the call, so the mutation would be thrown
+        // away on return. Hand the updated value back instead - the shape
+        // an immutable language wants anyway. A wrapper receiver needs
+        // nothing: `with<X>` lends the wrapper's own bytes, so the callee
+        // mutates the value the caller keeps holding.
+        let mutated = (func.kind == FunctionKind::MethodMut
+            && receiver
+            && matches!(plans.first(), Some(ArgPlan::Value { .. }))
+            && matches!(ret, RetPlan::Void))
+        .then_some(0usize);
+        let name = ctx.unique_name(module, &function_name(class, func));
+        emit_function(b, func, &name, receiver, &plans, &ret, mutated, ctx);
+        emitted_any = true;
         if let Some(short) = name.strip_prefix(&class_prefix) {
-            ctx.record_alias(&s.name, &name, &lower_first(short), &func.doc);
+            ctx.record_alias(class, &name, &lower_first(short), &func.doc);
         }
 
         // `with_on_click(data, callback)` -> `buttonOnClick callback`: the
         // same call with the data bound to the model of the running callback
         // (the shared smart-setter rule every managed binding follows).
+        if !wrapped {
+            continue;
+        }
         let Some((smart, _)) = managed_host_invoker::smart_callback_setter_info(func) else {
             continue;
         };
         if !receiver || !matches!(plans.get(1), Some(ArgPlan::RefAnyClone)) {
             continue;
         }
-        let smart_name = format!("{}{}", lower_first(&haskell_data_name(&s.name)), pascal(&smart));
-        if let Some(prev) = seen.get(&smart_name) {
-            b.line(&format!(
-                "-- SKIPPED: {} (model-bound {}) would repeat {} ({})",
-                smart_name, func.c_name, smart_name, prev
-            ));
-            b.blank();
-            continue;
-        }
+        let smart_name = ctx.unique_name(module, &format!("{}{}", class_prefix, pascal(&smart)));
         let mut smart_plans = plans.clone();
         smart_plans[1] = ArgPlan::CurrentModel;
-        seen.insert(smart_name.clone(), func.c_name.clone());
         b.line(&format!(
             "-- | '{}' with the data bound to the model of the running callback.",
             name
         ));
-        emit_function(b, func, &smart_name, receiver, &smart_plans, &ret, ctx);
-        ctx.record_alias(&s.name, &smart_name, &lower_first(&pascal(&smart)), &func.doc);
+        emit_function(b, func, &smart_name, receiver, &smart_plans, &ret, None, ctx);
+        if let Some(short) = smart_name.strip_prefix(&class_prefix) {
+            ctx.record_alias(class, &smart_name, &lower_first(short), &func.doc);
+        }
+    }
+    if emitted_any {
+        ctx.set_home(class, module);
     }
 }
 
+/// One idiomatic wrapper around one C function.
+///
+/// `mutated` is the index of an argument the callee writes through and the
+/// wrapper must hand back: a `&mut self` on a VALUE receiver, whose bytes
+/// live in the buffer this wrapper allocated, so the updated value would
+/// otherwise be dropped on the floor. Only meaningful when `ret` is
+/// [`RetPlan::Void`] - a function that already returns something returns
+/// that instead.
 fn emit_function(
     b: &mut CodeBuilder,
     func: &FunctionDef,
@@ -1753,9 +2042,11 @@ fn emit_function(
     receiver: bool,
     plans: &[ArgPlan],
     ret: &RetPlan,
+    mutated: Option<usize>,
     ctx: &Ctx,
 ) {
     let sig = ffi_signature(func, ctx.ir);
+    let mutated = mutated.filter(|_| matches!(ret, RetPlan::Void));
 
     // Parameter names: `a1..` in api.json order, the receiver last as
     // `self`.
@@ -1785,9 +2076,12 @@ fn emit_function(
                     hs.clone()
                 }
             }
+            // The type written into the signature is Haskell's own, not
+            // the api.json class that happens to share the word.
+            // allow-api-name: this is base's String, not the API class.
             ArgPlan::StringOwned | ArgPlan::StringRef => "String".to_string(),
             ArgPlan::RefAnyArg => format!("d{}", i),
-            ArgPlan::RefAnyClone | ArgPlan::CurrentModel => "RefAny".to_string(),
+            ArgPlan::RefAnyClone | ArgPlan::CurrentModel => ctx.refany_hs(),
             ArgPlan::Wrapper { hs, .. } => hs.clone(),
             ArgPlan::Value { hs } => hs.clone(),
             ArgPlan::Closure { .. } => format!("h{}", i),
@@ -1803,7 +2097,11 @@ fn emit_function(
         })
         .collect();
     let ret_ty = match ret {
-        RetPlan::Void => "()".to_string(),
+        // A `&mut self` value receiver comes back as the updated value.
+        RetPlan::Void => match mutated {
+            Some(i) => param_ty(i),
+            None => "()".to_string(),
+        },
         RetPlan::Direct { hs, is_bool } => {
             if *is_bool {
                 "Bool".to_string()
@@ -1811,6 +2109,7 @@ fn emit_function(
                 hs.clone()
             }
         }
+        // allow-api-name: Haskell's own `String`, as above.
         RetPlan::HsString => "String".to_string(),
         RetPlan::Wrapper(w) => w.clone(),
         RetPlan::Value(t) => t.clone(),
@@ -1899,7 +2198,14 @@ fn emit_function(
     let mut tail: Vec<String> = Vec::new();
     let mut captures = false;
     match ret {
-        RetPlan::Void => {}
+        // The callee wrote through the buffer of argument `mutated`; read
+        // it back as the result of the nested bracket.
+        RetPlan::Void => {
+            if let Some(i) = mutated {
+                captures = true;
+                tail.push(format!("peek __p{}", i));
+            }
+        }
         RetPlan::Direct { .. } => {
             captures = true;
         }
@@ -1952,7 +2258,11 @@ fn emit_function(
     }
 
     match ret {
-        RetPlan::Void => {}
+        RetPlan::Void => {
+            if mutated.is_some() {
+                b.line("pure __r");
+            }
+        }
         RetPlan::Direct { is_bool, .. } => {
             if *is_bool {
                 b.line("pure (toBool __r)");
