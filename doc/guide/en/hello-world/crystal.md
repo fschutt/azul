@@ -32,26 +32,20 @@ the generated API bindings which wrap the C API in ordinary Crystal classes.
 
 ## Installation
 
-First, you need to install Crystal (`brew install crystal`, or from [crystal-lang.org](https://crystal-lang.org/install/)).
+First, you need to install Crystal: `brew install crystal` on macOS, or install it 
+from [crystal-lang.org](https://crystal-lang.org/install/).
 
-The preferred way to manage dependencies in Crystal is using `shards`. Azul provides a pre-packaged shard containing the generated API bindings.
+The preferred way to manage dependencies in Crystal is using `shards`. Azul provides 
+a pre-packaged shard containing the generated API bindings.
 
-Create a new directory for your project and initialize a `shard.yml` file:
+The preferred way to manage dependencies in Crystal is using `shards`. Azul provides a pre-packaged shard containing the generated API bindings, and a pre-configured `shard.yml` to get you started quickly.
+
+Create a new directory for your project and download the project files:
 
 ```sh
 mkdir hello-world && cd hello-world
-cat << 'YML' > shard.yml
-name: hello_world
-version: 0.1.0
-
-dependencies:
-  azul:
-    path: ./azul-crystal
-
-targets:
-  hello-world:
-    main: src/hello-world.cr
-YML
+curl -O https://azul.rs/ui/release/$VERSION/shard.yml
+curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
 ```
 
 Next, download the Azul shard and the native library for your platform into the project root:
@@ -166,19 +160,19 @@ app.run(window)
 
 ## Build and run
 
-Copy the example code above into `src/hello-world.cr`. From the directory containing your `shard.yml` and the native library, build and run your application:
+ From the directory containing your `shard.yml` and the native library, build and run your application:
 
 ```sh
 # Linux
-crystal build src/hello-world.cr --link-flags "-L$PWD"
+crystal build hello-world.cr --link-flags "-L$PWD"
 LD_LIBRARY_PATH=. ./hello-world
 
 # macOS
-crystal build src/hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
+crystal build hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
 DYLD_LIBRARY_PATH=. ./hello-world
 
 # Windows (PowerShell)
-crystal build src/hello-world.cr --link-flags "$PWD\azul.dll.lib"
+crystal build hello-world.cr --link-flags "$PWD\azul.dll.lib"
 .\hello-world.exe
 ```
 

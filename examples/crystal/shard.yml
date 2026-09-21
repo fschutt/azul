@@ -1,0 +1,10 @@
+name: hello_world
+version: 0.1.0
+
+dependencies:
+  azul:
+    path: ./azul-crystal
+
+targets:
+  hello-world:
+    main: hello-world.cr
