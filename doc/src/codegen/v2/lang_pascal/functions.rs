@@ -17,6 +17,8 @@
 //!   callers get compile-time pointer-type checking (passing a `PAzWindow` where a `PAzApp` is
 //!   expected is rejected).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::Result;
 
 use super::{
@@ -25,9 +27,38 @@ use super::{
         generator::CodeBuilder,
         ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
     },
-    map_type_to_pascal, sanitize_identifier,
+    map_type_to_pascal, sanitize_identifier, unique_identifier,
     types::ptr_type_for_arg,
 };
+
+/// The Pascal identifier each declared export is imported under, keyed by
+/// C symbol.
+///
+/// Pascal identifiers are CASE-INSENSITIVE, so two exports whose names
+/// differ only in case — `AzImageRef_getRawImage` and
+/// `AzImageRef_getRawimage` are both real libazul exports — cannot both be
+/// declared under their own spelling. Dropping the second one dropped that
+/// export from the binding entirely; instead the later symbol of a
+/// case-insensitive group is declared as `<c_name>_<n>` and bound to the
+/// real export through the `external ... name '<c_name>'` clause, which is
+/// exactly what that clause is for. `n` counts up from 2 in `ir.functions`
+/// order (api.json order), so every regeneration produces the same
+/// spelling.
+///
+/// The value layer calls the identifiers in this map, never `c_name`
+/// directly, so a renamed import stays reachable from the idiomatic side.
+pub(super) fn external_idents(ir: &CodegenIR, config: &CodegenConfig) -> BTreeMap<String, String> {
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for func in &ir.functions {
+        if !should_emit_function(func, ir, config) {
+            continue;
+        }
+        let ident = unique_identifier(&func.c_name, "_", &mut taken);
+        out.insert(func.c_name.clone(), ident);
+    }
+    out
+}
 
 pub fn generate_externals(
     builder: &mut CodeBuilder,
@@ -36,35 +67,31 @@ pub fn generate_externals(
 ) -> Result<()> {
     builder.line("{ -------------------------------------------------------------------- }");
     builder.line("{ External cdecl declarations: every C-ABI function imported from      }");
-    builder.line("{ libazul. Symbol names match the C bindings verbatim.                  }");
+    builder.line("{ libazul. Symbol names match the C bindings verbatim, except where     }");
+    builder.line("{ two exports differ only in case (see external_idents).                }");
     builder.line("{ -------------------------------------------------------------------- }");
     builder.blank();
 
-    // Pascal is case-insensitive, so two C symbols differing only in
-    // case (e.g. `AzImageRef_getRawImage` vs `AzImageRef_getRawimage`)
-    // collide as duplicate `external` declarations. Dedup by lowercased
-    // C name so the lookup table on the C side still resolves both
-    // symbols (we keep the first declaration's casing).
-    let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let idents = external_idents(ir, config);
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
             continue;
         }
-        if !emitted.insert(func.c_name.to_ascii_lowercase()) {
-            builder.line(&format!(
-                "{{ SKIPPED duplicate external (case-only collision): {} }}",
-                func.c_name
-            ));
+        let Some(ident) = idents.get(&func.c_name) else {
             continue;
-        }
-        emit_external(builder, func, ir);
+        };
+        emit_external(builder, func, ir, ident);
     }
     builder.blank();
 
     Ok(())
 }
 
-fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+pub(super) fn should_emit_function(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
@@ -100,8 +127,9 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) {
@@ -127,7 +155,7 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     true
 }
 
-fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
+fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, pascal_name: &str) {
     if !func.doc.is_empty() {
         for d in &func.doc {
             // Pascal uses `{ ... }` for block comments. Embedded `{`
@@ -167,8 +195,12 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
     // wrapper call sites don't change. The raw `<c_name>` takes a bare
     // fn ptr at the C ABI; importing it with record args crashed on
     // click.
+    //
+    // The `name '<symbol>'` clause is also what keeps a case-only
+    // duplicate reachable: there the Pascal identifier carries an
+    // ordinal suffix and the clause names the real export.
     let c_symbol = super::super::managed_host_invoker::managed_c_symbol(func);
-    let external_clause = if c_symbol == func.c_name {
+    let external_clause = if c_symbol == pascal_name {
         "external AzulLib".to_string()
     } else {
         format!("external AzulLib name '{}'", c_symbol)
@@ -179,13 +211,13 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
             let pas_ret = map_type_to_pascal(ret, ir);
             builder.line(&format!(
                 "function {}{}: {}; cdecl; {};",
-                func.c_name, args_str, pas_ret, external_clause
+                pascal_name, args_str, pas_ret, external_clause
             ));
         }
         None => {
             builder.line(&format!(
                 "procedure {}{}; cdecl; {};",
-                func.c_name, args_str, external_clause
+                pascal_name, args_str, external_clause
             ));
         }
     }

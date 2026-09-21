@@ -17,8 +17,9 @@
 //!   section for unit variants).
 //! - **Callback typedefs** -> `type TAzFooCallbackType = function(...): ...; cdecl;` declarations.
 //!   Pascal's procedural-type support is exactly what we need here.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `{ SKIPPED:
-//!   <reason> }` block comments.
+//! - **Generic templates** (`CssPropertyValue<T>`, `PhysicalSize<T>`) have no C ABI of their own;
+//!   a `{ ... }` note stands in their place and their api.json INSTANTIATIONS are emitted as real
+//!   records further down (see `emit_monomorphized_alias`).
 
 use anyhow::Result;
 
@@ -128,7 +129,7 @@ pub fn generate_types(
 // Inclusion filters
 // ============================================================================
 
-fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
+pub(super) fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
@@ -159,20 +160,41 @@ pub(super) fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
+/// Note why a type has no record of its own.
+///
+/// The only types that reach this today are the generic TEMPLATES
+/// (`CssPropertyValue<T>`, `PhysicalSize<T>`, ...). A template has no C ABI
+/// and therefore nothing to lay out: what crosses the wire is each
+/// INSTANTIATION, and api.json spells those out as `type_alias` entries
+/// (`LayoutClearValue = CssPropertyValue<LayoutClear>`) which
+/// `emit_monomorphized_alias` emits below as real records / variant records
+/// in dependency order. So nothing is missing here, and the note must not
+/// read as if something were.
+fn emit_template_note(builder: &mut CodeBuilder, kind: &str, name: &str, is_template: bool) {
+    if is_template {
+        builder.line(&format!(
+            "{{ {} {} is a generic template: it has no layout of its own, its \
+             instantiations are emitted below as records. }}",
+            kind, name
+        ));
+    } else {
+        builder.line(&format!(
+            "{{ {} {} is not part of this binding's configured type set. }}",
+            kind, name
+        ));
+    }
+}
+
 fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
-    builder.line(&format!(
-        "{{ SKIPPED: struct {} ({}) }}",
-        s.name,
-        s.category.description()
-    ));
+    let is_template =
+        !s.generic_params.is_empty() || s.category == TypeCategory::GenericTemplate;
+    emit_template_note(builder, "struct", &s.name, is_template);
 }
 
 fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
-    builder.line(&format!(
-        "{{ SKIPPED: enum {} ({}) }}",
-        e.name,
-        e.category.description()
-    ));
+    let is_template =
+        !e.generic_params.is_empty() || e.category == TypeCategory::GenericTemplate;
+    emit_template_note(builder, "enum", &e.name, is_template);
 }
 
 // ============================================================================

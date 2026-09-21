@@ -6,7 +6,10 @@
 //! 1. Holds the underlying FFI record (`TAzTypeName`) by value in a protected `FRaw` field
 //!    (protected, not private: FPC 3.0 compiles a generic subclass such as
 //!    `TAzApp<T>` in the specializing unit, where private fields are invisible).
-//! 2. Provides one Pascal constructor per IR `FunctionKind::Constructor` / `Default` function.
+//! 2. Provides one Pascal constructor per IR `FunctionKind::Constructor` / `Default` function
+//!    that RETURNS ITS OWN CLASS (see [`is_self_constructor`]; one returning `Option<Self>` or
+//!    `Result<Self, E>` becomes a class function instead, because a Pascal constructor has
+//!    nowhere to put an Option).
 //!    Naming (see [`constructor_pascal_names`]): `new` / `create` -> `Create`; `create_<x>` /
 //!    `new_<x>` -> `<X>` (`create_body` -> `Body`, `create_p` -> `P`); a trailing `_with_<arg>`
 //!    naming one of the constructor's own arguments collapses into an overload of the base name
@@ -173,8 +176,8 @@ enum ArgVariant {
     Native,
 }
 
-fn is_owned_string_arg(a: &FunctionArg) -> bool {
-    matches!(a.ref_kind, ArgRefKind::Owned) && a.type_name.trim() == "String"
+fn is_owned_string_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    matches!(a.ref_kind, ArgRefKind::Owned) && super::is_string_type(&a.type_name, ir)
 }
 
 /// Does this arg map to a wrapper class in the wrapper-typed overload?
@@ -188,13 +191,13 @@ fn is_owned_wrapper_arg(a: &FunctionArg, targets: &BTreeSet<String>) -> bool {
 /// The overload variants a function gets: `Raw` always; `Wrapper` when a
 /// by-value arg has a wrapper class; `Native` when a by-value arg is a
 /// `String`.
-fn variants_for(func: &FunctionDef, targets: &BTreeSet<String>) -> Vec<ArgVariant> {
+fn variants_for(func: &FunctionDef, ir: &CodegenIR, targets: &BTreeSet<String>) -> Vec<ArgVariant> {
     let visible = visible_user_args(func);
     let mut out = vec![ArgVariant::Raw];
     if visible.iter().any(|a| is_owned_wrapper_arg(a, targets)) {
         out.push(ArgVariant::Wrapper);
     }
-    if visible.iter().any(|a| is_owned_string_arg(a)) {
+    if visible.iter().any(|a| is_owned_string_arg(a, ir)) {
         out.push(ArgVariant::Native);
     }
     out
@@ -203,7 +206,7 @@ fn variants_for(func: &FunctionDef, targets: &BTreeSet<String>) -> Vec<ArgVarian
 /// Pascal parameter spelling of one argument under a variant.
 fn arg_decl(a: &FunctionArg, variant: ArgVariant, ir: &CodegenIR, targets: &BTreeSet<String>, members: &BTreeSet<String>) -> String {
     let name = sanitize_arg(&a.name, members);
-    if variant == ArgVariant::Native && is_owned_string_arg(a) {
+    if variant == ArgVariant::Native && is_owned_string_arg(a, ir) {
         return format!("const {}: string", name);
     }
     if variant != ArgVariant::Raw && is_owned_wrapper_arg(a, targets) {
@@ -227,13 +230,13 @@ fn format_arg_list(args: &[&FunctionArg], variant: ArgVariant, ir: &CodegenIR, t
 
 /// The expression passed to the C call for one argument, plus the wrapper
 /// objects consumed by the call (freed afterwards).
-fn call_arg_exprs(args: &[&FunctionArg], variant: ArgVariant, targets: &BTreeSet<String>, members: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
+fn call_arg_exprs(args: &[&FunctionArg], variant: ArgVariant, ir: &CodegenIR, targets: &BTreeSet<String>, members: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
     let mut consumed = Vec::new();
     let exprs = args
         .iter()
         .map(|a| {
             let name = sanitize_arg(&a.name, members);
-            if variant == ArgVariant::Native && is_owned_string_arg(a) {
+            if variant == ArgVariant::Native && is_owned_string_arg(a, ir) {
                 format!("azul_string_from({})", name)
             } else if variant != ArgVariant::Raw && is_owned_wrapper_arg(a, targets) {
                 consumed.push(name.clone());
@@ -286,12 +289,12 @@ fn emit_wrapper_class_decl(
     let ctor_names = constructor_pascal_names(ir, &s.name);
     let mut ctor_idx = 0usize;
     for func in ir.functions_for_class(&s.name) {
-        if !matches!(func.kind, FunctionKind::Constructor | FunctionKind::Default) {
+        if !is_self_constructor(func) {
             continue;
         }
         let ctor_name = &ctor_names[ctor_idx];
         ctor_idx += 1;
-        for variant in variants_for(func, targets) {
+        for variant in variants_for(func, ir, targets) {
             emit_constructor_decl(builder, ctor_name, func, ir, targets, variant, &members);
         }
     }
@@ -306,34 +309,19 @@ fn emit_wrapper_class_decl(
     // ownership (the destructor will no longer call `_delete`).
     builder.line(&format!("function Release: {};", raw_record));
 
-    // Instance & static methods (one declaration per surviving function).
-    // Dedup by Pascal-cased name — multiple api.json methods can lower
-    // to the same Pascal identifier (e.g. `get_raw_image` and
-    // `get_rawimage` both PascalCase to `GetRawImage`). Skipping the
-    // second avoids "overloaded functions have the same parameter list".
-    let mut emitted: BTreeSet<String> = fixed_member_names();
+    // Instance & static methods (one declaration per surviving function),
+    // plus the factories whose IR kind is Constructor but whose return type
+    // is not this class (see `is_self_constructor`).
+    let mut emitted: BTreeSet<String> = taken_member_names(ir, &s.name);
     for func in ir.functions_for_class(&s.name) {
-        if matches!(
-            func.kind,
-            FunctionKind::Constructor | FunctionKind::Default | FunctionKind::Delete
-        ) {
+        if !is_wrapper_method(func) {
             continue;
         }
-        if func.kind.is_trait_function() {
-            continue;
-        }
-        let name = idiomatic_method_name(&func.method_name);
-        if !emitted.insert(name.to_ascii_lowercase()) {
-            builder.line(&format!(
-                "{{ SKIPPED duplicate method: {} (collides with prior PascalCased name) }}",
-                func.method_name
-            ));
-            continue;
-        }
-        let variants = variants_for(func, targets);
+        let name = unique_method_name(func, &mut emitted);
+        let variants = variants_for(func, ir, targets);
         let overloaded = variants.len() > 1;
         for variant in variants {
-            emit_method_decl(builder, func, ir, targets, variant, overloaded, &members);
+            emit_method_decl(builder, func, &name, ir, targets, variant, overloaded, &members);
         }
     }
 
@@ -438,16 +426,19 @@ fn method_return(func: &FunctionDef, ir: &CodegenIR, targets: &BTreeSet<String>)
 fn emit_method_decl(
     builder: &mut CodeBuilder,
     func: &FunctionDef,
+    method_name: &str,
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     variant: ArgVariant,
     overloaded: bool,
     members: &BTreeSet<String>,
 ) {
-    let method_name = idiomatic_method_name(&func.method_name);
     let visible = visible_user_args(func);
     let args_str = format_arg_list(&visible, variant, ir, targets, members);
-    let is_static = matches!(func.kind, FunctionKind::StaticMethod);
+    // A `class` method is one with no receiver, which is what SelfPlan
+    // already decides — including for the factories whose IR kind is
+    // Constructor but whose return type is not this class.
+    let is_static = matches!(self_plan(func), SelfPlan::Static);
 
     let prefix_kw = if is_static { "class " } else { "" };
     let tail = if overloaded { " overload;" } else { "" };
@@ -494,12 +485,12 @@ fn emit_wrapper_class_impl(
     let ctor_names = constructor_pascal_names(ir, &s.name);
     let mut ctor_idx = 0usize;
     for func in ir.functions_for_class(&s.name) {
-        if !matches!(func.kind, FunctionKind::Constructor | FunctionKind::Default) {
+        if !is_self_constructor(func) {
             continue;
         }
         let ctor_name = &ctor_names[ctor_idx];
         ctor_idx += 1;
-        for variant in variants_for(func, targets) {
+        for variant in variants_for(func, ir, targets) {
             emit_constructor_impl(builder, &class_name, ctor_name, func, ir, targets, variant, &members);
         }
     }
@@ -529,26 +520,17 @@ fn emit_wrapper_class_impl(
     builder.line("end;");
     builder.blank();
 
-    // Instance + static method bodies. Same dedup-by-Pascal-name as in
-    // emit_wrapper_class_decl above — otherwise we'd emit two function
-    // bodies for the same forward declaration.
-    let mut emitted: BTreeSet<String> = fixed_member_names();
+    // Instance + static method bodies. Same selection and same
+    // name-disambiguation pass as in emit_wrapper_class_decl above, in the
+    // same order — otherwise a body would not match its declaration.
+    let mut emitted: BTreeSet<String> = taken_member_names(ir, &s.name);
     for func in ir.functions_for_class(&s.name) {
-        if matches!(
-            func.kind,
-            FunctionKind::Constructor | FunctionKind::Default | FunctionKind::Delete
-        ) {
+        if !is_wrapper_method(func) {
             continue;
         }
-        if func.kind.is_trait_function() {
-            continue;
-        }
-        let name = idiomatic_method_name(&func.method_name);
-        if !emitted.insert(name.to_ascii_lowercase()) {
-            continue;
-        }
-        for variant in variants_for(func, targets) {
-            emit_method_impl(builder, &class_name, func, ir, targets, variant, &members);
+        let name = unique_method_name(func, &mut emitted);
+        for variant in variants_for(func, ir, targets) {
+            emit_method_impl(builder, &class_name, func, &name, ir, targets, variant, &members);
         }
     }
 
@@ -586,32 +568,21 @@ fn emit_constructor_impl(
     builder.indent();
     builder.line("inherited Create;");
 
-    let (call_args, consumed) = call_arg_exprs(&visible, variant, targets, members);
-
-    let returns_self = func
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == func.class_name)
-        .unwrap_or(false);
+    let (call_args, consumed) = call_arg_exprs(&visible, variant, ir, targets, members);
 
     // Always invoke the C symbol verbatim (`func.c_name`) rather than
     // reconstructing it from `{ffi}_{method_name}` — the latter mixes
     // PascalCase class + snake_case method, but the externals are
     // declared with the camelCase form (`AzSvg_fromString`, not
     // `AzSvg_from_string`).
+    //
+    // `is_self_constructor` guarantees the call returns this very class,
+    // so the result always lands in FRaw. A factory that returns an
+    // Option / Result / another type is not a Pascal constructor at all
+    // (assigning nothing to FRaw left the destructor freeing garbage);
+    // it is emitted as a class function by the method pass instead.
     let call = format!("{}({})", func.c_name, call_args.join(", "));
-    if returns_self {
-        builder.line(&format!("FRaw := {};", call));
-    } else {
-        // A constructor whose IR return type isn't Self doesn't really
-        // map to a Pascal constructor — we still emit a stub to let the
-        // user wire it up, but mark it explicitly.
-        builder.line(&format!(
-            "{{ SKIPPED: constructor returns {:?}, not {} }}",
-            func.return_type, func.class_name
-        ));
-        builder.line(&format!("{};", call));
-    }
+    builder.line(&format!("FRaw := {};", call));
     emit_consumed(builder, &consumed);
     builder.line("FOwned := True;");
     builder.dedent();
@@ -632,16 +603,17 @@ fn emit_method_impl(
     builder: &mut CodeBuilder,
     class_name: &str,
     func: &FunctionDef,
+    method_name: &str,
     ir: &CodegenIR,
     targets: &BTreeSet<String>,
     variant: ArgVariant,
     members: &BTreeSet<String>,
 ) {
-    let method_name = idiomatic_method_name(&func.method_name);
     let visible = visible_user_args(func);
     let args_str = format_arg_list(&visible, variant, ir, targets, members);
-    let is_static = matches!(func.kind, FunctionKind::StaticMethod);
     let plan = self_plan(func);
+    // Same rule as in emit_method_decl: no receiver means `class`.
+    let is_static = matches!(plan, SelfPlan::Static);
 
     let prefix_kw = if is_static { "class " } else { "" };
     let params = if args_str.is_empty() { String::new() } else { format!("({})", args_str) };
@@ -660,7 +632,7 @@ fn emit_method_impl(
         SelfPlan::InPlace | SelfPlan::Consumed => call_args.push("FRaw".to_string()),
         SelfPlan::FluentVoid | SelfPlan::Borrowed => call_args.push("@FRaw".to_string()),
     }
-    let (user_args, consumed) = call_arg_exprs(&visible, variant, targets, members);
+    let (user_args, consumed) = call_arg_exprs(&visible, variant, ir, targets, members);
     call_args.extend(user_args);
 
     // See emit_constructor_impl for why we use `func.c_name` instead
@@ -779,6 +751,10 @@ fn emit_smart_setter_impl(
             format!("{}<T>.Create(Callback)", managed::typed_wrapper_class(kind))
         } else if ty == managed::invoker_class(kind) {
             // A ready dispatcher: the handle table owns it from here on.
+            // This is the setter's own PARAMETER name (declared a few
+            // lines up as `Callback: <type>`), not an API item — it only
+            // looks like one because api.json also has a `Callback` type.
+            // allow-api-name: the emitted parameter's name.
             "Callback".to_string()
         } else {
             format!("{}.Create(Callback)", managed::wrapper_class(kind))
@@ -802,6 +778,65 @@ fn emit_smart_setter_impl(
         }
         builder.blank();
     }
+}
+
+// ============================================================================
+// Which function becomes what
+// ============================================================================
+
+/// Is `func` a Pascal CONSTRUCTOR of its class?
+///
+/// A Pascal constructor's whole job is to fill `FRaw` and arm the
+/// destructor, so only a factory that hands back its own class can be one.
+/// api.json also declares constructors that return `Option<Self>`,
+/// `Result<Self, E>` or an unrelated type (`RawImage.<...> -> RequestId`):
+/// those used to be emitted as constructors that threw the result away,
+/// leaving `FRaw` uninitialised with `FOwned := True` — i.e. a destructor
+/// freeing garbage. They are class functions ([`is_wrapper_method`]), which
+/// also hands the caller the Option / Result the API actually returns.
+fn is_self_constructor(func: &FunctionDef) -> bool {
+    matches!(func.kind, FunctionKind::Constructor | FunctionKind::Default)
+        && func
+            .return_type
+            .as_deref()
+            .is_some_and(|r| r.trim() == func.class_name)
+}
+
+/// Is `func` surfaced as an instance / class METHOD of the wrapper class?
+///
+/// Everything api.json declares except the destructor (the Pascal
+/// `destructor Destroy` already calls it — a public `Delete` next to it is
+/// a double free waiting to happen), the trait entry points (the value
+/// layer surfaces those for every type, wrapped or not) and the real
+/// constructors.
+fn is_wrapper_method(func: &FunctionDef) -> bool {
+    !matches!(func.kind, FunctionKind::Delete)
+        && !func.kind.is_trait_function()
+        && !is_self_constructor(func)
+}
+
+/// The Pascal name of `func` inside its class, unique (case-insensitively)
+/// against the names already taken by that class.
+///
+/// Two api.json methods can lower to the same Pascal identifier - Pascal is
+/// case-insensitive, so `get_raw_image` and `get_rawimage` are both
+/// `GetRawImage`, and a `create` static factory collides with the
+/// constructor every class inherits. Dropping the later one dropped API, so
+/// it falls back to `<Class><Method>` (still derived from the IR, and it
+/// says which class's `create` this is), and only if THAT is taken as well
+/// to an ordinal. Both passes call this in the same order, so a body always
+/// matches its declaration.
+fn unique_method_name(func: &FunctionDef, taken: &mut BTreeSet<String>) -> String {
+    let preferred = idiomatic_method_name(&func.method_name);
+    if taken.insert(preferred.to_ascii_lowercase()) {
+        return preferred;
+    }
+    let qualified = format!(
+        "{}{}",
+        to_pascal_case(&func.class_name),
+        idiomatic_method_name(&func.method_name)
+    );
+    super::unique_identifier(&qualified, "_", taken)
 }
 
 // ============================================================================
@@ -846,6 +881,20 @@ fn return_type_to_pascal(ret: &str, ir: &CodegenIR, targets: &BTreeSet<String>) 
     }
 }
 
+/// The names a class's METHODS must steer clear of: the members every
+/// wrapper defines itself plus every constructor spelling. A constructor
+/// already avoids the methods' preferred names; seeding the method pass
+/// with the constructors closes the other direction, which the factories
+/// that moved out of the constructor list (see [`is_self_constructor`])
+/// opened up.
+fn taken_member_names(ir: &CodegenIR, class_name: &str) -> BTreeSet<String> {
+    let mut taken = fixed_member_names();
+    for name in constructor_pascal_names(ir, class_name) {
+        taken.insert(name.to_ascii_lowercase());
+    }
+    taken
+}
+
 /// Member names every wrapper class defines itself.
 fn fixed_member_names() -> BTreeSet<String> {
     ["wrap", "raw", "release", "destroy", "fraw", "fowned", "free", "create"]
@@ -863,11 +912,15 @@ fn class_member_names(ir: &CodegenIR, class_name: &str) -> BTreeSet<String> {
             .iter()
             .map(|n| n.to_ascii_lowercase()),
     );
+    // Replay the method pass's disambiguation so a parameter is compared
+    // against the names the class REALLY declares (the smart setters go
+    // into `members` but not into `taken`: the emitting passes add them
+    // only after every method, so the method names come out the same).
+    let mut taken = taken_member_names(ir, class_name);
     for func in ir.functions_for_class(class_name) {
-        if func.kind.is_trait_function() {
-            continue;
+        if is_wrapper_method(func) {
+            members.insert(unique_method_name(func, &mut taken).to_ascii_lowercase());
         }
-        members.insert(idiomatic_method_name(&func.method_name).to_ascii_lowercase());
         if let Some((smart, _)) = smart_callback_setter_info(func) {
             members.insert(smart_setter_name(&smart).to_ascii_lowercase());
         }
@@ -917,12 +970,11 @@ pub(super) fn pascal_class_name(raw: &str) -> String {
 fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
     let ctors: Vec<&FunctionDef> = ir
         .functions_for_class(class_name)
-        .filter(|f| matches!(f.kind, FunctionKind::Constructor | FunctionKind::Default))
+        .filter(|f| is_self_constructor(f))
         .collect();
     let method_names: BTreeSet<String> = ir
         .functions_for_class(class_name)
-        .filter(|f| !matches!(f.kind, FunctionKind::Constructor | FunctionKind::Default | FunctionKind::Delete))
-        .filter(|f| !f.kind.is_trait_function())
+        .filter(|f| is_wrapper_method(f))
         .map(|f| idiomatic_method_name(&f.method_name).to_ascii_lowercase())
         .chain(fixed_member_names().into_iter().filter(|n| n != "create"))
         .collect();

@@ -68,6 +68,7 @@ use super::{
             arg_name_or_default, has_return, host_invoker_kinds, layout_callback_factory_info,
             wrapper_name,
         },
+        managed_lang_helpers::is_refany_type,
     },
     ffi_type_name, map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier,
     to_pascal_case,
@@ -219,10 +220,15 @@ fn mismatch_logger(params: &[(String, &str)], ir: &CodegenIR) -> Option<(usize, 
     for (i, (_, ty)) in params.iter().enumerate() {
         let Some(f) = ir.functions.iter().find(|f| {
             f.class_name == *ty
+                // api.json flags no capability as "the diagnostic channel",
+                // and the shape alone (enum level + String message) also
+                // matches ordinary methods, so this one entry point has to
+                // be named. Everything around it is derived from the IR.
+                // allow-api-name: the diagnostic channel's api.json name.
                 && f.method_name == "log"
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
                 && f.args.len() == 3
-                && f.args[2].type_name.trim() == "String"
+                && super::is_string_type(&f.args[2].type_name, ir)
         }) else {
             continue;
         };
@@ -254,7 +260,7 @@ pub(super) fn callback_sig(cb: &CallbackTypedefDef, ir: &CodegenIR, targets: &BT
     let mut param_types: Vec<(String, &str)> = Vec::new();
     let mut model_arg = None;
     for (i, a) in cb.args.iter().enumerate() {
-        if i == 0 && a.type_name.trim() == "RefAny" && matches!(a.ref_kind, ArgRefKind::Owned) {
+        if i == 0 && is_refany_type(&a.type_name, ir) && matches!(a.ref_kind, ArgRefKind::Owned) {
             used.insert("model".to_string());
             model_arg = Some("model".to_string());
             stub_args.push("model".to_string());
@@ -642,7 +648,7 @@ pub(super) fn app_helper_info(ir: &CodegenIR, config: &CodegenConfig, targets: &
     for s in ir.structs.iter().filter(|s| config.should_include_type(&s.name) && targets.contains(&s.name)) {
         let Some(ctor) = ir.functions_for_class(&s.name).find(|f| {
             f.kind == FunctionKind::Constructor
-                && f.args.iter().filter(|a| a.type_name.trim() == "RefAny" && matches!(a.ref_kind, ArgRefKind::Owned)).count() == 1
+                && f.args.iter().filter(|a| is_refany_type(&a.type_name, ir) && matches!(a.ref_kind, ArgRefKind::Owned)).count() == 1
                 && f.return_type.as_deref().map(|r| r.trim() == s.name).unwrap_or(false)
         }) else {
             continue;
@@ -672,7 +678,7 @@ pub(super) fn app_helper_info(ir: &CodegenIR, config: &CodegenConfig, targets: &
         let mut ctor_args = Vec::new();
         let mut ok = true;
         for a in &ctor.args {
-            if a.type_name.trim() == "RefAny" {
+            if is_refany_type(&a.type_name, ir) {
                 ctor_args.push(AppCtorArg::Model);
                 continue;
             }
@@ -1285,9 +1291,15 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR, co
     builder.line("procedure AzulHostInvokerInit;");
     builder.line("begin");
     builder.indent();
+    // The two host-invoker entry points are written into the generated
+    // unit verbatim; their `external` declarations a few hundred lines up
+    // spell them the same way. There is no IR item to derive them from -
+    // they are the managed-FFI protocol itself, not api.json surface.
+    // allow-api-name: the host-invoker registration calls, emitted verbatim.
     builder.line("AzApp_setHostHandleReleaser(@azul_releaser_impl);");
     for cb in host_invoker_kinds(ir) {
         let w = wrapper_name(cb);
+        // allow-api-name: ditto, one registration call per callback kind.
         builder.line(&format!("AzApp_set{w}Invoker(@azul_{}_invoker_stub);", kind_low(w), w = w));
     }
     builder.dedent();

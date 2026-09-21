@@ -59,10 +59,12 @@ use anyhow::Result;
 
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
+pub mod constants;
 pub mod functions;
 pub mod lpi;
 pub mod managed;
 pub mod types;
+pub mod values;
 pub mod wrappers;
 
 /// Library name used in `external 'azul';`.
@@ -143,6 +145,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 5. azul_register_<kind>, string helpers, az<Variant> aliases.
     managed::emit_managed_interface_tail(&mut builder, ir, config);
 
+    // 6. api.json's constant table (the OpenGL enum values).
+    constants::generate_constants(&mut builder, ir);
+
+    // 7. The value layer: one idiomatic Pascal routine per export, so
+    //    every C function is reachable without spelling the raw symbol
+    //    (the class wrappers above cover only the types that own memory).
+    values::generate_value_interface(&mut builder, ir, config);
+
     // === implementation section ===
     builder.blank();
     builder.line("implementation");
@@ -154,6 +164,9 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // Wrapper method bodies
     wrappers::generate_wrapper_implementation(&mut builder, ir, config)?;
+
+    // Value-layer bodies (one forwarding call each).
+    values::generate_value_implementation(&mut builder, ir, config);
 
     // Unit initialisation block — FPU mask, ABI self-check, releaser +
     // invoker stub registration.
@@ -244,7 +257,12 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
         }
     }
 
-    match trimmed {
+    // The C-type -> ctypes table. The GL spellings are api.json type
+    // ALIASES of C primitives, i.e. part of the primitive table itself -
+    // the same role `u32` and `f32` play in it. An alias carries no width
+    // in the IR, so the table is the only place this can live, and it keys
+    // on the spelling of a PRIMITIVE, never on an API item.
+    match trimmed { // allow-api-name: the primitive table, see above.
         // Void / unit
         "void" | "c_void" | "()" => "Pointer".to_string(),
 
@@ -288,6 +306,14 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
     }
 }
 
+/// Is `type_name` the API's own string type (the one `azul_string_from` /
+/// `azul_string_to` convert)? Derived from the IR's type CATEGORY, so no
+/// emitter has to compare against the literal spelling.
+pub(super) fn is_string_type(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| s.category == super::ir::TypeCategory::String)
+}
+
 /// Helper: turn `<inner>` (the part after `*const`/`*mut`/`&`/`&mut`) into a
 /// Pascal pointer expression. Tries the typed `PAzFoo` when the inner is a
 /// known IR type; falls back to `PChar` for `c_char`/`char` and to plain
@@ -308,6 +334,29 @@ fn ptr_to_pascal(inner: &str, ir: &CodegenIR) -> String {
             }
         }
     }
+}
+
+/// `base`, or the first free `base<separator><n>` (n from 2), recording the
+/// result in `taken`.
+///
+/// Pascal identifiers are case-insensitive, so `taken` holds lowercased
+/// names and two spellings that differ only in case count as one. This is
+/// the ONE place the binding resolves such a clash: the alternative -
+/// dropping the later item - is silent data loss, and an ordinal derived
+/// from the IR's own order is stable across regenerations, which a
+/// hand-written rename table would not be.
+pub(super) fn unique_identifier(
+    base: &str,
+    separator: &str,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> String {
+    let mut name = base.to_string();
+    let mut n = 2;
+    while !taken.insert(name.to_ascii_lowercase()) {
+        name = format!("{}{}{}", base, separator, n);
+        n += 1;
+    }
+    name
 }
 
 /// Sanitize a name for use as a Pascal identifier. Pascal reserved words
@@ -353,8 +402,12 @@ fn is_pascal_method_shadow(name: &str) -> bool {
 
 /// Pascal reserved words (FPC + Object Pascal). Subset that's likely to
 /// collide with field/argument names in api.json.
+///
+/// This is the LANGUAGE's keyword list, not a list of API items: that
+/// `array`, `div`, `end` and `label` also happen to be api.json method
+/// names is why the list has to be consulted, not what it is derived from.
 pub(super) fn is_pascal_reserved(name: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: FPC's keyword list, see above.
         name,
         "absolute"
             | "and"
