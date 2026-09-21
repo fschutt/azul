@@ -1135,6 +1135,40 @@ build_cargo() {
 #   scoop bucket add azul https://azul.rs/ui/scoop.git
 #   scoop install azul     (azul.dll + azul.dll.lib + azul.h; sets AZ_LINK_PATH)
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Crystal (Shards) — shards install can clone any git repo.
+# We serve a bare repo at /ui/crystal.git.
+# --------------------------------------------------------------------------
+build_crystal() {
+  command -v git >/dev/null 2>&1 || { echo "  [crystal] git missing — skip"; return; }
+  local tarball="$RELDIR/azul-crystal-$V.tar.gz"
+  [ -f "$tarball" ] || { echo "  [crystal] $tarball missing — skip"; return; }
+  local work; work="$(mktemp -d)"
+  
+  # Tarball might unpack to a folder or the root; standard tar behavior applies.
+  tar xzf "$tarball" -C "$work" || { echo "  [crystal] tar extraction failed"; rm -rf "$work"; return; }
+  
+  # If it unpacked to a subdirectory (like azul-crystal-$V), move it up
+  if [ ! -f "$work/shard.yml" ] && [ -d "$work/azul-crystal-$V" ]; then
+    mv "$work/azul-crystal-$V/"* "$work/"
+  elif [ ! -f "$work/shard.yml" ] && [ -d "$work/crystal" ]; then
+    # target/codegen/crystal might be archived as 'crystal'
+    mv "$work/crystal/"* "$work/"
+  fi
+
+  ( cd "$work" && git init -q \
+      && git -c user.email=ci@azul.rs -c user.name="azul ci" add -A \
+      && git -c user.email=ci@azul.rs -c user.name="azul ci" commit -q -m "azul $V" \
+      && git -c user.email=ci@azul.rs -c user.name="azul ci" tag -a "v$V" -m "v$V" ) || {
+    echo "  [crystal] git commit failed — skip"; rm -rf "$work"; return; }
+  
+  rm -rf "$SITE/ui/crystal.git"
+  git clone -q --bare "$work" "$SITE/ui/crystal.git" || { echo "  [crystal] bare clone failed"; rm -rf "$work"; return; }
+  ( cd "$SITE/ui/crystal.git" && git update-server-info )
+  rm -rf "$work"
+  echo "  [crystal] published crystal.git (shard azul $V)"
+}
+
 build_scoop() {
   command -v git >/dev/null 2>&1 || { echo "  [scoop] git missing — skip"; return; }
   local dll="$RELDIR/azul.dll" implib="$RELDIR/azul.dll.lib" hdr="$RELDIR/azul.h"
@@ -1261,6 +1295,7 @@ build_pacman || FAILED="$FAILED pacman"
 build_apk    || FAILED="$FAILED apk"
 build_homebrew
 build_scoop
+build_crystal
 # The cargo index is the ONLY way `cargo add azul --registry azul` finds the
 # crate: an index built from a missing/placeholder .crate is a dead command.
 build_cargo  || FAILED="$FAILED cargo"

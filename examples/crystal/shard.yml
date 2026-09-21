@@ -3,7 +3,8 @@ version: 0.1.0
 
 dependencies:
   azul:
-    path: ./azul-crystal
+    git: https://azul.rs/ui/crystal.git
+    version: ~> $VERSION
 
 targets:
   hello-world:
