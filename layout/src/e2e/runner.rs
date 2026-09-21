@@ -1142,7 +1142,7 @@ impl Runner {
 
         // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
         let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
-        let (changes_result, callback_update, prevent_default) =
+        let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&synthetic_events);
         result = result.max(changes_result);
 
@@ -1154,11 +1154,7 @@ impl Runner {
         // gesture, so the container scroll queued at ingress must be taken
         // back — otherwise the widget's answer is ADDED to the page scroll
         // instead of replacing it.
-        if prevent_default
-            && synthetic_events
-                .iter()
-                .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll))
-        {
+        if scroll_prevented {
             self.layout_window
                 .scroll_manager
                 .cancel_queued_scroll_input();
@@ -1382,7 +1378,7 @@ impl Runner {
                 ));
             }
             if !focus_events.is_empty() {
-                let (focus_result, focus_update, _) =
+                let (focus_result, focus_update, _, _) =
                     self.dispatch_events_propagated(&focus_events);
                 result = result.max(focus_result);
                 if matches!(
@@ -1527,7 +1523,7 @@ impl Runner {
                     )
                 })
                 .collect();
-            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            let (dispatch_result, update, _, _) = self.dispatch_events_propagated(&events);
             result = result.max(dispatch_result);
             if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
@@ -1539,7 +1535,7 @@ impl Runner {
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool, bool) {
         use azul_core::{
             callbacks::{CoreCallbackData, Update},
             events::EventFilter,
@@ -1550,6 +1546,9 @@ impl Runner {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// Which event this callback answers: a `preventDefault` vetoes
+            /// THIS event's default action and nothing else in the pass.
+            event_type: azul_core::events::EventType,
         }
 
         // Phase 1 — build the dispatch plan (read-only over the layout window).
@@ -1628,6 +1627,7 @@ impl Runner {
                                             dom_id,
                                             node_id: *node_id,
                                             callback_data: cb.clone(),
+                                            event_type: event.event_type,
                                         });
                                     }
                                 }
@@ -1672,6 +1672,7 @@ impl Runner {
                                         dom_id: focused.dom,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                     });
                                 }
                             }
@@ -1695,6 +1696,7 @@ impl Runner {
                                                 dom_id: *dom_id,
                                                 node_id,
                                                 callback_data: cb.clone(),
+                                                event_type: event.event_type,
                                             });
                                         }
                                     }
@@ -1719,6 +1721,7 @@ impl Runner {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                     });
                                 }
                             }
@@ -1730,7 +1733,7 @@ impl Runner {
         };
 
         if planned_callbacks.is_empty() {
-            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false, false);
         }
 
         // Phase 2 — invoke.
@@ -1742,6 +1745,10 @@ impl Runner {
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
+        // WHICH event was vetoed (the dll does the same): a key handler's
+        // `preventDefault` must not take back the scroll a wheel earned.
+        let mut prevented_event_types: std::collections::BTreeSet<azul_core::events::EventType> =
+            std::collections::BTreeSet::new();
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
 
@@ -1784,7 +1791,10 @@ impl Runner {
             let mut should_stop_propagation = false;
             for change in &changes {
                 match change {
-                    CallbackChange::PreventDefault => any_prevent_default = true,
+                    CallbackChange::PreventDefault => {
+                        any_prevent_default = true;
+                        prevented_event_types.insert(planned.event_type);
+                    }
                     CallbackChange::StopImmediatePropagation => should_stop_immediate = true,
                     CallbackChange::StopPropagation => should_stop_propagation = true,
                     _ => {}
@@ -1811,7 +1821,14 @@ impl Runner {
             .copied()
             .fold(Update::DoNothing, Update::max);
 
-        (changes_result, merged_update, any_prevent_default)
+        let scroll_prevented =
+            prevented_event_types.contains(&azul_core::events::EventType::Scroll);
+        (
+            changes_result,
+            merged_update,
+            any_prevent_default,
+            scroll_prevented,
+        )
     }
 
     /// Port of `PlatformWindow::apply_user_change`
@@ -3061,7 +3078,7 @@ impl Runner {
                     // the frame is stale even when it mapped to no callback.
                     let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
                     if !events.is_empty() {
-                        let (r, _update, _) = self.dispatch_events_propagated(&events);
+                        let (r, _update, _, _) = self.dispatch_events_propagated(&events);
                         result = result.max(r);
                     }
                     result
@@ -3380,7 +3397,7 @@ impl Runner {
                     .collect();
 
                 let mut result = ProcessEventResult::DoNothing;
-                let (text_changes_result, text_update, text_prevent_default) =
+                let (text_changes_result, text_update, text_prevent_default, _) =
                     self.dispatch_events_propagated(&text_events);
                 // A callback veto kills the recorded edit — same as the DLL:
                 // clearing it also stops any later apply from landing it late.
@@ -3951,7 +3968,7 @@ impl Runner {
                     self.now(),
                     azul_core::events::EventData::None,
                 );
-                let (r, _update, _) = self.dispatch_events_propagated(&[click]);
+                let (r, _update, _, _) = self.dispatch_events_propagated(&[click]);
                 (r, false)
             }
             _ => (ProcessEventResult::DoNothing, false),

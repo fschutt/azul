@@ -4156,7 +4156,7 @@ pub trait PlatformWindow {
                     )
                 })
                 .collect();
-            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            let (dispatch_result, update, _, _) = self.dispatch_events_propagated(&events);
             result = result.max(dispatch_result);
             if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
@@ -6732,7 +6732,7 @@ pub trait PlatformWindow {
                 let mut text_prevented = false;
 
                 if !text_events.is_empty() {
-                    let (text_changes_result, text_update, text_prevent_default) =
+                    let (text_changes_result, text_update, text_prevent_default, _) =
                         self.dispatch_events_propagated(&text_events);
                     text_prevented = text_prevent_default;
                     result = result.max_self(text_changes_result);
@@ -8700,7 +8700,7 @@ pub trait PlatformWindow {
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool, bool) {
         use azul_core::{
             callbacks::{CoreCallbackData, Update},
             dom::{DomId, NodeId as CoreNodeId},
@@ -8916,6 +8916,10 @@ pub trait PlatformWindow {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// Which event this callback answers. A `preventDefault` is a veto
+            /// of THIS event's default action, not of everything else the
+            /// pass happened to carry.
+            event_type: azul_core::events::EventType,
             /// The pointer seat of the event this callback answers (9b-ii-b):
             /// a `capture_pointer` it pushes binds to THIS seat.
             seat_id: u64,
@@ -8927,7 +8931,7 @@ pub trait PlatformWindow {
         let planned_callbacks: Vec<PlannedInvocation> = {
             let layout_window = match self.get_layout_window() {
                 Some(lw) => lw,
-                None => return (ProcessEventResult::DoNothing, Update::DoNothing, false),
+                None => return (ProcessEventResult::DoNothing, Update::DoNothing, false, false),
             };
 
             let focused_node = layout_window.focus_manager.get_focused_node().cloned();
@@ -9011,6 +9015,7 @@ pub trait PlatformWindow {
                                                 dom_id,
                                                 node_id: *node_id,
                                                 callback_data: cb.clone(),
+                                                event_type: event.event_type,
                                                 seat_id:
                                                     azul_layout::managers::hover::seat_of_event(
                                                         event,
@@ -9059,6 +9064,7 @@ pub trait PlatformWindow {
                                                         dom_id,
                                                         node_id,
                                                         callback_data: cb.clone(),
+                                                        event_type: event.event_type,
                                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
                                                     });
                                                 }
@@ -9081,6 +9087,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    event_type: event.event_type,
                                                     seat_id:
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
@@ -9111,6 +9118,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    event_type: event.event_type,
                                                     seat_id:
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
@@ -9144,6 +9152,7 @@ pub trait PlatformWindow {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
                                     });
                                 }
@@ -9160,13 +9169,18 @@ pub trait PlatformWindow {
         // Phase 2: Invoke planned callbacks (mutable access)
         // ===================================================================
         if planned_callbacks.is_empty() {
-            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false, false);
         }
 
         let borrows = self.prepare_callback_invocation();
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
+        // WHICH event was vetoed, not merely that something was. A pass can
+        // carry a wheel and a key at once, and a key handler's
+        // `preventDefault` must not eat the scroll the wheel earned.
+        let mut prevented_event_types: alloc::collections::BTreeSet<azul_core::events::EventType> =
+            alloc::collections::BTreeSet::new();
 
         // Track propagation control flags (W3C semantics):
         //  - stop_propagation: remaining handlers on the *same* node still fire, but handlers on
@@ -9218,6 +9232,7 @@ pub trait PlatformWindow {
                 match change {
                     CallbackChange::PreventDefault => {
                         any_prevent_default = true;
+                        prevented_event_types.insert(planned.event_type);
                     }
                     CallbackChange::StopImmediatePropagation => {
                         should_stop_immediate = true;
@@ -9270,7 +9285,14 @@ pub trait PlatformWindow {
             .copied()
             .fold(Update::DoNothing, |acc, u| acc.max(u));
 
-        (changes_result, merged_update, any_prevent_default)
+        let scroll_prevented =
+            prevented_event_types.contains(&azul_core::events::EventType::Scroll);
+        (
+            changes_result,
+            merged_update,
+            any_prevent_default,
+            scroll_prevented,
+        )
     }
 
     // PROVIDED: Complete Logic (Default Implementations)
@@ -9629,7 +9651,7 @@ pub trait PlatformWindow {
         if events.is_empty() {
             return azul_core::callbacks::Update::DoNothing;
         }
-        let (_, update, _) = self.dispatch_events_propagated(&events);
+        let (_, update, _, _) = self.dispatch_events_propagated(&events);
         update
     }
 
@@ -10057,7 +10079,7 @@ pub trait PlatformWindow {
         let mut any_refresh = false;
 
         if !events.is_empty() {
-            let (_, update, _) = self.dispatch_events_propagated(&events);
+            let (_, update, _, _) = self.dispatch_events_propagated(&events);
             if !matches!(update, azul_core::callbacks::Update::DoNothing) {
                 any_refresh = true;
             }
@@ -11287,7 +11309,7 @@ pub trait PlatformWindow {
         // Dispatch user events using W3C Capture→Target→Bubble propagation
         // dispatch_events_propagated applies all CallbackChanges internally
         // via apply_user_change(), and returns the merged Update level.
-        let (changes_result, callback_update, prevent_default) =
+        let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
 
@@ -11318,11 +11340,10 @@ pub trait PlatformWindow {
         // container scroll is not a callback. Without this a wheel widget
         // could only ADD to the page scroll, never replace it: the map zoomed
         // and the page moved under it in the same gesture.
-        let wheel_claimed = prevent_default
-            && pre_filter
-                .user_events
-                .iter()
-                .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll));
+        // The veto that counts is the one a SCROLL callback cast. A pass that
+        // also carried a key whose handler vetoed its own default must not
+        // take the wheel back with it.
+        let wheel_claimed = scroll_prevented;
         if let Some(w) = self.get_layout_window_mut() {
             if wheel_claimed {
                 w.scroll_manager.cancel_queued_scroll_input();
@@ -11387,7 +11408,7 @@ pub trait PlatformWindow {
                     )
                 })
                 .collect();
-            let (clip_result, _clip_update, clip_prevented) =
+            let (clip_result, _clip_update, clip_prevented, _) =
                 self.dispatch_events_propagated(&clip_events);
             result = result.max(clip_result);
             if !clip_prevented {
@@ -12090,7 +12111,7 @@ pub trait PlatformWindow {
                                             now,
                                             azul_core::events::EventData::None,
                                         );
-                                        let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                        let (r, _u, _p, _s) = self.dispatch_events_propagated(&[ev]);
                                         result = result.max(r);
                                     } else {
                                         // PUBLISH THE REASONS BEFORE DISPATCHING.
@@ -12124,7 +12145,7 @@ pub trait PlatformWindow {
                                                 )
                                             })
                                             .collect();
-                                        let (r, _u, _p) = self.dispatch_events_propagated(&events);
+                                        let (r, _u, _p, _s) = self.dispatch_events_propagated(&events);
                                         result = result.max(r);
                                     }
                                 }
@@ -12156,7 +12177,7 @@ pub trait PlatformWindow {
                                         now,
                                         azul_core::events::EventData::None,
                                     );
-                                    let (r, _u, prevented) = self.dispatch_events_propagated(&[ev]);
+                                    let (r, _u, prevented, _s) = self.dispatch_events_propagated(&[ev]);
                                     result = result.max(r);
 
                                     if !prevented {
@@ -12277,7 +12298,7 @@ pub trait PlatformWindow {
                     azul_core::events::EventData::None,
                 );
 
-                let (click_changes_result, click_update, _) =
+                let (click_changes_result, click_update, _, _) =
                     self.dispatch_events_propagated(&[click_event]);
                 result = result.max(click_changes_result);
 
@@ -12466,7 +12487,7 @@ pub trait PlatformWindow {
                 }
 
                 if !focus_events.is_empty() {
-                    let (focus_changes_result, focus_update, _) =
+                    let (focus_changes_result, focus_update, _, _) =
                         self.dispatch_events_propagated(&focus_events);
                     result = result.max(focus_changes_result);
                     if matches!(
