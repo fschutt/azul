@@ -263,6 +263,102 @@ pub fn primitive_to_c(type_name: &str) -> String {
 }
 
 // ============================================================================
+// api.json constants
+// ============================================================================
+
+/// The api.json constants a class declares, as in-class static members:
+/// `GlContextPtr::ACCUM_ALPHA_BITS`, the same spelling Rust uses.
+///
+/// WHY IN-CLASS, AND NOT AT NAMESPACE SCOPE
+/// ----------------------------------------
+/// azul.h - which every one of these headers includes - already defines the
+/// PREFIXED spelling as an object-like macro
+/// (`#define AzGlContextPtr_ACCUM_ALPHA_BITS 0x0D5B`), so a namespace-scope
+/// `const uint32_t AzGlContextPtr_ACCUM_ALPHA_BITS = ...;` would be
+/// macro-expanded into `const uint32_t 0x0D5B = 0x0D5B;` and fail to parse.
+/// The UNPREFIXED spelling has to live somewhere that is not `namespace azul`
+/// either: the examples all say `using namespace azul;`, and dropping 1400
+/// short, shouty names into the global scope is how a binding collides with
+/// everything a program already has. A class scope is neither: the names are
+/// reachable only through `GlContextPtr::`.
+///
+/// `static const` (C++03) / `static constexpr` (C++11+) with an in-class
+/// initializer is legal for an integral type in every dialect. No out-of-line
+/// definition is emitted: reading one of these in a value context is not an
+/// odr-use, and nothing in the generated code takes their address.
+///
+/// A class that declares constants but gets NO class body (a skipped category,
+/// or an empty Copy struct that renders as a typedef) would lose them; today
+/// every constant in api.json belongs to a class that has a body, and
+/// `every_constant_reaches_every_binding` is the test that notices if that
+/// ever stops being true.
+pub fn generate_class_constants(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    standard: CppStandard,
+) -> String {
+    let prefix = format!("{}_", struct_def.name);
+    let consts: Vec<&ConstantDef> = ir
+        .constants
+        .iter()
+        .filter(|c| c.name.starts_with(&prefix))
+        .collect();
+    if consts.is_empty() {
+        return String::new();
+    }
+
+    let member_kw = if standard.has_constexpr() {
+        "static constexpr"
+    } else {
+        "static const"
+    };
+    let mut code = String::new();
+    code.push_str("\r\n");
+    // Explicit, so the block does not depend on which access section the
+    // class body happens to end in.
+    code.push_str("public:\r\n");
+    code.push_str("    // api.json constants, spelled `AZ_<NAME>`: these are the OpenGL enum\r\n");
+    code.push_str(
+        "    // values, and both the bare name and the `GL_` one are object-like macros\r\n",
+    );
+    code.push_str(
+        "    // in headers a caller may have included first (`TRUE`/`FALSE`/`NO_ERROR`/\r\n",
+    );
+    code.push_str(
+        "    // `RGB` in <windows.h>, every `GL_*` in <GL/gl.h>). A macro ignores scope,\r\n",
+    );
+    code.push_str(
+        "    // so either would rewrite the member's name and break this header; `AZ_` is\r\n",
+    );
+    code.push_str(
+        "    // defined by nothing. AZUL_NO_CLASS_CONSTANTS skips the block regardless.\r\n",
+    );
+    code.push_str("#ifndef AZUL_NO_CLASS_CONSTANTS\r\n");
+    for constant in consts {
+        let name = constant.member_name();
+        // A 64-bit literal needs the suffix to have a 64-bit type in the
+        // dialects where `long` is 32 bits (LLP64); the narrower ones fit an
+        // `int`/`unsigned int` and need none.
+        let suffix = match constant.type_name.as_str() {
+            "u64" | "usize" => "ULL",
+            "i64" | "isize" => "LL",
+            _ => "",
+        };
+        code.push_str(&format!(
+            "    {} {} {} = {}{};\r\n",
+            member_kw,
+            primitive_to_c(&constant.type_name),
+            name,
+            constant.value,
+            suffix
+        ));
+    }
+    code.push_str("#endif // AZUL_NO_CLASS_CONSTANTS\r\n");
+    code
+}
+
+
+// ============================================================================
 // Type Classification
 // ============================================================================
 
@@ -354,14 +450,21 @@ pub fn get_result_payload_types(enum_def: &EnumDef) -> Option<(String, String)> 
 /// (`AzUpdate`) remains available for signatures, and every existing
 /// `AzUpdate_RefreshDom` constant spelling keeps working.
 ///
+/// The api.json functions the enum declares itself ([`enum_holder_functions`])
+/// join the constants in the same namespace, so `LayoutFlexDirection::
+/// get_axis(dir)` and `MapTheme::stylesheet(theme, window_theme)` are
+/// reachable the way a struct's methods are.
+///
 /// `const_decl` is the per-standard variable form:
 ///   - C++03:    "static const"      (internal linkage, constant-initialized)
 ///   - C++11/14: "constexpr"         (internal linkage per TU — header-safe)
 ///   - C++17+:   "inline constexpr"  (one entity across TUs)
 pub fn generate_enum_constants_namespace(
     enum_def: &EnumDef,
+    ir: &CodegenIR,
     config: &CodegenConfig,
     const_decl: &str,
+    standard: CppStandard,
 ) -> String {
     let enum_name = &enum_def.name;
     let c_type_name = config.apply_prefix(enum_name);
@@ -378,6 +481,11 @@ pub fn generate_enum_constants_namespace(
             "    {} {} {} = {}_{};\r\n",
             const_decl, c_type_name, variant.name, c_type_name, variant.name
         ));
+    }
+    for (name, func) in enum_holder_functions(enum_def, ir) {
+        let (sig, body) =
+            enum_holder_function_signature(&name, func, enum_def, ir, config, standard);
+        code.push_str(&format!("    inline {} {}\r\n", sig, body));
     }
     code.push_str(&format!("}} // namespace {}\r\n", enum_name));
     code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
@@ -400,13 +508,15 @@ pub fn generate_enum_constants_namespace(
 /// C++17+ keeps the cleaner `inline constexpr` namespace form (inline
 /// variables already have external linkage) — see the caller split.
 ///
-/// `is_cpp03` picks `static const` + `typedef` (no `constexpr`/`using` in
-/// C++03) vs `static constexpr` + `using` for C++11/14.
+/// C++03 picks `static const` + `typedef` (no `constexpr`/`using` there) vs
+/// `static constexpr` + `using` for C++11/14.
 pub fn generate_enum_constants_extern(
     enum_def: &EnumDef,
+    ir: &CodegenIR,
     config: &CodegenConfig,
-    is_cpp03: bool,
+    standard: CppStandard,
 ) -> String {
+    let is_cpp03 = standard == CppStandard::Cpp03;
     let enum_name = &enum_def.name;
     let c_type_name = config.apply_prefix(enum_name);
     let member_kw = if is_cpp03 {
@@ -429,6 +539,11 @@ pub fn generate_enum_constants_extern(
             "    {} {} {} = {}_{};\r\n",
             member_kw, c_type_name, variant.name, c_type_name, variant.name
         ));
+    }
+    for (name, func) in enum_holder_functions(enum_def, ir) {
+        let (sig, body) =
+            enum_holder_function_signature(&name, func, enum_def, ir, config, standard);
+        code.push_str(&format!("    static {} {}\r\n", sig, body));
     }
     code.push_str("};\r\n");
     // Out-of-line definitions so the members are ODR-usable (address-taking,
@@ -619,6 +734,142 @@ fn union_variant_constructor_signature(
     )
 }
 
+/// The api.json-DECLARED functions of an enum class - its constructors, its
+/// static methods and its instance methods - paired with the C++ spelling
+/// each gets inside the enum's holder.
+///
+/// A struct hangs these off its wrapper class. An enum has no wrapper class,
+/// so until this existed they were emitted nowhere at all: `CssProperty`'s
+/// 229 api.json constructors (`CssProperty::text_color(...)`, the whole
+/// property family), `SvgPathElement::get_bounds`, `Instant::now`,
+/// `MapTheme::stylesheet` - every one exported by libazul and unreachable
+/// from C++ in all six dialects.
+///
+/// What is deliberately NOT here:
+///   * `EnumVariantConstructor` - [`union_variant_constructors`] emits those, and the IR builder
+///     already drops a variant constructor whose C symbol an api.json constructor claims first
+///     (`AzPixelValueOrSystem_value`), so the two lists never overlap.
+///   * the trait entry points (`_partialEq`, `_deepCopy`, `_createDefault`, ...) -
+///     [`generate_freefn_trait_helpers`] emits those as overloaded free functions.
+///   * `_delete` - it belongs to `Owned<T>` (see [`generate_owned_guards`]); a holder function that
+///     freed a value the caller still holds by value is a double free.
+pub fn enum_holder_functions<'a>(
+    enum_def: &EnumDef,
+    ir: &'a CodegenIR,
+) -> Vec<(String, &'a FunctionDef)> {
+    use std::collections::BTreeSet;
+    // A unit enum's holder carries its variants as CONSTANTS at the very
+    // scope these functions land in, so a function that spells one of them
+    // would redeclare the constant rather than overload anything. (A tagged
+    // union keeps its discriminants one scope deeper, in `Tag`, and cannot
+    // collide.)
+    let reserved: BTreeSet<&str> = if enum_def.is_union {
+        BTreeSet::new()
+    } else {
+        enum_def.variants.iter().map(|v| v.name.as_str()).collect()
+    };
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut out = Vec::new();
+    for f in ir
+        .functions
+        .iter()
+        .filter(|f| f.class_name == enum_def.name && f.kind.is_api_function())
+    {
+        let name = escape_method_name(&f.method_name);
+        if reserved.contains(name.as_str()) {
+            continue;
+        }
+        // Same name AND same parameter types is a redefinition, not an
+        // overload. Two api.json names can collapse onto one C++ spelling
+        // (`new` and `new_` both escape to `new_`), so key on the shape.
+        let shape: Vec<&str> = f.args.iter().map(|a| a.type_name.as_str()).collect();
+        if !seen.insert(format!("{}({})", name, shape.join(","))) {
+            continue;
+        }
+        out.push((name, f));
+    }
+    out
+}
+
+/// One `Ret name(args) { return AzX_name(args); }` pair for an api.json
+/// function of an enum class - the [`union_variant_constructor_signature`]
+/// of [`enum_holder_functions`], minus the leading indentation and the
+/// `static`/`inline` keyword the two holder forms differ in.
+///
+/// An enum has no wrapper object to be the receiver, so an INSTANCE method
+/// takes the value as its first parameter, spelled exactly the way the C
+/// symbol takes it: `&self` -> `const AzX& self` (passed as `&self`),
+/// `&mut self` -> `AzX& self`, and a CONSUMING `self` -> `AzX self` passed
+/// by value, which is what a wrapper class's `release()` hands over.
+///
+/// A return type that has a wrapper class is handed to that wrapper, so the
+/// value it owns is freed exactly once by the wrapper's destructor instead of
+/// leaking; C++03's non-copyable wrappers take the Colvin-Gibbons `Proxy`
+/// route, the same one the wrapper-class method bodies use.
+fn enum_holder_function_signature(
+    name: &str,
+    func: &FunctionDef,
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> (String, String) {
+    let c_type = config.apply_prefix(&enum_def.name);
+    let substitute = should_substitute_callbacks(func);
+    // Only an INSTANCE method has a receiver. A constructor or static method
+    // whose first argument happens to be of the class's own type (or named
+    // after it) must not have that argument turned into one - `is_self_arg`
+    // recognizes the shape, not the role.
+    let has_self =
+        matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut) && func_has_self(func);
+    let self_ref_kind = func.args.first().map(|a| a.ref_kind);
+    let self_is_value = has_self && self_ref_kind == Some(ArgRefKind::Owned);
+
+    let mut params: Vec<String> = Vec::new();
+    let mut call: Vec<String> = Vec::new();
+    if has_self {
+        params.push(match self_ref_kind {
+            Some(ArgRefKind::Owned) => format!("{} self", c_type),
+            Some(ArgRefKind::RefMut) | Some(ArgRefKind::PtrMut) => format!("{}& self", c_type),
+            _ => format!("const {}& self", c_type),
+        });
+        call.push(if self_is_value { "self" } else { "&self" }.to_string());
+    }
+    let rest_params =
+        generate_args_signature_ex(&func.args, ir, config, has_self, &enum_def.name, substitute);
+    if !rest_params.is_empty() {
+        params.push(rest_params);
+    }
+    let rest_call =
+        generate_call_args_ex(&func.args, ir, config, has_self, &enum_def.name, substitute);
+    if !rest_call.is_empty() {
+        call.push(rest_call);
+    }
+
+    let return_type = func.return_type.as_deref().unwrap_or("");
+    let cpp_return = get_cpp_return_type(func.return_type.as_deref(), ir);
+    let invocation = format!("{}({})", func.c_name, call.join(", "));
+    let body = if cpp_return == "void" {
+        format!("{{ {}; }}", invocation)
+    } else if type_has_wrapper(return_type, ir) {
+        if !standard.has_move_semantics() && type_needs_proxy_for_cpp03(return_type, ir) {
+            format!(
+                "{{ {r}::Proxy _p({c}); return _p; }}",
+                r = cpp_return,
+                c = invocation
+            )
+        } else {
+            format!("{{ return {}({}); }}", cpp_return, invocation)
+        }
+    } else {
+        format!("{{ return {}; }}", invocation)
+    };
+    (
+        format!("{} {}({})", cpp_return, name, params.join(", ")),
+        body,
+    )
+}
+
 /// Emit the C++17+ form of a tagged-union holder: a namespace that carries the
 /// discriminants as `X::Tag::Variant` (typed `AzX_Tag`, so they compare with
 /// the `tag` byte of every variant struct) and the variant constructors as
@@ -627,11 +878,17 @@ fn union_variant_constructor_signature(
 /// plain `using X = AzX;` before, and a namespace cannot share a name with a
 /// type, so the C type moves to `ffi::X`. `indent` prefixes every line (the
 /// module partition nests the namespace one level deeper).
+///
+/// The api.json functions the enum declares itself ([`enum_holder_functions`])
+/// land in the same namespace, so `CssProperty::text_color(c)` and
+/// `SvgPathElement::get_bounds(e)` read like the wrapper-class methods of any
+/// struct.
 pub fn generate_union_holder_namespace(
     enum_def: &EnumDef,
     ir: &CodegenIR,
     config: &CodegenConfig,
     indent: &str,
+    standard: CppStandard,
 ) -> String {
     let enum_name = &enum_def.name;
     let c_type = config.apply_prefix(enum_name);
@@ -651,6 +908,11 @@ pub fn generate_union_holder_namespace(
         let (sig, body) = union_variant_constructor_signature(&name, func, enum_def, ir, config);
         code.push_str(&format!("{}    inline {} {}\r\n", indent, sig, body));
     }
+    for (name, func) in enum_holder_functions(enum_def, ir) {
+        let (sig, body) =
+            enum_holder_function_signature(&name, func, enum_def, ir, config, standard);
+        code.push_str(&format!("{}    inline {} {}\r\n", indent, sig, body));
+    }
     code.push_str(&format!("{}}} // namespace {}\r\n", indent, enum_name));
     code
 }
@@ -664,8 +926,9 @@ pub fn generate_union_holder_extern(
     enum_def: &EnumDef,
     ir: &CodegenIR,
     config: &CodegenConfig,
-    is_cpp03: bool,
+    standard: CppStandard,
 ) -> String {
+    let is_cpp03 = standard == CppStandard::Cpp03;
     let enum_name = &enum_def.name;
     let c_type = config.apply_prefix(enum_name);
     let member_kw = if is_cpp03 {
@@ -692,6 +955,11 @@ pub fn generate_union_holder_extern(
     code.push_str("    };\r\n");
     for (name, func) in union_variant_constructors(enum_def, ir) {
         let (sig, body) = union_variant_constructor_signature(&name, func, enum_def, ir, config);
+        code.push_str(&format!("    static {} {}\r\n", sig, body));
+    }
+    for (name, func) in enum_holder_functions(enum_def, ir) {
+        let (sig, body) =
+            enum_holder_function_signature(&name, func, enum_def, ir, config, standard);
         code.push_str(&format!("    static {} {}\r\n", sig, body));
     }
     code.push_str("};\r\n");
@@ -754,27 +1022,26 @@ pub fn generate_enum_wrapper_shared(
         ));
         if standard >= CppStandard::Cpp17 {
             code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
-            code.push_str(&generate_union_holder_namespace(enum_def, ir, config, ""));
+            code.push_str(&generate_union_holder_namespace(
+                enum_def, ir, config, "", standard,
+            ));
             code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
         } else {
             code.push_str(&generate_union_holder_extern(
-                enum_def,
-                ir,
-                config,
-                standard == CppStandard::Cpp03,
+                enum_def, ir, config, standard,
             ));
         }
     } else if standard >= CppStandard::Cpp17 {
         code.push_str(&generate_enum_constants_namespace(
             enum_def,
+            ir,
             config,
             "inline constexpr",
+            standard,
         ));
     } else {
         code.push_str(&generate_enum_constants_extern(
-            enum_def,
-            config,
-            standard == CppStandard::Cpp03,
+            enum_def, ir, config, standard,
         ));
     }
 }
@@ -1136,7 +1403,7 @@ pub fn generate_module_partition(
             continue;
         }
         code.push_str(&generate_union_holder_namespace(
-            enum_def, ir, config, "    ",
+            enum_def, ir, config, "    ", standard,
         ));
     }
     code.push_str("    namespace ffi {\r\n");
@@ -1632,12 +1899,28 @@ pub fn generate_call_args(
     generate_call_args_ex(args, ir, config, is_method, class_name, false)
 }
 
-/// Returns true when the function has at least one `String` (wrapper) argument
+/// Is `arg` an OWNED value of the API's string class — the shape a
+/// `std::string_view` overload can construct on the caller's behalf?
+///
+/// The class is identified by its IR category (`TypeCategory::String`, which
+/// `IrBuilder` assigns from the api.json shape), never by its name: which
+/// class is "the string" is api.json's decision, and a rename must not turn
+/// the `std::string_view` overloads off silently.
+///
+/// A borrowed string argument (`&String`) is excluded: the overload builds a
+/// temporary, and the temporary would die at the end of the full expression
+/// while the callee kept the borrow.
+pub fn is_owned_api_string_arg(arg: &FunctionArg, ir: &CodegenIR) -> bool {
+    matches!(arg.ref_kind, ArgRefKind::Owned)
+        && ir.find_struct(&arg.type_name).is_some_and(is_string_type)
+}
+
+/// Returns true when the function has at least one owned string-class argument
 /// and is eligible for a `std::string_view` sibling overload (C++17+).
 ///
 /// Trait-generated functions (`_deepCopy`, `_partialEq`, etc.) are excluded —
 /// they aren't user-facing and don't get callback substitution either.
-pub fn func_takes_string_arg(func: &FunctionDef) -> bool {
+pub fn func_takes_string_arg(func: &FunctionDef, ir: &CodegenIR) -> bool {
     if !should_substitute_callbacks(func) {
         return false;
     }
@@ -1645,13 +1928,13 @@ pub fn func_takes_string_arg(func: &FunctionDef) -> bool {
         if i == 0 && is_self_arg(arg, &func.class_name) {
             return false;
         }
-        arg.type_name == "String" && matches!(arg.ref_kind, ArgRefKind::Owned)
+        is_owned_api_string_arg(arg, ir)
     })
 }
 
 /// Generate the parameter list for a `std::string_view` overload — every
-/// `String` (owned) argument becomes `std::string_view`; everything else keeps
-/// its original C++ type.
+/// owned string-class argument becomes `std::string_view`; everything else
+/// keeps its original C++ type.
 pub fn generate_args_signature_sv_overload(
     args: &[FunctionArg],
     ir: &CodegenIR,
@@ -1666,7 +1949,7 @@ pub fn generate_args_signature_sv_overload(
             continue;
         }
         let escaped_name = escape_cpp_keyword(&arg.name);
-        let cpp_type = if arg.type_name == "String" && matches!(arg.ref_kind, ArgRefKind::Owned) {
+        let cpp_type = if is_owned_api_string_arg(arg, ir) {
             "std::string_view".to_string()
         } else if is_array_ptr_arg(arg, args) {
             array_ptr_cpp_type(arg, config)
@@ -1679,9 +1962,10 @@ pub fn generate_args_signature_sv_overload(
 }
 
 /// Generate the call-forwarding arguments for the `std::string_view` overload
-/// body — wraps every string_view argument into a `String(sv)` to match the
-/// underlying overload's `String` parameter; everything else keeps its
-/// original call-arg shape.
+/// body — wraps every string_view argument into the string wrapper class the
+/// underlying overload declares (`String(sv)`), spelled from the argument's
+/// own IR type so the emitter never has to know that class by name; every
+/// other argument keeps its original call-arg shape.
 pub fn generate_call_args_sv_overload(
     args: &[FunctionArg],
     ir: &CodegenIR,
@@ -1694,8 +1978,8 @@ pub fn generate_call_args_sv_overload(
             continue;
         }
         let escaped_name = escape_cpp_keyword(&arg.name);
-        if arg.type_name == "String" && matches!(arg.ref_kind, ArgRefKind::Owned) {
-            result.push(format!("String({})", escaped_name));
+        if is_owned_api_string_arg(arg, ir) {
+            result.push(format!("{}({})", arg.type_name, escaped_name));
         } else if is_array_ptr_arg(arg, args) {
             result.push(escaped_name);
         } else if type_has_wrapper(&arg.type_name, ir) {
@@ -2340,6 +2624,199 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
 // Trait entry points for classes that get NO wrapper class
 // ============================================================================
 
+/// Every class the header emits a WRAPPER CLASS for, by the same predicates
+/// the class-declaration loops use (`ir.structs` plus the synthesized
+/// Option/Result wrappers, minus the categories `should_skip_class` drops and
+/// the empty Copy structs that render as a plain typedef).
+///
+/// Returned by value as owned `String`s because the synthesized wrappers are
+/// built on the fly and would not outlive a borrow.
+pub fn classes_with_wrapper_class(ir: &CodegenIR) -> std::collections::BTreeSet<String> {
+    let synthesized = synthesize_option_result_structs(ir);
+    ir.structs
+        .iter()
+        .chain(synthesized.iter())
+        .filter(|s| !should_skip_class(s) && !renders_as_type_alias(s))
+        .map(|s| s.name.clone())
+        .collect()
+}
+
+/// `Owned<T>`: the destructor for the owning C values that get no wrapper
+/// class, and the one place `Az<X>_delete` is called for them.
+///
+/// WHY THIS EXISTS
+/// ---------------
+/// A wrapper class frees what it owns in its destructor. Two families of
+/// owning types never get one:
+///
+///   * the tagged-union ENUMS - `CssProperty`, `AccessibilityAction`, `SvgPathElement`, ... - which
+///     the header spells as a holder over the raw C union (a namespace cannot have a destructor);
+///   * the monomorphized generic ALIASES (`ClipPathValue = CssPropertyValue<ClipPath>`), which are
+///     an `ffi::` alias and nothing else.
+///
+/// libazul exports an `Az<X>_delete` for every one of them - 241 destructors
+/// that no line of the C++ headers called, so every value a program built
+/// (`CssProperty::text_color(...)`) and did not hand back to the API leaked.
+///
+/// THE SHAPE
+/// ---------
+///     Owned<ffi::CssProperty> prop(CssProperty::text_color(color));
+///     dom.set_css_property(node, prop.release());  // API takes ownership
+///     // ...or let it go out of scope: AzCssProperty_delete runs, once.
+///
+/// It is a scope guard and nothing else: non-copyable (a copy would free the
+/// same value twice - the bug class `copies_of_owning_values_are_never_freed_twice`
+/// is exactly this), and `release()` clears the flag so a released guard's
+/// destructor does nothing. C++11 and later also move; C++03 keeps the copy
+/// operations private and undefined, the only way to say "non-copyable" there.
+///
+/// The primary template is DECLARED and never defined, so `Owned<T>` for a
+/// type libazul has no `_delete` for is a compile error instead of a guard
+/// that silently frees nothing.
+pub fn generate_owned_guards(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> String {
+    use std::collections::BTreeSet;
+
+    let wrapped = classes_with_wrapper_class(ir);
+    // A guard can only name a type the header can name. `ffi_alias_pairs` is
+    // exactly that list (it is what `namespace ffi` aliases), so a generic
+    // TEMPLATE - which has no C type at all, only its monomorphizations do -
+    // can never leak in here.
+    let has_c_type: BTreeSet<String> = ffi_alias_pairs(ir, config)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    // Classes whose `_delete` is libazul's own memory-management plumbing
+    // (`*VecDestructor`, `InstantPtrCloneCallback`): they are never values a
+    // program holds, so a guard for them would be noise, not API - and they
+    // are the classes `api_functions()` itself calls internal.
+    let internal = |class: &str| {
+        ir.find_struct(class)
+            .is_some_and(|s| matches!(s.category, TypeCategory::DestructorOrClone))
+            || ir
+                .find_enum(class)
+                .is_some_and(|e| matches!(e.category, TypeCategory::DestructorOrClone))
+    };
+
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut guarded: Vec<(&str, &str)> = Vec::new();
+    for f in ir
+        .functions
+        .iter()
+        .filter(|f| matches!(f.kind, FunctionKind::Delete))
+    {
+        let class = f.class_name.as_str();
+        if wrapped.contains(class)
+            || internal(class)
+            || !has_c_type.contains(class)
+            || !config.should_include_type(class)
+            || !seen.insert(class)
+        {
+            continue;
+        }
+        guarded.push((class, f.c_name.as_str()));
+    }
+    if guarded.is_empty() {
+        return String::new();
+    }
+
+    let mut code = String::new();
+    code.push_str(
+        "// ---------------------------------------------------------------------------\r\n",
+    );
+    code.push_str("// Owned<T> - the destructor for the C values with no wrapper class\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// A tagged union (`CssProperty::text_color(c)`) and a monomorphized\r\n");
+    code.push_str("// generic alias (`ffi::ClipPathValue`) are raw C values here: the holder\r\n");
+    code.push_str("// namespace has nowhere to hang a destructor, so libazul's `_delete` for\r\n");
+    code.push_str("// them would never run. `Owned<T>` is that destructor, and nothing else:\r\n");
+    code.push_str("//\r\n");
+    code.push_str("//     Owned<ffi::CssProperty> prop(CssProperty::text_color(color));\r\n");
+    code.push_str("//     dom.set_css_property(node, prop.release()); // API takes ownership\r\n");
+    code.push_str("//     // ...or let it go out of scope and the value is freed, once.\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// Non-copyable on purpose: two guards over one value would free it\r\n");
+    code.push_str("// twice. `release()` hands the value on and disarms the guard.\r\n");
+    code.push_str(
+        "// ---------------------------------------------------------------------------\r\n\r\n",
+    );
+    code.push_str("// Declared, never defined: `Owned<T>` for a type libazul exports no\r\n");
+    code.push_str("// `_delete` for is a link/compile error, not a guard that frees nothing.\r\n");
+    code.push_str("template <typename T> struct Owned;\r\n\r\n");
+
+    // One macro instead of ~14 repeated lines per type: 241 specializations
+    // written out would add a megabyte to every one of the six headers, and
+    // the body is identical for all of them - only the C type and its
+    // `_delete` differ.
+    let nx = if standard.has_noexcept() {
+        " noexcept"
+    } else {
+        ""
+    };
+    code.push_str("#define AZUL_OWNED_TYPE(CType, DeleteFn) \\\r\n");
+    code.push_str("    template <> struct Owned<CType> { \\\r\n");
+    code.push_str(&format!(
+        "        explicit Owned(CType v){} : value_(v), owned_(true) {{}} \\\r\n",
+        nx
+    ));
+    code.push_str("        ~Owned() { if (owned_) DeleteFn(&value_); } \\\r\n");
+    if standard.has_move_semantics() {
+        code.push_str(&format!(
+            "        Owned(Owned&& o){nx} : value_(o.value_), owned_(o.owned_) {{ o.owned_ = \
+             false; }} \\\r\n",
+            nx = nx
+        ));
+        code.push_str(&format!(
+            "        Owned& operator=(Owned&& o){nx} {{ if (this != &o) {{ if (owned_) \
+             DeleteFn(&value_); value_ = o.value_; owned_ = o.owned_; o.owned_ = false; }} return \
+             *this; }} \\\r\n",
+            nx = nx
+        ));
+        code.push_str("        Owned(const Owned&) = delete; \\\r\n");
+        code.push_str("        Owned& operator=(const Owned&) = delete; \\\r\n");
+    }
+    code.push_str(&format!(
+        "        const CType& get() const{} {{ return value_; }} \\\r\n",
+        nx
+    ));
+    code.push_str(&format!(
+        "        const CType* ptr() const{} {{ return &value_; }} \\\r\n",
+        nx
+    ));
+    code.push_str(&format!(
+        "        CType* ptr(){} {{ return &value_; }} \\\r\n",
+        nx
+    ));
+    code.push_str(&format!(
+        "        CType release(){} {{ owned_ = false; return value_; }} \\\r\n",
+        nx
+    ));
+    code.push_str("    private: \\\r\n");
+    code.push_str("        CType value_; \\\r\n");
+    code.push_str("        bool owned_; \\\r\n");
+    if !standard.has_move_semantics() {
+        // C++03 has no `= delete`: declaring the copy operations private and
+        // leaving them undefined is the idiom, and it makes a copy a
+        // compile error at every call site outside the class.
+        code.push_str("        Owned(const Owned&); \\\r\n");
+        code.push_str("        Owned& operator=(const Owned&); \\\r\n");
+    }
+    code.push_str("    }\r\n\r\n");
+
+    for (class, delete_fn) in guarded {
+        code.push_str(&format!(
+            "AZUL_OWNED_TYPE({}, {});\r\n",
+            config.apply_prefix(class),
+            delete_fn
+        ));
+    }
+    code.push_str("\r\n");
+    code
+}
+
 /// Free-function forms of the trait entry points, for the classes that never
 /// get a wrapper class.
 ///
@@ -2382,17 +2859,9 @@ pub fn generate_freefn_trait_helpers(
 ) -> String {
     use std::collections::BTreeSet;
 
-    // Every class that DOES get a wrapper class, computed with the same
-    // predicates the class-declaration loops use. The complement is what needs
-    // free functions, so the two can never both fire for one class.
-    let synthesized = synthesize_option_result_structs(ir);
-    let mut wrapped: BTreeSet<&str> = BTreeSet::new();
-    for s in ir.structs.iter().chain(synthesized.iter()) {
-        if should_skip_class(s) || renders_as_type_alias(s) {
-            continue;
-        }
-        wrapped.insert(s.name.as_str());
-    }
+    // The complement of "has a wrapper class" is what needs free functions,
+    // so the two can never both fire for one class.
+    let wrapped = classes_with_wrapper_class(ir);
 
     // Group the trait entry points by class, in emission order.
     let mut by_class: Vec<(&str, Vec<&FunctionDef>)> = Vec::new();
@@ -2411,7 +2880,9 @@ pub fn generate_freefn_trait_helpers(
         }
         // `_delete` is not a capability any `derive` declares, and handing a
         // caller a free `delete` for a type they hold by value is a
-        // double-free waiting to happen.
+        // double-free waiting to happen. These same classes reach their
+        // destructor through the `Owned<T>` scope guard instead - see
+        // `generate_owned_guards`.
         if matches!(f.kind, FunctionKind::Delete) {
             continue;
         }

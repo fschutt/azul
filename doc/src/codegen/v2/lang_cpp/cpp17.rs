@@ -122,6 +122,8 @@ impl CppDialect for Cpp17Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -266,6 +268,8 @@ impl CppDialect for Cpp17Generator {
         if matches!(struct_def.category, TypeCategory::RefAny) {
             code.push_str(&generate_refany_template_members(self.standard()));
         }
+        // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+        code.push_str(&generate_class_constants(struct_def, ir, self.standard()));
 
         code.push_str("};\r\n\r\n");
     }
@@ -308,7 +312,7 @@ impl CppDialect for Cpp17Generator {
             ));
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -357,7 +361,7 @@ impl CppDialect for Cpp17Generator {
             }
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -448,7 +452,7 @@ impl CppDialect for Cpp17Generator {
             }
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, true, class_name, substitute,
                 );
@@ -755,7 +759,7 @@ impl Cpp17Generator {
                     "    [[nodiscard]] static {} {}({});\r\n",
                     class_name, cpp_fn_name, cpp_args
                 ));
-                if func_takes_string_arg(func) {
+                if func_takes_string_arg(func, ir) {
                     let sv_args = generate_args_signature_sv_overload(
                         &func.args, ir, config, false, class_name, substitute,
                     );
@@ -785,7 +789,7 @@ impl Cpp17Generator {
                 "    [[nodiscard]] static {} {}({});\r\n",
                 cpp_return_type, cpp_fn_name, cpp_args
             ));
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -838,7 +842,7 @@ impl Cpp17Generator {
                     "    {}{} {}({}){};\r\n",
                     static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
                 ));
-                if func_takes_string_arg(func) {
+                if func_takes_string_arg(func, ir) {
                     let sv_args = generate_args_signature_sv_overload(
                         &func.args, ir, config, true, class_name, substitute,
                     );

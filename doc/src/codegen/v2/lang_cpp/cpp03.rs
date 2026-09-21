@@ -111,6 +111,8 @@ impl CppDialect for Cpp03Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -225,6 +227,8 @@ impl CppDialect for Cpp03Generator {
         if is_result_type(struct_def) {
             self.generate_result_methods(code, struct_def, ir, config);
         }
+        // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+        code.push_str(&generate_class_constants(struct_def, ir, self.standard()));
 
         code.push_str("};\r\n\r\n");
     }

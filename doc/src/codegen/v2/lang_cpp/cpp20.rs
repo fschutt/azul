@@ -129,6 +129,8 @@ impl CppDialect for Cpp20Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -509,6 +511,8 @@ impl CppDialect for Cpp23Generator {
 
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -734,6 +738,8 @@ fn emit_class_declaration_cpp20_or_later(
     if matches!(struct_def.category, TypeCategory::RefAny) {
         code.push_str(&generate_refany_template_members(gen.standard()));
     }
+    // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+    code.push_str(&generate_class_constants(struct_def, ir, gen.standard()));
 
     code.push_str("};\r\n\r\n");
 }
