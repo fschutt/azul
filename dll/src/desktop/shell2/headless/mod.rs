@@ -394,67 +394,17 @@ pub struct CpuBackend {
 /// renderer's RGBA byte order). NOTE: in native mode `CpuBackend.last_frame`
 /// stays `None` — tools that read the retained frame (live screenshot dumps)
 /// need `AZ_NATIVE_BACKBUFFER=0`.
-/// #32: in-place R↔B swizzle over `rects` (x, y, w, h in buffer px) of a
-/// tightly-packed 4-byte-per-pixel buffer. Converts the CPU renderer's
-/// R,G,B,A byte order to ARGB8888's B,G,R,A where a compositor never
-/// advertises ABGR8888 (KWin offers ABGR only at 10/16-bit depths). Touching
-/// ONLY the damage rects is sound because writes ⊆ damage is pinned by the
-/// damage-sound laws: every pixel written this frame is converted exactly
-/// once, and retained pixels (converted at their own commit) are never
-/// re-swizzled.
-///
-/// The rects may OVERLAP (a shift clip and the repaint strip inside it both
-/// arrive here). The swap is its own inverse, so an overlap swapped once per
-/// rect would be converted twice, i.e. not at all. Each row therefore swaps
-/// the UNION of the rects crossing it.
+/// #32: in-place R<->B swizzle over `rects` (x, y, w, h in buffer px) of a
+/// tightly-packed 4-byte-per-pixel buffer - the ONE implementation lives in
+/// the renderer (`cpurender::swap_rb_in_rects`), where its overlap law is
+/// tested, and every shell converts through it.
 pub(crate) fn swizzle_rb_in_rects(
     buf: &mut [u8],
     stride_bytes: usize,
     buf_height: usize,
     rects: &[(i32, i32, i32, i32)],
 ) {
-    let row_px = stride_bytes / 4;
-    // Clamped, non-empty (x0, y0, x1, y1).
-    let clamped: Vec<(usize, usize, usize, usize)> = rects
-        .iter()
-        .filter(|&&(_, _, w, h)| w > 0 && h > 0)
-        .map(|&(x, y, w, h)| {
-            (
-                x.max(0) as usize,
-                y.max(0) as usize,
-                (x.saturating_add(w).max(0) as usize).min(row_px),
-                (y.saturating_add(h).max(0) as usize).min(buf_height),
-            )
-        })
-        .filter(|&(x0, y0, x1, y1)| x1 > x0 && y1 > y0)
-        .collect();
-    let Some(top) = clamped.iter().map(|r| r.1).min() else {
-        return;
-    };
-    let bottom = clamped.iter().map(|r| r.3).max().unwrap_or(top);
-    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(clamped.len());
-    for row in top..bottom {
-        spans.clear();
-        spans.extend(
-            clamped
-                .iter()
-                .filter(|r| r.1 <= row && row < r.3)
-                .map(|r| (r.0, r.2)),
-        );
-        spans.sort_unstable();
-        let base = row * stride_bytes;
-        let mut cursor = 0usize;
-        for &(s0, s1) in &spans {
-            // Skip what an earlier span on this row already swapped.
-            for px in s0.max(cursor)..s1 {
-                let o = base + px * 4;
-                if o + 4 <= buf.len() {
-                    buf.swap(o, o + 2);
-                }
-            }
-            cursor = cursor.max(s1);
-        }
-    }
+    azul_layout::cpurender::swap_rb_in_rects(buf, stride_bytes, buf_height, rects);
 }
 
 pub fn native_backbuffer_enabled() -> bool {
@@ -1180,7 +1130,6 @@ impl CpuBackend {
                     &mover_rects,
                     display_list,
                     dpi_factor,
-                    self.rendered_native && self.native_target_pool_order,
                 );
                 all_damage.extend(blit.damage);
                 present_extra.extend(blit.present_extra);
@@ -1196,10 +1145,29 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    self.rendered_native && self.native_target_pool_order,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+            }
+
+            // #32 pool-order target (a native ARGB8888 slot the commit swizzle
+            // converts in place): everything MOVED above came from a committed
+            // slot and is still in pool byte order, while the commit swizzle
+            // will convert the whole presented area. Convert what was moved
+            // back to renderer order here - ONCE over the union, because two
+            // moves that overlap (nested scrollers, a layout blit crossing a
+            // scroll clip) would otherwise convert their overlap twice and
+            // paint it with R and B swapped. The exposed strips are repainted
+            // right after this, so including them is harmless.
+            if self.rendered_native && self.native_target_pool_order && !present_extra.is_empty() {
+                let (bw, bh) = (output.width(), output.height());
+                let moved = cpurender::logical_rects_to_buffer(&present_extra, dpi_factor, bw, bh);
+                cpurender::swap_rb_in_rects(
+                    output.data_mut(),
+                    bw as usize * 4,
+                    bh as usize,
+                    &moved,
+                );
             }
         }
 
@@ -1339,7 +1307,7 @@ impl CpuBackend {
         if is_incremental {
             if !all_damage.is_empty() {
                 // Incremental: render only damaged regions
-                let _ = cpurender::render_display_list_damaged(
+                if let Ok(painted) = cpurender::render_display_list_damaged(
                     display_list,
                     &mut output,
                     dpi_factor,
@@ -1348,7 +1316,13 @@ impl CpuBackend {
                     &mut self.glyph_cache,
                     &render_state,
                     &all_damage,
-                );
+                ) {
+                    // What was WRITTEN, not what was requested: overlapping
+                    // damage rects are painted as their bounding box, and the
+                    // frame must present (and, on an ARGB8888 pool, convert)
+                    // every pixel it wrote.
+                    all_damage = painted;
+                }
                 // Exits paint ON TOP of the restored live pixels; their current
                 // rects are inside `all_damage` by construction.
                 if zombies_active {

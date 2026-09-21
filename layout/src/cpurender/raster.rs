@@ -1565,7 +1565,7 @@ pub fn render_display_list_damaged(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
-) -> Result<(), String> {
+) -> Result<Vec<LogicalRect>, String> {
     // The strip/damage raster body - the previously UNSPANNED majority of a
     // scroll frame's present time (7 of 10.2ms measured 2026-08-29).
     let _p = crate::probe::Probe::span("raster_damage_body");
@@ -1582,7 +1582,7 @@ pub fn render_display_list_damaged(
     }
 
     if damage_rects.is_empty() {
-        return Ok(()); // nothing changed
+        return Ok(Vec::new()); // nothing changed
     }
 
     // Snap every damage rect OUTWARD to physical-pixel boundaries (floor the
@@ -1807,7 +1807,11 @@ pub fn render_display_list_damaged(
         }
     }
 
-    Ok(())
+    // The rects this call actually CLEARED AND PAINTED. Overlapping requests
+    // are merged into their bounding box above, so the painted area can be
+    // larger than what was asked for: the caller has to present (and, on a
+    // pool-order target, byte-convert) what was written, not what it wanted.
+    Ok(rects.iter().map(|r| r.logical).collect())
 }
 
 #[allow(
@@ -8997,7 +9001,11 @@ mod autotest_generated {
     // render_display_list_damaged
     // ==================================================================
 
-    fn damaged(dl: &DisplayList, p: &mut AzulPixmap, rects: &[LogicalRect]) -> Result<(), String> {
+    fn damaged(
+        dl: &DisplayList,
+        p: &mut AzulPixmap,
+        rects: &[LogicalRect],
+    ) -> Result<Vec<LogicalRect>, String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());

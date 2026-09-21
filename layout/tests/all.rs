@@ -164,6 +164,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
+#[path = "damage_raster_reports_what_it_painted.rs"]
+mod damage_raster_reports_what_it_painted;
 #[path = "demo_layout_regressions.rs"]
 mod demo_layout_regressions;
 #[path = "display_list_ids.rs"]
