@@ -5480,7 +5480,17 @@ where
                     },
                     size: clip_mask.rect.size,
                 };
-                builder.push_image_mask_clip(paint_rect, clip_mask.image.clone(), mask_rect);
+                // `repeat` tiles the mask across the element. No backend has a
+                // repeating image mask - WebRender's `ImageMask` is one image
+                // in one rect - so the tiling is resolved HERE, into a single
+                // non-repeating mask that covers the paint rect. Every backend
+                // then needs no notion of repeat at all.
+                let (image, mask_rect) = match clip_mask.repeat {
+                    true => tile_mask(&clip_mask.image, mask_rect, paint_rect)
+                        .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)),
+                    false => (clip_mask.image.clone(), mask_rect),
+                };
+                builder.push_image_mask_clip(paint_rect, image, mask_rect);
                 true
             }
             #[cfg(feature = "cpurender")]
@@ -10940,6 +10950,116 @@ fn rasterize_svg_stroke_to_r8(
 /// `clip-path` does not clip - the caller's `#[cfg(not(feature =
 /// "cpurender"))]` arm already says so on stderr, once.
 #[cfg(feature = "cpurender")]
+/// One mask image repeated across `area`, as a single image and the rect that
+/// holds it.
+///
+/// `ImageMask::repeat` asks for a tiled mask, and nothing downstream can tile:
+/// the display-list item carries one image and one rect, and WebRender's
+/// `ImageMask` is the same shape. So the tiles are laid out here, at the
+/// SOURCE mask's own resolution (`src_w` px per tile, not one screen pixel per
+/// tile) - the mask is authored in logical px and applied in device px, so a
+/// tile sheet built at logical size would be resampled up and arrive blurred.
+///
+/// Returns `None` - and the caller then draws the mask once, unrepeated -
+/// when the mask's pixels are not reachable on the CPU (a GL texture, an
+/// image callback), when a tile is degenerate, or when the sheet would be
+/// larger than `MAX_TILED_MASK_PX`: a 1x1 tile over a full-screen element is
+/// millions of tiles, and silently allocating that is worse than not
+/// repeating.
+fn tile_mask(
+    mask: &ImageRef,
+    tile_rect: LogicalRect,
+    area: LogicalRect,
+) -> Option<(ImageRef, LogicalRect)> {
+    use azul_core::resources::{
+        DecodedImage, ImageData, RawImage, RawImageData, RawImageFormat,
+    };
+
+    /// The most pixels a generated tile sheet may hold (4096x4096).
+    const MAX_TILED_MASK_PX: usize = 4096 * 4096;
+
+    if tile_rect.size.width <= 0.0 || tile_rect.size.height <= 0.0 {
+        return None;
+    }
+
+    // The tiles start at the mask rect and run to the far edge of the element.
+    let span_w = area.origin.x + area.size.width - tile_rect.origin.x;
+    let span_h = area.origin.y + area.size.height - tile_rect.origin.y;
+    if span_w <= tile_rect.size.width && span_h <= tile_rect.size.height {
+        return None; // one tile already covers it
+    }
+    let cols = (span_w / tile_rect.size.width).ceil().max(1.0) as usize;
+    let rows = (span_h / tile_rect.size.height).ceil().max(1.0) as usize;
+
+    let (src, src_w, src_h) = mask_pixels_r8(mask)?;
+    let (out_w, out_h) = (src_w.checked_mul(cols)?, src_h.checked_mul(rows)?);
+    if out_w.checked_mul(out_h)? > MAX_TILED_MASK_PX {
+        return None;
+    }
+
+    let mut out = vec![0u8; out_w * out_h];
+    for row in 0..rows {
+        for y in 0..src_h {
+            let dst_y = row * src_h + y;
+            for col in 0..cols {
+                let dst = dst_y * out_w + col * src_w;
+                out[dst..dst + src_w].copy_from_slice(&src[y * src_w..y * src_w + src_w]);
+            }
+        }
+    }
+
+    let image = ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(out.into()),
+        width: out_w,
+        height: out_h,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::R8,
+        tag: Vec::new().into(),
+    })?;
+    let rect = LogicalRect {
+        origin: tile_rect.origin,
+        size: LogicalSize::new(
+            tile_rect.size.width * cols as f32,
+            tile_rect.size.height * rows as f32,
+        ),
+    };
+    Some((image, rect))
+}
+
+/// A mask image's coverage as one byte per pixel, or `None` when the pixels
+/// do not live on the CPU. Mirrors what the CPU rasteriser reads from a mask:
+/// R8 verbatim, BGRA8's alpha, and otherwise the first channel.
+fn mask_pixels_r8(mask: &ImageRef) -> Option<(Vec<u8>, usize, usize)> {
+    use azul_core::resources::{DecodedImage, ImageData, RawImageFormat};
+
+    let DecodedImage::Raw((descriptor, data)) = mask.get_data() else {
+        return None;
+    };
+    let (w, h) = (descriptor.width, descriptor.height);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let ImageData::Raw(bytes) = data else {
+        return None;
+    };
+    let bytes = bytes.as_ref();
+    let px = w.checked_mul(h)?;
+    let out = match descriptor.format {
+        RawImageFormat::R8 if bytes.len() >= px => bytes[..px].to_vec(),
+        RawImageFormat::BGRA8 if bytes.len() >= px * 4 => {
+            bytes.chunks_exact(4).take(px).map(|c| c[3]).collect()
+        }
+        _ => {
+            let channels = bytes.len().checked_div(px)?;
+            if channels == 0 {
+                return None;
+            }
+            (0..px).map(|i| bytes[i * channels]).collect()
+        }
+    };
+    Some((out, w, h))
+}
+
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
@@ -14667,5 +14787,102 @@ mod insert_item_tests {
         assert_eq!(dl.items.len(), 4);
         assert_eq!(dl.node_mapping.len(), 4, "the table was padded to fit");
         assert!(dl.node_mapping.iter().all(Option::is_none));
+    }
+}
+
+#[cfg(test)]
+mod tiled_mask_tests {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+    use super::*;
+
+    fn r8(w: usize, h: usize, bytes: Vec<u8>) -> ImageRef {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(bytes.into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::R8,
+            tag: Vec::new().into(),
+        })
+        .expect("R8 RawImage must build")
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(w, h),
+        }
+    }
+
+    fn pixels(image: &ImageRef) -> (Vec<u8>, usize, usize) {
+        mask_pixels_r8(image).expect("the tiled mask must be CPU-readable")
+    }
+
+    /// The whole point: `ImageMask::repeat` used to be dropped between the DOM
+    /// and the display list, so a repeating mask masked one tile and left the
+    /// rest of the element unmasked.
+    #[test]
+    fn a_repeating_mask_covers_the_whole_element() {
+        // A 1x2 tile: top row opaque, bottom row clipped.
+        let mask = r8(1, 2, vec![255, 0]);
+        let (image, area) =
+            tile_mask(&mask, rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 10.0, 30.0))
+                .expect("a 10x10 tile over a 10x30 element must tile");
+
+        // Three rows of tiles, one column, and the rect grew to match.
+        assert_eq!(area.size.height, 30.0);
+        assert_eq!(area.size.width, 10.0);
+
+        let (px, w, h) = pixels(&image);
+        assert_eq!((w, h), (1, 6), "one column, three 2px-tall tiles");
+        assert_eq!(px, vec![255, 0, 255, 0, 255, 0], "the tile repeats verbatim");
+    }
+
+    /// The tile sheet is built at the SOURCE mask's resolution, not the
+    /// element's: a mask authored in logical px is applied in device px, and a
+    /// sheet built one screen pixel per tile pixel arrives blurred on HiDPI.
+    #[test]
+    fn tiles_keep_the_source_resolution() {
+        let mask = r8(8, 8, vec![255; 64]);
+        let (image, _) = tile_mask(&mask, rect(0.0, 0.0, 4.0, 4.0), rect(0.0, 0.0, 8.0, 12.0))
+            .expect("must tile");
+        let (_, w, h) = pixels(&image);
+        assert_eq!((w, h), (16, 24), "2x3 tiles of an 8x8 source");
+    }
+
+    #[test]
+    fn a_mask_that_already_covers_the_element_is_not_tiled() {
+        let mask = r8(2, 2, vec![255; 4]);
+        assert!(
+            tile_mask(&mask, rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 10.0, 10.0)).is_none(),
+            "one tile is enough - tiling it would allocate a copy for nothing"
+        );
+    }
+
+    #[test]
+    fn a_degenerate_tile_does_not_divide_by_zero() {
+        let mask = r8(2, 2, vec![255; 4]);
+        assert!(tile_mask(&mask, rect(0.0, 0.0, 0.0, 4.0), rect(0.0, 0.0, 40.0, 40.0)).is_none());
+        assert!(tile_mask(&mask, rect(0.0, 0.0, 4.0, 0.0), rect(0.0, 0.0, 40.0, 40.0)).is_none());
+    }
+
+    /// A 1px tile over a large element is millions of tiles. Refusing is the
+    /// answer; allocating it silently is not.
+    #[test]
+    fn an_absurd_tile_count_is_refused_rather_than_allocated() {
+        let mask = r8(64, 64, vec![255; 64 * 64]);
+        assert!(
+            tile_mask(&mask, rect(0.0, 0.0, 1.0, 1.0), rect(0.0, 0.0, 4000.0, 4000.0)).is_none(),
+            "4000x4000 tiles of a 64x64 source is a 256000px-wide sheet"
+        );
+    }
+
+    /// The pixels of a GL-backed mask do not live on the CPU, so there is
+    /// nothing to tile and the caller falls back to drawing it once.
+    #[test]
+    fn a_mask_without_cpu_pixels_is_left_alone() {
+        let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new().into());
+        assert!(tile_mask(&null, rect(0.0, 0.0, 2.0, 2.0), rect(0.0, 0.0, 20.0, 20.0)).is_none());
     }
 }

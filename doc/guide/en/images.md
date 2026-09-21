@@ -131,6 +131,6 @@ For animation, use a render-image callback (`ImageRef::callback`) and a [timer](
 
 ## Image masks
 
-`ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect` (element-local), and `repeat: bool`. Apply one with `Dom::with_clip_mask`, and change it from a callback with `change_node_image_mask` - masks are a paint-time effect, so changing one never reflows. A node carrying SVG path geometry is clipped to that path instead.
+`ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect` (element-local), and `repeat: bool`, which tiles the mask across the node. Coverage outside the mask is zero, so a mask smaller than its node hides the rest of it. Apply one with `Dom::with_clip_mask`, and change it from a callback with `change_node_image_mask` - masks are a paint-time effect, so changing one never reflows. A node carrying SVG path geometry is clipped to that path instead.
 
 See [Clip Masks](images/clip-masks.md) for both kinds, including animating a mask and using an image callback as one.

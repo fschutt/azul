@@ -59,12 +59,21 @@ rounded-corner approximation.
 
 `rect` is **element-local**. Its origin is measured from the node's own
 paint box, so `(0, 0)` is the node's top-left corner and the mask moves
-with the node. A mask smaller than the node clips everything outside
-it; a mask larger than the node is cropped by the node's box.
+with the node.
 
-`repeat` is part of the struct but is **not currently honoured** - the
-mask is drawn once, at `rect`. Tile the mask image itself if you need
-a repeating pattern.
+Coverage outside `rect` is **zero**: a mask smaller than the node hides
+everything the mask does not reach, rather than leaving it painted. A
+mask larger than the node is cropped by the node's box.
+
+`repeat` tiles the mask across the node from `rect`'s origin, which is
+how you build a texture, a hatch or a scanline effect from a small
+image. The tiling is resolved when the display list is built, at the
+mask image's own resolution, so a tile stays crisp on a HiDPI display.
+Two cases fall back to drawing the mask once: a mask whose pixels are
+not on the CPU (a GL texture, an image callback), and a tile so small
+relative to the node that the tile sheet would exceed 4096x4096 - a 1px
+tile over a full-screen element is millions of tiles, and allocating
+that silently would be worse than not repeating.
 
 ## An SVG path as a mask
 
