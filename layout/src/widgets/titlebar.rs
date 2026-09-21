@@ -384,6 +384,21 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_cursor(StyleCursor::Grab),
         ));
+        // THE WHOLE BAR moves the window, which is what a titlebar is. The
+        // drag used to live on the title TEXT alone, so the strip either side
+        // of it - most of the bar, and all of it once the title is short -
+        // did nothing. Declared here rather than as three more callbacks
+        // because the framework's `-azul-app-region` path is the one that
+        // hands the gesture to the window manager (X11 `_NET_WM_MOVERESIZE`,
+        // xdg_toplevel.move, WM_NCLBUTTONDOWN, performWindowDragWithEvent:),
+        // and a WM-driven move is snap-aware and multi-monitor-correct where
+        // a per-event position loop is not. The buttons opt out with
+        // `no-drag`.
+        if show_buttons {
+            props.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+                StyleAppRegionValue::Exact(StyleAppRegion::Drag),
+            )));
+        }
         props.push(CssPropertyWithConditions::simple(CssProperty::user_select(
             StyleUserSelect::None,
         )));
@@ -432,11 +447,15 @@ impl Titlebar {
                 inner: self.title_color,
             }),
         ));
-        // In CSD mode (flex container), title must grow to fill remaining space
+        // In CSD mode the title does NOT grow. Growing was what put it off
+        // centre: a title that eats the space the buttons left over is
+        // centred in THAT, so `text-align: center` landed it half the button
+        // block to one side of the window's middle. The bar centres it
+        // instead, by giving the two blocks beside it the same share
+        // (`flex_fill_style`) — so the title's box is the bar's middle
+        // whichever side the buttons are on. It still shrinks (min-width: 0)
+        // so a long title ellipsises rather than pushing them off the edge.
         if show_buttons {
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)),
-            ));
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_min_width(LayoutMinWidth::const_px(0)),
             ));
@@ -503,10 +522,13 @@ impl Titlebar {
         button_side: TitlebarButtonSide,
     ) -> Dom {
         let container_style = self.build_container_style(true);
+        // `None`: this overlay is sized to its buttons, not to a bar, so the
+        // button block claims no share of anything.
         let button_container = build_button_container(
             buttons,
             self.button_hover_color,
             self.close_hover_color,
+            None,
         );
         let container_classes = IdOrClassVec::from_vec(vec![
             Class("csd-titlebar".into()),
@@ -582,6 +604,7 @@ impl Titlebar {
                 buttons,
                 self.button_hover_color,
                 self.close_hover_color,
+                Some(button_side),
             ))
         } else {
             None
@@ -596,17 +619,36 @@ impl Titlebar {
             .with_ids_and_classes(container_classes)
             .with_css_props(container_style);
 
-        // Button side determines child order:
-        //   Left  (macOS):   [buttons] [title]
-        //   Right (Win/Lin): [title] [buttons]
+        // Three blocks, not two. The buttons take one end; an EMPTY block of
+        // the same flex claims the other; the title sits between them. Both
+        // outer blocks grow from a zero basis, so they always come out the
+        // same width and the title's box is the bar's middle — which is where
+        // a titlebar's title goes, on either side's convention.
+        //
+        // The two-child version centred the title in what the buttons left
+        // over, i.e. half the button block to the left of centre on
+        // Windows/Linux and half of it to the right on macOS.
+        //
+        //   Left  (macOS):   [buttons] [title] [spacer]
+        //   Right (Win/Lin): [spacer]  [title] [buttons]
+        //
+        // The spacer exists ONLY to balance the button block, so title-only
+        // mode - which has no buttons and is not even a flex container -
+        // keeps its single child.
         match button_side {
             TitlebarButtonSide::Left => {
                 if let Some(btn) = button_container {
                     root = root.with_child(btn);
                 }
                 root = root.with_child(title_node);
+                if show_buttons {
+                    root = root.with_child(title_spacer());
+                }
             }
             TitlebarButtonSide::Right => {
+                if show_buttons {
+                    root = root.with_child(title_spacer());
+                }
                 root = root.with_child(title_node);
                 if let Some(btn) = button_container {
                     root = root.with_child(btn);
@@ -616,6 +658,38 @@ impl Titlebar {
 
         root
     }
+}
+
+/// `flex-grow: 1; flex-basis: 0; min-width: 0` — the claim that makes two
+/// blocks share what is left of a flex row EQUALLY.
+///
+/// The zero basis is the load-bearing part: without it the block holding the
+/// buttons starts out as wide as they are and ends up that much wider than
+/// its opposite number, which is the off-centre title all over again.
+fn flex_fill_style() -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            1,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(
+            LayoutFlexBasis::Exact(PixelValue::const_px(0)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
+            0,
+        ))),
+    ])
+}
+
+/// The empty block opposite the window controls.
+///
+/// It draws nothing and hits nothing; it exists so the title has the same
+/// amount of bar on both sides of it.
+fn title_spacer() -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+            "csd-title-spacer".into(),
+        )]))
+        .with_css_props(flex_fill_style())
 }
 
 /// The size a window-control glyph is drawn at - freedesktop's nominal for a
@@ -785,6 +859,7 @@ fn build_button_container(
     buttons: &TitlebarButtons,
     hover: OptionColorU,
     close_hover: OptionColorU,
+    fills_its_side: Option<TitlebarButtonSide>,
 ) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
@@ -894,8 +969,30 @@ fn build_button_container(
     }
 
     let classes = IdOrClassVec::from_vec(vec![Class("csd-buttons".into())]);
+
+    // In a BAR, the button block is one of the two ends the title is centred
+    // between: it claims the same share as the empty block opposite it and
+    // pins its buttons to the window's edge. It also opts OUT of the drag
+    // region the bar declares, or pressing close would start moving the
+    // window instead - which is exactly what `-azul-app-region: no-drag`
+    // is for.
+    let mut props = Vec::new();
+    if let Some(side) = fills_its_side {
+        props.extend(flex_fill_style().into_library_owned_vec());
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_justify_content(match side {
+                TitlebarButtonSide::Left => LayoutJustifyContent::FlexStart,
+                TitlebarButtonSide::Right => LayoutJustifyContent::FlexEnd,
+            }),
+        ));
+    }
+    props.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+        StyleAppRegionValue::Exact(StyleAppRegion::NoDrag),
+    )));
+
     Dom::create_div()
         .with_ids_and_classes(classes)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
         .with_children(DomVec::from_vec(children))
 }
 
@@ -1293,6 +1390,16 @@ mod autotest_generated {
             t.height as isize,
         )));
         v.push(CssProperty::const_cursor(StyleCursor::Grab));
+        // The BAR is the drag region now, not the title node - the strip
+        // either side of the text used to move nothing. CSD mode only: a
+        // title-only bar carries no controls to opt out of it.
+        if show_buttons {
+            v.push(CssProperty::AppRegion(
+                azul_css::props::property::StyleAppRegionValue::Exact(
+                    azul_css::props::style::transform::StyleAppRegion::Drag,
+                ),
+            ));
+        }
         v.push(CssProperty::user_select(StyleUserSelect::None));
         if t.padding_left > 0.0 {
             v.push(CssProperty::const_padding_left(
@@ -1320,7 +1427,10 @@ mod autotest_generated {
             }),
         ];
         if show_buttons {
-            v.push(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)));
+            // The title no longer grows: `[spacer][title][buttons]` with both
+            // ends `flex-grow: 1; flex-basis: 0` centres it on the BAR instead
+            // of on what the buttons left over. `min-width: 0` still lets a
+            // long title ellipsise.
             v.push(CssProperty::const_min_width(LayoutMinWidth::const_px(0)));
         }
         v.push(CssProperty::const_text_align(StyleTextAlign::Center));
@@ -2203,6 +2313,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::Some(neutral),
             OptionColorU::Some(red),
+            None,
         );
         let kids = dom.children.as_ref();
         assert_eq!(kids.len(), 3, "minimize + maximize + close");
@@ -2232,6 +2343,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         assert!(
             !style_of(&bare.children.as_ref()[2]).contains(&hex(red)),
@@ -2348,11 +2460,17 @@ mod autotest_generated {
 
     #[test]
     fn build_title_style_only_grows_the_title_in_csd_mode() {
-        // In the flex container the title must claim the space left by the buttons,
-        // and `min-width: 0` is what lets it actually shrink below its text width.
+        // The title does NOT grow: `[spacer][title][buttons]` with both ends
+        // growing from a zero basis centres it on the BAR, at any window width
+        // and with the controls on either side. Growing the title instead
+        // centred it in what the buttons left over. `min-width: 0` is still
+        // what lets a long title shrink below its text width and ellipsise.
         let t = tb("x");
         let flex = properties(&t.build_title_style(true));
-        assert!(flex.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))));
+        assert!(
+            !flex.iter().any(|p| matches!(p, CssProperty::FlexGrow(_))),
+            "the title grows again, so it is centred on the leftover space",
+        );
         assert!(flex.contains(&CssProperty::const_min_width(LayoutMinWidth::const_px(0))));
 
         let block = properties(&t.build_title_style(false));
@@ -2671,23 +2789,27 @@ mod autotest_generated {
     fn dom_with_buttons_orders_the_children_by_button_side() {
         let buttons = TitlebarButtons::default();
 
+        // Three blocks: the controls on their side, the title in the middle,
+        // and the block that balances the controls on the other side.
         let left = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Left);
         let left_kids = left.children.as_ref();
-        assert_eq!(left_kids.len(), 2);
+        assert_eq!(left_kids.len(), 3);
         assert!(
             has_class(&left_kids[0], "csd-buttons"),
             "macOS puts the buttons first"
         );
         assert!(has_class(&left_kids[1], "csd-title"));
+        assert!(has_class(&left_kids[2], "csd-title-spacer"));
 
         let right = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Right);
         let right_kids = right.children.as_ref();
-        assert_eq!(right_kids.len(), 2);
+        assert_eq!(right_kids.len(), 3);
         assert!(
-            has_class(&right_kids[0], "csd-title"),
-            "Windows/Linux put the title first"
+            has_class(&right_kids[0], "csd-title-spacer"),
+            "Windows/Linux balance the controls on the leading side"
         );
-        assert!(has_class(&right_kids[1], "csd-buttons"));
+        assert!(has_class(&right_kids[1], "csd-title"));
+        assert!(has_class(&right_kids[2], "csd-buttons"));
     }
 
     #[test]
@@ -2741,12 +2863,14 @@ mod autotest_generated {
                 fingerprint(&build_button_container(
                     &off,
                     OptionColorU::None,
-                    OptionColorU::None
+                    OptionColorU::None,
+                    None
                 )),
                 fingerprint(&build_button_container(
                     &on,
                     OptionColorU::None,
-                    OptionColorU::None
+                    OptionColorU::None,
+                    None
                 )),
                 "has_fullscreen changed the rendered buttons",
             );
@@ -2761,15 +2885,17 @@ mod autotest_generated {
             has_maximize: false,
             has_fullscreen: false,
         };
-        let container = build_button_container(&none, OptionColorU::None, OptionColorU::None);
+        let container = build_button_container(&none, OptionColorU::None, OptionColorU::None, None);
 
         assert_eq!(classes(&container), vec!["csd-buttons"]);
         assert!(container.children.as_ref().is_empty());
         assert_eq!(container.estimated_total_children, 0);
 
-        // ... and the full DOM still has both children in the documented order.
+        // ... and the full DOM still has all three blocks in the documented
+        // order. An empty control block still balances the spacer, so a
+        // titlebar with no controls at all keeps its title on the midpoint.
         let dom = tb("x").dom_with_buttons(&none, TitlebarButtonSide::Right);
-        assert_eq!(dom.children.as_ref().len(), 2);
+        assert_eq!(dom.children.as_ref().len(), 3);
         assert!(buttons_node(&dom).is_some());
     }
 
@@ -2811,6 +2937,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         let kids = container.children.as_ref();
         assert_eq!(kids.len(), 3);
@@ -2850,6 +2977,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         let button = container
             .children
@@ -2895,6 +3023,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         for (node, specific) in
             container
@@ -2925,14 +3054,14 @@ mod autotest_generated {
                 let enabled = usize::from(buttons.has_close)
                     + usize::from(buttons.has_minimize)
                     + usize::from(buttons.has_maximize);
-                // title + label <p> + text + button container
+                // spacer + title + label <p> + text + button container
                 // + 3 nodes per enabled button (button, icon, its glyph slot),
                 // except MAXIMIZE, whose glyph is a single VirtualView node:
                 // its child DOM is a document of its own and contributes
                 // nothing to this tree.
                 assert_eq!(
                     dom.estimated_total_children,
-                    4 + 3 * enabled - usize::from(buttons.has_maximize)
+                    5 + 3 * enabled - usize::from(buttons.has_maximize)
                 );
             }
         }
@@ -2947,8 +3076,14 @@ mod autotest_generated {
 
         assert_eq!(inline_props(&dom), expected_container(&t, true));
         assert_eq!(inline_props(title_node(&dom)), expected_title(&t, true));
-        // The button container is styled entirely from the stylesheet.
-        assert!(inline_props(buttons_node(&dom).unwrap()).is_empty());
+        // The button container is one of the two END BLOCKS that centre the
+        // title: it grows from a zero basis exactly as the spacer opposite it
+        // does, which is what makes the two sides equal without anyone having
+        // to know how wide the controls are. Its LOOK is still entirely the
+        // stylesheet's.
+        let btns = inline_props(buttons_node(&dom).unwrap());
+        assert!(btns.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))));
+        assert!(btns.contains(&CssProperty::const_min_width(LayoutMinWidth::const_px(0))));
     }
 
     #[test]
@@ -2964,10 +3099,17 @@ mod autotest_generated {
             fingerprint(title_node(&right)),
             "the title node must not depend on the button side",
         );
+        // The end blocks DO depend on the side now - each pins its buttons to
+        // the window edge it sits on - so the law is narrowed to what the side
+        // must not change: which buttons there are, and in what order.
         assert_eq!(
-            fingerprint(buttons_node(&left).unwrap()),
-            fingerprint(buttons_node(&right).unwrap()),
-            "the button container must not depend on the button side",
+            classes(buttons_node(&left).unwrap()),
+            classes(buttons_node(&right).unwrap()),
+        );
+        assert_eq!(
+            buttons_node(&left).unwrap().children.as_ref().len(),
+            buttons_node(&right).unwrap().children.as_ref().len(),
+            "the button container must hold the same buttons on either side",
         );
     }
 
@@ -3457,5 +3599,165 @@ mod drag_region_tests {
             ),
             "the caller's class must survive"
         );
+    }
+}
+
+#[cfg(test)]
+mod titlebar_centring_tests {
+    //! A TITLEBAR CENTRES ITS TITLE ON THE BAR.
+    //!
+    //! Reported from a live X11/XFCE run: "the title is off-centre - it is
+    //! centred in the space left over after the window controls, not in the
+    //! whole bar". That is exactly what a two-child flex row does. The title
+    //! grew into whatever the button block left, and `text-align: center`
+    //! then centred the text in THAT box - half a button block to the left of
+    //! the window's middle on Windows/Linux, half of it to the right on
+    //! macOS.
+    //!
+    //! The bar centres it instead: the buttons take one end, an empty block
+    //! with the SAME flex claim takes the other, and the title sits between
+    //! two equal shares. Which is why these tests read the claims rather than
+    //! any pixel count - the claim is what makes the two ends equal at every
+    //! window width, for any set of controls, on either side.
+
+    use alloc::{string::String, vec::Vec};
+
+    use azul_core::dom::{Dom, IdOrClass};
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            property::{CssProperty, CssPropertyType},
+            style::transform::StyleAppRegion,
+        },
+        system::{TitlebarButtonSide, TitlebarButtons},
+    };
+
+    use super::Titlebar;
+
+    const BOTH_SIDES: [TitlebarButtonSide; 2] =
+        [TitlebarButtonSide::Left, TitlebarButtonSide::Right];
+
+    fn bar(side: TitlebarButtonSide) -> Dom {
+        Titlebar::new("Azul Widget Showcase".into())
+            .dom_with_buttons(&TitlebarButtons::default(), side)
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+    }
+
+    fn classes(node: &Dom) -> Vec<String> {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(s) => Some(String::from(s.as_str())),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn inline_props(node: &Dom) -> Vec<CssProperty> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// What a node claims of the row's free space.
+    fn flex_claim(node: &Dom) -> Vec<CssProperty> {
+        inline_props(node)
+            .into_iter()
+            .filter(|p| {
+                matches!(
+                    p.get_type(),
+                    CssPropertyType::FlexGrow | CssPropertyType::FlexBasis
+                )
+            })
+            .collect()
+    }
+
+    fn region(node: &Dom) -> Option<StyleAppRegion> {
+        inline_props(node).into_iter().find_map(|p| match p {
+            CssProperty::AppRegion(CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_title_sits_between_two_equal_shares_of_the_bar() {
+        for side in BOTH_SIDES {
+            let dom = bar(side);
+            let kids = dom.children.as_ref();
+
+            assert_eq!(
+                kids.len(),
+                3,
+                "{side:?}: a bar is [end] [title] [end]; this one has {} children",
+                kids.len()
+            );
+            assert!(
+                has_class(&kids[1], "csd-title"),
+                "{side:?}: the title is the MIDDLE block, between the two ends; got {:?}",
+                classes(&kids[1])
+            );
+
+            let (leading, trailing) = (flex_claim(&kids[0]), flex_claim(&kids[2]));
+            assert!(
+                !leading.is_empty(),
+                "{side:?}: the ends must claim a share, or they cannot be equal"
+            );
+            assert_eq!(
+                leading, trailing,
+                "{side:?}: the two ends claim different shares, so the title's box \
+                 is not the bar's middle"
+            );
+
+            // ...and the title must not claim one of its own, or it eats the
+            // asymmetry straight back.
+            assert!(
+                flex_claim(&kids[1]).is_empty(),
+                "{side:?}: the title grows again, so it is centred in the leftovers \
+                 rather than on the bar"
+            );
+        }
+    }
+
+    /// ...and the whole bar drags the window, not just the title text.
+    ///
+    /// The drag used to be three callbacks on the `.csd-title` node alone, so
+    /// the strip either side of the text - most of the bar, and all of it
+    /// once the title is short - moved nothing. `-azul-app-region` is the
+    /// framework's own path for this, and the one that hands the gesture to
+    /// the WINDOW MANAGER (measured on X11: `_NET_WM_MOVERESIZE` moves the
+    /// window; the per-event position loop is the fallback for a WM that
+    /// cannot take it).
+    #[test]
+    fn the_whole_bar_drags_the_window_and_the_buttons_do_not() {
+        for side in BOTH_SIDES {
+            let dom = bar(side);
+            assert_eq!(
+                region(&dom),
+                Some(StyleAppRegion::Drag),
+                "{side:?}: the BAR is what drags the window"
+            );
+            let buttons = dom
+                .children
+                .as_ref()
+                .iter()
+                .find(|c| has_class(c, "csd-buttons"))
+                .expect("a full CSD titlebar renders its controls");
+            assert_eq!(
+                region(buttons),
+                Some(StyleAppRegion::NoDrag),
+                "{side:?}: pressing close must not start moving the window"
+            );
+        }
     }
 }

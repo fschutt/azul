@@ -1878,11 +1878,17 @@ impl SystemStyle {
             ".csd-controls-only {{ position: absolute; top: 0; right: 0; width: auto;              background: transparent; border-bottom: none; padding: 0 4px; }} ",
         );
 
-        // Title text
+        // Title text.
+        //
+        // It does NOT grow. A title that eats whatever the buttons left over
+        // is centred in THAT, which put it half a button block off the
+        // window's middle. The bar centres it by giving the blocks either
+        // side of it the same share - see `.csd-title-spacer` below, and the
+        // matching claim the widget puts on the button block.
         let _ = write!(
             css,
-            ".csd-title {{ color: rgb({}, {}, {}); font-size: {}px; font-weight: {}; {}flex-grow: \
-             1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: \
+            ".csd-title {{ color: rgb({}, {}, {}); font-size: {}px; font-weight: {}; {}min-width: \
+             0px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: \
              nowrap; user-select: none; }} ",
             text_color.r,
             text_color.g,
@@ -1892,7 +1898,18 @@ impl SystemStyle {
             title_font_family,
         );
 
-        // Button container
+        // The empty block opposite the window controls. Same claim as the
+        // button block, so the two come out the same width whatever the
+        // controls are, and the title between them is on the bar's midpoint.
+        css.push_str(
+            ".csd-title-spacer { flex-grow: 1; flex-basis: 0px; min-width: 0px; } ",
+        );
+
+        // Button container. In a BAR it is the other end the title is centred
+        // between, and claims the same share as the spacer — but that claim is
+        // declared by the widget, not here, because the same class also
+        // carries the `NoTitle` controls overlay, which is sized to its
+        // buttons rather than to a bar.
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
         // Buttons
@@ -1923,8 +1940,12 @@ impl SystemStyle {
         // Platform-specific button styling
         match self.platform {
             Platform::MacOs => {
-                // macOS traffic light buttons (left side)
-                css.push_str(".csd-buttons { position: absolute; left: 8px; } ");
+                // macOS traffic lights. They stay IN FLOW: taking them out of
+                // it left the title with one block beside it instead of two,
+                // and the bar could no longer centre it. The block they live
+                // in is pinned to the leading edge by `justify-content`
+                // above, and inset by the bar's own horizontal padding, which
+                // is what `left: 8px` was approximating.
                 css.push_str(
                     ".csd-close { background: rgb(255, 95, 86); width: 12px; height: 12px; \
                      border-radius: 50%; } ",
@@ -1938,12 +1959,13 @@ impl SystemStyle {
                      border-radius: 50%; } ",
                 );
             }
-            Platform::Linux(_) => {
-                // Linux - title on left, buttons on right
-                css.push_str(".csd-title { text-align: left; } ");
-            }
             _ => {
-                // Windows and others - standard layout
+                // Windows, Linux and the rest: the bar centres its title, the
+                // controls take the side the desktop puts them on. (Linux used
+                // to left-align the title here. It was dead - the widget's own
+                // inline `text-align: center` outranks a class rule - and it
+                // said the opposite of what a GNOME, KDE or Xfwm4 caption
+                // actually does, which is centre it.)
             }
         }
 
