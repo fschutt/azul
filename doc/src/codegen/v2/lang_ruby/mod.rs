@@ -33,8 +33,12 @@
 //! - The Ruby generator emits a free function `generate(ir, config)` instead of implementing the
 //!   `LanguageGenerator` trait. The trait is shaped for Rust/C/C++/Python output formats; Ruby
 //!   (like Lua, C#, etc.) doesn't fit that interface cleanly.
-//! - Skipped types (Recursive, VecRef, GenericTemplate, DestructorOrClone, CallbackTypedef) get `#
-//!   SKIPPED:` comments rather than `# TODO`.
+//! - A generic template (`CssPropertyValue<T>`) gets a note naming the concrete instantiations
+//!   emitted in its place — it has no C ABI of its own, so nothing is lost. A type that really is
+//!   skipped keeps a `# SKIPPED:` comment.
+//! - Every API class the C ABI exports functions for gets an idiomatic class: structs (with or
+//!   without a `_delete`), tagged-union enums with their variant constructors, and the
+//!   monomorphized generic aliases. Unit enums stay integer constants.
 
 use anyhow::Result;
 

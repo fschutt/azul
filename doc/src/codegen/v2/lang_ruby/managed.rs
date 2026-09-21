@@ -47,7 +47,7 @@ use super::{
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, TypeCategory},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
     },
     functions::ruby_attach_name,
@@ -71,6 +71,15 @@ pub(crate) fn refany_struct_name(ir: &CodegenIR) -> Option<&str> {
         .map(|s| s.name.as_str())
 }
 
+/// The unprefixed name of the IR's `TypeCategory::String` struct — the one
+/// type `_az_string` knows how to build. Looked up, never assumed.
+pub(crate) fn string_struct_name(ir: &CodegenIR) -> Option<&str> {
+    ir.structs
+        .iter()
+        .find(|s| s.category == TypeCategory::String)
+        .map(|s| s.name.as_str())
+}
+
 /// Emit Ruby code that registers the host-invoker plumbing and
 /// `Azul._register_callback`. Inserted at the bottom of `module Azul`,
 /// after the Native sub-module is fully wired up but before user-facing
@@ -81,7 +90,13 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
         return;
     };
     let refany_prefixed = config.apply_prefix(refany);
-    // C-export owner of the invoker setters / releaser (core/src/host_invoker.rs).
+    // C-export owner of the invoker setters / releaser. These are
+    // `#[no_mangle]` exports of core/src/host_invoker.rs, not api.json
+    // functions: the symbol is spelled `AzApp_...` in that file whatever
+    // api.json calls its application class, so the literal here IS the
+    // symbol, not a decision keyed on an API name.
+    //
+    // allow-api-name: core/src/host_invoker.rs hard-codes `AzApp_setHostHandleReleaser`
     let app_prefixed = config.apply_prefix("App");
 
     builder.line("# ============================================================");
@@ -177,22 +192,37 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.blank();
 
     // Auto-AzString conversion: codegen emits Azul._az_string(x) for
-    // any wrapper-method arg whose IR type is `String` and ref_kind is
-    // Owned. Accepts a plain Ruby string and returns an AzString::ByValue
-    // FFI struct. Also passes through values that are already AzString
-    // structs / raw pointers / wrapper instances, so the helper is
-    // idempotent across the wrapper layer's call paths.
-    let string_from_utf8 = ir
+    // every wrapper-method arg whose IR type is the string class and
+    // whose ref_kind is Owned. Accepts a plain Ruby string and returns an
+    // AzString::ByValue FFI struct. Also passes through values that are
+    // already AzString structs / raw pointers / wrapper instances, so the
+    // helper is idempotent across the wrapper layer's call paths.
+    //
+    // The conversion needs the one export that builds the string class
+    // from a raw byte buffer — `(*const u8, usize) -> <string class>`.
+    // Four exports share that signature (UTF-8, lossy UTF-8, UTF-16 LE
+    // and UTF-16 BE) and nothing structural separates them, so the
+    // preferred one is named and the shape match is the fallback.
+    let string_class = string_struct_name(ir);
+    let byte_buffer_ctors: Vec<_> = ir
         .functions
         .iter()
-        .find(|f| {
-            ir.find_struct(&f.class_name)
-                .map(|s| s.category == TypeCategory::String)
-                .unwrap_or(false)
-                && f.method_name == "from_utf8"
+        .filter(|f| {
+            Some(f.class_name.as_str()) == string_class
+                && f.return_type.as_deref().map(str::trim) == string_class
+                && f.args.len() == 2
+                && matches!(f.args[0].ref_kind, ArgRefKind::Ptr)
+                && f.args[0].type_name.trim() == "u8"
+                && f.args[1].type_name.trim() == "usize"
         })
-        .map(|f| ruby_attach_name(&f.c_name))
-        .unwrap_or_else(|| ruby_attach_name(&format!("{}_fromUtf8", config.apply_prefix("String"))));
+        .collect();
+    let string_from_utf8 = byte_buffer_ctors
+        .iter()
+        // The four byte-buffer constructors are structurally identical.
+        // allow-api-name: only this api.json name says which decodes plain UTF-8
+        .find(|f| f.method_name == "from_utf8")
+        .or_else(|| byte_buffer_ctors.first())
+        .map(|f| ruby_attach_name(&f.c_name));
     builder.line("# Auto-AzString-conversion helper.");
     builder.line("# Wrapper methods route every Owned `String` arg through this so");
     builder
@@ -202,10 +232,21 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.indent();
     builder.line("return val if val.is_a?(FFI::Struct) || val.is_a?(FFI::Pointer)");
     builder.line("return val.ptr if val.respond_to?(:ptr)");
-    builder.line("bytes = val.to_s.encode(Encoding::UTF_8).bytes");
-    builder.line("buf = FFI::MemoryPointer.new(:uint8, bytes.size)");
-    builder.line("buf.write_array_of_uint8(bytes) if bytes.size > 0");
-    builder.line(&format!("Native.{}(buf, bytes.size)", string_from_utf8));
+    match string_from_utf8 {
+        Some(from_utf8) => {
+            builder.line("bytes = val.to_s.encode(Encoding::UTF_8).bytes");
+            builder.line("buf = FFI::MemoryPointer.new(:uint8, bytes.size)");
+            builder.line("buf.write_array_of_uint8(bytes) if bytes.size > 0");
+            builder.line(&format!("Native.{}(buf, bytes.size)", from_utf8));
+        }
+        None => {
+            // No string class in the IR, or no byte-buffer constructor for
+            // it: there is nothing to convert to, so hand the value back
+            // rather than call a symbol libazul does not export.
+            builder.line("# The IR exports no byte-buffer string constructor.");
+            builder.line("val");
+        }
+    }
     builder.dedent();
     builder.line("end");
     builder.blank();

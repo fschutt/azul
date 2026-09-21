@@ -7,9 +7,11 @@
 //!   AzFooPayload; end` `class AzFooPayload < FFI::Union; layout :variant1, ...; end`
 //! - callback typedefs      → `callback :az_foo_cb, [:pointer, :int], :pointer`
 //!
-//! Filtering: skips types with `TypeCategory` Recursive / VecRef / GenericTemplate /
-//! DestructorOrClone / CallbackTypedef-as-struct. Skipped types receive a
-//! `# SKIPPED: <reason>` comment line in the output.
+//! Filtering: skips types with `TypeCategory` Recursive / GenericTemplate.
+//! A generic template (`CssPropertyValue<T>`) has no C ABI of its own, so
+//! the output records which concrete instantiations stand in for it rather
+//! than claiming a gap; anything else that is skipped is a real gap and
+//! keeps its `# SKIPPED: <reason>` marker.
 
 use super::super::{
     config::CodegenConfig,
@@ -152,7 +154,10 @@ pub fn emit_struct_layouts(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     sorted.sort_by_key(|s| s.sort_order);
     for s in sorted {
         if !should_emit_struct(s, config) {
-            emit_skip_marker(builder, &s.name, &skip_reason_struct(s));
+            match generic_template_note(&s.name, &s.generic_params, ir, config) {
+                Some(note) => note.iter().for_each(|l| builder.line(l)),
+                None => emit_skip_marker(builder, &s.name, &skip_reason_struct(s)),
+            }
             continue;
         }
         emit_struct_layout(builder, s, config, ir);
@@ -195,14 +200,20 @@ pub fn emit_typedefs_in_sort_order(
         match item {
             Item::Struct(s) => {
                 if !should_emit_struct(s, config) {
-                    emit_skip_marker(builder, &s.name, &skip_reason_struct(s));
+                    match generic_template_note(&s.name, &s.generic_params, ir, config) {
+                        Some(note) => note.iter().for_each(|l| builder.line(l)),
+                        None => emit_skip_marker(builder, &s.name, &skip_reason_struct(s)),
+                    }
                     continue;
                 }
                 emit_struct_layout(builder, s, config, ir);
             }
             Item::Union(e) => {
                 if !should_emit_enum(e, config) {
-                    emit_skip_marker(builder, &e.name, &skip_reason_enum(e));
+                    match generic_template_note(&e.name, &e.generic_params, ir, config) {
+                        Some(note) => note.iter().for_each(|l| builder.line(l)),
+                        None => emit_skip_marker(builder, &e.name, &skip_reason_enum(e)),
+                    }
                     continue;
                 }
                 emit_tagged_union(builder, e, config, ir);
@@ -343,7 +354,10 @@ pub fn emit_tagged_unions(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Co
     builder.line("# --- Tagged unions --------------------------------------------");
     for e in &ir.enums {
         if !should_emit_enum(e, config) {
-            emit_skip_marker(builder, &e.name, &skip_reason_enum(e));
+            match generic_template_note(&e.name, &e.generic_params, ir, config) {
+                Some(note) => note.iter().for_each(|l| builder.line(l)),
+                None => emit_skip_marker(builder, &e.name, &skip_reason_enum(e)),
+            }
             continue;
         }
         if !e.is_union {
@@ -390,17 +404,71 @@ pub(crate) fn should_emit_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
-fn skip_reason_struct(s: &StructDef) -> String {
-    if !s.generic_params.is_empty() {
-        return format!("generic struct {}<{}>", s.name, s.generic_params.join(", "));
+/// A generic template (`PhysicalSize<T>`, `CssPropertyValue<T>`) has no C
+/// ABI of its own — `azul.h` declares no `AzPhysicalSize`, only the
+/// instantiations `#[repr(C)]` produced from it. Nothing is being given up
+/// when we emit no layout for the template, so the output says which
+/// concrete types stand in for it instead of claiming a gap.
+///
+/// Returns `None` for a type that is not a generic template; that one IS a
+/// gap and keeps its marker.
+fn generic_template_note(
+    name: &str,
+    generic_params: &[String],
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<Vec<String>> {
+    if generic_params.is_empty() {
+        return None;
     }
+    let head = format!("{}<{}>", name, generic_params.join(", "));
+    // Every alias that monomorphizes this template. `ir.type_aliases`
+    // carries the substituted definition; `emit_monomorphized_alias`
+    // emitted it under the alias's own name.
+    let instantiations: Vec<String> = ir
+        .type_aliases
+        .iter()
+        .filter(|ta| ta.target == name && ta.monomorphized_def.is_some())
+        .map(|ta| config.apply_prefix(&ta.name))
+        .collect();
+    if instantiations.is_empty() {
+        return Some(vec![format!(
+            "# {} is a generic template with no C ABI of its own, and api.json instantiates it \
+             nowhere.",
+            head
+        )]);
+    }
+    let mut out = vec![format!(
+        "# {} is a generic template: no C ABI of its own. Its {} instantiation(s) are emitted",
+        head,
+        instantiations.len()
+    )];
+    // `CssPropertyValue<T>` has 180 of them; wrap the list instead of
+    // writing one unreadable kilometre-long comment.
+    out.push("# as concrete layouts:".to_string());
+    let mut line = String::from("#  ");
+    for inst in &instantiations {
+        if line.len() + inst.len() + 2 > 96 {
+            out.push(std::mem::replace(&mut line, String::from("#  ")));
+        }
+        line.push(' ');
+        line.push_str(inst);
+        line.push(',');
+    }
+    // Drop the trailing comma of the last line and close the sentence.
+    if line.ends_with(',') {
+        line.pop();
+        line.push('.');
+    }
+    out.push(line);
+    Some(out)
+}
+
+fn skip_reason_struct(s: &StructDef) -> String {
     format!("category={}", s.category.description())
 }
 
 fn skip_reason_enum(e: &EnumDef) -> String {
-    if !e.generic_params.is_empty() {
-        return format!("generic enum {}<{}>", e.name, e.generic_params.join(", "));
-    }
     format!("category={}", e.category.description())
 }
 
