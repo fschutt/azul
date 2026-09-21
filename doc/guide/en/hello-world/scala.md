@@ -33,8 +33,15 @@ examples. The example compiles with Scala 3 and Scala 2.13 and runs on JDK 17+.
 
 ## Installation
 
-Azul is tested against JDK 17+ and JNA 5.14+. Azul is not (yet) on Maven Central, but azul.rs 
-hosts a maven2 repository, serving the `rs.azul:azul` artifact. 
+Azul is tested against JDK 17+ and JNA 5.14+. Azul is not (yet) on Maven Central, 
+but azul.rs hosts a maven2 repository, serving the `rs.azul:azul` artifact. 
+
+If you haven't already, install the Scala Build Tool. You can use 
+[SDKMAN!](https://sdkman.io/) (`sdk install sbt`), Homebrew (`brew install sbt`), 
+or follow the [official instructions](https://www.scala-sbt.org/download.html).
+
+Then, for a quick start, download the pre-configured `build.sbt` and `HelloWorld.scala`
+and run `sbt assembly`, where `sbt` handles mixed Java / Scala builds transparently: 
 
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/build.sbt
@@ -44,9 +51,8 @@ sbt assembly
 java -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
 ```
 
-The Java artifact (`rs.azul:azul`) bundles the compiled `com.azul` binding 
-and `libazul` for Linux x86-64, macOS arm64 and Windows x64 as JNA resources.
-To use it, add the following to your `build.sbt`:
+The preconfigured `build.sbt` contains the following lines that are 
+necessary to add the `azul` dependency to your project (shown here for copy-pasting):
 
 ```scala
 resolvers += "azul-rs" at "https://azul.rs/ui/maven"
@@ -54,20 +60,20 @@ resolvers += "azul-rs" at "https://azul.rs/ui/maven"
 libraryDependencies += "rs.azul" % "azul" % "$VERSION"
 ```
 
-Alternatively, you can compile the Java bindings from source instead of using the pre-built `.jar`:
+### Manual Installation
 
-1. **Install `sbt`**: If you haven't already, install the Scala Build Tool. You can use [SDKMAN!](https://sdkman.io/) (`sdk install sbt`), Homebrew (`brew install sbt`), or follow the [official instructions](https://www.scala-sbt.org/download.html).
-2. **Download the native library**: Grab the compiled native engine (`libazul.dylib` / `libazul.so` / `azul.dll`) from the [release page](https://azul.rs/ui/release/$VERSION) and place it in your working directory (or pass `-Djna.library.path=.` when running). This is the pre-compiled C++ GUI engine that the bindings talk to via JNA.
-3. **Download and build the bindings**: Download the `azul-scala-$VERSION.tar.gz` bundle. This bundle contains `HelloWorld.scala`, the uncompiled `.java` binding files, and a pre-configured `build.sbt`.
+For a manual install, you can build the Java bindings from source instead of using the pre-built `.jar`:
 
-   `sbt` natively handles mixed Scala/Java projects. It will automatically compile the Java binding sources alongside your Scala code into JVM `.class` files (under `target/scala-X/classes/`), and package them into an executable jar:
+1. Download the native engine (`libazul.dylib` / `libazul.so` / `azul.dll`) from the [release page](https://azul.rs/ui/release/$VERSION) and place it in your working directory (or specify its location with `-Djna.library.path=<path>`).
+2. Download the `azul-scala-$VERSION.tar.gz` bundle from the same release page. This archive contains `HelloWorld.scala`, a pre-configured `build.sbt`, and all the raw `.java` binding files.
+3. Extract the bundle and compile. Because `sbt` natively handles mixed Scala/Java projects, running `sbt assembly` will automatically compile the Java bindings alongside your Scala code into JVM `.class` files (under `target/scala-2.13/classes/`), and package them into an executable jar:
 
-   ```sh
-   curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
-   tar xzf azul-scala-$VERSION.tar.gz
-   sbt assembly
-   java -Djna.library.path=. -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
-   ```
+```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
+tar xzf azul-scala-$VERSION.tar.gz
+sbt assembly
+java -Djna.library.path=. -jar target/scala-2.13/hello-world-assembly-1.0.0.jar
+```
 
 ### Building from source
 
