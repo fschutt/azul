@@ -756,7 +756,7 @@ graph TD
     class F,R data
 ```
 
-This is, however, an exception for performance reasons, not the usual case. The `ProgressBar` then triggers a `info.rerender_virtual_view(node_id)`, which queues its "bar" for being recreated - similar to fine-grained reactivity, the framework now knows that only this section of the `Dom` was updated without doing a full diff over the entire `Dom`. To sum it up:
+This is, however, an exception for performance reasons, not the usual case. The `ProgressBar` then triggers a `info.trigger_virtual_view_rerender(node_id)`, which queues its "bar" for being recreated - similar to fine-grained reactivity, the framework now knows that only this section of the `Dom` was updated without doing a full diff over the entire `Dom`. To sum it up:
 
 - Real "application state" belongs in the data model and updates via `layout()` and `RefreshDom`
 - Simple UI presentation values (live meters, previews, scrub positions) belong on the fast path

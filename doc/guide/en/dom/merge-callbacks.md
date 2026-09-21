@@ -79,7 +79,7 @@ The callback runs during reconciliation. The conditions are strict.
 
 If any of those fails, nothing happens. The new dataset stays as `layout()` built it. The old one drops normally.
 
-The matching rules belong to the diff. `with_key(...)` is what makes a node survive a reorder. Without a key, the diff falls back to structural hashing, which only works if the order is fixed. See [Reconciliation](reconciliation.md) for how that works.
+The matching rules belong to the diff. A node survives a reorder when it carries a stable identity - set an `AttributeType::Id` on it, e.g. with `with_id(...)`. Without one the diff matches structurally, by logical position, which only holds while the sibling order does. See [Reconciliation](reconciliation.md) for how that works.
 
 ## Worked example: a video encoder
 

@@ -126,10 +126,26 @@ let row = match me.downcast_ref::<TableRow>() {
 };
 ```
 
-`get_node_id_of_root_dataset(search_key)` walks up from the hit node
-to find the nearest ancestor whose dataset matches `search_key`.
-Useful for "click anywhere on this card" patterns where the card
-root holds the dataset and the actual click landed on a label inside.
+To reach a *specific* node rather than the one that fired, stamp it
+with a marker during `layout()` and resolve that marker in the
+callback:
+
+```rust,ignore
+// layout(): mint an address and keep the same string in your state.
+let marker = Uuid::short();
+let bar = ProgressBar::create(0.0).dom().with_marker(Some(marker.clone()).into());
+
+// callback: resolve it back to a node id.
+if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+    // ...
+}
+```
+
+A marker is like an HTML `id` except that it is invisible to CSS and
+does not affect node equality, so minting a fresh one on every
+`layout()` costs no `Mount` / `Unmount` churn. `get_node_id_by_id_attribute`
+does the same for a node carrying a real `id`. See
+[Architecture](../architecture.md) for the full pattern.
 
 ## Reading input state
 

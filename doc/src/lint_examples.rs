@@ -120,6 +120,23 @@ static RE_PATH: LazyLock<Regex> =
 static RE_METHOD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.([a-z_][a-z0-9_]*)\s*\(").unwrap());
 
+// `` `member(` `` in PROSE, guide only — a backticked call with no receiver.
+//
+// `RE_METHOD` needs a leading dot, so it never sees the shape a guide uses
+// most in running text: "`get_node_id_of_root_dataset(search_key)` walks up
+// from the hit node". That sentence named a method the bindings have never
+// exported (the real ones are `get_node_id_by_id_attribute` and
+// `get_node_id_by_marker`) and no gate noticed, because prose is not code
+// and the linter only read calls.
+//
+// Inside a backtick span a snake_case name followed by `(` is an API
+// reference in practice, so the same allowlists RE_METHOD uses apply and
+// nothing else needs adding. The name must carry an underscore: it is what
+// separates `get_route_param(` from prose like `layout(` or `main(`, and an
+// azul method of one word is already covered by the receiver rules.
+static RE_BACKTICK_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\s*\(").unwrap());
+
 /// Backticked file names read as calls: `main.rs(` never appears, but
 /// `` `main.rs` `` in prose does, and the regex cannot tell. Extensions are a
 /// closed set, so listing them is exact.
@@ -137,6 +154,11 @@ const APP_SIDE: &[&str] = &[
     "already_rendered_area_covers",
     "render_more_rows",
     "fetch_rows",
+    // Rust-crate functions with no FFI entry, named in prose by a guide that
+    // is ABOUT the Rust crate. `telemetry::enable_probe_bridge` is `pub` in
+    // layout/src/telemetry/mod.rs; the observability guide is written for a
+    // Rust host, so naming it is correct even though no binding exports it.
+    "enable_probe_bridge",
 ];
 
 /// Methods a guide sample calls on something that is NOT an azul type: std,
@@ -484,6 +506,17 @@ fn check_line(
     }
 
     if guide {
+        for c in RE_BACKTICK_CALL.captures_iter(line) {
+            let member = &c[1];
+            if APP_SIDE.contains(&member)
+                || NOT_OURS.contains(&member)
+                || s.exports_member(member)
+            {
+                continue;
+            }
+            flag(member, c.get(0).unwrap().as_str().trim_start_matches('`'), out);
+        }
+
         for c in RE_METHOD.captures_iter(line) {
             let member = &c[1];
             // Under three characters the surface cannot answer at all - it
