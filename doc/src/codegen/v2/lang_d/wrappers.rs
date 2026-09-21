@@ -4,6 +4,14 @@
 //! the IR shape allows. See `model.rs` for the type mapping and `runtime.rs` for
 //! the handle boxes.
 //!
+//! A type that is native at the boundary still gets its struct: `Nullable!T`
+//! and `T[]` are what MEMBERS take and return, while `OptionDom` / `DomVec`
+//! remain the C types, with the variant constructors, `len`, `get`, the
+//! derives and the `_delete` that only a declaration can reach. The one
+//! exception is the Rust string, which D already has: `alias String = string`,
+//! its API functions become free functions (`stringFromUtf16Be`), and D's own
+//! `==`, `<`, hashing, copy and `to!string` are its derives.
+//!
 //! # Ownership, in one paragraph
 //!
 //! A handle owns its value (the last copy runs `_delete`) or is a view into a
@@ -47,8 +55,6 @@ use super::{
 /// Suffix of a skipped function whose D name and parameter types another
 /// member already has.
 pub const TAKEN: &str = "(same name and parameter types as another member)";
-/// Suffix of a function of a natively mapped type.
-pub const NATIVE: &str = "(native D type)";
 
 // ============================================================================
 // Text accumulation
@@ -149,6 +155,10 @@ fn exact(t: &Ty) -> Option<String> {
         Ty::Prim(p) => p.d().to_string(),
         Ty::RawPtr(p) => p.clone(),
         Ty::Str => "string".to_string(),
+        // `Ty::RefAny` is a shape, not a name, so the D struct that carries it
+        // has to be spelled once. This is that place; everything else asks
+        // `exact` (or `Model::class_of_category`) for it.
+        // allow-api-name: the D spelling of the IR's RefAny category
         Ty::RefAny => "RefAny".to_string(),
         Ty::Enum(n) | Ty::Plain(n) | Ty::Class(n) => d_type_name(n),
         Ty::Option { payload, .. } => format!("Nullable!({})", exact(payload)?),
@@ -265,8 +275,10 @@ impl<'a> Model<'a> {
     /// Frees a fresh C value (behind pointer `p`).
     pub(super) fn cleanup(&self, t: &Ty, p: &str) -> Option<String> {
         let name = match t {
-            Ty::Str => "String",
-            Ty::RefAny => "RefAny",
+            // `Ty::Str` and `Ty::RefAny` come from the IR's categories, so the
+            // class that owns their `_delete` comes from there too.
+            Ty::Str => self.class_of_category(TypeCategory::String)?,
+            Ty::RefAny => self.class_of_category(TypeCategory::RefAny)?,
             Ty::Option { name, .. } | Ty::Vec { name, .. } => name.as_str(),
             Ty::Class(n) if !self.is_copy(n) => n.as_str(),
             _ => return None,
@@ -369,6 +381,8 @@ struct Emitter<'m, 'a> {
     m: &'m Model<'a>,
     native_names: BTreeMap<String, String>,
     trampolines: BTreeSet<String>,
+    /// Indices into `ir.constants` a declaration already carries.
+    emitted_constants: BTreeSet<usize>,
     skipped: Vec<String>,
     stats: Stats,
     check: W,
@@ -385,6 +399,7 @@ pub fn generate(m: &Model) -> Output {
         m,
         native_names,
         trampolines: BTreeSet::new(),
+        emitted_constants: BTreeSet::new(),
         skipped: Vec::new(),
         stats: Stats::default(),
         check: W::default(),
@@ -408,15 +423,21 @@ pub fn generate(m: &Model) -> Output {
     for c in m.classes.values() {
         e.count(c);
         let w = modules.entry(module_key(&c.module)).or_default();
-        let owned = m.owned(&c.name);
-        if m.is_native(&c.name) || matches!(owned, Ty::Result { .. }) {
-            e.emit_native(w, c);
-            if m.is_native(&c.name) {
-                continue;
-            }
+        // The conversions of a natively mapped type, and then - for every
+        // type but the string - the type's own struct. A container crosses a
+        // member boundary as `Nullable!T` / `T[]`, but the C type still has an
+        // API of its own (variant constructors, `len`, `get`, the derives, its
+        // `_delete`) that only a declaration can reach. `String` is the one
+        // type D already HAS: `string` is it, down to the derives, so instead
+        // of a second `String` type its API functions become free functions.
+        e.emit_native(w, c);
+        if matches!(m.owned(&c.name), Ty::Str) {
+            e.emit_native_members(w, c);
+        } else {
+            e.emit_struct(w, c);
         }
-        e.emit_struct(w, c);
     }
+    e.emit_orphan_constants(&mut modules);
     let mut tramp = W::default();
     e.emit_trampolines(&mut tramp);
     Output {
@@ -442,6 +463,10 @@ enum Recv {
     Handle,
     Plain,
     Enum,
+    /// The class has no declaration of its own because a native D type is it
+    /// (`string`): its members are free functions at module scope, and the
+    /// receiver is an ordinary parameter converted into a C value.
+    Native,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -454,6 +479,8 @@ enum MethodKind {
     FreeUfcs,
     /// A fieldless enum's static method: `Ret name(E0 : Enum)(...)`.
     FreeStatic,
+    /// A module-scope free function with no receiver: `Ret name(...)`.
+    Free,
 }
 
 struct Plan {
@@ -528,7 +555,10 @@ impl Plan {
                 params.join(", "),
                 constraint
             ),
-            MethodKind::Instance | MethodKind::FreeUfcs | MethodKind::FreeStatic => format!(
+            MethodKind::Instance
+            | MethodKind::FreeUfcs
+            | MethodKind::FreeStatic
+            | MethodKind::Free => format!(
                 "{} {}{}({}){}",
                 self.ret_type,
                 self.name,
@@ -561,6 +591,7 @@ impl Plan {
             MethodKind::FreeStatic => {
                 format!("{}!({})({})", self.name, self.owner, args.join(", "))
             }
+            MethodKind::Free => format!("{}({})", self.name, args.join(", ")),
         };
         out.push(format!("{};", call));
         out
@@ -630,7 +661,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 self.stats.vecs_native += 1;
             }
         }
-        if is_union && !m.is_native(&c.name) {
+        // Every tagged union gets a struct with a `Tag`, a natively mapped
+        // `Option` included: the native shape is what members take, not all
+        // the type is.
+        if is_union {
             self.stats.unions += 1;
         }
     }
@@ -655,19 +689,25 @@ impl<'m, 'a> Emitter<'m, 'a> {
     }
 
     // ------------------------------------------------------------------------
-    // Native types: no declaration, only conversions.
+    // Native types: the conversions that carry them across a boundary.
     // ------------------------------------------------------------------------
 
     fn emit_native(&mut self, w: &mut W, c: &ClassInfo) {
-        let m = self.m;
-        match m.owned(&c.name) {
+        match self.m.owned(&c.name) {
             Ty::Str => {
                 w.l(
                     0,
                     "/// Rust `String` is D `string` at every boundary; `string` has its own",
                 );
-                w.l(0, "/// `==`, `<`, hashing, copies and `.init`.");
-                w.l(0, &format!("alias {} = string;", c.name));
+                w.l(
+                    0,
+                    "/// `==`, `<`, hashing, copies, `.init` and `to!string`, so those derives",
+                );
+                w.l(
+                    0,
+                    "/// need no member. Its constructors are the free functions below.",
+                );
+                w.l(0, &format!("alias {} = string;", d_type_name(&c.name)));
                 w.l(0, "");
             }
             t @ Ty::Option { .. } => self.emit_option_conv(w, c, &t),
@@ -675,19 +715,89 @@ impl<'m, 'a> Emitter<'m, 'a> {
             t @ Ty::Result { .. } => self.emit_result_conv(w, c, &t),
             _ => {}
         }
-        if matches!(m.owned(&c.name), Ty::Result { .. }) {
+    }
+
+    /// The members of a class a native D type IS, and which therefore has no
+    /// struct to hang them on: free functions at module scope, named
+    /// `<class><Method>` (`stringFromUtf16Be(ptr, len)`), so nothing shadows a
+    /// builtin and the native type stays what every signature spells.
+    ///
+    /// Only the API functions. A derive is NOT re-exported: `string` has its
+    /// own `==`, `<`, hashing, copy, `.init` and `to!string`, and a second
+    /// answer to any of those would allocate a C value to return a subtly
+    /// different result (Rust's hash of a string is not D's).
+    fn emit_native_members(&mut self, w: &mut W, c: &ClassInfo) {
+        let Some(subject) = exact(&self.m.owned(&c.name)) else {
             return;
-        }
-        for f in m.functions_of(&c.name) {
-            if matches!(
-                f.kind,
-                FunctionKind::Constructor
-                    | FunctionKind::StaticMethod
-                    | FunctionKind::Method
-                    | FunctionKind::MethodMut
-            ) {
-                self.skipped.push(format!("{} {}", f.c_name, NATIVE));
+        };
+        let mut taken = Taken::default();
+        let checks = self.emit_methods(w, &c.name, Recv::Native, &mut taken);
+        self.check_block(&c.name, &subject, checks);
+    }
+
+    // ------------------------------------------------------------------------
+    // Constants
+    // ------------------------------------------------------------------------
+
+    /// `enum uint ACCUM_ALPHA_BITS = 0x0D5B;` for every api.json constant of
+    /// `class`: a D manifest constant, read as `GlContextPtr.ACCUM_ALPHA_BITS`.
+    /// api.json names a constant `<Class>_<NAME>`, and a class name never
+    /// holds a `_`, so the first one splits the two.
+    fn emit_constants(&mut self, w: &mut W, class: &str, taken: &mut Taken) {
+        let m = self.m;
+        let mut any = false;
+        for k in self.constants_of(class) {
+            let c = &m.ir.constants[k];
+            let name = sanitize_identifier(&c.member_name());
+            let Some(ty) = Prim::from_rust(m.unalias(&c.type_name)) else {
+                continue;
+            };
+            if !taken.is_free(&name, "") {
+                continue;
             }
+            taken.take(&name, "");
+            self.emitted_constants.insert(k);
+            w.doc(1, &self.rw(&c.doc));
+            w.l(
+                1,
+                &format!("enum {} {} = {};", ty.d(), name, c.value.trim()),
+            );
+            any = true;
+        }
+        if any {
+            w.l(0, "");
+        }
+    }
+
+    /// The indices into `ir.constants` that belong to `class`.
+    fn constants_of(&self, class: &str) -> Vec<usize> {
+        self.m
+            .ir
+            .constants
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.name.split_once('_').is_some_and(|(k, _)| k == class))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Constants whose class got no declaration (an excluded type): they keep
+    /// their api.json spelling at module scope, so no constant is ever lost.
+    fn emit_orphan_constants(&mut self, modules: &mut BTreeMap<String, W>) {
+        let m = self.m;
+        for (i, c) in m.ir.constants.iter().enumerate() {
+            if self.emitted_constants.contains(&i) {
+                continue;
+            }
+            let Some(ty) = Prim::from_rust(m.unalias(&c.type_name)) else {
+                continue;
+            };
+            let w = modules.entry(module_key(&c.module)).or_default();
+            w.l(
+                0,
+                &format!("enum {} {} = {};", ty.d(), c.name, c.value.trim()),
+            );
+            w.l(0, "");
         }
     }
 
@@ -755,6 +865,23 @@ impl<'m, 'a> Emitter<'m, 'a> {
         };
         let mut checks: Vec<Vec<String>> = Vec::new();
         w.doc(0, &self.rw(&c.doc));
+        if let Some(native) = self.native_names.get(name) {
+            if !c.doc.is_empty() {
+                w.l(0, "///");
+            }
+            w.l(
+                0,
+                &format!(
+                    "/// Members take and return this type as `{}`; the declaration below is",
+                    native
+                ),
+            );
+            w.l(
+                0,
+                "/// the C type itself, for the constructors, accessors and derives it has of",
+            );
+            w.l(0, "/// its own.");
+        }
         w.l(0, &format!("struct {}", dname));
         w.l(0, "{");
         if let Shape::Union { variants, tag } = &c.shape {
@@ -783,6 +910,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
             _ => self.emit_plain_plumbing(w, c),
         }
         let mut taken = Taken::default();
+        self.emit_constants(w, name, &mut taken);
         if c.category == TypeCategory::RefAny && recv == Recv::Handle {
             w.l(
                 1,
@@ -1031,11 +1159,21 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     })
                     .collect();
                 let sig = sig_of(&params);
+                // The exported constructor of this variant, when the API has
+                // one: either the one the IR synthesised or the api.json
+                // function that took its name (whose prose belongs on the
+                // member, since it is the one being called).
+                let ctor_fn = m.variant_fn(&c.name, v);
                 if taken.is_free(case, &sig) {
                     taken.take(case, &sig);
                     w.l(1, &format!("/// A `{}` holding `{}`.", dname, v.name));
-                    if let Some(d) = &v.doc {
-                        w.doc(1, &self.rw(std::slice::from_ref(d)));
+                    let variant_doc: Vec<String> = v.doc.clone().into_iter().collect();
+                    w.doc(1, &self.rw(&variant_doc));
+                    // An api.json function that took the variant's name brings
+                    // prose of its own; the synthesised constructor only
+                    // carries the variant's, which is already above.
+                    if let Some(f) = ctor_fn.filter(|f| f.doc != variant_doc) {
+                        w.doc(1, &self.rw(&f.doc));
                     }
                     w.l(
                         1,
@@ -1051,20 +1189,41 @@ impl<'m, 'a> Emitter<'m, 'a> {
                         ),
                     );
                     w.l(1, "{");
-                    w.l(2, &format!("{} __v;", raw));
-                    w.l(2, &format!("__v.{}.tag = {};", v.member, v.index));
-                    for ((f, (t, _)), p) in v.fields.iter().zip(&tys).zip(&params) {
-                        w.l(
-                            2,
-                            &format!(
-                                "__v.{}.{} = {};",
-                                v.member,
-                                f.c_name,
-                                m.in_expr(t, &p.name).unwrap()
-                            ),
-                        );
+                    // libazul exports a constructor per variant: call it, so
+                    // the value is built by the same code Rust builds it with
+                    // (a `#[repr(C, u8)]` payload the emitter would otherwise
+                    // have to lay out by hand, and any work the Rust
+                    // constructor does around it). Only a variant the API
+                    // exports no constructor for is assembled here.
+                    match ctor_fn {
+                        Some(f) => {
+                            let args: Vec<String> = tys
+                                .iter()
+                                .zip(&params)
+                                .map(|((t, _), p)| m.in_expr(t, &p.name).unwrap())
+                                .collect();
+                            w.l(
+                                2,
+                                &format!("return _own({}({}));", f.c_name, args.join(", ")),
+                            );
+                        }
+                        None => {
+                            w.l(2, &format!("{} __v;", raw));
+                            w.l(2, &format!("__v.{}.tag = {};", v.member, v.index));
+                            for ((f, (t, _)), p) in v.fields.iter().zip(&tys).zip(&params) {
+                                w.l(
+                                    2,
+                                    &format!(
+                                        "__v.{}.{} = {};",
+                                        v.member,
+                                        f.c_name,
+                                        m.in_expr(t, &p.name).unwrap()
+                                    ),
+                                );
+                            }
+                            w.l(2, "return _own(__v);");
+                        }
                     }
-                    w.l(2, "return _own(__v);");
                     w.l(1, "}");
                     w.l(0, "");
                     self.stats.members += 1;
@@ -1154,11 +1313,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 "",
                 format!("{}._viewOf(&{}, _rc)", d_type_name(n), access),
             )),
-            Ty::RefAny if recv == Recv::Handle => Some((
-                "RefAny".to_string(),
-                "",
-                format!("RefAny._viewOf(&{}, _rc)", access),
-            )),
+            Ty::RefAny if recv == Recv::Handle => {
+                let n = exact(&t)?;
+                Some((n.clone(), "", format!("{}._viewOf(&{}, _rc)", n, access)))
+            }
             Ty::Prim(p) => Some((p.d().to_string(), " const nothrow", access.clone())),
             Ty::RawPtr(r) => Some((r.clone(), " nothrow", access.clone())),
             Ty::Callback(n) => Some((format!("Az{}", n), " nothrow", access.clone())),
@@ -1542,7 +1700,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
         for t in &p.trampolines {
             self.trampolines.insert(t.clone());
         }
-        let depth = if recv == Recv::Enum { 0 } else { 1 };
+        // A struct's members are indented into it; an enum's and a native
+        // type's are free functions at module scope.
+        let depth = usize::from(!matches!(recv, Recv::Enum | Recv::Native));
         w.doc(depth, &self.rw(&p.doc));
         w.l(depth, &p.header());
         w.l(depth, "{");
@@ -1564,6 +1724,13 @@ impl<'m, 'a> Emitter<'m, 'a> {
         let args: Vec<&FunctionArg> = f.args.iter().skip(usize::from(inst)).collect();
         let dname = d_type_name(class);
         let raw = format!("Az{}", class);
+        // A member of a struct is named after its method alone; a free
+        // function at module scope has no type to namespace it, so the class
+        // goes into the name (`String::from_utf16_be` -> `stringFromUtf16Be`).
+        let member = |raw_name: &str| match recv {
+            Recv::Native => member_name(&format!("{}_{}", class, raw_name)),
+            _ => member_name(raw_name),
+        };
 
         // ---- callbacks ---------------------------------------------------------
         let cb_args: Vec<(usize, CallbackArg)> = args
@@ -1598,8 +1765,12 @@ impl<'m, 'a> Emitter<'m, 'a> {
             carry_in_data: Option<usize>,
             ctx_usable: bool,
         }
-        let option_refany = matches!(m.owned("OptionRefAny"), Ty::Option { .. })
-            && m.fun("OptionRefAny", "delete").is_some();
+        // The context slot of a callback wrapper: the API's `Option<RefAny>`,
+        // which the plumbing has to build and to free.
+        let ctx_option = m
+            .option_of_refany()
+            .filter(|n| m.fun(n, "delete").is_some());
+        let option_refany = ctx_option.is_some();
         let mut cplans: Vec<CbPlan> = Vec::new();
         let mut generic = false;
         for (i, cb) in &cb_args {
@@ -1733,16 +1904,18 @@ impl<'m, 'a> Emitter<'m, 'a> {
                             ));
                             if plan.ctx_usable {
                                 body.push(format!(
-                                    "{}.{} = _wrap_OptionRefAny(_azulRefAny(null, __fn{}));",
+                                    "{}.{} = _wrap_{}(_azulRefAny(null, __fn{}));",
                                     local,
                                     super::raw_identifier(ctx_field),
+                                    ctx_option?,
                                     i
                                 ));
                             } else {
                                 body.push(format!(
-                                    "{}.{} = _none_OptionRefAny();",
+                                    "{}.{} = _none_{}();",
                                     local,
-                                    super::raw_identifier(ctx_field)
+                                    super::raw_identifier(ctx_field),
+                                    ctx_option?
                                 ));
                             }
                             call_args.push(local.clone());
@@ -1770,9 +1943,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
                                 pname
                             ));
                             body.push(format!(
-                                "{}.{} = _none_OptionRefAny();",
+                                "{}.{} = _none_{}();",
                                 local,
-                                super::raw_identifier(ctx_field)
+                                super::raw_identifier(ctx_field),
+                                ctx_option?
                             ));
                             call_args.push(local.clone());
                         }
@@ -1947,6 +2121,28 @@ impl<'m, 'a> Emitter<'m, 'a> {
                         "&__self".to_string()
                     }
                 }
+                Recv::Native => {
+                    // The receiver is an ordinary parameter of the native
+                    // type, and the C value built from it belongs to this
+                    // call. A `&mut self` would have to write the result back
+                    // into that parameter, which a native value cannot carry,
+                    // so there is no member for one.
+                    if is_mut {
+                        return None;
+                    }
+                    let nat = m.owned(class);
+                    self_param = Some(format!("{} self", restriction(&nat)?));
+                    let built = m.in_expr(&nat, "self")?;
+                    if own {
+                        built
+                    } else {
+                        body.push(format!("{} __self = {};", raw, built));
+                        if let Some(free) = m.cleanup(&nat, "&__self") {
+                            body.push(format!("scope (exit) {}", free));
+                        }
+                        "&__self".to_string()
+                    }
+                }
             };
             call_args.insert(0, s);
         }
@@ -1955,21 +2151,21 @@ impl<'m, 'a> Emitter<'m, 'a> {
         let symbol = self.symbol(f, &cb_args);
         let call = format!("{}({})", symbol, call_args.join(", "));
         let throws = matches!(ret, Ty::Result { .. });
-        let mut kind = if inst {
-            if recv == Recv::Enum {
-                MethodKind::FreeUfcs
-            } else {
-                MethodKind::Instance
-            }
-        } else if recv == Recv::Enum {
-            MethodKind::FreeStatic
-        } else {
-            MethodKind::Static
+        let mut kind = match (inst, recv) {
+            (true, Recv::Enum | Recv::Native) => MethodKind::FreeUfcs,
+            (true, _) => MethodKind::Instance,
+            // A free static over an enum is a template, so the call names the
+            // enum (`create!(ButtonType)()`) and two enums never collide. The
+            // native type's name is already in the member's own name.
+            (false, Recv::Enum) => MethodKind::FreeStatic,
+            (false, Recv::Native) => MethodKind::Free,
+            (false, _) => MethodKind::Static,
         };
-        let raw_name = member_name(&f.method_name);
+        let raw_name = member(&f.method_name);
         let mut name = raw_name.clone();
         let is_create = !inst && f.method_name == "create";
-        let ctor = recv != Recv::Enum && is_create && returns_self && !throws;
+        let ctor =
+            matches!(recv, Recv::Handle | Recv::Plain) && is_create && returns_self && !throws;
         let arity = params.len();
         let ret_type: String;
         let mut doc = f.doc.clone();
@@ -1991,8 +2187,13 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 path.push(super::raw_identifier(&ctx_field));
                 body.push(format!("auto __o = {}._own(__r);", dname));
                 body.push(format!("auto __ctx = &__o._ptr().{};", path.join(".")));
-                body.push("AzOptionRefAny_delete(__ctx);".to_string());
-                body.push("*__ctx = _wrap_OptionRefAny(_azulRefAny(null, __fn0));".to_string());
+                // The factory's own call left a ctx in the field; free it
+                // before the trampoline's replaces it.
+                body.push(format!("{}(__ctx);", m.fun(ctx_option?, "delete")?));
+                body.push(format!(
+                    "*__ctx = _wrap_{}(_azulRefAny(null, __fn0));",
+                    ctx_option?
+                ));
                 body.push("return __o;".to_string());
             } else {
                 body.push("return _own(__r);".to_string());
@@ -2032,7 +2233,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
             }
             if !inst {
                 if let Some(rest) = f.method_name.strip_prefix("create_") {
-                    name = member_name(rest);
+                    name = member(rest);
                 }
             } else {
                 let raw_snake = &f.method_name;
@@ -2042,7 +2243,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     && ret_type != "void"
                     && !matches!(recv_arg, Some(r) if r.ref_kind == ArgRefKind::Owned);
                 if let (Some(rest), true) = (raw_snake.strip_prefix("get_"), getter_ok) {
-                    name = member_name(rest);
+                    name = member(rest);
                 } else if let (Some(rest), 1, "void", false) = (
                     raw_snake.strip_prefix("set_"),
                     arity,
@@ -2050,7 +2251,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     generic,
                 ) {
                     if cb_args.is_empty() && !params[0].ty.starts_with("ref ") {
-                        name = member_name(rest);
+                        name = member(rest);
                     }
                 }
             }
@@ -2258,7 +2459,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
 
     fn emit_trampolines(&mut self, w: &mut W) {
         let m = self.m;
-        let some_none = option_parts(m, "OptionRefAny");
+        // The ctx a trampoline reads back is the API's `Option<RefAny>`.
+        let ctx_option = m.option_of_refany();
+        let some_none = ctx_option.and_then(|n| option_parts(m, n));
         for tdn in self.trampolines.clone() {
             let td = m.callbacks[&tdn];
             let (Some(ifp), Some(ret)) = (self.invoker_type(td), self.cb_c_ret(td)) else {
@@ -2307,9 +2510,12 @@ impl<'m, 'a> Emitter<'m, 'a> {
             if let (Some((j, getter, info)), Some((none_member, none_index, some_member))) =
                 (&ctx, &some_none)
             {
+                let raw_ctx = format!("Az{}", ctx_option.unwrap_or_default());
                 w.l(2, &format!("Az{} __i = __c{};", info, j));
-                w.l(2, &format!("AzOptionRefAny __ctx = {}(&__i);", getter));
-                w.l(2, "scope (exit) AzOptionRefAny_delete(&__ctx);");
+                w.l(2, &format!("{} __ctx = {}(&__i);", raw_ctx, getter));
+                if let Some(del) = ctx_option.and_then(|n| m.fun(n, "delete")) {
+                    w.l(2, &format!("scope (exit) {}(&__ctx);", del));
+                }
                 w.l(
                     2,
                     &format!("if (__ctx.{}.tag != {})", none_member, none_index),
@@ -2368,6 +2574,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
         ) else {
             return;
         };
+        // Both halves go through the exported constructors when the API has
+        // them, so the tag and the payload are written by libazul itself.
+        let some_fn = m.variant_fn(name, some);
+        let none_fn = m.variant_fn(name, none);
         w.l(
             0,
             &format!(
@@ -2376,10 +2586,15 @@ impl<'m, 'a> Emitter<'m, 'a> {
             ),
         );
         w.l(0, "{");
-        w.l(1, &format!("{} __r;", raw));
-        w.l(1, &format!("__r.{}.tag = {};", some.member, some.index));
-        w.l(1, &format!("__r.{}.{} = payload;", some.member, pmember));
-        w.l(1, "return __r;");
+        match some_fn {
+            Some(f) => w.l(1, &format!("return {}(payload);", f.c_name)),
+            None => {
+                w.l(1, &format!("{} __r;", raw));
+                w.l(1, &format!("__r.{}.tag = {};", some.member, some.index));
+                w.l(1, &format!("__r.{}.{} = payload;", some.member, pmember));
+                w.l(1, "return __r;");
+            }
+        }
         w.l(0, "}");
         w.l(0, "");
         w.l(
@@ -2387,9 +2602,14 @@ impl<'m, 'a> Emitter<'m, 'a> {
             &format!("package {} _none_{}() nothrow @nogc", raw, name),
         );
         w.l(0, "{");
-        w.l(1, &format!("{} __r;", raw));
-        w.l(1, &format!("__r.{}.tag = {};", none.member, none.index));
-        w.l(1, "return __r;");
+        match none_fn {
+            Some(f) => w.l(1, &format!("return {}();", f.c_name)),
+            None => {
+                w.l(1, &format!("{} __r;", raw));
+                w.l(1, &format!("__r.{}.tag = {};", none.member, none.index));
+                w.l(1, "return __r;");
+            }
+        }
         w.l(0, "}");
         w.l(0, "");
         w.l(

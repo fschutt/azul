@@ -288,7 +288,14 @@ void main()
   matches it, `v.isFoo` / `v.foo` read a variant, `Name.foo(payload)` makes one.
 * `string`, `Option<T>` (`Nullable!T`) and `Vec<T>` (`T[]`, `ubyte[]` for
   `u8`) cross as native values. A method returning `Result` returns the `Ok`
-  value and throws `ResultException!E` (an `AzulException`) on `Err`.
+  value and throws `ResultException!E` (an `AzulException`) on `Err`. The C
+  container is still a type of its own (`OptionDom`, `DomVec`), with the
+  constructors, accessors and derives it has in Rust; members just prefer the
+  native shape. Only `String` has no such struct, because `string` IS it: its
+  constructors are free functions instead (`stringFromUtf16Be(ptr, len)`,
+  `stringFromUtf8Lossy(ptr, len)`, `stringFromCStr(ptr)`, `s.stringToCStr()`),
+  and its Rust derives are `string`'s own `==`, `<`, hashing, copy and
+  `to!string`.
 * `create` is `Name(...)` (a static `opCall`), `create_body` is
   `Name.body()`, `get_x` is `x` and `set_x` is `x = value` (property syntax),
   `is_x` is `isX`. Field accessors of a handle write through
@@ -357,7 +364,7 @@ fn header(p: &Parts, version: &str) -> String {
     let mut raw: Vec<&String> = p
         .skipped
         .iter()
-        .filter(|s| !s.ends_with(wrappers::NATIVE) && !s.ends_with(wrappers::TAKEN))
+        .filter(|s| !s.ends_with(wrappers::TAKEN))
         .collect();
     raw.sort();
     if !raw.is_empty() {
@@ -545,7 +552,7 @@ fn lower_leading(s: &str) -> String {
 
 /// Names `object.d` declares, visible in every D module.
 fn is_object_name(s: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: D's own `object.d` names, one of which api.json happens to reuse
         s,
         "string"
             | "wstring"
