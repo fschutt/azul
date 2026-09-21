@@ -1552,6 +1552,21 @@ jobs:
           AZ_BACKEND: headless
         run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan
 
+      - name: Compile and run the routing/components doc-drift guard (C)
+        run: |
+          cp target/codegen/azul.h examples/c/
+          cd examples/c
+          clang -g -O0 -I. routing-components.c -L../../target/debug -lazul -o routing-components
+
+      - name: Run the routing/components doc-drift guard (C)
+        working-directory: examples/c
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          AZ_BACKEND: headless
+          AZ_E2E: ${{ github.workspace }}/tests/e2e/routing_components.json
+        run: ${{ matrix.timeout_cmd }} 60 ./routing-components
+
       - name: Run Miri on azul-dll
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
