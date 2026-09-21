@@ -8833,6 +8833,45 @@ unsafe fn wp_viewport_destroy(wayland: &Wayland, viewport: *mut defines::wp_view
     (wayland.wl_proxy_destroy)(viewport as *mut _);
 }
 
+/// Which slot of a two-slot `wl_shm` pool the next paint may write into.
+///
+/// `busy[i]` mirrors slot `i`'s `wl_buffer.release` flag. A buffer handed to
+/// the compositor by `wl_surface.attach` + `commit` is the COMPOSITOR's memory
+/// until that release comes back - writing into it before then is a torn
+/// frame at best and a write into a buffer being scanned out at worst. The
+/// current `active` slot is preferred (it already holds the previous frame);
+/// `None` means both slots are held and the caller must skip this paint and
+/// retry when a release lands.
+///
+/// Pure so the ownership law can be tested without a compositor.
+pub(crate) fn next_writable_slot(active: usize, busy: [bool; 2]) -> Option<usize> {
+    let a = active & 1;
+    if !busy[a] {
+        return Some(a);
+    }
+    let b = 1 - a;
+    if !busy[b] {
+        return Some(b);
+    }
+    None
+}
+
+/// Which slot a POPUP repaint (`WaylandPopup::render_if_ready`) writes into.
+///
+/// Split out of the popup paint path so the same law can be asserted there: a
+/// popup owns its own two-slot pool and its own `wl_buffer.release`
+/// bookkeeping, and a repaint (hover, a submenu opening, a scroll inside the
+/// menu) is a SECOND write into that pool.
+pub(crate) fn popup_paint_slot(active: usize, busy: [bool; 2]) -> Option<usize> {
+    // A popup owns its own two-slot pool and its own `wl_buffer.release`
+    // bookkeeping, and it used to write the slot it wrote LAST time, every
+    // time - whether or not the compositor still held that buffer. A menu
+    // that repaints while its last frame is on screen tears, and the
+    // protocol says the bytes were not ours to touch. The law is the
+    // toplevel's, so it is literally the toplevel's.
+    next_writable_slot(active, busy)
+}
+
 impl CpuFallbackState {
     /// `physical_width`/`physical_height` are the BUFFER dimensions in device
     /// pixels (callers compute them via `cpu_buffer_spec` — logical × integer
@@ -9009,16 +9048,15 @@ impl CpuFallbackState {
     /// `active` slot; returns None when both are busy (caller skips the
     /// attach this cycle and retries after the next frame callback/release).
     fn acquire_slot(&mut self) -> Option<usize> {
-        let a = self.active;
-        if unsafe { !*self.slots[a].busy } {
-            return Some(a);
-        }
-        let b = 1 - a;
-        if unsafe { !*self.slots[b].busy } {
-            self.active = b;
-            return Some(b);
-        }
-        None
+        let slot = next_writable_slot(self.active, self.busy_flags())?;
+        self.active = slot;
+        Some(slot)
+    }
+
+    /// The compositor's holds on the two slots: `busy[i]` is slot `i`'s
+    /// `wl_buffer.release` flag, `true` while the compositor still owns it.
+    fn busy_flags(&self) -> [bool; 2] {
+        unsafe { [*self.slots[0].busy, *self.slots[1].busy] }
     }
 
     /// The buffer that will be (or was last) attached.
@@ -9832,6 +9870,16 @@ impl WaylandPopup {
         let laid_out = self.ensure_layout();
 
         if let RenderMode::Cpu(Some(cpu_state)) = &mut self.render_mode {
+            // #27: which slot of the popup's OWN pool this repaint may write
+            // is `popup_paint_slot`'s to say - the first frame and every
+            // repaint after it go through the same rule.
+            let Some(slot) = popup_paint_slot(cpu_state.active, cpu_state.busy_flags()) else {
+                // Both slots are the compositor's. Leave `needs_repaint` set;
+                // the release event wakes the loop and `drive_active_popup`
+                // retries.
+                return;
+            };
+            cpu_state.active = slot;
             let mut painted = false;
 
             #[cfg(feature = "cpurender")]
@@ -11946,5 +11994,53 @@ mod popup_axis_tests {
                 "{flush} returns before draining its accumulators"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod native_backbuffer_slot_ownership {
+    use super::{next_writable_slot, popup_paint_slot};
+
+    /// The toplevel path's rule, for contrast with the popup's.
+    #[test]
+    fn a_paint_rotates_away_from_a_slot_the_compositor_holds() {
+        assert_eq!(next_writable_slot(0, [false, false]), Some(0));
+        assert_eq!(next_writable_slot(0, [true, false]), Some(1));
+        assert_eq!(next_writable_slot(1, [false, true]), Some(0));
+        assert_eq!(next_writable_slot(1, [false, false]), Some(1));
+    }
+
+    /// THE LAW: a buffer is the compositor's from `wl_surface.attach` until
+    /// `wl_buffer.release`. A popup repaint that lands before the release must
+    /// take the OTHER slot.
+    #[test]
+    fn a_popup_repaint_never_writes_a_slot_the_compositor_holds() {
+        // Frame 1: nothing is held.
+        let mut busy = [false, false];
+        let first = popup_paint_slot(0, busy).expect("a free slot");
+        // attach + commit hands it to the compositor.
+        busy[first] = true;
+
+        // Frame 2 - a hover, a submenu opening, a scroll inside the menu -
+        // arrives before any `wl_buffer.release`.
+        let second = popup_paint_slot(first, busy).expect("the other slot is free");
+        assert_ne!(
+            second, first,
+            "the popup repainted the slot the compositor still holds"
+        );
+
+        // And once the compositor gives the first one back, it may be reused.
+        busy[second] = true;
+        busy[first] = false;
+        assert_eq!(popup_paint_slot(second, busy), Some(first));
+    }
+
+    /// Both slots held = no paint at all. Skipping is the only correct answer;
+    /// picking one anyway is the same protocol violation.
+    #[test]
+    fn a_paint_with_both_slots_held_is_skipped() {
+        assert_eq!(next_writable_slot(0, [true, true]), None);
+        assert_eq!(popup_paint_slot(0, [true, true]), None);
+        assert_eq!(popup_paint_slot(1, [true, true]), None);
     }
 }
