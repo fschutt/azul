@@ -1090,6 +1090,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+            cache.cache_map = std::mem::take(&mut ctx.cache_map);
             cache.record_full_emission();
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
@@ -1131,6 +1132,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // renderers' damage override cannot replay stale patch rects, and
         // retire the patch log: the renderers' item diff against the list
         // they last presented covers everything from here.
+        // The per-node cache was MOVED into `ctx` for this pass (Step 1.4) and
+        // is moved back at the end of the function - which this early exit
+        // never reaches. Returning without it left the window holding an
+        // empty cache after every idle frame: the next pass re-measured the
+        // whole tree, and a dirty subtree re-solved on its own lost the
+        // containing block its parent's pass had handed it.
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
         cache.record_full_emission();
         return Ok(dl);
     }

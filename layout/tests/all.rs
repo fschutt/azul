@@ -156,6 +156,8 @@ mod caret_reveal_and_session_identity;
 mod caret_scroll_glide;
 #[path = "caret_tween.rs"]
 mod caret_tween;
+#[path = "clean_pass_keeps_the_layout_cache.rs"]
+mod clean_pass_keeps_the_layout_cache;
 #[path = "click_into_a_virtual_view_page.rs"]
 mod click_into_a_virtual_view_page;
 #[path = "cpurender_image_probe.rs"]
