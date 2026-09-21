@@ -5,6 +5,7 @@ output/
 /api/
 duplicates.txt
 vendor/
+_build/
 .apply-midlevel/
 *.h
 *.hpp
