@@ -1304,6 +1304,14 @@ impl CpuBackend {
         // whole buffer in renderer byte order and nothing converted it (the
         // UI turned orange after a scroll), and everywhere else it was a
         // wasted full repaint at the tail of every smooth scroll.
+        // What the FRAME damaged, as asked for. The rasteriser paints
+        // overlapping rects as their bounding box - an L-shaped diagonal pan
+        // is one box, not two strips - and every pixel it wrote has to be
+        // presented and, on an ARGB8888 pool, converted. That is a fact about
+        // the WRITE, not about what changed: reporting it as the frame's
+        // damage told everything downstream that a diagonal pan had repainted
+        // the whole scrollport.
+        let requested_damage = all_damage.clone();
         if is_incremental {
             if !all_damage.is_empty() {
                 // Incremental: render only damaged regions
@@ -1439,7 +1447,7 @@ impl CpuBackend {
             self.last_frame = Some(output);
         }
         self.last_frame_damage = if is_incremental {
-            FrameDamage::Rects(all_damage.clone())
+            FrameDamage::Rects(requested_damage)
         } else {
             FrameDamage::Full
         };
