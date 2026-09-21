@@ -36,8 +36,8 @@ use super::{
 };
 use crate::{
     desktop::shell2::common::event::{
-        HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
-        BUTTON_STATE_RIGHT,
+        scrollbar_stops_the_button_event, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT,
+        BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     },
     log_debug, log_error, log_info, log_trace, log_warn,
 };
@@ -616,17 +616,25 @@ impl X11Window {
             }
         }
 
-        // Check for scrollbar hit FIRST (before state changes)
+        // Check for scrollbar hit FIRST (before state changes). Whether the
+        // scrollbar's involvement STOPS the button event here is one shared
+        // rule — `scrollbar_stops_the_button_event`.
+        let mut ended_scrollbar_drag = false;
         if is_down {
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(self, position)
             {
-                return PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                let handled =
+                    PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                if scrollbar_stops_the_button_event(is_down, true) {
+                    return handled;
+                }
             }
-        } else {
+        } else if self.common.scrollbar_drag_state.is_some() {
             // End scrollbar drag if active
-            if self.common.scrollbar_drag_state.is_some() {
-                PlatformWindow::set_scrollbar_drag_state(self, None);
+            PlatformWindow::set_scrollbar_drag_state(self, None);
+            ended_scrollbar_drag = true;
+            if scrollbar_stops_the_button_event(is_down, true) {
                 return ProcessEventResult::ShouldReRenderCurrentWindow;
             }
         }
@@ -706,6 +714,11 @@ impl X11Window {
         // the pass, which is what finalizes the selection).
         if !is_down && button == MouseButton::Left {
             self.publish_primary_selection();
+        }
+
+        if ended_scrollbar_drag {
+            // What the swallowed early return used to answer.
+            return result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         result

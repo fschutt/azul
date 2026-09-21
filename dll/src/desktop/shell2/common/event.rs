@@ -1146,6 +1146,75 @@ pub fn csd_resize_edge_at(
     })
 }
 
+/// Does the scrollbar layer STOP a pointer button event where it stands - no
+/// `mouse_state` write, no `record_input_sample`, no state-diff pass?
+///
+/// `scrollbar_acted` is "the press landed on a scrollbar part" for a press, and
+/// "a live thumb drag was ended" for a release.
+///
+/// A PRESS that landed on a scrollbar part is the scrollbar's alone: a press
+/// on a thumb is not a press on the document, and the scrollbar's own handler
+/// answers it.
+///
+/// A RELEASE that ends a live thumb drag is NOT. Ending the drag is the
+/// scrollbar's business; the BUTTON GOING UP is the window's. `mouse_state`
+/// has to see the button fall and the state-diff pass has to emit the
+/// `MouseUp` — both Linux backends used to return before either, and the
+/// window then believed the button was held for the rest of its life. That is
+/// the state `x11/mod.rs`'s FocusOut handler already names: "`left_down` would
+/// stay true forever — every later move reads as a DRAG (text selects, buttons
+/// stop clicking)". With it stuck, the press edge `curr_down && !prev_down`
+/// can never fire again, so no later left press produces a `MouseDown`, a
+/// `SystemChange::TextSelectionClick` or a selection anchor — while the 60 Hz
+/// drag-autoscroll timer, which is gated on nothing but `left_down`, keeps
+/// extending a selection from whatever caret a press of another button plants.
+/// Left-drag selects nothing; middle-drag selects.
+///
+/// Headless has always said this (its `MouseUp` arm ends the drag and then
+/// still records the button and runs the pass).
+pub const fn scrollbar_stops_the_button_event(is_down: bool, scrollbar_acted: bool) -> bool {
+    scrollbar_acted && is_down
+}
+
+#[cfg(test)]
+mod scrollbar_button_event_tests {
+    use super::scrollbar_stops_the_button_event;
+
+    /// A press on a scrollbar part is the scrollbar's alone: a press on a
+    /// thumb is not a press on the document, and its own handler answers it.
+    #[test]
+    fn a_press_on_a_scrollbar_part_is_the_scrollbars_alone() {
+        assert!(scrollbar_stops_the_button_event(true, true));
+    }
+
+    /// A button event the scrollbar did nothing with is nobody's business but
+    /// the pipeline's.
+    #[test]
+    fn a_button_the_scrollbar_did_not_act_on_always_continues() {
+        assert!(!scrollbar_stops_the_button_event(true, false));
+        assert!(!scrollbar_stops_the_button_event(false, false));
+    }
+
+    /// THE LAW: a RELEASE that ends a thumb drag does not stop there. Ending
+    /// the drag is the scrollbar's business; the BUTTON GOING UP is the
+    /// window's. `mouse_state.left_down` has to fall and the state-diff pass
+    /// has to emit the `MouseUp`.
+    ///
+    /// Swallow it and the window believes the button is held for the rest of
+    /// its life - the state `x11/mod.rs`'s `FocusOut` handler already names:
+    /// "`left_down` would stay true forever - every later move reads as a DRAG
+    /// (text selects, buttons stop clicking)". The press edge
+    /// `curr_down && !prev_down` can never fire again, so no later left press
+    /// produces a `MouseDown`, no `SystemChange::TextSelectionClick`, no
+    /// selection anchor - while the 60 Hz drag-autoscroll timer, which is
+    /// gated on nothing but `left_down`, keeps extending a selection from
+    /// whatever caret a press of ANOTHER button plants.
+    #[test]
+    fn a_release_that_ends_a_scrollbar_drag_still_reports_the_button_going_up() {
+        assert!(!scrollbar_stops_the_button_event(false, true));
+    }
+}
+
 /// Whether a press should be handed to the window manager as a RESIZE grab.
 ///
 /// The whole rule in one place, because both Linux backends had it wrong in

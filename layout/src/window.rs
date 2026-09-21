@@ -9752,14 +9752,29 @@ impl LayoutWindow {
             // the body), and `clear_editing` then erased the highlight the user
             // was still looking at. Tear the caret machinery down, keep the
             // range.
-            let non_editable_range = self
+            //
+            // A COLLAPSED caret counts too while the pointer is still making
+            // the selection. A press is one pass: the shell plants the anchor
+            // from `SystemChange::TextSelectionClick` and only then runs
+            // click-to-focus, whose `SystemChange::SetFocus` lands here — so on
+            // plain, non-editable text the anchor was destroyed before the
+            // first drag move ever arrived, and `process_mouse_drag_for_
+            // selection` (which opens with `multi_cursor.as_ref()?`) had
+            // nothing to extend. Left-click-drag over document text could
+            // therefore never select anything at all. The press edge latches
+            // `text_selection_drag_anchor`, and that is exactly the "a
+            // selection gesture is in flight" signal this needs.
+            let selection_gesture_in_flight = self.text_selection_drag_anchor.is_some();
+            let non_editable_selection = self
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
                 .filter(|mc| {
-                    mc.selections
-                        .iter()
-                        .any(|sel| matches!(sel.selection, Selection::Range(_)))
+                    selection_gesture_in_flight
+                        || mc
+                            .selections
+                            .iter()
+                            .any(|sel| matches!(sel.selection, Selection::Range(_)))
                 })
                 .and_then(|mc| {
                     mc.node_id
@@ -9771,7 +9786,7 @@ impl LayoutWindow {
                     !self.is_node_contenteditable_inherited_internal(dom, node)
                 });
 
-            if non_editable_range {
+            if non_editable_selection {
                 let had_blink = self.text_edit_manager.blink.is_visible
                     || self.text_edit_manager.blink.blink_timer_active;
                 self.text_edit_manager.blink.clear();
@@ -27225,6 +27240,120 @@ mod window_theme_context {
         assert!(
             after.size.width > before.size.width,
             "a longer label widens the box: {before:?} -> {after:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod selection_anchor_survives_focus_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; }";
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    /// `body(0) > div.p(1) > text(2)`, laid out. NOT contenteditable: plain,
+    /// selectable document text, which is what a paragraph or a label is.
+    fn plain_paragraph_window() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello world",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut win = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        win.current_window_state = ws.clone();
+        win.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        (win, ws)
+    }
+
+    /// Exactly what a single LEFT PRESS on plain text leaves behind:
+    /// `process_mouse_click_for_selection` plants a COLLAPSED caret on the IFC
+    /// root (no range yet - the drag has not moved), and the shell latches the
+    /// drag anchor on the press edge to say a selection gesture is in flight.
+    fn press_on_plain_text(win: &mut LayoutWindow, gesture_in_flight: bool) {
+        win.text_edit_manager
+            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(1), 0);
+        win.text_selection_drag_anchor = gesture_in_flight.then(|| LogicalPosition::new(12.0, 8.0));
+    }
+
+    /// THE LAW: a press that begins a text selection keeps its anchor through
+    /// the focus change that same press causes.
+    ///
+    /// The press and the focus move are ONE pass: the shell applies
+    /// `SystemChange::TextSelectionClick` in the pre-filter and only then runs
+    /// click-to-focus, which emits `SystemChange::SetFocus` and lands here. A
+    /// press on non-editable text therefore plants the anchor and blurs into a
+    /// non-editable focus in the same breath - and
+    /// `process_mouse_drag_for_selection` starts with `multi_cursor.as_ref()?`,
+    /// so an anchor torn down here means the drag that follows can never
+    /// select anything.
+    ///
+    /// EXPECTED TO FAIL TODAY: `has_active_editing()` is `false` after the
+    /// call, because the keep-the-selection guard only recognises a selection
+    /// that is ALREADY a `Selection::Range` and a single press has only a
+    /// collapsed `Selection::Cursor`, so `clear_editing()` runs.
+    #[test]
+    fn a_press_that_begins_a_selection_keeps_its_anchor_through_the_focus_it_causes() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, true);
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "premise: the press planted an anchor"
+        );
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "a focus change must not destroy the anchor of a selection the pointer is still making"
+        );
+    }
+
+    /// The other half of the law, so the fix cannot be "never clear anything":
+    /// with no pointer gesture in flight, a focus change off non-editable text
+    /// still tears the caret down, exactly as before.
+    #[test]
+    fn a_focus_change_with_no_gesture_in_flight_still_clears_the_caret() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, false);
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            !win.text_edit_manager.has_active_editing(),
+            "a caret nobody is dragging dies with the focus that owned it"
         );
     }
 }

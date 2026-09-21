@@ -293,8 +293,8 @@ use crate::{
         shell2::common::{
             debug_server::LogCategory,
             event::{
-                self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE,
-                BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+                self, scrollbar_stops_the_button_event, HitTestNode, PlatformWindow,
+                BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
             },
             WindowError,
         },
@@ -4569,7 +4569,9 @@ impl WaylandWindow {
                 // scroll callback can restyle / rebuild the DOM. DoNothing stays a
                 // no-op; the other variants still request_redraw.
                 self.handle_process_event_result(result);
-                return;
+                if scrollbar_stops_the_button_event(is_down, true) {
+                    return;
+                }
             }
 
             // Check for context menu (right-click).
@@ -4589,11 +4591,12 @@ impl WaylandWindow {
                     }
                 }
             }
-        } else {
-            // End scrollbar drag if active
-            if self.common.scrollbar_drag_state.is_some() {
-                PlatformWindow::set_scrollbar_drag_state(self, None);
-                self.request_redraw();
+        } else if self.common.scrollbar_drag_state.is_some() {
+            // End scrollbar drag if active. Whether that STOPS the button
+            // event here is the shared rule - `scrollbar_stops_the_button_event`.
+            PlatformWindow::set_scrollbar_drag_state(self, None);
+            self.request_redraw();
+            if scrollbar_stops_the_button_event(is_down, true) {
                 return;
             }
         }

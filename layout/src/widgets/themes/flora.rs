@@ -854,7 +854,7 @@ pub fn button(btn: Button) -> Dom {
     let skip_label = btn.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
     if !skip_label {
         button = button.with_child(
-            crate::widgets::widget_p()
+            crate::widgets::widget_p_chrome()
                 .with_css_props(btn_label_style)
                 .with_children(azul_core::dom::DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(btn.label),
@@ -2184,7 +2184,7 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
             .into(),
         )
         .with_children(DomVec::from_vec(vec![
-            crate::widgets::widget_p()
+            crate::widgets::widget_p_chrome()
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     FLORA_DROPDOWN_LABEL_STYLE,
                 ))

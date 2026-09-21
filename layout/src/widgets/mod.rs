@@ -436,8 +436,8 @@ pub(crate) mod theme_probe {
 // for any widget `<p>` built without these helpers.
 
 /// The component sheet [`widget_p`] attaches: `margin-top: 0; margin-bottom: 0`
-/// at AUTHOR priority on a `*` path.
-pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
+/// at AUTHOR priority on a `*` path, plus whatever `extra` the caller adds.
+fn widget_p_sheet(extra: Vec<azul_css::css::CssDeclaration>) -> azul_css::css::Css {
     use azul_css::{
         css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
         props::{
@@ -445,24 +445,59 @@ pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
             property::CssProperty,
         },
     };
+    let mut declarations = vec![
+        CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
+        CssDeclaration::Static(CssProperty::const_margin_bottom(
+            LayoutMarginBottom::const_px(0),
+        )),
+    ];
+    declarations.extend(extra);
     Css {
         rules: vec![CssRuleBlock {
             path: CssPath {
                 selectors: vec![CssPathSelector::Global].into(),
             },
-            declarations: vec![
-                CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
-                CssDeclaration::Static(CssProperty::const_margin_bottom(
-                    LayoutMarginBottom::const_px(0),
-                )),
-            ]
-            .into(),
+            declarations: declarations.into(),
             conditions: Vec::new().into(),
             priority: rule_priority::AUTHOR,
         }]
         .into(),
         ..Css::default()
     }
+}
+
+/// The component sheet [`widget_p`] attaches: `margin-top: 0; margin-bottom: 0`
+/// at AUTHOR priority on a `*` path.
+pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
+    widget_p_sheet(Vec::new())
+}
+
+/// [`widget_p_margin_reset`] plus `user-select: none` — the sheet a CHROME text
+/// carrier gets.
+///
+/// A widget's OWN text is chrome: a button's label, a tab's caption, a menu
+/// item, a dropdown's current value, a stepper's step name. No toolkit lets a
+/// drag across those paint a text selection, and azul's default is the
+/// opposite — `is_text_selectable` answers "selectable" for anything that does
+/// not say otherwise — so every widget label in the tree was draggable text.
+/// The rule is stated once, here, because every widget-owned carrier goes
+/// through [`widget_p_with_text`] / [`widget_p_chrome`].
+///
+/// AUTHOR priority, like the margin reset, so a widget that deliberately wants
+/// its text selectable can still say so inline. The `*` path scopes to the
+/// `<p>`'s subtree — the `<p>` and the text node under it — which is what the
+/// pointer path asks about: it tests the HIT node, deepest first.
+///
+/// NOT on [`widget_p`] itself: that is what TextInput and TextArea build their
+/// editable text on, and the user's own content is selectable by definition.
+pub(crate) fn widget_p_chrome_sheet() -> azul_css::css::Css {
+    use azul_css::{
+        css::CssDeclaration,
+        props::{property::CssProperty, style::text::StyleUserSelect},
+    };
+    widget_p_sheet(vec![CssDeclaration::Static(CssProperty::user_select(
+        StyleUserSelect::None,
+    ))])
 }
 
 /// A `<p>` that carries a widget's OWN text (not a paragraph of the app's
@@ -474,11 +509,22 @@ pub(crate) fn widget_p() -> azul_core::dom::Dom {
     azul_core::dom::Dom::create_p().with_component_css(widget_p_margin_reset())
 }
 
-/// [`widget_p`] with a text child — the widget-owned twin of
+/// [`widget_p`] for text the WIDGET owns rather than text the user typed: the
+/// same margin reset plus `user-select: none` (see [`widget_p_chrome_sheet`]).
+///
+/// Every widget label goes through this or through [`widget_p_with_text`]; the
+/// only carriers that deliberately keep plain [`widget_p`] are TextInput's and
+/// TextArea's, whose text is the user's content.
+#[must_use]
+pub(crate) fn widget_p_chrome() -> azul_core::dom::Dom {
+    azul_core::dom::Dom::create_p().with_component_css(widget_p_chrome_sheet())
+}
+
+/// [`widget_p_chrome`] with a text child — the widget-owned twin of
 /// `Dom::create_p_with_text`.
 #[must_use]
 pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_core::dom::Dom {
-    widget_p()
+    widget_p_chrome()
         .with_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(text))
 }
 
@@ -1315,3 +1361,157 @@ mod wheel_ownership {
 }
 
 pub mod themes;
+
+#[cfg(test)]
+mod chrome_text_is_not_selectable {
+    //! A widget's OWN text - a button's label, a tab's caption, a menu item, a
+    //! dropdown's current value - is chrome, not content. No toolkit lets a
+    //! drag across it paint a text selection, and azul's default (`user-select`
+    //! unset means selectable, `solver3::getters::is_text_selectable`) makes
+    //! every one of them selectable.
+    //!
+    //! The rule this pins: text a WIDGET wrote is not selectable; text the USER
+    //! put in is. The widget-owned carriers all go through
+    //! `widgets::widget_p_with_text` / `widget_p_chrome`, so the rule rides on
+    //! that one sheet — an editable carrier (TextInput, TextArea) deliberately
+    //! keeps plain `widget_p`.
+
+    use azul_core::{
+        dom::{Dom, NodeId, NodeType},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{
+        css::{Css, CssDeclaration, CssPathSelector},
+        props::property::CssPropertyType,
+    };
+
+    /// The node's OWN component sheet (attached to this `Dom`, `*` path)
+    /// declares `ty`.
+    fn own_sheet_sets(node: &Dom, ty: CssPropertyType) -> bool {
+        node.css.as_ref().iter().any(|sheet| {
+            sheet.rules.as_ref().iter().any(|rule| {
+                let global = matches!(
+                    rule.path.selectors.as_ref().first(),
+                    None | Some(CssPathSelector::Global)
+                );
+                global
+                    && rule.declarations.as_ref().iter().any(|d| match d {
+                        CssDeclaration::Static(p) => p.get_type() == ty,
+                        CssDeclaration::Dynamic(_) => false,
+                    })
+            })
+        })
+    }
+
+    /// Is `node_id` selectable, asked exactly the way the pointer path asks it
+    /// (`LayoutWindow::process_mouse_click_for_selection` and the shell's
+    /// drag-arming check both call this with the HIT node).
+    fn selectable(sd: &StyledDom, node_id: NodeId) -> bool {
+        let states = sd.styled_nodes.as_container();
+        crate::solver3::getters::is_text_selectable(
+            sd,
+            node_id,
+            &states[node_id].styled_node_state,
+        )
+    }
+
+    /// `body(0) > p(1) > text(2)` out of whatever builder is handed in.
+    fn styled(p: Dom) -> StyledDom {
+        let mut dom = Dom::create_body().with_child(p);
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    /// Every `<p>` in the subtree, in pre-order.
+    fn paragraphs<'a>(node: &'a Dom, out: &mut Vec<&'a Dom>) {
+        if matches!(node.root.get_node_type(), NodeType::P) {
+            out.push(node);
+        }
+        for child in node.children.as_ref() {
+            paragraphs(child, out);
+        }
+    }
+
+    /// The builder's contract: the rule rides on the node's own component
+    /// sheet, where `with_css_props` (which every call site uses for its own
+    /// style) cannot wipe it.
+    ///
+    /// EXPECTED TO FAIL TODAY: `widget_p_with_text`'s sheet declares only
+    /// `margin-top` and `margin-bottom`, so `own_sheet_sets(.., UserSelect)`
+    /// is `false`.
+    #[test]
+    fn a_widget_text_carrier_declares_user_select_on_its_own_sheet() {
+        assert!(
+            own_sheet_sets(
+                &super::widget_p_with_text("Click me"),
+                CssPropertyType::UserSelect
+            ),
+            "a widget's own text carrier must say it is not selectable"
+        );
+    }
+
+    /// The same law through the REAL predicate, after the cascade — the
+    /// question the hit path actually asks, of the `<p>` and of the text node
+    /// under it.
+    ///
+    /// EXPECTED TO FAIL TODAY: both asserts see `true`, because nothing sets
+    /// `user-select` and `is_text_selectable` defaults to selectable.
+    #[test]
+    fn a_widget_text_carrier_is_not_selectable_after_the_cascade() {
+        let sd = styled(super::widget_p_with_text("Click me"));
+        assert_eq!(sd.node_data.len(), 3, "premise: body > p > text");
+        assert!(
+            !selectable(&sd, NodeId::new(1)),
+            "a widget's label block is chrome, not selectable text"
+        );
+        assert!(
+            !selectable(&sd, NodeId::new(2)),
+            "the glyphs under it are the thing a drag would highlight"
+        );
+    }
+
+    /// The other half: ordinary prose the APP wrote stays selectable, so the
+    /// fix cannot be "nothing is selectable any more".
+    #[test]
+    fn an_app_paragraph_is_still_selectable() {
+        let sd = styled(Dom::create_p_with_text("user prose"));
+        assert!(selectable(&sd, NodeId::new(1)));
+        assert!(selectable(&sd, NodeId::new(2)));
+    }
+
+    /// And on a real widget, end to end: every `<p>` a Button emits is its
+    /// label.
+    ///
+    /// EXPECTED TO FAIL TODAY for the same reason — the Button label is built
+    /// with bare `widget_p()` (`themes/flat.rs`, `themes/flora.rs`), whose
+    /// sheet carries the margin reset and nothing else.
+    #[test]
+    fn a_buttons_label_is_not_selectable() {
+        let (_, dom) = super::label_convention::every_widget_dom()
+            .into_iter()
+            .find(|(name, _)| *name == "button")
+            .expect("every_widget_dom must build a button");
+        let mut ps = Vec::new();
+        paragraphs(&dom, &mut ps);
+        assert!(!ps.is_empty(), "premise: a Button emits a label <p>");
+        for p in ps {
+            assert!(
+                own_sheet_sets(p, CssPropertyType::UserSelect),
+                "a button's label must not be selectable"
+            );
+        }
+    }
+
+    /// The exception, stated so it cannot be optimised away: `widget_p` is what
+    /// the EDITABLE carriers (TextInput, TextArea) build on, and their text is
+    /// the user's content.
+    #[test]
+    fn the_plain_carrier_editables_use_stays_selectable() {
+        let sd = styled(super::widget_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("typed by the user"),
+        ));
+        assert!(
+            selectable(&sd, NodeId::new(1)),
+            "widget_p is the editable carriers' base and must not forbid selection"
+        );
+    }
+}
