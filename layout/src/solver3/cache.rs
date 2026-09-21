@@ -3422,7 +3422,20 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         )
     });
 
-    if check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check) {
+    // A reflow is for laying the children out again inside a box that
+    // CHANGED SIZE. If this node's formatting context already took exactly
+    // this gutter out of their containing block - which `overflow: scroll`
+    // does on the very first pass, the bar being there whether or not
+    // anything overflows - there is nothing to lay out again, and asking for
+    // a pass anyway made every document holding a `scroll` box do its whole
+    // layout twice and re-damage what the first pass had already painted.
+    let gutter_already_taken = (scrollbar_info.scrollbar_width
+        - layout_result.reserved_scrollbar_width)
+        .abs()
+        < 0.01;
+    if !gutter_already_taken
+        && check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check)
+    {
         *reflow_needed_for_scrollbars = true;
     }
 

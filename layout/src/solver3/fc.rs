@@ -102,6 +102,10 @@ pub(crate) struct BfcLayoutResult {
     /// against the unreserved width, so the document-level layout loop has to
     /// run another pass; this is how that need leaves the subtree.
     pub scrollbar_reflow_needed: bool,
+    /// The scrollbar gutter this formatting context took out of its own
+    /// children's containing block BEFORE laying them out. A node that then
+    /// turns out to need exactly this much has nothing to lay out again.
+    pub reserved_scrollbar_width: f32,
 }
 
 impl BfcLayoutResult {
@@ -112,6 +116,7 @@ impl BfcLayoutResult {
             escaped_bottom_margin: None,
             outgoing_token: None,
             scrollbar_reflow_needed: false,
+            reserved_scrollbar_width: 0.0,
         }
     }
 }
@@ -3395,6 +3400,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         escaped_bottom_margin,
         outgoing_token: fragment_token_out,
         scrollbar_reflow_needed: child_scrollbar_reflow,
+        reserved_scrollbar_width: scrollbar_reservation,
     })
 }
 
