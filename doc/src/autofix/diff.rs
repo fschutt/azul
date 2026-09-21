@@ -2871,7 +2871,14 @@ mod api_json_declared_derives {
                     let path = entry.ok()?.path();
                     let t = if path.is_dir() {
                         newest(&path)
-                    } else if path.extension().is_some_and(|e| e == "rs") {
+                    } else if path.extension().is_some_and(|e| e == "rs")
+                        // A test file emits nothing, so touching one cannot
+                        // stale the artifact - and treating it as an emitter
+                        // turns every edit to a codegen test into a false red
+                        // on this one. `bug_classes.rs` excludes itself from
+                        // its own guard for the same reason.
+                        && path.file_name().is_some_and(|n| n != "bug_classes.rs")
+                    {
                         path.metadata().ok()?.modified().ok()
                     } else {
                         None

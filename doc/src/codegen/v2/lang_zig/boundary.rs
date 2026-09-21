@@ -119,6 +119,10 @@ fn emit_log_through(out: &mut String, ir: &CodegenIR) {
     out.push_str("/// the method's name. `CT` is comptime, so only the matching branch is\n");
     out.push_str("/// analysed and the rest costs nothing.\n");
     out.push_str("fn _logThrough(comptime CT: type, arg: CT, msg: []const u8) bool {\n");
+    // Zig rejects BOTH an unused parameter and a discard of a parameter that
+    // is used, so the discards below belong in exactly the case where no
+    // branch was emitted.
+    let body_start = out.len();
 
     // A `None` here is not a failure: it means api.json declares no sink at
     // all, and every report then goes to stderr (what `_boundaryFailure`
@@ -162,6 +166,13 @@ fn emit_log_through(out: &mut String, ir: &CodegenIR) {
                 out.push_str("    }\n");
             }
         }
+    }
+
+    // No sink in api.json: nothing above named `arg` or `msg`, and an unused
+    // parameter does not compile.
+    if out.len() == body_start {
+        out.push_str("    _ = arg;\n");
+        out.push_str("    _ = msg;\n");
     }
 
     out.push_str("    return false;\n");
@@ -341,6 +352,12 @@ mod tests {
     fn no_sink_still_generates_a_valid_helper() {
         // The bare fixture has no method of the sink's shape.
         let z = generate_boundary_helpers(&fixture_ir());
-        assert!(z.contains("fn _logThrough(comptime CT: type, arg: CT, msg: []const u8) bool {\n    return false;\n}"), "{z}");
+        assert!(
+            z.contains(
+                "fn _logThrough(comptime CT: type, arg: CT, msg: []const u8) bool {\n    _ = \
+                 arg;\n    _ = msg;\n    return false;\n}"
+            ),
+            "{z}"
+        );
     }
 }
