@@ -1137,6 +1137,46 @@ pub fn regenerate_layout(
                 layout_window.pending_lifecycle_events.push(event);
             }
         }
+
+        // A FOCUSED node that the rebuild did not carry over loses its focus -
+        // the arena index now denotes a different element - and it used to
+        // lose it silently: a plain field write in `remap_node_ids`, no Blur,
+        // no FocusLost, no line in the log. An app that commits a text field,
+        // closes a popup or validates when a field loses focus heard nothing
+        // at all, and the next thing it heard was the focus arriving
+        // somewhere else.
+        //
+        // The callback lives on the OLD node, which is gone from the new tree
+        // but still in `old_node_data` right here - the same reason
+        // BeforeUnmount is resolved at this exact spot, through the same side
+        // queue.
+        let focus_lost = layout_window.focus_manager.take_focus_lost_to_unmount();
+        for lost in focus_lost {
+            use azul_core::events::{
+                EventData, EventFilter, EventSource, EventType, FocusEventFilter,
+                SyntheticEvent,
+            };
+            let Some(idx) = lost.node.into_crate_internal().map(|n| n.index()) else {
+                continue;
+            };
+            let Some(nd) = old_node_data.get(idx) else {
+                continue;
+            };
+            let blur = SyntheticEvent::new(
+                EventType::Blur,
+                EventSource::Lifecycle,
+                lost,
+                azul_core::task::Instant::now(),
+                EventData::None,
+            );
+            for cb in nd.get_callbacks().as_ref().iter() {
+                if matches!(cb.event, EventFilter::Focus(FocusEventFilter::FocusLost)) {
+                    layout_window
+                        .pending_unmount_invocations
+                        .push((cb.clone(), blur.clone()));
+                }
+            }
+        }
     }
     azul_layout::probe::emit_phase_heap("after_state_migrate");
     phases.mark("after_state_migrate");
