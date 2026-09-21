@@ -41,8 +41,11 @@
 //!
 //! ## Surface
 //!
-//! - All FFI-level identifiers are emitted in `lower_snake_case` (OCaml's value/type-name
-//!   convention) — e.g. `az_app`, `ffi_az_app_create`.
+//! - FFI TYPE identifiers are `lower_snake_case` (OCaml's type-name convention) — `az_app`,
+//!   `az_layout_callback_info`. FFI FUNCTION values keep the C symbol's own spelling with only
+//!   the first letter lowered — `azApp_create` for `AzApp_create` — so the symbol in `azul.h`,
+//!   in the `foreign` link string and at the call site is one greppable string, and the
+//!   mixed-case name can never collide with an all-lowercase `typ` value.
 //! - The `foreign "<C symbol>" (...)` link name uses the **exact** C symbol from the IR
 //!   (`AzApp_create`), never the OCaml-snake form.
 //! - Idiomatic surface lives inside nested modules: `Azul.App.create`, `Azul.App.run`, etc. The
@@ -79,7 +82,11 @@ use std::collections::BTreeSet;
 use anyhow::Result;
 
 use super::{
-    config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR, module_plan::ModulePlan,
+    config::CodegenConfig,
+    generator::CodeBuilder,
+    ir::{CodegenIR, FunctionKind, TypeCategory},
+    managed_lang_helpers::is_refany_type,
+    module_plan::ModulePlan,
 };
 
 /// Library link name passed to `Dl.dlopen` and used by `foreign` to
@@ -441,7 +448,10 @@ fn generate_enums_unit(
     let mut builder = CodeBuilder::new(&config.indent);
     unit_header(
         &mut builder,
-        &format!("Enum modules of the api.json module `{}`.", api_module),
+        &format!(
+            "Enum modules and constants of the api.json module `{}`.",
+            api_module
+        ),
     );
     builder.line("open Ctypes");
     builder.line("open Azul_types");
@@ -449,6 +459,10 @@ fn generate_enums_unit(
     builder.blank();
     let belongs = |c: &str| split.module_of(c) == api_module;
     wrappers::emit_enum_modules_for(&mut builder, ir, config, &belongs)?;
+    // The api.json constants of this module. They are plain values with no
+    // dependency on anything else, and this is the lowest layer that is
+    // split per api.json module, so they ride along here.
+    wrappers::emit_constants_for(&mut builder, ir, api_module);
     Ok(builder.finish())
 }
 
@@ -554,7 +568,7 @@ fn generate_facade(
     b.line("(* The binding is split into one unit per api.json module (and per");
     b.line("   dependency slice of it for the types). This facade includes them all,");
     b.line("   so `Azul.Dom.body`, `Azul.Update.RefreshDom`, `Azul.az_dom`,");
-    b.line("   `Azul.ffi_az_dom_delete` and `Azul.azul_refany_get` all resolve. *)");
+    b.line("   `Azul.azDom_delete` and `Azul.azul_refany_get` all resolve. *)");
     b.blank();
     b.line("include Azul_loader");
     for u in type_units {
@@ -590,6 +604,69 @@ pub fn ocaml_ffi_type_name(name: &str) -> String {
     format!("az_{}", to_snake_case(name))
 }
 
+/// The `foreign` value of the one function of `class` with `kind`, or
+/// `None` when the class does not export that capability.
+fn binding_of(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String> {
+    ir.functions_for_class(class)
+        .find(|f| f.kind == kind)
+        .map(|f| functions::ocaml_binding_name(&f.c_name))
+}
+
+/// The IR's string type (`TypeCategory::String`): the one type a wrapper
+/// method takes as a plain OCaml `string` and converts on the way in.
+/// Category, not name, so an api.json rename travels with it.
+pub fn is_string_type(ir: &CodegenIR, type_name: &str) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| s.category == TypeCategory::String)
+}
+
+/// The name of the IR's host-data handle type (`TypeCategory::RefAny`),
+/// for the few places that must SPELL it (the `azul_refany_create` helper
+/// names its return type).
+pub fn refany_type_name(ir: &CodegenIR) -> Option<&str> {
+    ir.structs
+        .iter()
+        .find(|s| is_refany_type(&s.name, ir))
+        .map(|s| s.name.as_str())
+}
+
+/// The `foreign` value that deep-copies the host-data handle
+/// (`TypeCategory::RefAny`). Every wrapper that hands one to C clones
+/// it first, so the callee's `_delete` frees the copy and the caller
+/// keeps its own. Looked up by CATEGORY and KIND so an api.json
+/// rename of the type or the method travels with it.
+pub fn refany_clone_binding(ir: &CodegenIR) -> Option<String> {
+    let s = ir.structs.iter().find(|s| is_refany_type(&s.name, ir))?;
+    binding_of(ir, &s.name, FunctionKind::DeepCopy)
+}
+
+/// A type alias whose C form is an AGGREGATE - `union AzLayoutClearValue`,
+/// `struct AzPhysicalSizeU32` - rather than a scalar (`GLuint = u32`) or an
+/// opaque word. Those cross the ABI by value, so their OCaml view is a
+/// sealed `Ctypes.structure` like any other by-value type (see
+/// `types::emit_type_alias`) and every signature naming one must say
+/// `Ctypes.structure` too.
+///
+/// The rule is the IR's own `is_value_aggregate`, so this emitter and the C
+/// header cannot drift apart on which aliases are unions.
+pub fn alias_is_aggregate(ir: &CodegenIR, name: &str) -> bool {
+    let name = name.trim();
+    ir.find_type_alias(name).is_some() && ir.is_value_aggregate(name)
+}
+
+/// The `foreign` value that frees the IR's string type
+/// (`TypeCategory::String`). Used wherever a C entry point returns a
+/// string BY VALUE (`_toDbgString`): the bytes are copied into an
+/// OCaml `string` and the C buffer is freed on the spot, because no
+/// wrapper record and so no finaliser ever owns it.
+pub fn string_delete_binding(ir: &CodegenIR) -> Option<String> {
+    let s = ir
+        .structs
+        .iter()
+        .find(|s| s.category == TypeCategory::String)?;
+    binding_of(ir, &s.name, FunctionKind::Delete)
+}
+
 /// Convert an IR type name (`PascalCase`) to the user-facing wrapper
 /// record name (`lower_snake_case`, no prefix). Shadow-prone names
 /// get a `_wrapper` suffix instead of the `az_` prefix used at the
@@ -607,6 +684,8 @@ pub fn ocaml_wrapper_type_name(name: &str) -> String {
 }
 
 fn shadows_ocaml_primitive(s: &str) -> bool {
+    // That some of these spell an api.json method name (`array`) is a
+    // coincidence of English; nothing here reads api.json.
     matches!(
         s,
         "string"
@@ -615,6 +694,7 @@ fn shadows_ocaml_primitive(s: &str) -> bool {
             | "char"
             | "float"
             | "list"
+            // allow-api-name: OCaml's `array` type, not api.json's method.
             | "array"
             | "option"
             | "result"
@@ -737,11 +817,12 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
             // `type T = unit ptr` placeholders — those use the bare
             // name in both positions.
             if let Some(s) = ir.find_struct(trimmed) {
+                // `VecRef` is a sealed two-field structure like any other
+                // (see `types::should_emit_struct`), so it says
+                // `Ctypes.structure` here too.
                 if matches!(
                     s.category,
-                    super::ir::TypeCategory::Recursive
-                        | super::ir::TypeCategory::VecRef
-                        | super::ir::TypeCategory::DestructorOrClone
+                    super::ir::TypeCategory::Recursive | super::ir::TypeCategory::DestructorOrClone
                 ) {
                     return ocaml_ffi_type_name(trimmed);
                 }
@@ -765,6 +846,12 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
                     return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
                 }
                 return ocaml_ffi_type_name(trimmed);
+            }
+            // An aggregate alias is a sealed structure like any other
+            // by-value union; a scalar alias (`type az_gluint =
+            // Unsigned.UInt32.t`) and a callback typedef are their own name.
+            if alias_is_aggregate(ir, trimmed) {
+                return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
             }
             if ir.find_type_alias(trimmed).is_some()
                 || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
@@ -891,9 +978,7 @@ pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
     if let Some(s) = ir.find_struct(inner) {
         if matches!(
             s.category,
-            super::ir::TypeCategory::Recursive
-                | super::ir::TypeCategory::VecRef
-                | super::ir::TypeCategory::DestructorOrClone
+            super::ir::TypeCategory::Recursive | super::ir::TypeCategory::DestructorOrClone
         ) {
             return format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner));
         }
@@ -918,6 +1003,12 @@ pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
             );
         }
         return format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner));
+    }
+    if alias_is_aggregate(ir, inner) {
+        return format!(
+            "({} Ctypes.structure Ctypes_static.ptr)",
+            ocaml_ffi_type_name(inner)
+        );
     }
     if ir.find_type_alias(inner).is_some() || ir.callback_typedefs.iter().any(|c| c.name == inner) {
         format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner))
@@ -988,6 +1079,8 @@ pub fn sanitize_identifier(name: &str) -> String {
 }
 
 fn is_ocaml_reserved(s: &str) -> bool {
+    // `end` and `inherit` are keywords that happen to spell api.json method
+    // names too; this list is about the parser, not about the API.
     matches!(
         s,
         "and"
@@ -1001,6 +1094,7 @@ fn is_ocaml_reserved(s: &str) -> bool {
             | "done"
             | "downto"
             | "else"
+            // allow-api-name: OCaml keyword, not api.json's method.
             | "end"
             | "exception"
             | "external"
@@ -1012,6 +1106,7 @@ fn is_ocaml_reserved(s: &str) -> bool {
             | "if"
             | "in"
             | "include"
+            // allow-api-name: OCaml keyword, not api.json's method.
             | "inherit"
             | "initializer"
             | "land"

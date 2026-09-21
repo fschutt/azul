@@ -39,8 +39,10 @@ use super::{
             has_return, host_invoker_kinds, layout_callback_factory_info, to_snake_case,
             wrapper_name,
         },
+        managed_lang_helpers::is_refany_type,
     },
-    ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name, sanitize_identifier,
+    is_string_type, ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name,
+    refany_clone_binding, refany_type_name, sanitize_identifier,
 };
 
 // ============================================================================
@@ -57,6 +59,11 @@ pub fn callback_kind_label(wrapper: &str) -> String {
     let snake = to_snake_case(wrapper);
     match snake.strip_suffix("_callback") {
         Some(prefix) => prefix.to_string(),
+        // Every other callback kind is named `<Something>Callback` and keeps
+        // `<something>` as its label; the plain one has nothing left after
+        // the suffix, so its label is empty and its helper is
+        // `azul_register_callback`.
+        // allow-api-name: the un-suffixed wrapper has no other marker.
         None if snake == "callback" => String::new(),
         None => snake,
     }
@@ -108,7 +115,7 @@ fn regular(category: TypeCategory) -> bool {
 
 pub fn invoker_arg(arg: &FunctionArg, ir: &CodegenIR) -> InvokerArg {
     let t = arg.type_name.trim();
-    if t == "RefAny" {
+    if is_refany_type(t, ir) {
         return InvokerArg::Model;
     }
     if let Some(s) = ir.find_struct(t) {
@@ -149,10 +156,14 @@ pub fn invoker_arg_type(a: &InvokerArg) -> String {
 }
 
 /// The expression the invoker passes for its i-th `unit ptr` parameter.
-fn invoker_arg_expr(a: &InvokerArg, i: usize) -> String {
+fn invoker_arg_expr(a: &InvokerArg, i: usize, ir: &CodegenIR) -> String {
     match a {
+        // The engine owns the `RefAny` it passes in; the closure gets its own
+        // reference so the record's finaliser frees a clone, never the
+        // engine's value. The clone's `foreign` value comes off the IR.
         InvokerArg::Model => format!(
-            "(make_ref_any (ffi_az_ref_any_clone (Ctypes.from_voidp az_ref_any arg{})))",
+            "(make_ref_any ({} (Ctypes.from_voidp az_ref_any arg{})))",
+            refany_clone_binding(ir).unwrap_or_default(),
             i
         ),
         InvokerArg::TypedPtr { typ_value, .. } => {
@@ -350,16 +361,19 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
     builder.line("(* ───────────────────────────────────────────────────────────────── *)");
     builder.blank();
 
+    // The host-data handle type comes off the IR by category, so this
+    // helper keeps naming the right type if api.json renames it.
+    let refany = refany_type_name(ir).unwrap_or_default();
     builder.line("(* Wrap an arbitrary OCaml value in an AzRefAny. The value lives in the *)");
     builder.line("(* shared handle table; the destructor clears it on last-clone drop.    *)");
     builder.line(&format!(
         "let azul_refany_create (value : 'a) : {} =",
-        wrapper_return_type("RefAny", records)
+        wrapper_return_type(refany, records)
     ));
     builder.indent();
     builder.line("let id = _azul_alloc_handle value in");
     builder.line(&wrap_expr(
-        "RefAny",
+        refany,
         records,
         "_az_ref_any_new_host_handle (Unsigned.UInt64.of_int64 id)",
     ));
@@ -425,7 +439,16 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR, records: 
     builder.line("let len = Stdlib.String.length s in");
     builder.line("let buf = Ctypes.allocate_n Ctypes.char ~count:len in");
     builder.line("Stdlib.String.iteri (fun i c -> Ctypes.(buf +@ i) <-@ c) s;");
-    builder.line("ffi_az_string_from_utf8 (Ctypes.to_voidp buf) (Unsigned.Size_t.of_int len)");
+    // The IR carries two functions of this exact shape (`(ptr, len) ->
+    // String`) - the strict one and the lossy one - so only the name tells
+    // them apart, and a host string must never be silently replaced with
+    // U+FFFD.
+    // allow-api-name: the strict UTF-8 constructor, picked by name.
+    let from_utf8 = super::functions::ocaml_binding_name("AzString_fromUtf8");
+    builder.line(&format!(
+        "{} (Ctypes.to_voidp buf) (Unsigned.Size_t.of_int len)",
+        from_utf8
+    ));
     builder.dedent();
     builder.blank();
 
@@ -681,7 +704,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     } else {
         args.iter()
             .enumerate()
-            .map(|(i, a)| invoker_arg_expr(a, i))
+            .map(|(i, a)| invoker_arg_expr(a, i, ir))
             .collect()
     };
     let call = format!(
@@ -717,11 +740,15 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         .enumerate()
         .find_map(|(i, a)| {
             let t = a.type_name.trim();
+            // `log(level, message)` is the only way a callback can report
+            // anything to the host app's log, and nothing in the IR marks a
+            // method as "this is the logger".
             let f = ir.functions_for_class(t).find(|f| {
+                // allow-api-name: the diagnostic sink, found by name + shape.
                 f.method_name == "log"
                     && f.args.len() == 3
                     && f.is_receiver_arg(&f.args[0])
-                    && f.args[2].type_name.trim() == "String"
+                    && is_string_type(ir, &f.args[2].type_name)
             })?;
             let level = f.args[1].type_name.trim();
             ir.find_enum(level)?.variants.iter().find(|v| v.name == "Error")?;

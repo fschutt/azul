@@ -41,7 +41,7 @@
 //! Enum modules (`emit_enum_modules_for`) live in their own units, below the
 //! per-class modules, so every class module can name `<Enum>.t`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
@@ -50,8 +50,8 @@ use super::{
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
-            ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind,
-            FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
+            ArgRefKind, CallbackTypedefDef, CodegenIR, ConstantDef, EnumDef, EnumVariantKind,
+            FieldRefKind, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
         managed_host_invoker::{
             callback_typedef_for, host_invoker_kinds, is_callback_wrapper,
@@ -59,13 +59,15 @@ use super::{
         },
         managed_lang_helpers::is_refany_type,
     },
+    alias_is_aggregate,
     functions::ocaml_binding_name,
-    inner_pointer_form_type,
+    inner_pointer_form_type, is_string_type,
     managed::{
         callback_kind_label, invoker_arg, layout_factory_fn_name, register_fn_name, InvokerArg,
     },
     map_type_to_ocaml_typ, ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name,
-    sanitize_doc, sanitize_identifier, to_snake_case, unit_enum_module,
+    refany_clone_binding, sanitize_doc, sanitize_identifier, string_delete_binding, to_snake_case,
+    unit_enum_module,
 };
 
 // ============================================================================
@@ -207,6 +209,22 @@ pub fn emit_enum_modules_for(
         }
         emit_union_enum_module(builder, e, ir);
     }
+    // Monomorphized generic aliases (`CaretColorValue =
+    // CssPropertyValue<CaretColor>`) are real tagged unions in azul.h with
+    // their own entry points, but they live in `ir.type_aliases`, so
+    // `find_enum` never sees them and 119 of them had no surface at all -
+    // no equality, no debug string, no variant constructor, no free.
+    for ta in ir.type_aliases.iter().filter(|ta| belongs(&ta.name)) {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        // Only the aggregates: a scalar alias (`GLuint = u32`) has no
+        // entry points of its own and no `Ctypes.structure` view.
+        if !alias_is_aggregate(ir, &ta.name) {
+            continue;
+        }
+        emit_value_module(builder, ir, &ta.name);
+    }
     Ok(())
 }
 
@@ -330,8 +348,9 @@ enum ArgPass {
     Record(String),
     /// Owned `RefAny`: accept `ref_any`, pass a CLONE (the engine takes its
     /// own reference), so the caller's value stays usable - the same `data`
-    /// can go to several widgets.
-    RefAny,
+    /// can go to several widgets. Carries the clone's `foreign` value, which
+    /// `refany_clone_binding` reads off the IR.
+    RefAny(String),
     /// Owned host-invoker callback wrapper: accept the OCaml function
     /// (`host_fn`), register it with the host invoker and pass the result.
     HostFn {
@@ -390,10 +409,14 @@ impl ArgPlan {
                 } else {
                     None
                 };
-                if t == "String" {
+                if is_string_type(ir, t) {
                     ("string".to_string(), ArgPass::String, true)
                 } else if is_refany_type(t, ir) {
-                    ("ref_any".to_string(), ArgPass::RefAny, false)
+                    (
+                        "ref_any".to_string(),
+                        ArgPass::RefAny(refany_clone_binding(ir).unwrap_or_default()),
+                        false,
+                    )
                 } else if let Some(cb) = host_kind {
                     let (fn_sig, adapter) = host_fn(cb, ir, records);
                     (
@@ -430,7 +453,7 @@ impl ArgPlan {
     fn param(&self) -> String {
         match &self.pass {
             ArgPass::Record(r) => format!("({} : {})", self.id, r),
-            ArgPass::RefAny => format!("({} : ref_any)", self.id),
+            ArgPass::RefAny(_) => format!("({} : ref_any)", self.id),
             _ => self.id.clone(),
         }
     }
@@ -441,7 +464,7 @@ impl ArgPlan {
             ArgPass::String => format!("(azul_az_string {})", self.id),
             ArgPass::UnitEnum(m) => format!("({}.to_int {})", m, self.id),
             ArgPass::Record(_) => format!("{}.raw", self.id),
-            ArgPass::RefAny => format!("(ffi_az_ref_any_clone (Ctypes.addr {}.raw))", self.id),
+            ArgPass::RefAny(clone) => format!("({} (Ctypes.addr {}.raw))", clone, self.id),
             ArgPass::HostFn {
                 register,
                 adapter,
@@ -895,11 +918,11 @@ impl SmartCtor {
                     .args
                     .iter()
                     .filter(|a| {
-                        a.type_name.trim() == "RefAny" && matches!(a.ref_kind, ArgRefKind::Owned)
+                        is_refany_type(&a.type_name, ir) && matches!(a.ref_kind, ArgRefKind::Owned)
                     })
                     .count();
                 for a in &base_func.args {
-                    if a.type_name.trim() == "RefAny" && matches!(a.ref_kind, ArgRefKind::Owned) {
+                    if is_refany_type(&a.type_name, ir) && matches!(a.ref_kind, ArgRefKind::Owned) {
                         let label = if refany_count == 1 {
                             "data".to_string()
                         } else {
@@ -1170,9 +1193,16 @@ fn tag_helpers(s: &StructDef, ir: &CodegenIR, taken: &BTreeSet<String>) -> Vec<T
     let returns_class = |f: &FunctionDef| {
         f.return_type.as_deref().map(str::trim) == Some(s.name.as_str())
     };
+    // These two builders are matched by NAME on purpose: their shapes are
+    // not unique - a class can have several `(self, String) -> Self`
+    // builders (`with_id`, `with_class`) and a shape-only match would wire
+    // `~css` to whichever the IR lists first. Until api.json marks a builder
+    // with a role, the pair stays named.
+    // allow-api-name: the child builder, matched by name.
     let with_child = builder_named(s, ir, "with_child", |a| a.type_name.trim() == s.name)
         .map(|f| method_emission_name(f, ir));
-    let with_css = builder_named(s, ir, "with_css", |a| a.type_name.trim() == "String")
+    // allow-api-name: the css builder, matched by name (see above).
+    let with_css = builder_named(s, ir, "with_css", |a| is_string_type(ir, &a.type_name))
         .map(|f| method_emission_name(f, ir));
     let mut out: Vec<TagHelper> = Vec::new();
     let mut names: BTreeSet<String> = BTreeSet::new();
@@ -1184,7 +1214,8 @@ fn tag_helpers(s: &StructDef, ir: &CodegenIR, taken: &BTreeSet<String>) -> Vec<T
         if !is_ctor_kind(f.kind) || !returns_class(f) || f.args.len() != 1 {
             continue;
         }
-        if f.args[0].type_name.trim() != "String" || !matches!(f.args[0].ref_kind, ArgRefKind::Owned)
+        if !is_string_type(ir, &f.args[0].type_name)
+            || !matches!(f.args[0].ref_kind, ArgRefKind::Owned)
         {
             continue;
         }
@@ -1290,14 +1321,22 @@ impl<'a> ClassPlan<'a> {
             .collect();
         let smart = SmartCtor::build(s, ir, records);
         let mut taken: BTreeSet<String> = methods.iter().map(|m| m.name.clone()).collect();
+        // Reserved so a tag helper cannot shadow one. Every name below is
+        // an OCaml value this emitter defines itself on each class module;
+        // none is read from api.json.
         for fixed in [
             "create",
             "equal",
             "hash",
+            // allow-api-name: our own `to_string`.
             "to_string",
+            // allow-api-name: our own debug-string fallbacks.
+            "debug_string",
+            "to_dbg_string",
             "compare",
             "partial_compare",
             "to_list",
+            // allow-api-name: our own `to_array`.
             "to_array",
         ] {
             taken.insert(fixed.to_string());
@@ -1361,9 +1400,9 @@ impl<'a> ClassPlan<'a> {
             builder.line("(* Hash routed through the C ABI. *)");
             builder.line("val hash : t -> int");
         }
-        if ocaml_has_to_string(s, ir) {
+        if let Some(name) = ocaml_debug_string_name(s, ir) {
             builder.line("(* Debug rendering routed through the C ABI. *)");
-            builder.line("val to_string : t -> string");
+            builder.line(&format!("val {} : t -> string", name));
         }
         if ocaml_has_compare(s, ir) {
             builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
@@ -1797,39 +1836,27 @@ fn emit_ocaml_vec_to_array_if_primitive(
     builder.blank();
 }
 
-/// Phase I.3.6 (OCaml): emit `to_string` per-module helper routed
-/// through `Az<X>_toDbgString`. Decodes the returned AzString via the
-/// existing `string_from_ptr` pattern from String.to_string. Skips the
-/// String wrapper itself (already has the vec-direct decoder).
+/// The per-module debug-string helper routed through
+/// `Az<X>_toDbgString`, under the name `ocaml_debug_string_name` picks
+/// (`to_string`, or `debug_string` where the class already owns that
+/// name with a different function). It decodes the returned AzString
+/// with the same `string_from_ptr` pattern `String.to_string` uses, and
+/// frees it: the C side returns it by value and nothing else owns it.
 fn emit_ocaml_to_string_if_supported(
     builder: &mut CodeBuilder,
     s: &StructDef,
     ir: &CodegenIR,
     has_wrapper: bool,
 ) {
-    if matches!(s.category, TypeCategory::String) {
+    let Some(name) = ocaml_debug_string_name(s, ir) else {
         return;
-    }
+    };
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
-    if !has_dbg {
-        return;
-    }
-    // Skip when the user-facing surface already defines `to_string`
-    // (e.g. `AzUrl_toString` maps to `Url.to_string : t -> az_string`).
-    // We can't override without breaking the .mli signature.
-    if ir
-        .functions
-        .iter()
-        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
-    {
-        return;
-    }
     let self_t = if has_wrapper { "t.raw" } else { "t" };
     let raw_dbg = ocaml_binding_name(&dbg_sym);
-    let raw_string_delete = ocaml_binding_name("AzString_delete");
+    let raw_string_delete = string_delete_binding(ir).unwrap_or_default();
     builder.line(&format!("(* String repr routed through {}. *)", dbg_sym));
-    builder.line("let to_string (t : t) : string =");
+    builder.line(&format!("let {} (t : t) : string =", name));
     builder.indent();
     builder.line(&format!(
         "let __s = {} (Ctypes.addr {}) in",
@@ -2017,37 +2044,58 @@ fn polymorphic_variant_literal(name: &str) -> String {
 /// `type t = az_x Ctypes.structure` + `equal` / `hash` / `to_string` /
 /// `compare` / `partial_compare` / `clone` / `default`.
 fn emit_union_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
+    emit_value_module(builder, ir, &e.name);
+}
+
+/// The module of one by-value C type that is NOT a wrapper record: a
+/// tagged union, or a monomorphized generic alias that is one
+/// (`LayoutClearValue = CssPropertyValue<LayoutClear>` is
+/// `union AzLayoutClearValue` in azul.h).
+///
+/// These types have no record and so no finaliser, and nothing else in
+/// the binding wraps them, so the module carries everything azul.h
+/// exports for the type: the derives it declares, its `delete`, and its
+/// variant constructors.
+fn emit_value_module(builder: &mut CodeBuilder, ir: &CodegenIR, class: &str) {
     let caps: Vec<&FunctionDef> = ir
-        .functions_for_class(&e.name)
-        .filter(|f| {
-            matches!(
-                f.kind,
-                FunctionKind::PartialEq
-                    | FunctionKind::Hash
-                    | FunctionKind::DebugToString
-                    | FunctionKind::Default
-                    | FunctionKind::DeepCopy
-                    | FunctionKind::Cmp
-                    | FunctionKind::PartialCmp
-            )
-        })
+        .functions_for_class(class)
+        .filter(|f| derive_value_name(f.kind).is_some())
         .collect();
-    if caps.is_empty() {
+    // Anything at all to put in the module: a derive, a variant
+    // constructor, or one of the class's own api.json entry points.
+    let has_members = ir.functions_for_class(class).any(|f| {
+        matches!(
+            f.kind,
+            FunctionKind::EnumVariantConstructor
+                | FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        )
+    });
+    if caps.is_empty() && !has_members {
         return;
     }
-    let module = ocaml_module_name(&e.name);
-    let ffi = ocaml_ffi_type_name(&e.name);
+    let module = ocaml_module_name(class);
+    let ffi = ocaml_ffi_type_name(class);
     builder.line(&format!("module {} = struct", module));
     builder.indent();
     builder.line(&format!("type t = {} Ctypes.structure", ffi));
+    let mut taken: BTreeSet<String> = BTreeSet::new();
     let mut seen: Vec<FunctionKind> = Vec::new();
     for f in caps {
         if seen.contains(&f.kind) {
             continue;
         }
         seen.push(f.kind);
+        // The name this derive takes, so a variant constructor of the same
+        // name below is renamed instead of silently shadowing it.
+        if let Some(n) = derive_value_name(f.kind) {
+            taken.insert(n.to_string());
+        }
         let raw = ocaml_binding_name(&f.c_name);
         match f.kind {
+            FunctionKind::Delete => emit_union_free(builder, &raw),
             FunctionKind::Default => builder.line(&format!("let default () : t = {} ()", raw)),
             FunctionKind::DeepCopy => {
                 builder.line(&format!("let clone (t : t) : t = {} (Ctypes.addr t)", raw))
@@ -2090,21 +2138,287 @@ fn emit_union_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
                 raw
             )),
             FunctionKind::DebugToString => {
-                emit_az_string_decoder(builder, "to_string (t : t)", &format!("{} (Ctypes.addr t)", raw));
+                emit_az_string_decoder(
+                    builder,
+                    ir,
+                    "to_string (t : t)",
+                    &format!("{} (Ctypes.addr t)", raw),
+                );
             }
             _ => {}
         }
     }
+    emit_variant_constructors(builder, ir, class, &mut taken);
+    emit_class_entry_points(builder, ir, class, &mut taken);
     builder.dedent();
     builder.line("end");
     builder.blank();
 }
 
+/// The class's OWN api.json entry points - its constructors, static
+/// methods and instance methods.
+///
+/// A tagged union is an api.json CLASS like any other, and the biggest
+/// ones are mostly class API rather than variants: `CssProperty` declares
+/// 229 constructors (`CssProperty.text_color(StyleTextColor)`) and three
+/// methods (`value`, `format_css`, `is_initial`), `SvgPathElement`
+/// fourteen methods, `Instant` and `Duration` their clocks. None of them
+/// is a derive or a variant constructor, so before this the whole
+/// `CssProperty` family was declared and reachable from nowhere.
+///
+/// Receiver: a `&self` / `&mut self` first argument becomes the module's
+/// `t` and is passed as `Ctypes.addr t` (a by-value receiver, as
+/// `AnimationTiming.evaluate` has, is passed as the value); an entry
+/// point without one takes no `t`.
+///
+/// Values stay RAW here. This layer sits below `azul_records_*` and
+/// `azul_managed` (OCaml compilation units cannot be mutually
+/// recursive), so a returned wrapped struct comes back as its
+/// `Ctypes.structure` rather than a finalised record, and an argument the
+/// class layer would take as an OCaml `string` is the raw `az_string`.
+/// The caller therefore owns anything returned: free it through that
+/// type's own `delete`.
+fn emit_class_entry_points(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    class_name: &str,
+    taken: &mut BTreeSet<String>,
+) {
+    let mut first = true;
+    for f in ir.functions_for_class(class_name).filter(|f| {
+        matches!(
+            f.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        )
+    }) {
+        if first {
+            builder.line("(* The class's own api.json entry points. Values are raw: this *)");
+            builder.line("(* layer is below the records, so nothing returned is finalised. *)");
+            first = false;
+        }
+        let mut name = idiomatic_method_name(&f.method_name);
+        while !taken.insert(name.clone()) {
+            name.push_str("_fn");
+        }
+        let receiver = f.args.first().is_some_and(|a| f.is_receiver_arg(a));
+        let mut params: Vec<String> = Vec::new();
+        let mut applied: Vec<String> = Vec::new();
+        for (i, a) in f.args.iter().enumerate() {
+            if i == 0 && receiver {
+                params.push("(t : t)".to_string());
+                applied.push(match a.ref_kind {
+                    // The union crosses by value; every other receiver
+                    // spelling is a pointer to the caller's bytes.
+                    ArgRefKind::Owned => "t".to_string(),
+                    _ => "(Ctypes.addr t)".to_string(),
+                });
+            } else {
+                params.push(format!("p{}", i));
+                applied.push(format!("p{}", i));
+            }
+        }
+        if params.is_empty() {
+            params.push("()".to_string());
+            applied.push("()".to_string());
+        }
+        builder.line(&format!(
+            "let {} {} = {} {}",
+            name,
+            params.join(" "),
+            ocaml_binding_name(&f.c_name),
+            applied.join(" ")
+        ));
+    }
+}
+
+/// The api.json constants of one module, as `module <Class>Constants`.
+///
+/// api.json declares them on a class (`GlContextPtr_ACCUM_ALPHA_BITS`), and
+/// that class already has a module in the api layer, so the constants get
+/// their own `<Class>Constants` module rather than shadowing it through the
+/// facade's includes.
+///
+/// An OCaml value must start lowercase, so the C spelling is lowercased
+/// whole (`ACCUM_ALPHA_BITS` -> `accum_alpha_bits`), and the four names
+/// that land on an OCaml keyword (`true`, `false`, `and`, `or`) get the
+/// usual trailing underscore.
+///
+/// The value is typed as the api.json type says, not as a plain `int`, so
+/// a constant can be passed straight to the entry point it belongs to:
+/// `Gl.enable (GlContextPtrConstants.blend)` needs an `Unsigned.UInt32.t`,
+/// and an `int` there would not compile.
+pub fn emit_constants_for(builder: &mut CodeBuilder, ir: &CodegenIR, api_module: &str) {
+    let mut by_class: BTreeMap<&str, Vec<&ConstantDef>> = BTreeMap::new();
+    for c in ir.constants.iter().filter(|c| c.module == api_module) {
+        if let Some((class, _)) = c.name.split_once('_') {
+            by_class.entry(class).or_default().push(c);
+        }
+    }
+    for (class, consts) in by_class {
+        builder.line(&format!(
+            "(* The `{}` constants of api.json, typed as api.json types them. *)",
+            class
+        ));
+        builder.line(&format!(
+            "module {}Constants = struct",
+            ocaml_module_name(class)
+        ));
+        builder.indent();
+        for c in consts {
+            let Some((_, bare)) = c.name.split_once('_') else {
+                continue;
+            };
+            let name = sanitize_identifier(&bare.to_ascii_lowercase());
+            let (ocaml_type, expr) = constant_value(&c.type_name, c.value.trim());
+            builder.line(&format!("let {} : {} = {}", name, ocaml_type, expr));
+        }
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
+}
+
+/// `(OCaml type, expression)` of one constant.
+///
+/// The unsigned widths are `Unsigned.*` values, the same views the FFI
+/// signatures use for `u8` / `u32` / `u64`, so a constant goes straight
+/// into the call it belongs to.
+///
+/// The literal keeps api.json's own spelling (`0x0D5B` is a valid OCaml
+/// int literal, and hex is how the GL documentation writes these) as long
+/// as it fits OCaml's 63-bit `int`. The one that does not - the all-ones
+/// `u64` - goes through `of_int64` on a hex literal, which OCaml accepts
+/// for the whole 64-bit range (it wraps to `-1L` and `of_int64` reads the
+/// bits back unsigned). `Int64.of_string` on the DECIMAL form would raise:
+/// 18446744073709551615 is out of `int64` range.
+fn constant_value(type_name: &str, value: &str) -> (String, String) {
+    let as_u64 = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+        .or_else(|| value.parse::<u64>().ok());
+    let fits_ocaml_int = as_u64.is_some_and(|v| v <= i64::MAX as u64 / 2);
+    let unsigned = |width: &str| {
+        let module = format!("Unsigned.{}", width);
+        let expr = match (fits_ocaml_int, as_u64) {
+            (true, _) => format!("{}.of_int {}", module, value),
+            (false, Some(v)) => format!("{}.of_int64 0x{:X}L", module, v),
+            (false, None) => format!("{}.of_string \"{}\"", module, value),
+        };
+        (format!("{}.t", module), expr)
+    };
+    match type_name.trim() {
+        "u8" => unsigned("UInt8"),
+        "u16" => unsigned("UInt16"),
+        "u32" => unsigned("UInt32"),
+        "u64" => unsigned("UInt64"),
+        "usize" => unsigned("Size_t"),
+        "i64" | "isize" => ("int64".to_string(), format!("{}L", value)),
+        "i32" => ("int32".to_string(), format!("{}l", value)),
+        "f32" | "f64" => ("float".to_string(), value.to_string()),
+        "bool" => ("bool".to_string(), value.to_string()),
+        // Anything else api.json may grow: an OCaml int, which every
+        // remaining integer type of the IR fits into on a 64-bit host.
+        _ => ("int".to_string(), value.to_string()),
+    }
+}
+
+/// The OCaml value name each derive capability is emitted under inside an
+/// enum module. ONE table: the emitter above writes the value, the variant
+/// constructors below read it to see which names are already taken (OCaml's
+/// last `let` wins, so an unnoticed clash would delete a capability from the
+/// module rather than fail the build).
+fn derive_value_name(kind: FunctionKind) -> Option<&'static str> {
+    // Keyed by IR FunctionKind; nothing here reads an api.json name.
+    Some(match kind {
+        FunctionKind::Default => "default",
+        FunctionKind::DeepCopy => "clone",
+        FunctionKind::PartialCmp => "partial_compare",
+        FunctionKind::Cmp => "compare",
+        FunctionKind::PartialEq => "equal",
+        FunctionKind::Hash => "hash",
+        // allow-api-name: our own `to_string`, keyed by IR FunctionKind.
+        FunctionKind::DebugToString => "to_string",
+        FunctionKind::Delete => "delete",
+        _ => return None,
+    })
+}
+
+/// `let delete t = Az<T>_delete (addr t)`.
+///
+/// A tagged union crosses the FFI as a bare `Ctypes.structure`, not as a
+/// wrapper record, so no `Gc.finalise` is armed for it and this is the only
+/// thing that ever frees what it owns. Call it exactly once, and never on a
+/// value already handed to a C entry point by value - that call took
+/// ownership of the bytes.
+fn emit_union_free(builder: &mut CodeBuilder, raw: &str) {
+    builder.line("(* Frees what this value owns - no finaliser is armed for a raw union. *)");
+    builder.line(&format!("let delete (t : t) : unit = {} (Ctypes.addr t)", raw));
+}
+
+/// The variant constructors of a tagged union, as module values:
+/// `let exact p0 = azStyleTextColorValue_exact p0`, `let auto () =
+/// azStyleTextColorValue_auto ()`.
+///
+/// Without these a union can only be built by writing its tag byte by hand,
+/// which is why `CssProperty`, `NodeType` and every `Option*` / `Result*`
+/// were constructible from C and from no other binding surface.
+///
+/// Each constructor MOVES its payload into the union (the C entry point
+/// takes it by value), so the payload must not be freed or reused after the
+/// call; `delete` on the union releases the whole thing.
+///
+/// The parameters carry no type annotation on purpose: the `foreign` value
+/// they are applied to fixes every type, and this layer has no `.mli` that
+/// a hand-written annotation would have to match.
+fn emit_variant_constructors(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    class_name: &str,
+    taken: &mut BTreeSet<String>,
+) {
+    let mut first = true;
+    for f in ir
+        .functions_for_class(class_name)
+        .filter(|f| f.kind == FunctionKind::EnumVariantConstructor)
+    {
+        if first {
+            builder.line("(* Variant constructors. Each MOVES its payload into the union. *)");
+            first = false;
+        }
+        let mut name = sanitize_identifier(&to_snake_case(&f.method_name));
+        while !taken.insert(name.clone()) {
+            name.push_str("_variant");
+        }
+        let params: Vec<String> = (0..f.args.len()).map(|i| format!("p{}", i)).collect();
+        let applied = if params.is_empty() {
+            "()".to_string()
+        } else {
+            params.join(" ")
+        };
+        builder.line(&format!(
+            "let {} {} = {} {}",
+            name,
+            applied,
+            ocaml_binding_name(&f.c_name),
+            applied
+        ));
+    }
+}
+
 /// `let <header> : string = <decode the AzString the expression returns>`.
 /// The AzString is returned by value and owns its heap buffer; nothing else
 /// frees it, so it is deleted here once the bytes are copied out.
-fn emit_az_string_decoder(builder: &mut CodeBuilder, header: &str, az_string_expr: &str) {
-    let del = ocaml_binding_name("AzString_delete");
+fn emit_az_string_decoder(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    header: &str,
+    az_string_expr: &str,
+) {
+    let del = string_delete_binding(ir).unwrap_or_default();
     builder.line(&format!("let {} : string =", header));
     builder.indent();
     builder.line(&format!("let __s = {} in", az_string_expr));
@@ -2189,7 +2503,7 @@ fn emit_unit_enum_module(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
                 cell("x")
             )),
             FunctionKind::DebugToString => {
-                emit_az_string_decoder(builder, "to_string (x : t)", &format!("{} {}", raw, cell("x")));
+                emit_az_string_decoder(builder, ir, "to_string (x : t)", &format!("{} {}", raw, cell("x")));
             }
             FunctionKind::Cmp => {
                 builder.line("let compare (a : t) (b : t) : int =");
@@ -2289,20 +2603,44 @@ fn ocaml_has_hash(s: &StructDef, ir: &CodegenIR) -> bool {
     s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == sym)
 }
 
-/// Does this class get a module-level `to_string` routed through
-/// `_toDbgString`? Not when it IS the string type, and not when the ordinary
-/// surface already spells `to_string` - overriding would break the signature.
-fn ocaml_has_to_string(s: &StructDef, ir: &CodegenIR) -> bool {
-    if matches!(s.category, TypeCategory::String) {
-        return false;
-    }
+/// The name this class's `_toDbgString` is emitted under, or `None` when
+/// the class does not export one.
+///
+/// Normally `to_string`. Three classes already own that name with a
+/// DIFFERENT function - `Json.to_string` and `Url.to_string` are api.json
+/// methods that serialise, and the `String` wrapper decodes its own bytes -
+/// and Rust's `Debug` rendering is not the same value, so it is a second
+/// accessor rather than a duplicate: it takes `debug_string`, which is what
+/// Ruby (`inspect`), Node / C# (`toDebugString`) and Kotlin (`debugString`)
+/// each did with the same clash.
+///
+/// One function, two callers: the `.mli` writes the `val` and the `.ml` the
+/// `let` from this same answer, so the interface can never name something
+/// the implementation did not define.
+fn ocaml_debug_string_name(s: &StructDef, ir: &CodegenIR) -> Option<&'static str> {
     let sym = format!("Az{}_toDbgString", s.name);
     if !(s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == sym)) {
-        return false;
+        return None;
     }
-    !ir.functions
-        .iter()
-        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
+    // The string type decodes its own bytes under `to_string` (a wrapper
+    // method, not an api.json one), so the name is taken there too.
+    let own_surface = |name: &str| {
+        // allow-api-name: the string type's own decoder owns `to_string`.
+        (matches!(s.category, TypeCategory::String) && name == "to_string")
+            || ir
+                .functions
+                .iter()
+                // Compared against the OCaml name this emitter is about to
+                // define, after `idiomatic_method_name` mapped the api.json
+                // one onto it: a collision check, not a behaviour switch.
+                .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == name)
+    };
+    // The OCaml names this emitter may define, in order of preference; the
+    // find below asks whether the CLASS already took one.
+    // allow-api-name: these three are our names, not api.json's.
+    ["to_string", "debug_string", "to_dbg_string"]
+        .into_iter()
+        .find(|candidate| !own_surface(candidate))
 }
 
 /// Does this class get `partial_compare`? Only when it exports `_partialCmp`
