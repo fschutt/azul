@@ -80,14 +80,15 @@ DYLD_LIBRARY_PATH=. ./hello-world   # macOS
 LD_LIBRARY_PATH=. ./hello-world     # Linux
 ```
 
-The library path **must be absolute** (`-L$PWD`, not `-L.`): Crystal runs
+The library path must be absolute (`-L$PWD`, not `-L.`): Crystal runs
 the linker from its own cache directory, so a relative `-L.` points
 there and the link fails. The binary embeds no rpath, which
 is why the run step needs `LD_LIBRARY_PATH=.` / `DYLD_LIBRARY_PATH=.`.
 
-### Manual Compilation (Without Shards)
+### Manual Compilation
 
-If you prefer a single-file script without a `shard.yml`, you can manually download the single-file wrapper to a `lib/` folder:
+If you prefer a single-file script without a `shard.yml`, you can manually download 
+the single-file wrapper to a `lib/` folder:
 
 ```sh
 mkdir -p lib && curl -o lib/azul.cr https://azul.rs/ui/release/$VERSION/lib/azul.cr
@@ -107,11 +108,13 @@ cargo run -p azul-doc --release -- codegen all
 cargo build -p azul-dll --release --features build-dll
 ```
 
-Notice the required `--features build-dll`, as this is a flag to "build the DLL, don't link to it". The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings end up at `target/codegen/`: `azul.cr` is the one-file binding, and `target/codegen/crystal/` is the same code as a shard (`shard.yml` + `src/`). Copy that directory to `lib/azul/` and `require "azul"` picks it up the same way.
+Notice the required `--features build-dll`. The DLL lands in
+`target/release/libazul.{so,dylib}` (or `azul.dll`). The bindings end up in
+the `target/codegen/` folder: `azul.cr` is the one-file binding, and 
+`target/codegen/crystal/` is the same code as a shard (`shard.yml` + `src/`). 
+Copy that directory to `lib/azul/` and `require "azul"` picks it up the same way.
 
 ## Simple "Counter" Example
-
-This is the exact program shipped as `examples/crystal/hello-world.cr`:
 
 ```crystal
 require "azul"
@@ -150,27 +153,28 @@ app = Azul::App.new(Counter.new, Azul::AppConfig.new)
 app.run(window)
 ```
 
-1. **The model is a plain class.** `Azul::App.new(Counter.new, ...)`
-   hands any Crystal object to the framework. Crystal's garbage collector
-   cannot see libazul's heap, so the binding keeps every object and
-   callback that libazul references in a table (`Azul::Handles`) and passes
-   libazul only a numeric id. The entry is removed when libazul releases
-   its last reference.
-2. **Callbacks are methods that take the model as its own type.**
-   `->on_click(Counter, Azul::CallbackInfo)` passes the top-level method.
-   `with_on_click(counter, ...)` upcasts `counter` into a `RefAny`,
-   libazul's type-erased, reference-counted handle; on a click, the
-   binding's C trampoline downcasts that `RefAny` back to `Counter` (a
-   checked cast) and calls `on_click` with it. Handing the same `counter`
-   to several callbacks shares one object: a `RefAny` clone is another
-   reference to it, not a copy. `layout` gets its `Counter` the same way.
-3. **Crystal idioms.** Enum arguments accept symbols
-   (`with_button_type(:primary)`) and strings convert to `AzString` on the
-   way in.
+## Binding Internals
+
+Internally, Azul wraps the object returned by `Counter.new` in a `Azul::Handles`
+table and only stores that numeric ID, then uses it in the automatic downcasting
+(before invoking the `def layout` with it). This is relatively standard practice 
+for GC languages, so that the garbage collector doesn't delete the object while 
+it's still needed for the next `layout()` call.
+
+Additionally, callbacks are methods that take the model as its own type, such as
+`->on_click(Counter, Azul::CallbackInfo)` - this way we know exactly what we need to
+downcast to again when invoking the callback.
+
+Handing the same `counter` to several callbacks shares one object: a `RefAny` clone 
+is another reference to it, not a copy. `layout` gets its `Counter` the same way.
+
+The bindings allow you to use native Crystal symbols as enum arguments
+(`with_button_type(:primary)`) and strings convert to `AzString` automatically.
 
 ## Build and run
 
- From the directory containing your `shard.yml` and the native library, build and run your application:
+ From the directory containing your `shard.yml` and the native library, 
+ build and run your application:
 
 ```sh
 # Linux
@@ -186,17 +190,25 @@ crystal build hello-world.cr --link-flags "$PWD\azul.dll.lib"
 .\hello-world.exe
 ```
 
-On macOS the five `-framework` flags are required: `libazul` calls into
-AppKit, OpenGL and CoreText, and a link without them fails with undefined
-symbols naming those frameworks. Add `--release` for an optimized build;
-the first build of `azul.cr` takes a few seconds, later builds hit
-Crystal's cache.
+On macOS the five `-framework` flags are required. Add `--release` for 
+an optimized build; the first build of `azul.cr` takes a few seconds.
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
 1. `app.run` opens a native window and runs `layout` once with your `Counter`.
 2. The returned `Dom` is styled, laid out, and rendered.
-3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your model mutably, runs `on_click`, observes the `Azul::Update::RefreshDom` return, and re-invokes the layout callback.
-4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
+3. The framework then continuously queries whether anything matches the event filter 
+   set up in the `Dom`. On click, the framework borrows your model mutably, runs `on_click`, 
+   observes the `Azul::Update::RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's `Dom` and the current one, 
+   and only re-updates and re-paints the counter, not the entire window.
 
-Congratulations - once you've got the hello-world example running, you've already mastered 80% of the framework. As you might have guessed, more complex UI and styling are only composing more Dom objects together and working with the various event filters. To make this more streamlined, you can now start reading about the [architecture patterns](../architecture.md) or explore what [methods the `Dom` has to offer](../dom.md). See you in the next tutorial!
+Congratulations - once you've got the hello-world example running, you've already mastered 
+80% of the framework. As you might have guessed, more complex UI and styling are only composing 
+more Dom objects together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or explore 
+what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!
