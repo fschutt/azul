@@ -1,10 +1,23 @@
+# The LOCAL manifest: it points at the shard `azul-doc codegen` writes, so
+# this example builds straight out of a checkout.
+#
+# What a reader gets is the git form, published by
+# scripts/build_registry_mirrors.sh as ui/release/<version>/shard.yml:
+#
+#   dependencies:
+#     azul:
+#       git: https://azul.rs/ui/crystal.git
+#       version: ~> <version>
+#
+# Both resolve to the same shard. A concrete version matters in the published
+# one: `~> $VERSION` is a placeholder the website substitutes for the reader,
+# and shards cannot resolve it verbatim.
 name: hello_world
 version: 0.1.0
 
 dependencies:
   azul:
-    git: https://azul.rs/ui/crystal.git
-    version: ~> $VERSION
+    path: ../../target/codegen/crystal
 
 targets:
   hello-world:

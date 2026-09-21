@@ -35,12 +35,13 @@ the generated API bindings which wrap the C API in ordinary Crystal classes.
 First, you need to install Crystal: `brew install crystal` on macOS, or install it 
 from [crystal-lang.org](https://crystal-lang.org/install/).
 
-The preferred way to manage dependencies in Crystal is using `shards`. Azul provides 
-a pre-packaged shard containing the generated API bindings.
+Dependencies in Crystal are managed with `shards`, and Azul publishes the
+generated binding as a shard in a git repository - the same way the Homebrew
+tap and the Scoop bucket are served. `shards install` clones it into `lib/`,
+which is where `require "azul"` looks.
 
-The preferred way to manage dependencies in Crystal is using `shards`. Azul provides a pre-packaged shard containing the generated API bindings, and a pre-configured `shard.yml` to get you started quickly.
-
-Create a new directory for your project and download the project files:
+Create a directory for your project and download the manifest and the
+example:
 
 ```sh
 mkdir hello-world && cd hello-world
@@ -48,7 +49,9 @@ curl -O https://azul.rs/ui/release/$VERSION/shard.yml
 curl -O https://azul.rs/ui/release/$VERSION/hello-world.cr
 ```
 
-Next, download the Azul shard and the native library for your platform into the project root:
+The manifest declares `azul` as a git dependency on
+`https://azul.rs/ui/crystal.git`. The shard is the *binding* only - the native
+library is a separate download, because it is platform-specific:
 
 ```sh
 # macOS
@@ -60,10 +63,21 @@ curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 ```
 
-Now, run `shards install` to link the dependency into the `lib/` folder:
+Now `shards install` clones the shard into `lib/azul/`, and `crystal build`
+compiles against it:
 
 ```sh
 shards install
+
+# macOS
+crystal build hello-world.cr --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText"
+# Linux
+crystal build hello-world.cr --link-flags "-L$PWD"
+# Windows
+crystal build hello-world.cr --link-flags "azul.dll.lib"
+
+DYLD_LIBRARY_PATH=. ./hello-world   # macOS
+LD_LIBRARY_PATH=. ./hello-world     # Linux
 ```
 
 The library path **must be absolute** (`-L$PWD`, not `-L.`): Crystal runs
