@@ -41,12 +41,14 @@
 //!
 //! ## What is and is NOT skipped
 //!
-//! Skipped (matches the Lua / PHP filters):
+//! Skipped by the wrapper layer (they are still registered with koffi
+//! and still declared in the FFI layer, so `azul.__lib` reaches them):
 //!
 //! - `TypeCategory::Recursive`        (infinite-size types)
-//! - `TypeCategory::VecRef`           (raw slice pointers)
-//! - `TypeCategory::Boxed`            (internal heap wrappers)
-//! - `TypeCategory::GenericTemplate`  (parameterised shells)
+//! - `TypeCategory::VecRef`           (borrowed slices over memory the CALLER owns; a wrapper
+//!   class would register a finalizer over someone else's buffer)
+//! - `TypeCategory::GenericTemplate`  (parameterised shells — their MONOMORPHIZATIONS do get
+//!   wrapper classes, see `wrappers::emit_alias_wrapper`)
 //! - `TypeCategory::DestructorOrClone`(internal callback typedefs)
 //! - `TypeCategory::CallbackTypedef`  (function-pointer typedefs; user-facing CallbackDataPair
 //!   wrappers ARE emitted, and consumers wrap their JS callbacks via `koffi.proto(...)`)
@@ -54,8 +56,14 @@
 //! Emitted with full wrapper treatment:
 //!
 //! - `TypeCategory::Regular` and `TypeCategory::CallbackDataPair`
+//! - `TypeCategory::Boxed` (`GlContextPtr`, `ImageRef`, `Texture`, `FontRef`, `Svg`): a boxed
+//!   payload is an implementation detail, not a reason to hide the whole OpenGL and image API
+//! - Monomorphized generic aliases (`CaretColorValue = CssPropertyValue<CaretColor>`), which are
+//!   real C unions with their own exported derives
 //! - Unit-only enums become flat constant tables (`azul.LayoutAxis.Horizontal`)
 //! - Tagged-union enums get tag constants + per-variant predicates
+//! - api.json constants become frozen tables (`azul.Constants.GlContextPtr.TEXTURE_2D`, also
+//!   reachable as `GlContextPtr.Constants.TEXTURE_2D`)
 //!
 //! ## koffi parser tolerance vs. LuaJIT
 //!
@@ -787,6 +795,12 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("// JS string <-> AzString helpers.");
     b.line("_azString,");
     b.line("_azStringDecode,");
+    if !ir.constants.is_empty() {
+        b.line("// Constant tables, keyed by the class api.json declares them on");
+        b.line("// (`azul.Constants.GlContextPtr.TEXTURE_2D`). Each owning class also");
+        b.line("// carries its own table as a static.");
+        b.line("Constants,");
+    }
     // List wrapper class names
     for s in &ir.structs {
         if !wrappers::should_emit_struct(s) {
@@ -799,6 +813,14 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
             continue;
         }
         b.line(&format!("{},", sanitize_export_name(&e.name)));
+    }
+    // Monomorphized generic aliases (`CaretColorValue`, `BoxOrStaticString`):
+    // real C types with their own wrapper class, see `emit_alias_wrapper`.
+    for ta in &ir.type_aliases {
+        if !wrappers::should_emit_alias(ta, ir) {
+            continue;
+        }
+        b.line(&format!("{},", sanitize_export_name(&ta.name)));
     }
     b.dedent();
     b.line("};");

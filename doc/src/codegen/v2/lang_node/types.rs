@@ -127,6 +127,87 @@ pub fn generate_type_registrations(b: &mut CodeBuilder, ir: &CodegenIR) {
     }
 
     b.blank();
+    generate_constants(b, ir);
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// api.json declares constants on an owning class (`GlContextPtr_ACCUM`
+/// is `ACCUM` on `GlContextPtr`) and gives each a type and a literal
+/// value. They are compile-time numbers — the OpenGL enum values — so
+/// they need no FFI call and no type registration: one frozen table per
+/// owning class, which `wrappers::emit_constants_static` then hangs off
+/// that class as `GlContextPtr.Constants.TEXTURE_2D`.
+///
+/// The table is keyed by class rather than flattened into one namespace
+/// so a second class growing constants cannot collide with the first.
+/// A 64-bit value is emitted as a BigInt literal: `0xFFFFFFFFFFFFFFFF`
+/// is not representable as a JS Number and would round to 2^64.
+fn generate_constants(b: &mut CodeBuilder, ir: &CodegenIR) {
+    if ir.constants.is_empty() {
+        return;
+    }
+    b.line("// ----------------------------------------------------------------------------");
+    b.line("// Constants, grouped by the class api.json declares them on. Frozen plain");
+    b.line("// values: reading one never crosses the FFI boundary.");
+    b.line("// ----------------------------------------------------------------------------");
+    b.blank();
+    b.line("const Constants = Object.create(null);");
+    b.blank();
+
+    // Group in IR order, keeping each class's constants in the order
+    // api.json lists them.
+    let mut classes: Vec<&str> = Vec::new();
+    for c in &ir.constants {
+        let Some((class, _)) = c.name.split_once('_') else {
+            continue;
+        };
+        if !classes.contains(&class) {
+            classes.push(class);
+        }
+    }
+
+    for class in classes {
+        b.line(&format!(
+            "Constants.{} = Object.freeze({{",
+            sanitize_js_identifier(class)
+        ));
+        b.indent();
+        for c in &ir.constants {
+            let Some((owner, _)) = c.name.split_once('_') else {
+                continue;
+            };
+            let name = &c.member_name();
+            if owner != class {
+                continue;
+            }
+            for d in &c.doc {
+                b.line(&format!("// {}", d));
+            }
+            b.line(&format!(
+                "{}: {},",
+                sanitize_js_identifier(name),
+                js_constant_literal(&c.type_name, &c.value)
+            ));
+        }
+        b.dedent();
+        b.line("});");
+        b.blank();
+    }
+}
+
+/// A constant's api.json value as a JS literal. 64-bit widths become
+/// BigInt (`123n`) because a JS Number cannot hold them exactly;
+/// everything narrower is a Number, which is what every consumer of a
+/// GL enum wants to pass straight back into an FFI call.
+fn js_constant_literal(type_name: &str, value: &str) -> String {
+    let v = value.trim();
+    match type_name.trim() {
+        "u64" | "i64" | "usize" | "isize" => format!("{}n", v),
+        _ => v.to_string(),
+    }
 }
 
 fn emit_monomorphized_alias(

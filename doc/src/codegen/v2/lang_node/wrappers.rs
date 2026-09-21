@@ -15,7 +15,20 @@
 //!
 //! Tagged-union enums get the same treatment plus per-variant
 //! predicates (`isVariantName()`) that compare against the registered
-//! tag enum constant.
+//! tag enum constant. So do the monomorphized generic aliases
+//! (`CaretColorValue = CssPropertyValue<CaretColor>`) - they are real C
+//! unions with their own exported derives, they just live in
+//! `ir.type_aliases` instead of `ir.enums` (see [`emit_alias_wrapper`]).
+//!
+//! ## The derives
+//!
+//! Every wrapped type also gets whatever of `equals` / `hash` /
+//! `compare` / `partialCompare` / `toString` / `clone` / `delete` /
+//! `createDefault` libazul exports for it ([`emit_value_semantics`],
+//! [`emit_debug_to_string`]). Each one is a call into the C export, so
+//! ordering, hashing and formatting give the answer Rust gives; none of
+//! that logic is reimplemented in JS, where it would compare koffi
+//! padding and miss everything behind a `ptr` field.
 //!
 //! ## Ownership rules (all derived from the IR, no per-type cases)
 //!
@@ -42,14 +55,17 @@
 //!
 //! ## Skipped categories
 //!
-//! Same filter as PHP / Lua. See `mod.rs` doc-comment for the list.
+//! See the `mod.rs` doc-comment for the list and the reason for each.
+//! A skipped type is still registered with koffi and still declared in
+//! the FFI layer: `azul.__lib` reaches it, it just has no class.
 
 use super::{
     super::{
         generator::CodeBuilder,
         ir::{
             ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
-            FunctionKind, StructDef, TypeCategory,
+            FunctionKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef,
+            TypeCategory,
         },
         managed_host_invoker::{
             layout_callback_factory_info, smart_callback_setter_info, LayoutCallbackFactoryInfo,
@@ -228,6 +244,19 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
         }
         emit_enum_wrapper(b, ir, e);
     }
+    // Monomorphized generic aliases last: they are registered with koffi
+    // in the same topological pass as structs and enums, and nothing in a
+    // class body is evaluated before the module finishes loading, so the
+    // declaration order between wrapper classes does not matter.
+    for ta in &ir.type_aliases {
+        if !should_emit_alias(ta, ir) {
+            continue;
+        }
+        let Some(mono) = ta.monomorphized_def.as_ref() else {
+            continue;
+        };
+        emit_alias_wrapper(b, ir, ta, mono);
+    }
 }
 
 /// `_azStringDecode(az)`: decode a koffi-decoded `AzString` value into a JS
@@ -274,15 +303,53 @@ pub fn should_emit_struct(s: &StructDef) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // `Boxed` is NOT excluded. `is_boxed_object` says the payload lives
+    // behind a heap pointer, not that the type is plumbing: `GlContextPtr`
+    // (the whole OpenGL surface), `ImageRef`, `Texture`, `FontRef` and
+    // `Svg` are user-facing API, and their koffi shapes are registered
+    // (see `types::should_emit`). Skipping them here hid ~290 exported
+    // functions behind `azul.__ffi.lib`.
     !matches!(
         s.category,
         TypeCategory::Recursive
+            // A borrowed slice is `{ptr, len}` over memory the CALLER owns.
+            // Its `_delete` is a no-op `drop_in_place` and its `_clone`
+            // duplicates the borrow, so a wrapper class - which registers a
+            // finalizer - would hand user code a way to free, or to double-
+            // free, someone else's buffer. Raw FFI access only.
             | TypeCategory::VecRef
-            | TypeCategory::Boxed
             | TypeCategory::GenericTemplate
             | TypeCategory::DestructorOrClone
             | TypeCategory::CallbackTypedef
     )
+}
+
+/// Does this monomorphized generic alias get a wrapper class?
+///
+/// A monomorphized alias (`StyleBackgroundContentValue =
+/// CssPropertyValue<StyleBackgroundContent>`) is a real C type - azul.h
+/// emits `union AzStyleBackgroundContentValue` and libazul exports its
+/// derives - but it lives in `ir.type_aliases`, so `find_struct` /
+/// `find_enum` never see it. Without this the binding emitted the koffi
+/// registration and the FFI declarations for 119 such types and then no
+/// idiomatic surface at all.
+///
+/// A `SimpleEnum` monomorphization is an `uint32_t` on the wire, exposed
+/// as a frozen `Enums.<name>` table like every other unit enum, so it
+/// gets no class. An alias whose name a struct or enum also carries
+/// would emit a duplicate `class`, and one with no functions has nothing
+/// to put in a class body.
+pub fn should_emit_alias(ta: &TypeAliasDef, ir: &CodegenIR) -> bool {
+    let Some(mono) = ta.monomorphized_def.as_ref() else {
+        return false;
+    };
+    if matches!(mono.kind, MonomorphizedKind::SimpleEnum { .. }) {
+        return false;
+    }
+    if ir.find_struct(&ta.name).is_some() || ir.find_enum(&ta.name).is_some() {
+        return false;
+    }
+    ir.functions_for_class(&ta.name).next().is_some()
 }
 
 pub fn should_emit_enum(e: &EnumDef) -> bool {
@@ -330,6 +397,15 @@ fn node_wrapper_class_for(type_name: &str, ir: &CodegenIR) -> Option<String> {
     if let Some(e) = ir.find_enum(t) {
         if should_emit_enum(e) && !is_unit_only_enum(e) {
             return Some(sanitize_export_name(&e.name));
+        }
+        return None;
+    }
+    // Monomorphized generic alias: `emit_alias_wrapper` produces a class
+    // for it under exactly this condition, so a by-value return of one is
+    // wrapped like any other owned value.
+    if let Some(ta) = ir.find_type_alias(t) {
+        if should_emit_alias(ta, ir) {
+            return Some(sanitize_export_name(&ta.name));
         }
     }
     None
@@ -479,58 +555,51 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // wrapper kind, field path) is IR-derived.
     let factory_info = layout_callback_factory_info(s, ir);
 
-    // Methods: Method, MethodMut, DeepCopy, DebugToString, plus static
-    // factories (Constructor, StaticMethod, Default, EnumVariantConstructor).
-    //
-    // A raw `toString` alias would collide with the decoded `toString()`
-    // this file emits elsewhere: AzString's UTF-8 decode above, and the
-    // Phase I.3.4 `Az<X>_toDbgString`-routed variant below. Duplicate
-    // class members are legal JS but the LATER definition silently wins,
-    // so the alias must be skipped whenever a decoded toString will be
-    // emitted (it is strictly better: it decodes the AzString instead of
-    // returning the raw koffi struct).
-    let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let emits_decoded_tostring = matches!(s.category, TypeCategory::String)
-        || (s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym));
-    let mut emitted_any = false;
+    // api.json declares the OpenGL enum values on their owning class.
+    // They are plain compile-time numbers, so they belong on the class as
+    // a frozen static table rather than behind an FFI call.
+    emit_constants_static(b, ir, &s.name);
+
+    // Methods: Method, MethodMut, DeepCopy, plus static factories
+    // (Constructor, StaticMethod, Default). `DebugToString` is handled
+    // by `emit_debug_to_string` below (it decodes the returned AzString
+    // instead of yielding the raw koffi struct), and the ordering /
+    // hashing / equality derives by `emit_value_semantics`; emitting
+    // either here as well would define the same member twice, and in JS
+    // the LATER definition silently wins.
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
                 emit_instance_method(b, f, &class, has_delete, ir);
-                emitted_any = true;
             }
             FunctionKind::DeepCopy => {
                 emit_instance_alias(b, f, "clone", &class);
-                emitted_any = true;
-            }
-            FunctionKind::DebugToString => {
-                if !emits_decoded_tostring {
-                    emit_instance_alias(b, f, "toString", &class);
-                }
-                emitted_any = true;
             }
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
                 emit_static_factory(b, f, &class, ir, factory_info.as_ref());
-                emitted_any = true;
             }
-            // SKIPPED: Delete is wired through FinalizationRegistry.
-            // SKIPPED: PartialEq/Cmp/Hash are surfaced via `azul.__ffi.lib`
-            //          for callers who need them; they are not idiomatic JS.
-            // SKIPPED: EnumVariantConstructor doesn't apply to structs.
+            // Delete is wired through the FinalizationRegistry plus the
+            // explicit `delete()` at the end of the class body; the
+            // remaining kinds are emitted by the helpers named above, and
+            // EnumVariantConstructor does not occur on a struct.
             _ => {}
         }
     }
-    if !emitted_any {
-        b.line("// SKIPPED: no idiomatic methods to surface (use azul.__ffi.lib for raw access).");
-    }
 
-    // Phase I.2.6 (Node): equals(other) routed through Az<X>_partialEq.
-    // JS has no `==` overload, so we expose it as a method. Same gate
-    // as the other bindings (TypeTraits.is_partial_eq + helper exists).
-    emit_node_equals_if_supported(b, s, ir, &class);
+    // equals / hash / compare / partialCompare, each routed through its C
+    // export.
+    emit_value_semantics(b, ir, &s.name, &class);
 
-    // Phase I.3.4 (Node): toString() routed through Az<X>_toDbgString.
-    emit_node_to_string_if_supported(b, s, ir);
+    // toString() routed through `Az<X>_toDbgString`, decoding the returned
+    // AzString. The string type already has a `toString()` that decodes
+    // its own bytes, and a class with its own `to_string` method has one
+    // too, so in both cases the debug form takes the secondary name.
+    emit_debug_to_string(
+        b,
+        ir,
+        &s.name,
+        !matches!(s.category, TypeCategory::String) && !emits_own_to_string(&funcs),
+    );
 
     // Phase I.1.7 (Node): if this wrapper is a Vec (ptr/len/cap/destructor
     // shape), expose Symbol.iterator so `for (const x of vec)` works.
@@ -663,40 +732,41 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
             b.dedent();
             b.line("}");
             b.blank();
-            // SKIPPED: per-variant payload extractors. The shape varies wildly
-            // by variant; we expose `this._ptr.<variantField>` as the escape
-            // hatch for callers that need it.
+            // A per-variant payload extractor would have to name a shape
+            // that differs for every variant; `this.raw.<variantField>` is
+            // the escape hatch for callers that need the payload directly.
         }
     }
 
-    let mut emitted_any = false;
+    emit_constants_static(b, ir, &e.name);
+
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
                 emit_instance_method(b, f, &class, has_delete, ir);
-                emitted_any = true;
             }
             FunctionKind::DeepCopy => {
                 emit_instance_alias(b, f, "clone", &class);
-                emitted_any = true;
-            }
-            FunctionKind::DebugToString => {
-                emit_instance_alias(b, f, "toString", &class);
-                emitted_any = true;
             }
             FunctionKind::Constructor
             | FunctionKind::StaticMethod
             | FunctionKind::Default
             | FunctionKind::EnumVariantConstructor => {
                 emit_static_factory(b, f, &class, ir, None);
-                emitted_any = true;
             }
+            // Delete is the FinalizationRegistry plus the explicit
+            // `delete()` below; the derives are emitted by the two helpers
+            // that follow, so that each of them is defined exactly once.
             _ => {}
         }
     }
-    if !emitted_any && !e.is_union {
-        b.line("// SKIPPED: no idiomatic methods to surface.");
-    }
+
+    // The same value-semantics surface the struct wrapper gets: a tagged
+    // union derives Eq/Ord/Hash/Debug as readily as a struct does, and
+    // leaving them off made `_partialEq` / `_cmp` / `_hash` unreachable
+    // for every Option, Result and data-bearing enum in the API.
+    emit_value_semantics(b, ir, &e.name, &class);
+    emit_debug_to_string(b, ir, &e.name, !emits_own_to_string(&funcs));
 
     if has_delete {
         b.line("delete() {");
@@ -809,26 +879,166 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     b.blank();
 }
 
-/// Phase I.3.4 (Node): emit `toString()` instance method routed
-/// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
-/// string via `_azStringDecode` and frees it. Skips AzString itself.
-fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    if matches!(s.category, TypeCategory::String) {
-        return;
+/// The `Az<Type>_<kind>` function the IR declares for `type_name`, if
+/// there is one. Every derive-backed member below is gated on the export
+/// existing — never on a list of type names — so a type that derives
+/// nothing simply gets no member, and a type api.json grows a derive for
+/// gets one without touching this file.
+fn trait_fn<'a>(ir: &'a CodegenIR, type_name: &str, kind: FunctionKind) -> Option<&'a FunctionDef> {
+    ir.functions
+        .iter()
+        .find(|f| f.class_name == type_name && f.kind == kind)
+}
+
+/// Does one of this class's api.json methods already land on the JS
+/// member `toString`? (`Json::to_string` and `Url::to_string` are the
+/// `Display` impls.) The debug formatter must then take the secondary
+/// name: defining a member twice is legal JS and the later definition
+/// silently wins, which would replace the type's own rendering with its
+/// `{:?}` form.
+fn emits_own_to_string(funcs: &[&FunctionDef]) -> bool {
+    funcs.iter().any(|f| {
+        matches!(
+            f.kind,
+            FunctionKind::Method
+                | FunctionKind::MethodMut
+                | FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Default
+                | FunctionKind::EnumVariantConstructor
+        ) && js_method_name(&f.method_name) == "toString"
+    })
+}
+
+/// The value-semantics surface every wrapped type shares: `equals`,
+/// `hash`, `compare` and `partialCompare`. Each one dispatches to the C
+/// export, because the answer has to be the one Rust gives: a JS-side
+/// field walk over a koffi struct would compare padding, miss the
+/// contents behind a `Vec`'s `ptr`, and disagree with the hash the
+/// engine itself uses as a cache key.
+///
+/// `equals` and `hash` are emitted together, in that order, whenever
+/// both exports exist: two values that compare equal must hash equal,
+/// and a wrapper with `equals()` and no `hash()` is a value a `Map` can
+/// only key by identity.
+///
+/// The C ordering encoding is `0 = Less`, `1 = Equal`, `2 = Greater`
+/// (see the `Ord` shim in `lang_rust`), with `255` reserved by
+/// `PartialOrd` for "these two do not compare". `compare` translates
+/// that to the `Array.prototype.sort` shape (`-1 / 0 / 1`) so a wrapper
+/// array sorts with `arr.sort((a, b) => a.compare(b))`; `partialCompare`
+/// adds `null` for the 255 case.
+fn emit_value_semantics(b: &mut CodeBuilder, ir: &CodegenIR, type_name: &str, class: &str) {
+    if let Some(f) = trait_fn(ir, type_name, FunctionKind::PartialEq) {
+        b.line("/**");
+        b.line(&format!(
+            " * Value equality routed through `lib.{}`. JS has no `==`",
+            f.c_name
+        ));
+        b.line(" * overload, so this is exposed as an explicit method.");
+        b.line(" */");
+        b.line("equals(other) {");
+        b.indent();
+        b.line(&format!("if (!(other instanceof {})) return false;", class));
+        b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
+        b.line(&format!("return lib.{}(this._ptr, other._ptr);", f.c_name));
+        b.dedent();
+        b.line("}");
+        b.blank();
     }
-    let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
-    if !has_dbg {
-        return;
+
+    if let Some(f) = trait_fn(ir, type_name, FunctionKind::Hash) {
+        b.line("/**");
+        b.line(&format!(
+            " * Value hash routed through `lib.{}`: the hash Rust computes,",
+            f.c_name
+        ));
+        b.line(" * so two values `equals()` accepts always hash alike. Returns the");
+        b.line(" * 64-bit integer the C side produced; a disposed wrapper hashes 0.");
+        b.line(" */");
+        b.line("hash() {");
+        b.indent();
+        b.line("if (this._ptr == null) return 0;");
+        b.line(&format!("return lib.{}(this._ptr);", f.c_name));
+        b.dedent();
+        b.line("}");
+        b.blank();
     }
+
+    // (kind, JS member, does the C side have an "incomparable" answer)
+    for (kind, member, partial) in [
+        (FunctionKind::Cmp, "compare", false),
+        (FunctionKind::PartialCmp, "partialCompare", true),
+    ] {
+        let Some(f) = trait_fn(ir, type_name, kind) else {
+            continue;
+        };
+        b.line("/**");
+        b.line(&format!(
+            " * Ordering routed through `lib.{}`, in the shape",
+            f.c_name
+        ));
+        b.line(" * `Array.prototype.sort` wants: negative / zero / positive.");
+        if partial {
+            b.line(" * `null` means the two values have no ordering at all.");
+        }
+        b.line(" */");
+        b.line(&format!("{}(other) {{", member));
+        b.indent();
+        b.line(&format!("if (!(other instanceof {})) {{", class));
+        b.indent();
+        b.line(&format!(
+            "throw new TypeError('azul: {}.{}() expects another {}');",
+            class, member, class
+        ));
+        b.dedent();
+        b.line("}");
+        b.line("if (this._ptr == null || other._ptr == null) {");
+        b.indent();
+        b.line(&format!(
+            "throw new TypeError('azul: {}.{}() on a disposed value');",
+            class, member
+        ));
+        b.dedent();
+        b.line("}");
+        b.line("// 0 = Less, 1 = Equal, 2 = Greater at the C ABI.");
+        b.line(&format!(
+            "const __ord = lib.{}(this._ptr, other._ptr);",
+            f.c_name
+        ));
+        if partial {
+            b.line("// 255: PartialOrd returned None (an incomparable pair).");
+            b.line("if (__ord === 255) return null;");
+        }
+        b.line("return __ord === 0 ? -1 : (__ord === 2 ? 1 : 0);");
+        b.dedent();
+        b.line("}");
+        b.blank();
+    }
+}
+
+/// `toString()` routed through `Az<X>_toDbgString`: calls the C
+/// formatter, decodes the returned AzString into a JS string and frees
+/// it. When the type already owns `toString()` — the string type decodes
+/// its own bytes there, which is strictly more useful — the debug form
+/// takes the secondary name instead of overwriting it (two definitions
+/// of one member are legal JS, and the later one silently wins).
+fn emit_debug_to_string(b: &mut CodeBuilder, ir: &CodegenIR, type_name: &str, primary: bool) {
+    let Some(f) = trait_fn(ir, type_name, FunctionKind::DebugToString) else {
+        return;
+    };
+    let member = if primary { "toString" } else { "toDebugString" };
     let string_delete = string_struct(ir)
         .filter(|st| node_has_delete(&st.name, ir))
         .map(|st| format!("lib.{}_delete(__s);", ffi_type_name(&st.name)));
-    b.line(&format!("/** String repr routed through {}. */", dbg_sym));
-    b.line("toString() {");
+    b.line(&format!(
+        "/** String repr routed through {}. */",
+        f.c_name
+    ));
+    b.line(&format!("{}() {{", member));
     b.indent();
     b.line("if (this._ptr == null) return '<disposed>';");
-    b.line(&format!("const __s = lib.{}(this._ptr);", dbg_sym));
+    b.line(&format!("const __s = lib.{}(this._ptr);", f.c_name));
     b.line("const __out = _azStringDecode(__s);");
     if let Some(del) = string_delete {
         // The returned AzString is owned by us: free its U8Vec buffer.
@@ -842,27 +1052,215 @@ fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &Cod
     b.blank();
 }
 
-/// Phase I.2.6 (Node): emit `equals(other)` instance method routed
-/// through `Az<X>_partialEq` when TypeTraits flags it and the C export
-/// exists. Pure type-driven; no method-name allowlist.
-fn emit_node_equals_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, class: &str) {
-    let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
-    if !has_eq {
+/// The class-level constant table, when api.json declares constants on
+/// this type. They are compile-time numbers (the OpenGL enum values on
+/// `GlContextPtr`), so they live on the class as a frozen static rather
+/// than behind an FFI call: `GlContextPtr.Constants.TEXTURE_2D`. The
+/// table itself is built once in `types::generate_constants`.
+fn emit_constants_static(b: &mut CodeBuilder, ir: &CodegenIR, type_name: &str) {
+    if !ir
+        .constants
+        .iter()
+        .any(|c| c.name.split_once('_').is_some_and(|(cls, _)| cls == type_name))
+    {
         return;
     }
     b.line("/**");
     b.line(&format!(
-        " * Equality routed through `lib.{}`. JS has no `==` overload,",
-        eq_sym
+        " * The {} constants api.json declares, frozen. Plain numbers (a",
+        type_name
     ));
-    b.line(" * so this is exposed as an explicit method.");
+    b.line(" * 64-bit one is a BigInt); no FFI call is involved in reading one.");
     b.line(" */");
-    b.line("equals(other) {");
+    b.line(&format!(
+        "static Constants = Constants.{};",
+        sanitize_js_identifier(type_name)
+    ));
+    b.blank();
+}
+
+// ============================================================================
+// Monomorphized generic alias wrapper
+// ============================================================================
+
+/// A wrapper class for a monomorphized generic alias — the 119
+/// `CssPropertyValue<T>` instantiations, the `BoxOrStatic<T>`s, and the
+/// concrete `PhysicalSize<u32>` / `PhysicalPosition<i32>`.
+///
+/// These are real C types (azul.h emits `union AzCaretColorValue`) whose
+/// derives libazul exports, but they live in `ir.type_aliases`, so
+/// `find_struct` / `find_enum` do not see them and the struct/enum loops
+/// above never reach them. Everything below mirrors the two loops: the
+/// tagged-union form gets the tag table and per-variant predicates the
+/// enum wrapper emits, the struct form gets the `with(opts)` builder the
+/// struct wrapper emits, and both get the shared value semantics.
+fn emit_alias_wrapper(
+    b: &mut CodeBuilder,
+    ir: &CodegenIR,
+    ta: &TypeAliasDef,
+    mono: &MonomorphizedTypeDef,
+) {
+    let class = sanitize_export_name(&ta.name);
+    let ffi = ffi_type_name(&ta.name);
+    let funcs: Vec<&FunctionDef> = ir.functions_for_class(&ta.name).collect();
+    let has_delete = has_delete_for(&ta.name, ir);
+    let variants = match &mono.kind {
+        MonomorphizedKind::TaggedUnion { variants, .. } => Some(variants),
+        // A `SimpleEnum` alias never reaches here (`should_emit_alias`).
+        _ => None,
+    };
+
+    b.line("/**");
+    if ta.doc.is_empty() {
+        b.line(&format!(
+            " * `{}`: the monomorphized `{}<{}>`.",
+            ta.name,
+            ta.target,
+            ta.generic_args.join(", ")
+        ));
+    } else {
+        for d in &ta.doc {
+            b.line(&format!(" * {}", jsdoc_escape(d)));
+        }
+    }
+    b.line(" */");
+    b.line(&format!("class {} {{", class));
     b.indent();
-    b.line(&format!("if (!(other instanceof {})) return false;", class));
-    b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
-    b.line(&format!("return lib.{}(this._ptr, other._ptr);", eq_sym));
+
+    b.line("/** @type {*} */");
+    b.line("_ptr;");
+    b.blank();
+
+    if has_delete {
+        b.line(&format!(
+            "static _registry = makeRegistry((ptr) => lib.{}_delete(ptr));",
+            ffi
+        ));
+        b.blank();
+    }
+
+    if variants.is_some() {
+        b.line("/** Discriminator-tag values (one per variant). */");
+        b.line(&format!("static Tag = Enums.{}_Tag;", ta.name));
+        b.blank();
+    }
+
+    b.line("/**");
+    b.line(" * Wrap an existing FFI value (takes ownership for GC purposes).");
+    b.line(" * Most callers should use the static factory methods instead.");
+    b.line(" * @param {*} ptr koffi struct value / raw FFI pointer of a native value");
+    b.line(" */");
+    b.line("constructor(ptr) {");
+    b.indent();
+    b.line("this._ptr = ptr;");
+    if has_delete {
+        b.line(&format!("{}._registry.register(this, ptr, this);", class));
+    }
+    b.dedent();
+    b.line("}");
+    b.blank();
+
+    b.line("/** Return the underlying FFI value. Use with care. */");
+    b.line("get raw() { return this._ptr; }");
+    b.blank();
+
+    b.line(&format!(
+        "[Symbol.for('nodejs.util.inspect.custom')]() {{ return `{} {{ ptr: ${{this._ptr}} }}`; }}",
+        class
+    ));
+    b.blank();
+
+    match variants {
+        Some(variants) => {
+            if let Some(first) = variants.first() {
+                let first_field = sanitize_js_identifier(&first.name);
+                b.line("/** Return the variant discriminator tag value (an int). */");
+                b.line("tag() {");
+                b.indent();
+                b.line("// Read through the first variant's `tag` field; every variant");
+                b.line("// payload struct begins with the same tag, so this is layout-safe.");
+                b.line(&format!(
+                    "return this._ptr ? this._ptr.{}.tag : -1;",
+                    first_field
+                ));
+                b.dedent();
+                b.line("}");
+                b.blank();
+            }
+            for v in variants {
+                b.line(&format!(
+                    "/** True if this {} value carries the {} variant. */",
+                    ta.name, v.name
+                ));
+                b.line(&format!("is{}() {{", v.name));
+                b.indent();
+                b.line(&format!(
+                    "return this.tag() === {}.Tag.{};",
+                    class,
+                    sanitize_js_identifier(&v.name)
+                ));
+                b.dedent();
+                b.line("}");
+                b.blank();
+            }
+        }
+        None => {
+            // Struct monomorphization: same fluent builder the struct
+            // wrapper offers, over the same koffi struct value.
+            b.line("/**");
+            b.line(" * Fluent builder: recursively assign `opts` into the wrapper's");
+            b.line(" * underlying koffi struct fields. Keys may be spelled as in the C");
+            b.line(" * header (`window_state`) or lowerCamel (`windowState`); unknown");
+            b.line(" * keys throw. JS strings auto-convert to AzString. Returns this.");
+            b.line(" */");
+            b.line("with(opts) {");
+            b.indent();
+            b.line(&format!("_applyOpts(this._ptr, opts, '{}');", class));
+            b.line("return this;");
+            b.dedent();
+            b.line("}");
+            b.blank();
+        }
+    }
+
+    for f in &funcs {
+        match f.kind {
+            FunctionKind::Method | FunctionKind::MethodMut => {
+                emit_instance_method(b, f, &class, has_delete, ir);
+            }
+            FunctionKind::DeepCopy => {
+                emit_instance_alias(b, f, "clone", &class);
+            }
+            FunctionKind::Constructor
+            | FunctionKind::StaticMethod
+            | FunctionKind::Default
+            | FunctionKind::EnumVariantConstructor => {
+                emit_static_factory(b, f, &class, ir, None);
+            }
+            _ => {}
+        }
+    }
+
+    emit_value_semantics(b, ir, &ta.name, &class);
+    emit_debug_to_string(b, ir, &ta.name, !emits_own_to_string(&funcs));
+
+    if has_delete {
+        b.line("/**");
+        b.line(" * Explicitly free the underlying native resources. After calling");
+        b.line(" * delete(), the wrapper must not be used. Calling delete() twice is");
+        b.line(" * a no-op.");
+        b.line(" */");
+        b.line("delete() {");
+        b.indent();
+        b.line("if (this._ptr === null) return;");
+        b.line(&format!("{}._registry.unregister(this);", class));
+        b.line(&format!("lib.{}_delete(this._ptr);", ffi));
+        b.line("this._ptr = null;");
+        b.dedent();
+        b.line("}");
+        b.blank();
+    }
+
     b.dedent();
     b.line("}");
     b.blank();
@@ -886,7 +1284,6 @@ struct NodeOptResultInfo {
 /// payload type. Returns None for plain returns. Mirrors the JVM
 /// `classify_return` predicate.
 fn classify_option_result_node(f: &FunctionDef, ir: &CodegenIR) -> Option<NodeOptResultInfo> {
-    use super::super::ir::MonomorphizedKind;
     let rt = f.return_type.as_deref()?.trim();
     // Monomorphized type alias path (most common).
     if let Some(ta) = ir.find_type_alias(rt) {
@@ -1280,26 +1677,22 @@ fn emit_static_factory(
     }
 
     // Layout-callback factory (`WindowCreateOptions.create(layoutFn)`):
-    // the C entry takes a bare fn pointer and would drop the host-handle
-    // ctx, so build the value from `_default()` and splice the registered
-    // `{cb, ctx}` struct into the IR-derived field path instead.
+    // register the JS function, then hand the whole `{cb, ctx}` wrapper to
+    // the exported constructor. `lib.<name>` is bound to the `Struct` twin,
+    // which takes that wrapper BY VALUE - so the context travels with it and
+    // the binding does not have to know which field the callback lives in.
+    // (It used to build the value from `_default()` and splice the struct
+    // into an IR-derived field path, from a time when the C entry took a
+    // bare fn pointer and would have dropped the host handle.)
     if let Some(info) = factory_info.filter(|i| is_layout_callback_factory_fn(f, i)) {
         let arg = js_arg_name(user_args[0]);
         b.line(&format!("static {}({}) {{", method, arg));
         b.indent();
-        b.line("// Registers the JS function through the host-invoker table and");
-        b.line("// splices the {cb, ctx} struct into the default value; the raw");
-        b.line(&format!(
-            "// `lib.{}` entry has no ctx slot and could never call back into JS.",
-            f.c_name
-        ));
         b.line(&format!(
             "const cb = registerCallback('{}', {});",
             info.callback_wrapper, arg
         ));
-        b.line(&format!("const opts = lib.{}();", info.default_c_name));
-        b.line(&format!("opts.{} = cb;", info.field_path.join(".")));
-        b.line(&format!("return new {}(opts);", class_name));
+        b.line(&format!("return new {}(lib.{}(cb));", class_name, f.c_name));
         b.dedent();
         b.line("}");
         b.blank();
@@ -1311,11 +1704,33 @@ fn emit_static_factory(
     // registration.
     if is_own_wrapper_constructor(f) {
         let arg = js_arg_name(user_args[0]);
+        if !f.doc.is_empty() {
+            b.line("/**");
+            for d in &f.doc {
+                b.line(&format!(" * {}", jsdoc_escape(d)));
+            }
+            b.line(" */");
+        }
         b.line(&format!("static {}({}) {{", method, arg));
+        b.indent();
+        b.line("// A JS function has no address the C ABI can call: the host-invoker");
+        b.line("// table hands back the `{cb, ctx}` wrapper that routes calls to it.");
+        b.line(&format!("if (typeof {} === 'function') {{", arg));
         b.indent();
         b.line(&format!(
             "return new {}(registerCallback('{}', {}));",
             class_name, f.class_name, arg
+        ));
+        b.dedent();
+        b.line("}");
+        b.line("// Already a native function pointer (from another binding, or from");
+        b.line(&format!(
+            "// `azul.__lib`): the C constructor `lib.{}` takes it as-is.",
+            f.c_name
+        ));
+        b.line(&format!(
+            "return new {}(lib.{}({}));",
+            class_name, f.c_name, arg
         ));
         b.dedent();
         b.line("}");
