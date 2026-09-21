@@ -1148,6 +1148,24 @@ impl Runner {
 
         // The wheel delta has now been delivered; clear it so no later pass
         // re-fires a stale Scroll event.
+        //
+        // THE WHEEL HAS ONE CONSUMER (the DLL does the same, shell2/common/
+        // event.rs): a `Scroll` callback that vetoed the default claimed the
+        // gesture, so the container scroll queued at ingress must be taken
+        // back — otherwise the widget's answer is ADDED to the page scroll
+        // instead of replacing it.
+        if prevent_default
+            && synthetic_events
+                .iter()
+                .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll))
+        {
+            self.layout_window
+                .scroll_manager
+                .cancel_queued_scroll_input();
+        }
+        self.layout_window
+            .scroll_manager
+            .forget_queued_scroll_input();
         self.layout_window.scroll_manager.pending_wheel_event = None;
 
         let mut should_recurse = false;

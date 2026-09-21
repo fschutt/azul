@@ -11204,7 +11204,28 @@ pub trait PlatformWindow {
         // and a trackpad pinch over the map did nothing. Clearing it here
         // still stops an ended pinch from re-firing on every later pass
         // (iOS/Android clear per-frame in their own loops).
+        //
+        // THE WHEEL HAS ONE CONSUMER. A `Scroll` callback that called
+        // preventDefault claimed this gesture (the map zooms, a time-picker
+        // column spins), so the container scroll queued at INGRESS — before
+        // any callback could see the delta — has to be taken back. It is the
+        // same veto the text input above and the keyboard default actions
+        // below already honour; `stopPropagation` cannot do it, because the
+        // container scroll is not a callback. Without this a wheel widget
+        // could only ADD to the page scroll, never replace it: the map zoomed
+        // and the page moved under it in the same gesture.
+        let wheel_claimed = prevent_default
+            && pre_filter
+                .user_events
+                .iter()
+                .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll));
         if let Some(w) = self.get_layout_window_mut() {
+            if wheel_claimed {
+                w.scroll_manager.cancel_queued_scroll_input();
+            }
+            // The pass is over either way: a LATER preventDefault must not
+            // reach back and eat a scroll the user already got.
+            w.scroll_manager.forget_queued_scroll_input();
             w.scroll_manager.pending_wheel_event = None;
             w.gesture_drag_manager.clear_native_gesture();
         }

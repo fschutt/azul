@@ -1242,4 +1242,76 @@ mod theme_pairs {
     }
 }
 
+#[cfg(test)]
+mod wheel_ownership {
+    //! Workspace-level guard for the wheel rule (bug W1, 2026-09-21): a wheel
+    //! over a CLOSED control belongs to the page, not to the control.
+    //!
+    //! Every platform toolkit and every browser agrees: wheeling over a
+    //! closed `<select>`, over a slider or over a colour swatch scrolls the
+    //! nearest scrollable ancestor and leaves the control's value alone
+    //! (Chrome and Firefox both dropped wheel-to-change on `<select>`; a
+    //! range input never had it). A control that listens for `Scroll` cannot
+    //! honour that rule for free — the listener fires whether or not the
+    //! control is focused or open — so the rule is enforced here, over the
+    //! widget set as a whole: only a widget whose whole purpose IS the
+    //! gesture may register a `Scroll` handler at all.
+    //!
+    //! Scope: the widget DOMs of the lint manifest
+    //! (`all_widget_doms_for_lint`), i.e. what `dom()` emits. The map's
+    //! wheel-to-zoom handler is registered inside its `VirtualView` render
+    //! callback (`map::map_widget_render`, map.rs ~2802) and is therefore out
+    //! of this walk's reach; the rule it obeys is the other half of W1 — a
+    //! widget that DOES take the wheel must veto the page scroll — which the
+    //! wheel handlers assert for themselves.
+    use azul_core::{
+        dom::Dom,
+        events::{EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
+    };
+
+    /// Names of the manifest widgets whose `dom()` registers a `Scroll`
+    /// handler anywhere in its tree, in manifest order, each named once.
+    fn wheel_takers() -> Vec<String> {
+        fn takes_the_wheel(node: &Dom) -> bool {
+            node.root.get_callbacks().as_ref().iter().any(|cb| {
+                matches!(
+                    cb.event,
+                    EventFilter::Hover(HoverEventFilter::Scroll)
+                        | EventFilter::Focus(FocusEventFilter::Scroll)
+                        | EventFilter::Window(WindowEventFilter::Scroll)
+                )
+            })
+        }
+        fn walk(node: &Dom, widget: &str, out: &mut Vec<String>) {
+            if takes_the_wheel(node) && !out.iter().any(|w| w == widget) {
+                out.push(widget.to_string());
+            }
+            for child in node.children.as_ref() {
+                walk(child, widget, out);
+            }
+        }
+
+        let mut out = Vec::new();
+        for (widget, dom) in super::all_widget_doms_for_lint() {
+            walk(&dom, widget, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn a_closed_control_leaves_the_wheel_to_the_page() {
+        // The time picker's two spinner columns are the one sanctioned
+        // exception: a stepper column IS a wheel affordance, the way a native
+        // time field is. Everything else — the drop-down trigger, the slider,
+        // the colour swatch, the number input, the segmented control — stays
+        // deaf to the wheel so the gesture reaches the scrollable ancestor.
+        assert_eq!(
+            wheel_takers(),
+            vec!["time_picker".to_string()],
+            "a widget started listening for the wheel: a closed control must leave the gesture to \
+             the page under it",
+        );
+    }
+}
+
 pub mod themes;

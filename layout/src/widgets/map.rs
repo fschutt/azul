@@ -1727,6 +1727,15 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     if dy == 0.0 {
         return Update::DoNothing;
     }
+    // THE WHEEL HAS ONE CONSUMER. The map is about to zoom on this gesture,
+    // so the page it sits in must not scroll as well — Leaflet vetoes the
+    // wheel for exactly this reason. The container scroll was queued against
+    // the innermost scrollable ancestor at ingress
+    // (`ScrollManager::record_scroll_from_hit_test`) before this callback
+    // could see the delta, and `preventDefault` is the only thing that takes
+    // it back; `stop_propagation` only silences other callbacks. A map that
+    // declines the gesture (dy == 0, above) leaves the page alone to scroll.
+    info.prevent_default();
     // The grid's on-screen rect is the widget size (needed to recompute the tiles
     // the new zoom needs).
     let bounds = info

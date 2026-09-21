@@ -783,14 +783,28 @@ fn spin_on_scroll(data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update
     if steps == 0 {
         // Still consumed: the gesture belongs to this spinner even on the
         // events that do not yet complete a step.
-        info.stop_propagation();
+        claim_the_wheel(&mut info);
         return Update::DoNothing;
     }
 
     // Wheel-up (dy < 0) must INCREASE the value.
     let update = adjust_spinner_at(data, info, spinner, is_hour, -steps);
-    info.stop_propagation();
+    claim_the_wheel(&mut info);
     update
+}
+
+/// THE WHEEL HAS ONE CONSUMER. The column took this gesture, so the page it
+/// sits on must not scroll as well.
+///
+/// Two different refusals, both needed: `stop_propagation` keeps the event
+/// from other CALLBACKS, and `prevent_default` cancels the container scroll —
+/// which is not a callback. That scroll is queued against the innermost
+/// scrollable ancestor at ingress (`ScrollManager::record_scroll_from_hit_test`),
+/// before any handler can see the delta, and the veto is the only thing that
+/// takes it back.
+fn claim_the_wheel(info: &mut CallbackInfo) {
+    info.prevent_default();
+    info.stop_propagation();
 }
 
 extern "C" fn on_hour_scroll(data: RefAny, info: CallbackInfo) -> Update {
@@ -1023,11 +1037,25 @@ mod autotest_generated {
         hit: DomNodeId,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        with_info_wheel(styled_dom, hit, None, f)
+    }
+
+    /// [`with_info`] with this pass's wheel delta staged the way a platform
+    /// scroll handler stages it — `ScrollManager::pending_wheel_event`, which
+    /// is the single thing `CallbackInfo::get_scroll_delta` reads. Without it
+    /// a `Scroll` handler sees no delta and returns before it does anything.
+    fn with_info_wheel<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        wheel: Option<azul_core::geom::LogicalPosition>,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
             .layout_results
             .insert(DomId::ROOT_ID, layout_result(styled_dom));
+        layout_window.scroll_manager.pending_wheel_event = wheel;
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
@@ -1231,6 +1259,22 @@ mod autotest_generated {
         handler: extern "C" fn(RefAny, CallbackInfo) -> Update,
     ) -> (Update, Vec<CallbackChange>) {
         with_info(styled_dom, hit, |info| handler(payload.clone(), *info))
+    }
+
+    /// One wheel event of `dy` pixels delivered to `handler` on `hit`.
+    fn wheel(
+        styled_dom: StyledDom,
+        payload: &RefAny,
+        hit: DomNodeId,
+        handler: extern "C" fn(RefAny, CallbackInfo) -> Update,
+        dy: f32,
+    ) -> (Update, Vec<CallbackChange>) {
+        with_info_wheel(
+            styled_dom,
+            hit,
+            Some(azul_core::geom::LogicalPosition::new(0.0, dy)),
+            |info| handler(payload.clone(), *info),
+        )
     }
 
     /// `times` presses of `handler` against `payload`, all delivered on `hit`.
@@ -2464,6 +2508,33 @@ mod autotest_generated {
             );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Scroll));
         }
+    }
+
+    #[test]
+    fn a_column_that_takes_the_wheel_vetoes_the_page_scroll_under_it() {
+        // THE WHEEL HAS ONE CONSUMER (bug W1). A widget either takes the
+        // gesture or leaves it to the nearest scrollable ancestor — never
+        // both. The spinner column takes it (it spins the hours), so the page
+        // under it must not ALSO move.
+        //
+        // Only `preventDefault` says that. `stopPropagation` silences other
+        // CALLBACKS, and the container scroll is not a callback: it was queued
+        // against the innermost scrollable ancestor at ingress
+        // (`ScrollManager::record_scroll_from_hit_test`, scroll_state.rs) long
+        // before any handler ran, and the veto is the only thing that takes it
+        // back.
+        let (styled, _shared) = laid_out(TimePicker::create(8, 30));
+        let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
+
+        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, 120.0);
+
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the column consumed the wheel without vetoing the default page scroll — it pushed \
+             {changes:?}",
+        );
     }
 
     #[test]

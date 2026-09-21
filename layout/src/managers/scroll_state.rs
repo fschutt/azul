@@ -218,6 +218,36 @@ impl ScrollInputQueue {
         )
     }
 
+    /// Remove the most recently pushed input matching `input` (same target,
+    /// same delta, same timestamp), if it is still pending.
+    ///
+    /// The one caller is [`ScrollManager::cancel_queued_scroll_input`], i.e.
+    /// a `Scroll` callback that vetoed the default scroll in the very pass
+    /// that queued it. The physics timer drains the queue wholesale and never
+    /// runs inside a dispatch, so "still pending" is the normal case; a
+    /// `false` return means the timer already spent the delta.
+    pub fn cancel(&self, input: &ScrollInput) -> bool {
+        let Ok(mut queue) = self.inner.lock() else {
+            return false;
+        };
+        let found = queue.iter().rposition(|q| {
+            q.dom_id == input.dom_id
+                && q.node_id == input.node_id
+                && q.timestamp == input.timestamp
+                // Bit equality, not `==`: a NaN delta (platforms do forward
+                // them) must still match itself so the veto can remove it.
+                && q.delta.x.to_bits() == input.delta.x.to_bits()
+                && q.delta.y.to_bits() == input.delta.y.to_bits()
+        });
+        match found {
+            Some(idx) => {
+                queue.remove(idx);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Check if there are pending inputs without consuming them
     #[must_use]
     pub fn has_pending(&self) -> bool {
@@ -382,6 +412,17 @@ pub struct ScrollManager {
     /// `Scroll` event is aimed at THAT seat's hovered node. `Default` (0) is
     /// the primary.
     pub pending_wheel_seat: u64,
+    /// The container input the CURRENT input pass queued, if any.
+    ///
+    /// The wheel is queued against a scroll container at INGRESS — before any
+    /// callback has seen the delta — because that ordering is what lets a
+    /// wheel-as-zoom widget read the raw delta at all. A `Scroll` callback
+    /// that claims the gesture must therefore be able to take that scroll
+    /// back; see [`Self::cancel_queued_scroll_input`]. Dropped at the end of
+    /// every pass, next to `pending_wheel_event`, so a later `preventDefault`
+    /// cannot reach back into a gesture that is already spent.
+    #[cfg(feature = "std")]
+    queued_this_pass: Option<ScrollInput>,
     /// Set when a scroll position changes; cleared after the display list
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
@@ -690,8 +731,38 @@ impl ScrollManager {
         input.delta.x *= sign;
         input.delta.y *= sign;
         let was_empty = !self.scroll_input_queue.has_pending();
+        self.queued_this_pass = Some(input.clone());
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
+    }
+
+    /// THE WHEEL HAS ONE CONSUMER: take back the container scroll this pass
+    /// queued, because a `Scroll` callback claimed the gesture for itself.
+    ///
+    /// Called by the input pass when a `Scroll` callback returned
+    /// `preventDefault` — the same veto the text input and the keyboard
+    /// default actions already honour. `stopPropagation` cannot do this job:
+    /// it silences other CALLBACKS, while the container scroll is queued
+    /// before dispatch and is not a callback at all. Without the veto a
+    /// wheel-driven widget could only ADD to the page scroll (the map zoomed
+    /// AND the page moved under it), never replace it.
+    ///
+    /// Returns whether a queued input was actually removed.
+    #[cfg(feature = "std")]
+    pub fn cancel_queued_scroll_input(&mut self) -> bool {
+        let Some(input) = self.queued_this_pass.take() else {
+            return false;
+        };
+        self.pending_wheel_event = None;
+        self.scroll_input_queue.cancel(&input)
+    }
+
+    /// Forget which input this pass queued, WITHOUT cancelling it: the pass
+    /// is over, so the next one's `preventDefault` must not reach back into
+    /// a scroll the user already got.
+    #[cfg(feature = "std")]
+    pub fn forget_queued_scroll_input(&mut self) {
+        self.queued_this_pass = None;
     }
 
     /// High-level entry point for platform event handlers: performs hit-test lookup
@@ -4368,6 +4439,67 @@ mod autotest_generated {
         assert_eq!(q[0].delta.y, 10.0, "raw -10 * traditional sign (-1) = +10");
         assert_eq!(q[0].source, ScrollInputSource::WheelDiscrete);
         assert_eq!(q[0].timestamp, at(1));
+    }
+
+    #[test]
+    fn a_vetoed_wheel_takes_its_queued_container_scroll_back() {
+        // THE WHEEL HAS ONE CONSUMER: a `Scroll` callback that claimed the
+        // gesture (the map zooms, a spinner column spins) leaves nothing for
+        // the physics timer, so the page under the widget does not move too.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+        assert!(m.get_input_queue().has_pending());
+
+        assert!(
+            m.cancel_queued_scroll_input(),
+            "the veto found nothing to take back"
+        );
+        assert!(
+            !m.get_input_queue().has_pending(),
+            "a vetoed wheel still moves the container"
+        );
+        assert_eq!(m.pending_wheel_event, None, "the delta outlived its veto");
+
+        // The veto applies to ONE pass: a second call has nothing to cancel,
+        // so a later `preventDefault` cannot eat a scroll the user got.
+        assert!(!m.cancel_queued_scroll_input());
+    }
+
+    #[test]
+    fn forgetting_the_pass_leaves_the_queued_scroll_alone() {
+        // End of pass with no veto: the input stays queued for the physics
+        // timer, and the NEXT pass's veto can no longer reach it.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+
+        m.forget_queued_scroll_input();
+
+        assert!(
+            !m.cancel_queued_scroll_input(),
+            "the veto reached back a pass"
+        );
+        assert!(
+            m.get_input_queue().has_pending(),
+            "forgetting the pass threw the scroll away"
+        );
     }
 
     #[test]
