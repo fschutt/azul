@@ -142,7 +142,7 @@ fn payload_display_kt(raw: &str, ir: &CodegenIR) -> String {
             }
         }
         if has_wrapper_class(unprefixed, ir) {
-            return kotlin_class_name(unprefixed);
+            return kotlin_class_name(unprefixed, ir);
         }
     }
     raw.to_string()
@@ -222,7 +222,7 @@ fn emit_kt_option_body(
     }
     if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
         if has_wrapper_class(unprefixed, ir) {
-            let wrapper = kotlin_class_name(unprefixed);
+            let wrapper = kotlin_class_name(unprefixed, ir);
             let clone_call = format_clone_call_kt(unprefixed, ir);
             builder.line("val __nv = __ret.toNullable()");
             builder.line("if (__nv == null) {");
@@ -280,7 +280,7 @@ fn emit_kt_result_body(
     }
     if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
         if has_wrapper_class(unprefixed, ir) {
-            let wrapper = kotlin_class_name(unprefixed);
+            let wrapper = kotlin_class_name(unprefixed, ir);
             let clone_call = format_clone_call_kt(unprefixed, ir);
             builder.line("val __u = __ret.unwrap()");
             if let Some(ref clone) = clone_call {
@@ -396,7 +396,7 @@ fn emit_wrapper(
     app_info: Option<&AppFactoryInfo>,
 ) {
     let has_delete = has_delete_function(&s.name, ir);
-    let class_name = kotlin_class_name(&s.name);
+    let class_name = kotlin_class_name(&s.name, ir);
     let ffi_name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -415,8 +415,15 @@ fn emit_wrapper(
     if has_delete {
         supertypes.push("AutoCloseable".to_string());
     }
+    // A total order (api.json `Ord` + the `Az<X>_cmp` export) makes the
+    // wrapper `Comparable`, so `a < b`, `sorted()` and `maxOrNull()` all
+    // work on it. See `emit_kt_ordering_if_supported` for why a merely
+    // partial one does not.
+    if ordering_symbol(s, ir, FunctionKind::Cmp).is_some() {
+        supertypes.push(format!("Comparable<{}>", class_name));
+    }
     if let Some(elem) = vec_elem_type.as_deref().filter(|e| vec_elem_has_wrapper(e)) {
-        supertypes.push(format!("Iterable<{}>", kotlin_class_name(elem)));
+        supertypes.push(format!("Iterable<{}>", kotlin_class_name(elem, ir)));
     }
     let supertypes = if supertypes.is_empty() {
         String::new()
@@ -584,6 +591,9 @@ fn emit_wrapper(
     // Phase I.3 (Kotlin): toString() routed through Az<X>_toDbgString.
     emit_kt_to_string_if_supported(builder, s, ir);
 
+    // Ordering routed through Az<X>_cmp / Az<X>_partialCmp.
+    emit_kt_ordering_if_supported(builder, s, &class_name, ir);
+
     // Phase I.1.3 (Kotlin): iterator() body for Vec wrappers with a
     // wrapper-class element type. Mirrors Java's I.1.2 emission via
     // JNA Structure.newInstance. Primitive-element Vecs get a
@@ -665,7 +675,7 @@ fn emit_kt_layout_callback_factories(
     info: &LayoutCallbackFactoryInfo,
     ir: &CodegenIR,
 ) {
-    let wrapper_class = kotlin_class_name(&info.class_name);
+    let wrapper_class = kotlin_class_name(&info.class_name, ir);
     let register_fn = format!("register{}", info.callback_wrapper);
     let native_class = native_class_for_class(&info.class_name, ir);
     let field_path = info.field_path.join(".");
@@ -951,10 +961,10 @@ fn emit_kt_app_factory_companion(
 /// `String`s take a `kotlin.String`, owned wrapper-class structs take the
 /// wrapper instance, references collapse to `Pointer?`.
 fn kt_user_arg_type(a: &FunctionArg, ir: &CodegenIR) -> String {
-    if is_az_string_owned_arg(a) {
+    if is_az_string_owned_arg(a, ir) {
         "kotlin.String".to_string()
     } else if is_wrapper_class_owned_arg(a, ir) {
-        kotlin_class_name(a.type_name.trim())
+        kotlin_class_name(a.type_name.trim(), ir)
     } else {
         match a.ref_kind {
             ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
@@ -1047,8 +1057,8 @@ fn emit_kt_smart_setters(
     } else {
         "return "
     };
-    let data_class = kotlin_class_name(func.args[data_idx].type_name.trim());
-    let cb_class = kotlin_class_name(&kind);
+    let data_class = kotlin_class_name(func.args[data_idx].type_name.trim(), ir);
+    let cb_class = kotlin_class_name(&kind, ir);
 
     let smart_camel = snake_to_lower_camel(&smart_snake);
     builder.line("/**");
@@ -1119,12 +1129,18 @@ fn emit_kt_smart_setters(
     builder.blank();
 }
 
-/// Auto-string-conversion rule: any Owned `String` arg at the C ABI
+/// Auto-string-conversion rule: any Owned arg of the engine's STRING type
 /// accepts a `kotlin.String` at the wrapper level. Returns true if this
 /// arg should be re-typed to `kotlin.String` and converted in pre-call
-/// lines. Pure type-driven; no method-name allowlist.
-fn is_az_string_owned_arg(a: &FunctionArg) -> bool {
-    a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+/// lines. Which type that is comes from the IR category (the same one
+/// `is_az_string_kt` reads), never from its api.json spelling: renaming
+/// the type in api.json must not silently turn every string parameter in
+/// this binding back into a raw struct.
+fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    matches!(a.ref_kind, ArgRefKind::Owned)
+        && ir
+            .find_struct(a.type_name.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::String))
 }
 
 /// Auto-wrapper-class rule: any Owned arg whose type has a wrapper class
@@ -1134,7 +1150,7 @@ fn is_az_string_owned_arg(a: &FunctionArg) -> bool {
 /// sees a real struct value. Pure type-driven; no method-name allowlist.
 fn is_wrapper_class_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
     matches!(a.ref_kind, ArgRefKind::Owned)
-        && !is_az_string_owned_arg(a)
+        && !is_az_string_owned_arg(a, ir)
         && has_wrapper_class(a.type_name.trim(), ir)
 }
 
@@ -1259,29 +1275,128 @@ fn emit_kt_equals_hashcode_if_supported(
     }
 }
 
-/// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
-fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    if matches!(s.category, TypeCategory::String) {
-        return; // Vec-direct decode already in place.
+/// The wrapper's ordering surface, routed through the C `Az<X>_cmp` /
+/// `Az<X>_partialCmp` exports.
+///
+/// ORDERING ENCODING (the other side of it is written by `lang_rust`):
+/// `0 = Less`, `1 = Equal`, `2 = Greater`, and for `_partialCmp` only
+/// `255 = unordered`. Kotlin's `compareTo` wants negative / zero /
+/// positive, so "the byte minus one" is an exact re-encoding rather than
+/// an invented one.
+///
+/// Only a TOTAL order (`_cmp`) becomes `Comparable`: a partial one can
+/// answer "these two are unordered", which `compareTo` has no way to say,
+/// so it gets a nullable method of its own instead of a lie.
+fn emit_kt_ordering_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+) {
+    let native = super::super::lang_java::functions::native_class_for_class(&s.name, ir);
+    if let Some(sym) = ordering_symbol(s, ir, FunctionKind::Cmp) {
+        builder.line(&format!(
+            "/** Total order routed through {} (ABI: 0 = Less, 1 = Equal, 2 = Greater). */",
+            sym
+        ));
+        builder.line(&format!(
+            "override fun compareTo(other: {}): Int {{",
+            class_name
+        ));
+        builder.indent();
+        builder.line("check(!closed && !other.closed) { \"closed\" }");
+        builder.line(&format!(
+            "return {}.{}(this.ptr, other.ptr).toInt() - 1",
+            native, sym
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
+    if let Some(sym) = ordering_symbol(s, ir, FunctionKind::PartialCmp) {
+        builder.line(&format!(
+            "/** Partial order routed through {}; null when the two are unordered. */",
+            sym
+        ));
+        builder.line(&format!(
+            "fun partialCompareTo(other: {}): Int? {{",
+            class_name
+        ));
+        builder.indent();
+        builder.line("if (closed || other.closed) return null");
+        builder.line(&format!(
+            "val __o = {}.{}(this.ptr, other.ptr).toInt() and 0xFF",
+            native, sym
+        ));
+        builder.line("return if (__o > 2) null else __o - 1");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+}
+
+/// The C symbol of this struct's `_cmp` / `_partialCmp`, when api.json
+/// declares the trait AND the export exists. Same two-sided check as
+/// `emit_kt_equals_hashcode_if_supported`.
+fn ordering_symbol(s: &StructDef, ir: &CodegenIR, kind: FunctionKind) -> Option<String> {
+    let declared = match kind {
+        FunctionKind::Cmp => s.traits.is_ord,
+        FunctionKind::PartialCmp => s.traits.is_partial_ord,
+        _ => false,
+    };
+    if !declared {
+        return None;
+    }
+    ir.functions_for_class(&s.name)
+        .find(|f| f.kind == kind)
+        .map(|f| f.c_name.clone())
+}
+
+/// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
+///
+/// The engine's STRING type is the one exception: its `toString()` already
+/// decodes its own UTF-8 bytes (that is what a caller means by it), so its
+/// `Debug` entry point — a DIFFERENT value, the quoted and escaped `{:#?}`
+/// form — gets a method of its own rather than being dropped on the floor.
+fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let dbg_sym = format!("Az{}_toDbgString", s.name);
     let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
+    let is_string = matches!(s.category, TypeCategory::String);
     let native = super::super::lang_java::functions::native_class_for_class(&s.name, ir);
-    builder.line(&format!("/** String repr routed through {}. */", dbg_sym));
-    builder.line("override fun toString(): kotlin.String {");
+    if is_string {
+        builder.line(&format!(
+            "/** The engine's Debug form (quoted, escaped) routed through {}; `toString()` \
+             decodes the bytes themselves. */",
+            dbg_sym
+        ));
+        builder.line("fun debugString(): kotlin.String {");
+    } else {
+        builder.line(&format!("/** String repr routed through {}. */", dbg_sym));
+        builder.line("override fun toString(): kotlin.String {");
+    }
     builder.indent();
     // Non-nullable `ptr` — the null half of the old guard was an
     // always-false warning; `closed` is the real lifecycle gate.
-    builder.line("if (closed) return super.toString()");
+    if is_string {
+        builder.line("if (closed) return \"\"");
+    } else {
+        builder.line("if (closed) return super.toString()");
+    }
     builder.line(&format!("val __s = {}.{}(ptr)", native, dbg_sym));
     builder.line("__s.write()");
     builder.line("val __sp = __s.pointer");
     builder.line("val __vecPtr: Pointer? = __sp.getPointer(0)");
     builder.line("val __vecLen: Long = __sp.getLong(8)");
-    builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\"");
+    // Free before the early return too: an empty debug string still arrives
+    // as an owned AzString, and returning without deleting it leaked one per
+    // call.
+    builder.line("if (__vecPtr == null || __vecLen <= 0) {");
+    builder.line("    AzulNativeStr.AzString_delete(__sp)");
+    builder.line("    return \"\"");
+    builder.line("}");
     builder.line("val __bytes = __vecPtr.getByteArray(0, __vecLen.toInt())");
     // ByteArray.toString(Charset) avoids the wrapper-class `String`
     // constructor collision (see earlier fix in s.name == \"String\" block).
@@ -1342,7 +1457,7 @@ fn emit_kt_vec_primitive_array(builder: &mut CodeBuilder, s: &StructDef, elem_ru
 fn emit_kt_vec_iterator(builder: &mut CodeBuilder, s: &StructDef, elem_type: &str, ir: &CodegenIR) {
     let vec_ffi = ffi_type_name(&s.name);
     let elem_ffi = ffi_type_name(elem_type);
-    let elem_wrapper = kotlin_class_name(elem_type);
+    let elem_wrapper = kotlin_class_name(elem_type, ir);
     let clone_call = format_clone_call_kt(elem_type, ir);
     let elem_has_delete = has_delete_function(elem_type, ir);
 
@@ -1463,7 +1578,7 @@ fn emit_static_factory(
         .iter()
         .map(|a| {
             let raw_name = sanitize_kt_identifier(&a.name);
-            if is_az_string_owned_arg(a) {
+            if is_az_string_owned_arg(a, ir) {
                 emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
             } else if is_wrapper_class_owned_arg(a, ir) {
                 let local =
@@ -1498,7 +1613,7 @@ fn emit_static_factory(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_wrapper_class(r, ir))
-            .map(kotlin_class_name)
+            .map(|r| kotlin_class_name(r, ir))
     } else {
         None
     };
@@ -1703,7 +1818,7 @@ fn emit_instance_method(
     // newInstance splice. Pure type-driven (see top-of-file predicates).
     for (j, a) in user_args.iter().enumerate() {
         let raw_name = sanitize_kt_identifier(&a.name);
-        let value = if is_az_string_owned_arg(a) {
+        let value = if is_az_string_owned_arg(a, ir) {
             emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
         } else if is_wrapper_class_owned_arg(a, ir) {
             let raw_local =
@@ -1739,7 +1854,7 @@ fn emit_instance_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_wrapper_class(r, ir))
-            .map(kotlin_class_name)
+            .map(|r| kotlin_class_name(r, ir))
     } else {
         None
     };
@@ -1863,7 +1978,7 @@ fn emit_instance_method(
 }
 
 fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
-    let class_name = kotlin_class_name(&e.name);
+    let class_name = kotlin_class_name(&e.name, ir);
     let ffi_name = ffi_type_name(&e.name);
 
     if !e.doc.is_empty() {
@@ -1879,13 +1994,35 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     for v in &e.variants {
         match &v.kind {
             EnumVariantKind::Unit => {
-                let mname = idiomatic_method_name(&v.name);
-                let variant_ident = sanitize_kt_identifier(&v.name);
                 builder.line(&format!(
                     "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
-                builder.line(&format!("@JvmStatic fun {}(): {} {{", mname, ffi_name));
+                // libazul exports a constructor for the unit variants too
+                // (`AzAccessibilityAction_blur()`). Calling it keeps ONE
+                // place that knows the `repr(C, u8)` layout: the engine.
+                // Building the union by hand here worked, but it meant the
+                // export was declared and never called, and it would go
+                // quietly wrong the day a variant grows a payload or the
+                // tag widens.
+                if let Some(ctor) = ir.variant_constructor(&e.name, &v.name) {
+                    builder.line(&format!(
+                        "@JvmStatic fun {}(): {} = {}.{}()",
+                        idiomatic_method_name(&v.name),
+                        super::map_kt_return(&e.name, ir),
+                        super::super::lang_java::functions::native_class_for_func(ctor, ir),
+                        super::super::managed_host_invoker::managed_c_symbol(ctor),
+                    ));
+                    builder.blank();
+                    continue;
+                }
+                // No export for this variant: set the tag ourselves.
+                let variant_ident = sanitize_kt_identifier(&v.name);
+                builder.line(&format!(
+                    "@JvmStatic fun {}(): {} {{",
+                    idiomatic_method_name(&v.name),
+                    ffi_name
+                ));
                 builder.indent();
                 builder.line(&format!("val u = {}()", ffi_name));
                 // `.value` is Int; AzX_Tag is repr(C, u8) so the tag
@@ -1943,7 +2080,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.blank();
 }
 
-fn idiomatic_method_name(method_name: &str) -> String {
+pub(super) fn idiomatic_method_name(method_name: &str) -> String {
     if method_name == "new" {
         return "create".to_string();
     }

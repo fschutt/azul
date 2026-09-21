@@ -16,7 +16,7 @@
 use super::{
     super::{
         generator::CodeBuilder,
-        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind},
+        ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, TypeCategory},
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
         managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type},
     },
@@ -283,7 +283,7 @@ fn emit_kt_typed_invoker_sam(builder: &mut CodeBuilder, cb: &CallbackTypedefDef,
         return;
     }
 
-    let wrapper_class = kotlin_class_name(ret_ty);
+    let wrapper_class = kotlin_class_name(ret_ty, ir);
     let ffi_ret = ffi_type_name(ret_ty);
     let cb_ffi = ffi_type_name(wrapper);
     let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
@@ -411,13 +411,29 @@ pub(super) struct KtDataSamShape {
 }
 
 
-/// The first callback argument whose class has `log(level, message: String)`
-/// (`CallbackInfo`), as `(Kotlin variable, Error level expression)`.
+/// The first callback argument whose class can REPORT a failure, as
+/// `(Kotlin variable, Error level expression)`.
+///
+/// Found by SHAPE, not by name: an instance method taking a severity (a
+/// unit enum that has an `Error` level) and an owned message string.
+/// Exactly one function in the whole API has that shape, and it is the
+/// one we want. Spelling its name here instead would mean a rename in
+/// api.json silently stopped every failing callback from reporting
+/// anything — at runtime, with no build error to notice it by.
 fn kt_failure_logger(
     cb: &CallbackTypedefDef,
     shape: &KtDataSamShape,
     ir: &CodegenIR,
 ) -> Option<(String, String)> {
+    let is_message = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    };
+    let has_error_level = |t: &str| {
+        ir.find_enum(t.trim())
+            .filter(|e| !e.is_union)
+            .is_some_and(|e| e.variants.iter().any(|v| v.name == "Error"))
+    };
     for ((kind, name), a) in shape.extra_args.iter().zip(cb.args.iter().skip(1)) {
         if !matches!(kind, KtSamArg::Wrapper { .. }) {
             continue;
@@ -425,10 +441,11 @@ fn kt_failure_logger(
         let ty = a.type_name.trim();
         let f = ir.functions.iter().find(|f| {
             f.class_name == ty
-                && f.method_name == "log"
                 && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
                 && f.args.len() == 3
-                && f.args[2].type_name.trim() == "String"
+                && f.is_receiver_arg(&f.args[0])
+                && has_error_level(f.args[1].type_name.as_str())
+                && is_message(f.args[2].type_name.as_str())
                 && matches!(f.args[2].ref_kind, ArgRefKind::Owned)
         })?;
         let level_ty = f.args[1].type_name.trim();
@@ -461,7 +478,7 @@ pub(super) fn kt_data_typed_sam_shape(
         let t = a.type_name.trim();
         let kind = if has_wrapper_class(t, ir) {
             KtSamArg::Wrapper {
-                class: kotlin_class_name(t),
+                class: kotlin_class_name(t, ir),
                 has_delete: has_delete_function(t, ir),
             }
         } else if let Some((kt, getter)) = kt_primitive_pointer_read(t) {
@@ -487,7 +504,7 @@ pub(super) fn kt_data_typed_sam_shape(
         None | Some("void") | Some("()") => ("Unit".to_string(), KtSamRet::Void),
         Some(rt) => {
             if has_wrapper_class(rt, ir) {
-                (kotlin_class_name(rt), KtSamRet::Wrapper(ffi_type_name(rt)))
+                (kotlin_class_name(rt, ir), KtSamRet::Wrapper(ffi_type_name(rt)))
             } else if ir.find_enum(rt).is_some_and(|e| !e.is_union) {
                 (user_enum_type_name(rt), KtSamRet::UnitEnum)
             } else if ir.find_struct(rt).is_some() {
