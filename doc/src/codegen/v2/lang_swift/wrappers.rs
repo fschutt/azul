@@ -29,7 +29,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::{
     super::{
         ir::{
-            ArgRefKind, CallbackTypedefDef, FunctionArg, FunctionDef, FunctionKind, TypeCategory,
+            ArgRefKind, CallbackTypedefDef, ConstantDef, FunctionArg, FunctionDef, FunctionKind,
+            TypeCategory,
         },
         managed_host_invoker::{
             callback_ctx_field, has_callback_wrapper_arg, layout_callback_factory_info,
@@ -122,8 +123,12 @@ fn exact(t: &Ty) -> Option<String> {
         Ty::Void => "Void".to_string(),
         Ty::Prim(p) => p.swift().to_string(),
         Ty::RawPtr(p) => p.clone(),
-        Ty::Str => "String".to_string(),
-        Ty::RefAny => "RefAny".to_string(),
+        // `Ty::Str` and `Ty::RefAny` have dropped the class name, so these
+        // two Swift spellings cannot be derived: they are the standard
+        // library's string and the runtime's wrapper class, and the IR
+        // singles the api.json types out as `TypeCategory::String` / `RefAny`.
+        Ty::Str => "String".to_string(), // allow-api-name: Swift's own String
+        Ty::RefAny => "RefAny".to_string(), // allow-api-name: the runtime wrapper class
         Ty::Enum(n) | Ty::Plain(n) | Ty::Union(n) | Ty::Class(n) => swift_type_name(n),
         Ty::Option { payload, .. } => format!("{}?", exact(payload)?),
         Ty::Vec { elem, .. } => format!("[{}]", exact(elem)?),
@@ -239,9 +244,11 @@ impl<'a> Model<'a> {
 
     /// Frees a fresh C value (behind pointer `p`) that a call only borrowed.
     pub(super) fn cleanup(&self, t: &Ty, p: &str) -> Option<String> {
+        // `Ty::Str` and `Ty::RefAny` have dropped the class name, so the two
+        // types the IR singles out are asked for by category.
         let name = match t {
-            Ty::Str => "String",
-            Ty::RefAny => "RefAny",
+            Ty::Str => self.string_class()?,
+            Ty::RefAny => self.refany_class()?,
             Ty::Option { name, .. } | Ty::Vec { name, .. } => name.as_str(),
             Ty::Union(n) | Ty::Class(n) if !self.is_copy(n) => n.as_str(),
             _ => return None,
@@ -363,21 +370,28 @@ pub struct Emitter<'m, 'a> {
     /// Natively mapped api.json names and their Swift spelling, for docs.
     native_names: BTreeMap<String, String>,
     trampolines: BTreeSet<String>,
+    /// `Wrapped` spellings that already carry an `Optional` extension: two
+    /// api.json options over the same Swift type would redeclare each other.
+    option_extensions: BTreeSet<String>,
     skipped: Vec<String>,
     stats: Stats,
 }
 
 pub fn generate(m: &Model) -> Output {
+    // Doc rewriting turns a natively mapped api.json name into its Swift
+    // spelling (`OptionDom` -> `Dom?`). The string keeps its own name: it is
+    // declared as a typealias, so the name does exist in Swift.
     let native_names = m
         .classes
-        .keys()
-        .filter(|n| m.is_native(n) && n.as_str() != "String")
-        .filter_map(|n| exact(&m.owned(n)).map(|x| (n.clone(), x)))
+        .values()
+        .filter(|c| m.is_native(&c.name) && c.category != TypeCategory::String)
+        .filter_map(|c| exact(&m.owned(&c.name)).map(|x| (c.name.clone(), x)))
         .collect();
     let mut e = Emitter {
         m,
         native_names,
         trampolines: BTreeSet::new(),
+        option_extensions: BTreeSet::new(),
         skipped: Vec::new(),
         stats: Stats::default(),
     };
@@ -402,6 +416,7 @@ pub fn generate(m: &Model) -> Output {
             Kind::Union => e.emit_union(w, c),
         }
     }
+    e.emit_constants(&mut modules);
     let mut shared = W::default();
     e.emit_trampolines(&mut shared);
     Output {
@@ -512,9 +527,19 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 );
                 w.l(0, &format!("public typealias {} = Swift.String", c.name));
                 w.l(0, "");
+                // ... and everything api.json declares on it, which has no
+                // class of its own to live on.
+                self.emit_string_ext(w, c);
+                return;
             }
             t @ Ty::Option { .. } => self.emit_option_conv(w, c, &t),
-            t @ Ty::Vec { .. } => self.emit_vec_conv(w, c, &t),
+            t @ Ty::Vec { .. } => {
+                self.emit_vec_conv(w, c, &t);
+                // ... and the Rust container itself, whose members a Swift
+                // `Array` cannot stand in for.
+                self.emit_vec_class(w, c, &t);
+                return;
+            }
             t @ Ty::Result { .. } => self.emit_result_conv(w, c, &t),
             _ => {}
         }
@@ -868,6 +893,19 @@ impl<'m, 'a> Emitter<'m, 'a> {
         w.l(0, "");
     }
 
+    /// The exported constructor of one union variant, if libazul exports it
+    /// and it takes exactly the variant's fields by value. Building the C
+    /// value by calling it keeps ONE authority on the tag and on where a
+    /// payload sits - the union's layout is never restated in Swift.
+    fn variant_ctor(&self, class: &str, v: &Variant) -> Option<String> {
+        let f = self.m.ir.variant_constructor(class, &v.name)?;
+        let matches_fields = f.args.len() == v.fields.len()
+            && f.args.iter().zip(&v.fields).all(|(a, field)| {
+                a.ref_kind == ArgRefKind::Owned && a.type_name.trim() == field.type_name.trim()
+            });
+        (self.m.funs.contains(&f.c_name) && matches_fields).then(|| f.c_name.clone())
+    }
+
     fn emit_to_raw(&mut self, w: &mut W, c: &ClassInfo, cases: &[String], fname: &str, copy: bool) {
         let m = self.m;
         let raw = format!("Az{}", c.name);
@@ -885,6 +923,32 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     2,
                     &format!("case let .{}({}):", escape(case), binds.join(", ")),
                 );
+            }
+            // Each payload as an owned C value (`_toRaw`) or as a bitwise
+            // view of one the Swift value keeps (`_toRawBorrowed`); the
+            // release twin frees whatever this built fresh.
+            let args: Option<Vec<String>> = v
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let t = m.not_result(m.field(f));
+                    let x = format!("__p{}", i);
+                    if copy {
+                        m.borrow_expr(&t, &x)
+                    } else {
+                        m.in_expr(&t, &x)
+                    }
+                })
+                .collect();
+            match (self.variant_ctor(&c.name, v), &args) {
+                (Some(ctor), Some(args)) => {
+                    w.l(3, &format!("return {}({})", ctor, args.join(", ")));
+                    continue;
+                }
+                // No constructor, or a payload with no Swift expression:
+                // write the variant struct out and tag it here.
+                _ => {}
             }
             let vstruct = format!("{}Variant_{}", raw, v.name);
             w.l(3, &format!("var __v: {} = {}()", vstruct, vstruct));
@@ -1029,11 +1093,99 @@ impl<'m, 'a> Emitter<'m, 'a> {
         }
         self.emit_traits(w, name, Recv::Class, &mut taken);
         self.emit_methods(w, name, Recv::Class, &mut taken);
-        if let Shape::Struct(fields) = &c.shape {
-            self.emit_class_fields(w, c, fields, &mut taken);
+        match &c.shape {
+            Shape::Struct(fields) => self.emit_class_fields(w, c, fields, &mut taken),
+            // A tagged union Swift cannot hold as an enum (`classify`: a
+            // payload is a raw pointer or has no Swift shape) is a class, and
+            // then the exported variant constructors are the only way to
+            // build one - the enum form gets them through `_toRaw`.
+            Shape::Union { .. } => self.emit_union_ctors(w, c, &mut taken),
         }
         w.l(0, "}");
         w.l(0, "");
+    }
+
+    /// One static factory per variant of a union-shaped class, each calling
+    /// the exported constructor. Emitted after the methods, so an api.json
+    /// member of the same name keeps its spelling.
+    fn emit_union_ctors(&mut self, w: &mut W, c: &ClassInfo, taken: &mut Taken) {
+        let m = self.m;
+        let Shape::Union { variants, .. } = &c.shape else {
+            return;
+        };
+        let sname = swift_type_name(&c.name);
+        let cases = case_names(&variants.iter().map(|v| v.name.clone()).collect::<Vec<_>>());
+        for (v, case) in variants.iter().zip(&cases) {
+            let Some(ctor) = self.variant_ctor(&c.name, v) else {
+                continue;
+            };
+            // One parameter per payload field, in the binding's convention:
+            // the first unlabeled, the rest labeled.
+            let names: Vec<String> = v
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let n = camel(&f.name);
+                    if n.is_empty() {
+                        format!("arg{}", i)
+                    } else {
+                        n
+                    }
+                })
+                .collect();
+            let shapes: Vec<Ty> = v.fields.iter().map(|f| m.not_result(m.field(f))).collect();
+            let (Some(tys), Some(args)): (Option<Vec<String>>, Option<Vec<String>>) = (
+                shapes.iter().map(restriction).collect(),
+                shapes
+                    .iter()
+                    .zip(&names)
+                    .map(|(t, n)| m.in_expr(t, &escape(n)))
+                    .collect(),
+            ) else {
+                self.skipped.push(ctor);
+                continue;
+            };
+            let labels: Vec<String> = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| if i == 0 { "_".to_string() } else { n.clone() })
+                .collect();
+            let sel = Selector {
+                is_static: true,
+                base: case.clone(),
+                labels: labels.clone(),
+            };
+            let sig = tys.join(",");
+            if !taken.is_free(&sel, Some(sig.as_str())) {
+                self.skipped.push(format!("{} {}", ctor, TAKEN));
+                continue;
+            }
+            taken.take(sel, Some(sig));
+            let params: Vec<String> = labels
+                .iter()
+                .zip(names.iter().zip(&tys))
+                .map(|(l, (n, t))| format!("{} {}: {}", l, escape(n), t))
+                .collect();
+            if let Some(d) = &v.doc {
+                w.doc(1, &self.rw(std::slice::from_ref(d)));
+            }
+            w.l(
+                1,
+                &format!(
+                    "public static func {}({}) -> {} {{",
+                    escape(case),
+                    params.join(", "),
+                    sname
+                ),
+            );
+            w.l(
+                2,
+                &format!("return {}(_own: {}({}))", sname, ctor, args.join(", ")),
+            );
+            w.l(1, "}");
+            w.l(0, "");
+        }
     }
 
     fn emit_class_fields(&mut self, w: &mut W, c: &ClassInfo, fields: &[Field], taken: &mut Taken) {
@@ -1301,6 +1453,40 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(1, "}");
             w.l(0, "");
         }
+        // A value type never OWNS a C value: an enum moves the payloads out of
+        // one (`init(_take:)`) and writes a fresh one for each call, a struct
+        // is `Copy`. Code that talks to `CAzul` directly does get owned
+        // values handed to it, and this is their `Drop`. (A class has no need
+        // for it: its `deinit` runs the same destructor.)
+        if recv != Recv::Class {
+            if let Some(f) = m.delete_fn(name) {
+                let sel = Selector {
+                    is_static: true,
+                    base: "deleteRawValue".to_string(),
+                    labels: vec!["_".to_string()],
+                };
+                let sig = format!("inout {}", raw);
+                if taken.is_free(&sel, Some(sig.as_str())) {
+                    taken.take(sel, Some(sig));
+                    w.l(
+                        1,
+                        "/// Rust's `Drop` for an owned C value, payload included.",
+                    );
+                    w.l(
+                        1,
+                        "/// Only for a value code calling `CAzul` directly owns:",
+                    );
+                    w.l(1, "/// everything this binding hands out frees itself.");
+                    w.l(
+                        1,
+                        &format!("public static func deleteRawValue(_ raw: inout {}) {{", raw),
+                    );
+                    w.l(2, &format!("{}(&raw)", f));
+                    w.l(1, "}");
+                    w.l(0, "");
+                }
+            }
+        }
         if let Some(f) = t(FunctionKind::Default) {
             let zero_arg_create = m.functions_of(name).iter().any(|g| {
                 matches!(
@@ -1564,7 +1750,12 @@ impl<'m, 'a> Emitter<'m, 'a> {
         }
         let mut cplans: Vec<CbPlan> = Vec::new();
         let mut generic = false;
-        let option_refany = matches!(m.owned("OptionRefAny"), Ty::Option { .. });
+        let ctx_slot = m.option_refany_class();
+        let option_refany = ctx_slot.is_some_and(|n| matches!(m.owned(n), Ty::Option { .. }));
+        // The ctx slot's api.json name, for the `_Conv` helpers and the C
+        // symbols written into the generated code (only read once
+        // `option_refany` holds, so the empty fallback never reaches Swift).
+        let ctx_name = ctx_slot.unwrap_or("");
         for (i, cb) in &cb_args {
             let td = cb.td;
             let ctx_arg = td.args.iter().any(|a| {
@@ -1574,7 +1765,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 a.ref_kind == ArgRefKind::Owned && matches!(m.owned(&a.type_name), Ty::RefAny)
             });
             let ctx_usable = ctx_arg
-                && m.fun("OptionRefAny", "delete").is_some()
+                && ctx_slot.and_then(|n| m.fun(n, "delete")).is_some()
                 && (cb.wrapper.is_some() || layout_factory.is_some());
             let carry_in_data = (data_first && cb_args.len() == 1 && refany_args.len() == 1)
                 .then(|| refany_args[0]);
@@ -1653,16 +1844,19 @@ impl<'m, 'a> Emitter<'m, 'a> {
                             ));
                             if plan.ctx_usable {
                                 body.push(format!(
-                                    "{}.{} = _Conv.wrap_OptionRefAny(_Handles.refany(object: nil, closure: _Closure(__erased{})))",
+                                    "{}.{} = _Conv.wrap_{}(_Handles.refany(object: nil, closure: \
+                                     _Closure(__erased{})))",
                                     local,
                                     escape(&super::c_member_name(ctx_field)),
+                                    ctx_name,
                                     i
                                 ));
                             } else {
                                 body.push(format!(
-                                    "{}.{} = _Conv.in_OptionRefAny(nil)",
+                                    "{}.{} = _Conv.in_{}(nil)",
                                     local,
-                                    escape(&super::c_member_name(ctx_field))
+                                    escape(&super::c_member_name(ctx_field)),
+                                    ctx_name
                                 ));
                             }
                             call_args.push(local.clone());
@@ -1689,9 +1883,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
                                 ename
                             ));
                             body.push(format!(
-                                "{}.{} = _Conv.in_OptionRefAny(nil)",
+                                "{}.{} = _Conv.in_{}(nil)",
                                 local,
-                                escape(&super::c_member_name(ctx_field))
+                                escape(&super::c_member_name(ctx_field)),
+                                ctx_name
                             ));
                             call_args.push(local.clone());
                         }
@@ -1956,15 +2151,20 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     .unwrap_or_else(|| "ctx".to_string());
                 path.push(escape(&super::c_member_name(&ctx_field)));
                 body.push(format!(
-                    "let __ctx: UnsafeMutablePointer<AzOptionRefAny> = _ptr.pointer(to: \\{}.{})!",
+                    "let __ctx: UnsafeMutablePointer<Az{}> = _ptr.pointer(to: \\{}.{})!",
+                    ctx_name,
                     raw,
                     path.join(".")
                 ));
-                body.push("AzOptionRefAny_delete(__ctx)".to_string());
-                body.push(
-                    "__ctx.pointee = _Conv.wrap_OptionRefAny(_Handles.refany(object: nil, closure: _Closure(__erased0)))"
-                        .to_string(),
-                );
+                // The factory already filled the slot: free it before writing.
+                if let Some(d) = m.delete_fn(ctx_name) {
+                    body.push(format!("{}(__ctx)", d));
+                }
+                body.push(format!(
+                    "__ctx.pointee = _Conv.wrap_{}(_Handles.refany(object: nil, closure: \
+                     _Closure(__erased0)))",
+                    ctx_name
+                ));
             }
         } else {
             let (ann, line) = if builder {
@@ -2254,6 +2454,12 @@ impl<'m, 'a> Emitter<'m, 'a> {
             let data_first = td.args.first().is_some_and(|a| {
                 a.ref_kind == ArgRefKind::Owned && matches!(m.owned(&a.type_name), Ty::RefAny)
             });
+            // The data RefAny arrives by value: the trampoline owns it and
+            // frees it again once the Swift closure has returned.
+            let drop_data = m
+                .refany_class()
+                .and_then(|n| m.delete_fn(n))
+                .map(|f| format!("{}(&__d)", f));
             let ctx = td.args.iter().enumerate().find_map(|(j, a)| {
                 (a.ref_kind == ArgRefKind::Owned)
                     .then(|| m.ctx_getter(a.type_name.trim()))
@@ -2287,13 +2493,16 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 ),
             );
             w.l(2, &format!("var __f: ({})? = nil", erased));
+            // The ctx getter answers with the `Option<RefAny>` slot; its
+            // api.json name is what the `_Conv` helper is spelled with.
+            let ctx_slot = m.option_refany_class().unwrap_or("");
             if let Some((j, getter, info)) = &ctx {
                 w.l(2, &format!("var __i: Az{} = __c{}", info, j));
                 w.l(
                     2,
                     &format!(
-                        "if let __ctx = _Conv.take_OptionRefAny({}(&__i)) {{",
-                        getter
+                        "if let __ctx = _Conv.take_{}({}(&__i)) {{",
+                        ctx_slot, getter
                     ),
                 );
                 w.l(
@@ -2322,16 +2531,16 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(2, "}");
             if ret == "Void" {
                 w.l(2, &format!("__call({})", names.join(", ")));
-                if data_first {
-                    w.l(2, "AzRefAny_delete(&__d)");
+                if let (true, Some(d)) = (data_first, &drop_data) {
+                    w.l(2, d);
                 }
             } else {
                 w.l(
                     2,
                     &format!("let __result: {} = __call({})", ret, names.join(", ")),
                 );
-                if data_first {
-                    w.l(2, "AzRefAny_delete(&__d)");
+                if let (true, Some(d)) = (data_first, &drop_data) {
+                    w.l(2, d);
                 }
                 w.l(2, "return __result");
             }
@@ -2375,20 +2584,32 @@ impl<'m, 'a> Emitter<'m, 'a> {
             1,
             &format!("static func wrap_{}(_ payload: {}) -> {} {{", name, pc, raw),
         );
-        w.l(2, &format!("var __v: {} = {}()", some_struct, some_struct));
-        w.l(2, &format!("__v.tag = {}", tag_value(c, some, *tag_u8)));
-        w.l(2, &format!("__v.{} = payload", payload_member));
-        w.l(2, &format!("var __r: {} = {}()", raw, raw));
-        w.l(2, "__r.Some = __v");
-        w.l(2, "return __r");
+        // The exported constructors own the tag; the union is only written
+        // out here when libazul does not export them.
+        match self.variant_ctor(name, some) {
+            Some(ctor) => w.l(2, &format!("return {}(payload)", ctor)),
+            None => {
+                w.l(2, &format!("var __v: {} = {}()", some_struct, some_struct));
+                w.l(2, &format!("__v.tag = {}", tag_value(c, some, *tag_u8)));
+                w.l(2, &format!("__v.{} = payload", payload_member));
+                w.l(2, &format!("var __r: {} = {}()", raw, raw));
+                w.l(2, "__r.Some = __v");
+                w.l(2, "return __r");
+            }
+        }
         w.l(1, "}");
         w.l(0, "");
         w.l(1, &format!("static func none_{}() -> {} {{", name, raw));
-        w.l(2, &format!("var __v: {} = {}()", none_struct, none_struct));
-        w.l(2, &format!("__v.tag = {}", tag_value(c, none, *tag_u8)));
-        w.l(2, &format!("var __r: {} = {}()", raw, raw));
-        w.l(2, "__r.None = __v");
-        w.l(2, "return __r");
+        match self.variant_ctor(name, none) {
+            Some(ctor) => w.l(2, &format!("return {}()", ctor)),
+            None => {
+                w.l(2, &format!("var __v: {} = {}()", none_struct, none_struct));
+                w.l(2, &format!("__v.tag = {}", tag_value(c, none, *tag_u8)));
+                w.l(2, &format!("var __r: {} = {}()", raw, raw));
+                w.l(2, "__r.None = __v");
+                w.l(2, "return __r");
+            }
+        }
         w.l(1, "}");
         w.l(0, "");
         w.l(
@@ -2401,8 +2622,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
         w.l(2, &format!("return wrap_{}({})", name, in_e));
         w.l(1, "}");
         w.l(0, "");
+        let mut borrowable = !m.moves(payload);
         if m.moves(payload) {
             if let Some(borrow_e) = m.borrow_expr(payload, "__x") {
+                borrowable = true;
                 w.l(
                     1,
                     &format!("static func borrow_{}(_ x: {}?) -> {} {{", name, restr, raw),
@@ -2483,6 +2706,198 @@ impl<'m, 'a> Emitter<'m, 'a> {
         w.l(2, "}");
         w.l(2, &format!("return {}", take_e));
         w.l(1, "}");
+        w.l(0, "}");
+        w.l(0, "");
+        self.emit_option_traits(w, name, payload, &ex, borrowable);
+    }
+
+    /// What Rust derives for `Option<T>`, on Swift's `T?`.
+    ///
+    /// Swift's own `==`, `<`, `hashValue` and `description` on `Optional`
+    /// need `T` to conform - which a libazul-backed type does only when the
+    /// Rust type derives the trait - and even then Swift answers its own
+    /// way, not the way `Option<T>` does in Rust. So these call the exported
+    /// C functions on a temporary `AzOption{T}`, and they are `azul`-prefixed
+    /// because a member of `Optional` must not shadow one the standard
+    /// library already has.
+    ///
+    /// The temporary is a bitwise VIEW when the payload is a wrapper object
+    /// the caller keeps (`borrow_` / `release_` free only what this built
+    /// fresh), and a fresh C value otherwise (freed as a whole by the
+    /// option's own `Drop`). Only one extension per `Wrapped` spelling: two
+    /// api.json options over the same Swift type would redeclare each other.
+    fn emit_option_traits(
+        &mut self,
+        w: &mut W,
+        name: &str,
+        payload: &Ty,
+        ex: &str,
+        borrowable: bool,
+    ) {
+        let m = self.m;
+        if !borrowable || !m.convertible(payload) {
+            return;
+        }
+        let raw = format!("Az{}", name);
+        let t = |k| m.trait_fn(name, k);
+        let moves = m.moves(payload);
+        let make = |local: &str, from: &str| {
+            format!(
+                "var {}: {} = _Conv.{}_{}({})",
+                local,
+                raw,
+                if moves { "borrow" } else { "in" },
+                name,
+                from
+            )
+        };
+        let drop_it = |local: &str| -> Option<String> {
+            if moves {
+                Some(format!("_Conv.release_{}(&{})", name, local))
+            } else {
+                m.delete_fn(name).map(|d| format!("{}(&{})", d, local))
+            }
+        };
+        let mut body = W::default();
+        if let Some(f) = t(FunctionKind::DebugToString) {
+            body.l(1, "/// Rust `Debug` for the `Option` this crosses as.");
+            body.l(1, "public var azulDescription: String {");
+            body.l(2, &make("__s", "self"));
+            body.l(2, &format!("let __r: AzString = {}(&__s)", f));
+            if let Some(d) = drop_it("__s") {
+                body.l(2, &d);
+            }
+            body.l(2, "return _Native.takeString(__r)");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        if let Some(f) = t(FunctionKind::PartialEq) {
+            body.l(1, "/// Rust `PartialEq` for the `Option` this crosses as.");
+            body.l(
+                1,
+                &format!("public func azulEquals(_ other: {}?) -> Bool {{", ex),
+            );
+            body.l(2, &make("__l", "self"));
+            body.l(2, &make("__r", "other"));
+            body.l(2, &format!("let __eq: Bool = {}(&__l, &__r)", f));
+            for l in ["__l", "__r"] {
+                if let Some(d) = drop_it(l) {
+                    body.l(2, &d);
+                }
+            }
+            body.l(2, "return __eq");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        // Rust's C ordering: 0 Less, 1 Equal, 2 Greater, 255 incomparable.
+        if let Some(f) = t(FunctionKind::Cmp) {
+            body.l(
+                1,
+                "/// Rust `Ord` for the `Option` this crosses as: -1, 0 or 1.",
+            );
+            body.l(
+                1,
+                &format!("public func azulCompare(_ other: {}?) -> Int {{", ex),
+            );
+            body.l(2, &make("__l", "self"));
+            body.l(2, &make("__r", "other"));
+            body.l(2, &format!("let __o: UInt8 = {}(&__l, &__r)", f));
+            for l in ["__l", "__r"] {
+                if let Some(d) = drop_it(l) {
+                    body.l(2, &d);
+                }
+            }
+            body.l(2, "return Int(__o) - 1");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        if let Some(f) = t(FunctionKind::PartialCmp) {
+            body.l(
+                1,
+                "/// Rust `PartialOrd` for the `Option` this crosses as: -1, 0",
+            );
+            body.l(1, "/// or 1, nil when the two do not compare.");
+            body.l(
+                1,
+                &format!(
+                    "public func azulPartialCompare(_ other: {}?) -> Int? {{",
+                    ex
+                ),
+            );
+            body.l(2, &make("__l", "self"));
+            body.l(2, &make("__r", "other"));
+            body.l(2, &format!("let __o: UInt8 = {}(&__l, &__r)", f));
+            for l in ["__l", "__r"] {
+                if let Some(d) = drop_it(l) {
+                    body.l(2, &d);
+                }
+            }
+            body.l(2, "if __o > 2 {");
+            body.l(3, "return nil");
+            body.l(2, "}");
+            body.l(2, "return Int(__o) - 1");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        if let Some(f) = t(FunctionKind::Hash) {
+            body.l(1, "/// Rust `Hash` for the `Option` this crosses as.");
+            body.l(1, "public var azulHashValue: UInt64 {");
+            body.l(2, &make("__s", "self"));
+            body.l(2, &format!("let __h: UInt64 = {}(&__s)", f));
+            if let Some(d) = drop_it("__s") {
+                body.l(2, &d);
+            }
+            body.l(2, "return __h");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        if let Some(f) = t(FunctionKind::Default) {
+            body.l(1, "/// Rust `Default` for the `Option` this crosses as.");
+            body.l(1, &format!("public static func azulDefault() -> {}? {{", ex));
+            body.l(2, &format!("return _Conv.take_{}({}())", name, f));
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        match (t(FunctionKind::DeepCopy), m.delete_fn(name)) {
+            (Some(f), Some(del)) => {
+                body.l(1, "/// Rust `Clone` for the `Option` this crosses as: the");
+                body.l(1, "/// C copy owns a deep copy of the payload, the Swift");
+                body.l(1, "/// value is read out of it, and `Drop` frees it again.");
+                body.l(1, &format!("public func azulCopy() -> {}? {{", ex));
+                body.l(2, &make("__s", "self"));
+                body.l(2, &format!("var __c: {} = {}(&__s)", raw, f));
+                if let Some(d) = drop_it("__s") {
+                    body.l(2, &d);
+                }
+                body.l(2, &format!("let __r: {}? = _Conv.out_{}(&__c)", ex, name));
+                body.l(2, &format!("{}(&__c)", del));
+                body.l(2, "return __r");
+                body.l(1, "}");
+                body.l(0, "");
+            }
+            // No `Clone`: nothing here ever owns a C option, so its `Drop` is
+            // exposed the way a union's is - for code calling `CAzul`.
+            (None, Some(del)) => {
+                body.l(1, "/// Rust's `Drop` for an owned C option, payload included.");
+                body.l(1, "/// Only for a value code calling `CAzul` directly owns:");
+                body.l(1, "/// everything this binding hands out frees itself.");
+                body.l(
+                    1,
+                    &format!("public static func deleteRawValue(_ raw: inout {}) {{", raw),
+                );
+                body.l(2, &format!("{}(&raw)", del));
+                body.l(1, "}");
+                body.l(0, "");
+            }
+            _ => {}
+        }
+        // Nothing derived, or another option over the same Swift type has
+        // the extension already (a second one would redeclare it).
+        if body.out.trim().is_empty() || !self.option_extensions.insert(ex.to_string()) {
+            return;
+        }
+        w.l(0, &format!("extension Optional where Wrapped == {} {{", ex));
+        w.out.push_str(&body.out);
         w.l(0, "}");
         w.l(0, "");
     }
@@ -2590,6 +3005,483 @@ impl<'m, 'a> Emitter<'m, 'a> {
         w.l(1, "}");
         w.l(0, "}");
         w.l(0, "");
+    }
+
+    /// A natively mapped Vec also gets the Rust container as a class.
+    ///
+    /// `[T]` is an independent Swift array: it answers `count` and `==` its
+    /// own way and has no capacity, no borrowed C slice and no Rust `Debug`.
+    /// This class owns one `Az{T}Vec` (`deinit` runs its `Drop`) and is how
+    /// those reach Swift; `init(_:)` and `elements` convert to and from the
+    /// array that crosses every other boundary. Everything else is the
+    /// api.json members, emitted exactly as for any other class.
+    fn emit_vec_class(&mut self, w: &mut W, c: &ClassInfo, t: &Ty) {
+        let m = self.m;
+        let Ty::Vec { name, elem } = t else { return };
+        let Some(ex) = exact(elem) else { return };
+        let sname = swift_type_name(name);
+        let raw = format!("Az{}", name);
+        self.stats.classes += 1;
+        let mut conformances = vec![format!("AzulValue<{}>", raw)];
+        conformances.extend(self.trait_conformances(name, Recv::Class));
+        w.doc(0, &self.rw(&c.doc));
+        w.l(
+            0,
+            &format!(
+                "/// The Rust vector itself. `[{}]` is what crosses the API; this is",
+                ex
+            ),
+        );
+        w.l(
+            0,
+            "/// the C container behind it, for the capacity Rust keeps, its own",
+        );
+        w.l(
+            0,
+            "/// `Debug` / `PartialEq` / `Ord` / `Hash`, the bounds-checked reads and",
+        );
+        w.l(0, "/// the borrowed C slices.");
+        w.l(
+            0,
+            &format!(
+                "public final class {}{} {{",
+                sname,
+                conformance_clause(&conformances)
+            ),
+        );
+        if let Some(f) = m.delete_fn(name) {
+            w.l(
+                1,
+                &format!(
+                    "override internal class func _drop(_ p: UnsafeMutablePointer<{}>) {{ {}(p) }}",
+                    raw, f
+                ),
+            );
+        }
+        if m.is_copy(name) {
+            w.l(
+                1,
+                "override internal class var _isCopy: Bool { return true }",
+            );
+        } else if let Some(f) = m.clone_fn(name) {
+            w.l(
+                1,
+                &format!(
+                    "override internal class func _copyRaw(_ p: UnsafeMutablePointer<{}>) -> {}? \
+                     {{ return {}(p) }}",
+                    raw, raw, f
+                ),
+            );
+        }
+        w.l(0, "");
+        let mut taken = Taken::default();
+        w.l(1, "/// A new Rust vector holding a copy of every element.");
+        w.l(
+            1,
+            &format!("public convenience init(_ elements: [{}]) {{", ex),
+        );
+        w.l(2, &format!("self.init(_own: _Conv.in_{}(elements))", name));
+        w.l(1, "}");
+        w.l(0, "");
+        taken.take(
+            Selector {
+                is_static: true,
+                base: "init".to_string(),
+                labels: vec!["_".to_string()],
+            },
+            Some(format!("[{}]", ex)),
+        );
+        w.l(
+            1,
+            "/// The elements as a Swift array; each one is copied out.",
+        );
+        w.l(1, &format!("public var elements: [{}] {{", ex));
+        w.l(2, &format!("return _Conv.out_{}(_address)", name));
+        w.l(1, "}");
+        w.l(0, "");
+        taken.take(
+            Selector {
+                is_static: false,
+                base: "elements".to_string(),
+                labels: vec![],
+            },
+            None,
+        );
+        self.emit_traits(w, name, Recv::Class, &mut taken);
+        self.emit_methods(w, name, Recv::Class, &mut taken);
+        // No field accessors: a Vec's fields are its raw buffer, its capacity
+        // and its destructor - writing any of them from Swift corrupts it.
+        w.l(0, "}");
+        w.l(0, "");
+    }
+
+    // ------------------------------------------------------------------------
+    // The string type
+    // ------------------------------------------------------------------------
+
+    /// What api.json declares on the string, on Swift's own `String`.
+    ///
+    /// The string is the one api.json type with no declaration of its own -
+    /// it IS `Swift.String` - so its constructors, its one method and its
+    /// derives would otherwise be reachable only through `CAzul`. Building a
+    /// string from UTF-16 or from a `char*` has no other route in the
+    /// binding, and the derives answer the way Rust's string does rather
+    /// than the way Swift's does. Every member is `azul`-prefixed: one added
+    /// to a standard-library type must not shadow one it already has.
+    fn emit_string_ext(&mut self, w: &mut W, c: &ClassInfo) {
+        let m = self.m;
+        let name = &c.name;
+        let raw = format!("Az{}", name);
+        let Some(ex) = exact(&Ty::Str) else { return };
+        let del = m.delete_fn(name);
+        // A Swift string as a fresh C one, and the free that balances it.
+        let fresh = |local: &str, from: &str, mutable: bool| {
+            format!(
+                "{} {}: {} = _Native.azString({})",
+                if mutable { "var" } else { "let" },
+                local,
+                raw,
+                from
+            )
+        };
+        let release = |local: &str| del.as_ref().map(|d| format!("{}(&{})", d, local));
+        let mut body = W::default();
+        let mut used: BTreeSet<String> = BTreeSet::new();
+
+        for f in m.functions_of(name) {
+            if !matches!(
+                f.kind,
+                FunctionKind::Constructor
+                    | FunctionKind::StaticMethod
+                    | FunctionKind::Method
+                    | FunctionKind::MethodMut
+            ) {
+                continue;
+            }
+            let inst = matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                && !f.args.is_empty();
+            let mut params: Vec<String> = Vec::new();
+            let mut pre: Vec<String> = Vec::new();
+            let mut call: Vec<String> = Vec::new();
+            let mut post: Vec<String> = Vec::new();
+            let mut ok = true;
+            for (i, a) in f.args.iter().skip(usize::from(inst)).enumerate() {
+                let pname = {
+                    let n = camel(&a.name);
+                    if n.is_empty() {
+                        format!("arg{}", i)
+                    } else {
+                        n
+                    }
+                };
+                let en = escape(&pname);
+                // The binding's convention: the first argument has no label.
+                let label = if i == 0 { "_ " } else { "" };
+                match a.ref_kind {
+                    ArgRefKind::Owned => {
+                        let t = m.not_result(m.owned(&a.type_name));
+                        match (restriction(&t), c_type(&t), m.in_expr(&t, &en)) {
+                            (Some(r), Some(ct), Some(e)) => {
+                                params.push(format!("{}{}: {}", label, en, r));
+                                pre.push(format!("let __a{}: {} = {}", i, ct, e));
+                                call.push(format!("__a{}", i));
+                            }
+                            _ => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        match pointee_swift(&a.type_name, a.ref_kind == ArgRefKind::PtrMut, m) {
+                            Some(p) => {
+                                params.push(format!("{}{}: {}", label, en, p));
+                                call.push(en);
+                            }
+                            None => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            // The receiver is a fresh C string: a call that takes it by value
+            // owns it, one that borrows it leaves it here to be freed.
+            if inst && ok {
+                match f.args[0].ref_kind {
+                    ArgRefKind::Owned => {
+                        pre.insert(0, fresh("__self", "self", false));
+                        call.insert(0, "__self".to_string());
+                    }
+                    ArgRefKind::Ref
+                    | ArgRefKind::RefMut
+                    | ArgRefKind::Ptr
+                    | ArgRefKind::PtrMut => match release("__self") {
+                        Some(r) => {
+                            pre.insert(0, fresh("__self", "self", true));
+                            call.insert(0, "&__self".to_string());
+                            post.push(r);
+                        }
+                        None => ok = false,
+                    },
+                }
+            }
+            let ret = m.ret_ty(f.return_type.as_deref());
+            let take = match &ret {
+                Ty::Void => Some(None),
+                t => match (exact(t), c_type(t), m.take_expr(t, "__r")) {
+                    (Some(a), Some(ct), Some(e)) => Some(Some((a, ct, e))),
+                    _ => None,
+                },
+            };
+            let member = format!("azul{}", upper_first(&camel(&f.method_name)));
+            let (true, Some(take)) = (ok, take) else {
+                self.skipped.push(f.c_name.clone());
+                continue;
+            };
+            if !used.insert(member.clone()) {
+                self.skipped.push(format!("{} {}", f.c_name, TAKEN));
+                continue;
+            }
+            body.doc(1, &self.rw(&f.doc));
+            let throws = if matches!(ret, Ty::Result { .. }) {
+                " throws"
+            } else {
+                ""
+            };
+            body.l(
+                1,
+                &format!(
+                    "public {}func {}({}){} -> {} {{",
+                    if inst { "" } else { "static " },
+                    member,
+                    params.join(", "),
+                    throws,
+                    take.as_ref().map_or("Void", |(a, _, _)| a.as_str())
+                ),
+            );
+            for l in &pre {
+                body.l(2, l);
+            }
+            match &take {
+                Some((_, ct, e)) => {
+                    body.l(
+                        2,
+                        &format!("let __r: {} = {}({})", ct, f.c_name, call.join(", ")),
+                    );
+                    for l in &post {
+                        body.l(2, l);
+                    }
+                    body.l(2, &format!("return {}", e));
+                }
+                None => {
+                    body.l(2, &format!("{}({})", f.c_name, call.join(", ")));
+                    for l in &post {
+                        body.l(2, l);
+                    }
+                }
+            }
+            body.l(1, "}");
+            body.l(0, "");
+        }
+
+        // ---- the derives, on the Rust value ---------------------------------
+        let t = |k| m.trait_fn(name, k);
+        let free = |b: &mut W, locals: &[&str]| {
+            for l in locals {
+                if let Some(r) = release(l) {
+                    b.l(2, &r);
+                }
+            }
+        };
+        if let Some(f) = t(FunctionKind::DebugToString) {
+            if used.insert("azulDescription".to_string()) {
+                body.l(1, "/// Rust `Debug` for the string libazul holds.");
+                body.l(1, &format!("public var azulDescription: {} {{", ex));
+                body.l(2, &fresh("__s", "self", true));
+                body.l(2, &format!("let __r: {} = {}(&__s)", raw, f));
+                free(&mut body, &["__s"]);
+                body.l(2, "return _Native.takeString(__r)");
+                body.l(1, "}");
+                body.l(0, "");
+            }
+        }
+        if let Some(f) = t(FunctionKind::PartialEq) {
+            if used.insert("azulEquals".to_string()) {
+                body.l(1, "/// Rust `PartialEq` for the string libazul holds.");
+                body.l(1, &format!("public func azulEquals(_ other: {}) -> Bool {{", ex));
+                body.l(2, &fresh("__l", "self", true));
+                body.l(2, &fresh("__r", "other", true));
+                body.l(2, &format!("let __eq: Bool = {}(&__l, &__r)", f));
+                free(&mut body, &["__l", "__r"]);
+                body.l(2, "return __eq");
+                body.l(1, "}");
+                body.l(0, "");
+            }
+        }
+        // Rust's C ordering: 0 Less, 1 Equal, 2 Greater, 255 incomparable.
+        for (kind, member, doc, partial) in [
+            (
+                FunctionKind::Cmp,
+                "azulCompare",
+                "/// Rust `Ord` for the string libazul holds: -1, 0 or 1.",
+                false,
+            ),
+            (
+                FunctionKind::PartialCmp,
+                "azulPartialCompare",
+                "/// Rust `PartialOrd`: -1, 0 or 1, nil when they do not compare.",
+                true,
+            ),
+        ] {
+            let Some(f) = t(kind) else { continue };
+            if !used.insert(member.to_string()) {
+                continue;
+            }
+            body.l(1, doc);
+            body.l(
+                1,
+                &format!(
+                    "public func {}(_ other: {}) -> Int{} {{",
+                    member,
+                    ex,
+                    if partial { "?" } else { "" }
+                ),
+            );
+            body.l(2, &fresh("__l", "self", true));
+            body.l(2, &fresh("__r", "other", true));
+            body.l(2, &format!("let __o: UInt8 = {}(&__l, &__r)", f));
+            free(&mut body, &["__l", "__r"]);
+            if partial {
+                body.l(2, "if __o > 2 {");
+                body.l(3, "return nil");
+                body.l(2, "}");
+            }
+            body.l(2, "return Int(__o) - 1");
+            body.l(1, "}");
+            body.l(0, "");
+        }
+        if let Some(f) = t(FunctionKind::Hash) {
+            if used.insert("azulHashValue".to_string()) {
+                body.l(1, "/// Rust `Hash` for the string libazul holds.");
+                body.l(1, "public var azulHashValue: UInt64 {");
+                body.l(2, &fresh("__s", "self", true));
+                body.l(2, &format!("let __h: UInt64 = {}(&__s)", f));
+                free(&mut body, &["__s"]);
+                body.l(2, "return __h");
+                body.l(1, "}");
+                body.l(0, "");
+            }
+        }
+        if let Some(f) = t(FunctionKind::DeepCopy) {
+            if used.insert("azulCopy".to_string()) {
+                body.l(1, "/// Rust `Clone` for the string libazul holds: a round trip");
+                body.l(1, "/// through its allocator, which a Swift copy does not make.");
+                body.l(1, &format!("public func azulCopy() -> {} {{", ex));
+                body.l(2, &fresh("__s", "self", true));
+                body.l(2, &format!("let __c: {} = {}(&__s)", raw, f));
+                free(&mut body, &["__s"]);
+                body.l(2, "return _Native.takeString(__c)");
+                body.l(1, "}");
+                body.l(0, "");
+            }
+        }
+        if let Some(f) = t(FunctionKind::Default) {
+            if used.insert("azulDefault".to_string()) {
+                body.l(1, "/// Rust `Default` for the string libazul holds.");
+                body.l(1, &format!("public static func azulDefault() -> {} {{", ex));
+                body.l(2, &format!("return _Native.takeString({}())", f));
+                body.l(1, "}");
+                body.l(0, "");
+            }
+        }
+
+        if body.out.trim().is_empty() {
+            return;
+        }
+        w.l(0, &format!("extension Swift.{} {{", ex));
+        w.out.push_str(&body.out);
+        w.l(0, "}");
+        w.l(0, "");
+    }
+
+    // ------------------------------------------------------------------------
+    // Constants
+    // ------------------------------------------------------------------------
+
+    /// api.json's `constants` (the OpenGL enum values), as `static let`
+    /// members of the class that declares them: `GlContextPtr.<NAME>`. A
+    /// class with a Swift declaration gets an extension; one that is only a
+    /// namespace here (nothing declares it) gets a caseless enum.
+    fn emit_constants(&mut self, modules: &mut BTreeMap<String, W>) {
+        let m = self.m;
+        let mut by_class: BTreeMap<&str, Vec<&ConstantDef>> = BTreeMap::new();
+        for k in &m.ir.constants {
+            let Some((class, _)) = k.name.split_once('_') else {
+                continue;
+            };
+            if !m.config.should_include_type(class) {
+                continue;
+            }
+            by_class.entry(class).or_default().push(k);
+        }
+        for (class, consts) in by_class {
+            let module = m
+                .classes
+                .get(class)
+                .map(|c| c.module.clone())
+                .or_else(|| m.enums.get(class).map(|e| e.module.clone()))
+                .unwrap_or_else(|| consts[0].module.clone());
+            let w = modules.entry(module_key(&module)).or_default();
+            let sname = swift_type_name(class);
+            // An extension when something declares the type under that name
+            // (a class, an enum, a Vec's container class, the string's
+            // typealias); a caseless enum when nothing does, so the
+            // constants still have a home.
+            let declared = m.enums.contains_key(class)
+                || m.classes.contains_key(class)
+                    && !matches!(m.owned(class), Ty::Option { .. } | Ty::Result { .. });
+            w.l(0, "/// The constants api.json declares on this type.");
+            if declared {
+                w.l(0, &format!("extension {} {{", sname));
+            } else {
+                w.l(0, &format!("public enum {} {{", sname));
+            }
+            let mut seen: BTreeSet<String> = BTreeSet::new();
+            for k in consts {
+                let bare = k.member_name();
+                if !seen.insert(bare.clone()) {
+                    continue;
+                }
+                for d in &k.doc {
+                    w.l(1, &format!("/// {}", d.trim_end()));
+                }
+                // The declared type when it resolves to a Swift scalar; a
+                // plain `let` otherwise, so an unmapped type still compiles.
+                match Prim::from_rust(m.unalias(&k.type_name)) {
+                    Some(p) => w.l(
+                        1,
+                        &format!(
+                            "public static let {}: {} = {}",
+                            escape(&bare),
+                            p.swift(),
+                            k.value.trim()
+                        ),
+                    ),
+                    None => w.l(
+                        1,
+                        &format!("public static let {} = {}", escape(&bare), k.value.trim()),
+                    ),
+                }
+            }
+            w.l(0, "}");
+            w.l(0, "");
+        }
     }
 
     fn emit_result_conv(&mut self, w: &mut W, c: &ClassInfo, t: &Ty) {
@@ -2800,6 +3692,15 @@ fn case_names(variants: &[String]) -> Vec<String> {
 }
 
 /// Swift member name for an api.json field name.
+/// `fromUtf16Le` -> `FromUtf16Le`, for a name built by prefixing another.
+fn upper_first(s: &str) -> String {
+    let mut ch = s.chars();
+    match ch.next() {
+        Some(f) => f.to_ascii_uppercase().to_string() + ch.as_str(),
+        None => String::new(),
+    }
+}
+
 fn member_name(field: &str) -> String {
     let mut n = camel(field);
     if n.is_empty() || n.starts_with(|c: char| c.is_ascii_digit()) {

@@ -10,7 +10,9 @@
 //!   or `enum` per api.json type, native `String` / `T?` / `[T]` / `throws` at
 //!   member boundaries, closures for callbacks, any class instance as
 //!   application data, `deinit` for `Drop`, and `description` / `==` / `<` /
-//!   `hash(into:)` / `copy()` / `init()` for the derived traits. See
+//!   `hash(into:)` / `copy()` / `init()` for the derived traits. A natively
+//!   mapped container keeps the Rust type's own members too: `T?` through an
+//!   `Optional` extension, `[T]` through the vector class next to it. See
 //!   `wrappers.rs` (emitter), `model.rs` (type mapping) and `runtime.rs`
 //!   (ownership base classes and closure handles).
 //!
@@ -251,6 +253,16 @@ App(Counter(), AppConfig()).run(window)
 * `String`, `Option<T>` (`T?`) and `Vec<T>` (`[T]`, `[UInt8]` for `u8`) cross
   as native values. A method returning `Result` returns the `Ok` value and
   throws `AzulError<E>` on `Err`.
+* What Rust derives for the container itself is still reachable. `T?` gets
+  `azulDescription`, `azulEquals`, `azulCompare`, `azulHashValue` and
+  `azulCopy()` (prefixed so they never shadow a standard-library member of
+  `Optional`); the Rust vector is a class of its own - `StringVec(["a"])`
+  has `count`, `capacity`, `get`, `asCSlice()`, `description`, `==`, `<`,
+  `hash(into:)` and `.elements` back to `[String]`. Rust's string does the
+  same on `Swift.String`: `String.azulFromUtf16Le(ptr, len:)`,
+  `azulFromCStr`, `azulToCStr()` and the derives.
+* api.json constants are static members of the type that declares them
+  (`GlContextPtr.ACCUM_ALPHA_BITS`).
 * `create` is `init`, `create_body` is `static func body()`, `get_x` is the
   property `x` (settable when `set_x` exists), `is_x` is `isX`. The first
   argument has no label; later ones are labeled unless the name repeats the
@@ -372,7 +384,7 @@ pub fn c_member_name(name: &str) -> String {
 /// Names of top-level Swift standard library types. An api.json type with one
 /// of these names would shadow it in every file that does `import Azul`
 /// (`String(5)` would stop compiling), so it is declared as `Azul{Name}`.
-const SWIFT_STDLIB_TYPES: &[&str] = &[
+const SWIFT_STDLIB_TYPES: &[&str] = &[ // allow-api-name: Swift's own names; the overlap is the point
     "Any",
     "AnyClass",
     "AnyObject",
@@ -492,7 +504,7 @@ pub fn escape(name: &str) -> String {
 }
 
 fn is_swift_keyword(s: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: Swift's reserved words, which api.json does not know
         s,
         "associatedtype"
             | "class"
