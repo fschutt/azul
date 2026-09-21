@@ -3319,6 +3319,51 @@ impl X11Window {
         Ok(())
     }
 
+    /// Publish the window title as BOTH `_NET_WM_NAME` and `WM_NAME`.
+    ///
+    /// `WM_NAME` is a `STRING`, which in X means LATIN-1: every window
+    /// manager written this century reads the UTF-8 `_NET_WM_NAME` first and
+    /// keeps `WM_NAME` only as the fallback for clients that predate it.
+    /// azul wrote only the latter, so any title with a character outside
+    /// Latin-1 - an umlaut, an em dash, any CJK - reached the taskbar
+    /// mangled or not at all.
+    fn publish_window_title(&self, title: &str) {
+        let bytes = window_title_bytes(title);
+        unsafe {
+            let utf8 =
+                (self.xlib.XInternAtom)(self.display, b"UTF8_STRING\0".as_ptr() as *const c_char, 0);
+            let net_name = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_NAME\0".as_ptr() as *const c_char,
+                0,
+            );
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                net_name,
+                utf8,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+            let wm_name =
+                (self.xlib.XInternAtom)(self.display, b"WM_NAME\0".as_ptr() as *const c_char, 0);
+            let string_atom =
+                (self.xlib.XInternAtom)(self.display, b"STRING\0".as_ptr() as *const c_char, 0);
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                wm_name,
+                string_atom,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+        }
+    }
+
     /// Set this live window's `_NET_WM_ICON` — the `App::set_app_icon` path
     /// for windows that already exist when the icon is set.
     pub(crate) fn apply_app_icon(&mut self, icons: &[(u32, u32, Vec<u8>)]) {
@@ -7304,12 +7349,7 @@ impl X11Window {
         use azul_core::window::WindowFrame;
 
         // Title — XStoreName is NOT called in new(), so we must apply it here
-        {
-            let c_title = CString::new(self.common.current_window_state().title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
-        }
+        self.publish_window_title(self.common.current_window_state().title.as_str());
 
         // Window frame (Maximized, Minimized, Fullscreen)
         // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
@@ -7625,10 +7665,7 @@ impl X11Window {
 
         // Title changed?
         if previous.title != current.title {
-            let c_title = CString::new(current.title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
+            self.publish_window_title(current.title.as_str());
         }
 
         // Size changed?
