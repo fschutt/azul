@@ -11,15 +11,20 @@
 //! 6. `IDisposable` wrapper classes around opaque/disposable types with idiomatic, namespaced
 //!    static method names (no `Az` prefix)
 //! 7. A discriminator class hierarchy for tagged-union enums
+//! 8. The derive surface (`ToString`/`Equals`/`GetHashCode`/`CompareTo`/`Clone`/`CreateDefault`/
+//!    `Dispose`) on every value type, routed through the C exports (derives.rs), and the api.json
+//!    constants (constants.rs)
 //!
-//! 8. The `HostInvoker` runtime (managed.rs): typed `<Kind>WithData<T>` delegates and the
+//! 9. The `HostInvoker` runtime (managed.rs): typed `<Kind>WithData<T>` delegates and the
 //!    per-kind invokers libazul dispatches managed callbacks through
 //!
 //! The output is a single `String` for the user to write to disk; this
 //! mirrors `lang_python.rs` rather than implementing the
 //! `LanguageGenerator` trait.
 
+pub mod constants;
 pub mod csproj;
+pub mod derives;
 pub mod functions;
 pub mod managed;
 pub mod types;
@@ -65,6 +70,12 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // 3b. Sibling `NativeMethodsManaged` class with the host-invoker imports.
     managed::emit_native_method_imports(&mut builder, ir);
+
+    // 3c. The marshalling shared by every value type's derive members.
+    derives::emit_derive_runtime(&mut builder, ir, config);
+
+    // 3d. api.json constants (`GlContextPtrConstants.ACCUM_ALPHA_BITS`).
+    constants::generate_constants(&mut builder, ir, config)?;
 
     // 4. Idiomatic public wrapper classes (IDisposable + namespaced statics)
     wrappers::generate_wrappers(&mut builder, ir, config)?;

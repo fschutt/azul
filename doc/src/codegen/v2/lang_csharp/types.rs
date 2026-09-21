@@ -28,7 +28,7 @@ use super::{
             TypeCategory,
         },
     },
-    ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name,
+    derives, ffi_type_name, map_type_to_csharp, sanitize_identifier, user_enum_type_name,
 };
 
 // ============================================================================
@@ -51,7 +51,7 @@ pub fn generate_types(
             continue;
         }
         if enum_def.is_union {
-            generate_tagged_union(builder, enum_def, ir);
+            generate_tagged_union(builder, enum_def, ir, config);
         } else {
             generate_unit_enum(builder, enum_def);
         }
@@ -62,7 +62,7 @@ pub fn generate_types(
         if !should_include_struct(struct_def, config) {
             continue;
         }
-        generate_struct(builder, struct_def, ir);
+        generate_struct(builder, struct_def, ir, config);
     }
 
     // Generic-instantiated type aliases (monomorphized). E.g.
@@ -77,7 +77,7 @@ pub fn generate_types(
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        generate_monomorphized_alias(builder, ta, mono_def, ir);
+        generate_monomorphized_alias(builder, ta, mono_def, ir, config);
     }
 
     Ok(())
@@ -88,6 +88,7 @@ fn generate_monomorphized_alias(
     ta: &TypeAliasDef,
     mono_def: &MonomorphizedTypeDef,
     ir: &CodegenIR,
+    config: &CodegenConfig,
 ) {
     let name = ffi_type_name(&ta.name);
     let doc = &ta.doc;
@@ -116,7 +117,11 @@ fn generate_monomorphized_alias(
                 builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
             }
             builder.line("[StructLayout(LayoutKind.Sequential)]");
-            builder.line(&format!("public struct {}", name));
+            builder.line(&format!(
+                "public struct {}{}",
+                name,
+                derives::value_type_interfaces(&ta.name, TypeCategory::Regular, ir, config)
+            ));
             builder.line("{");
             builder.indent();
             if fields.is_empty() {
@@ -134,6 +139,7 @@ fn generate_monomorphized_alias(
                     ));
                 }
             }
+            derives::emit_value_derives(builder, &ta.name, TypeCategory::Regular, ir, config);
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -170,7 +176,11 @@ fn generate_monomorphized_alias(
                 builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
             }
             builder.line("[StructLayout(LayoutKind.Explicit)]");
-            builder.line(&format!("public struct {}", name));
+            builder.line(&format!(
+                "public struct {}{}",
+                name,
+                derives::value_type_interfaces(&ta.name, TypeCategory::Regular, ir, config)
+            ));
             builder.line("{");
             builder.indent();
             for v in variants {
@@ -182,6 +192,11 @@ fn generate_monomorphized_alias(
                     sanitize_identifier(&v.name)
                 ));
             }
+            // A monomorphized alias (`BoxDecorationBreakValue =
+            // CssPropertyValue<BoxDecorationBreak>`) is a real C union with
+            // real derive exports, and `find_struct`/`find_enum` know
+            // nothing about it — this is the only surface it ever gets.
+            derives::emit_value_derives(builder, &ta.name, TypeCategory::Regular, ir, config);
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -306,7 +321,12 @@ fn enum_underlying_type(enum_def: &EnumDef) -> &'static str {
 // Tagged union (FFI form: tag + payload union)
 // ============================================================================
 
-fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &CodegenIR) {
+fn generate_tagged_union(
+    builder: &mut CodeBuilder,
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let name = ffi_type_name(&enum_def.name);
 
     // Tag enum: `AzFoo_Tag : uint`
@@ -376,7 +396,11 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         }
     }
     builder.line("[StructLayout(LayoutKind.Explicit)]");
-    builder.line(&format!("public struct {}", name));
+    builder.line(&format!(
+        "public struct {}{}",
+        name,
+        derives::value_type_interfaces(&enum_def.name, enum_def.category, ir, config)
+    ));
     builder.line("{");
     builder.indent();
     for v in &enum_def.variants {
@@ -388,6 +412,11 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
             sanitize_identifier(&v.name)
         ));
     }
+
+    // The union's derives. A tagged union gets no wrapper class of its
+    // own, so this is the only place `Az<E>_partialEq` and friends are
+    // reachable from — and it is the type user code actually holds.
+    derives::emit_value_derives(builder, &enum_def.name, enum_def.category, ir, config);
 
     // AzOption<T>.AsNullable() — Nullable<T> for value-type payloads,
     // direct reference for reference-type payloads (C# nullable
@@ -476,7 +505,12 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
 // POD struct
 // ============================================================================
 
-fn generate_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn generate_struct(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -486,7 +520,11 @@ fn generate_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
 
     builder.line("[StructLayout(LayoutKind.Sequential)]");
-    builder.line(&format!("public struct {}", name));
+    builder.line(&format!(
+        "public struct {}{}",
+        name,
+        derives::value_type_interfaces(&s.name, s.category, ir, config)
+    ));
     builder.line("{");
     builder.indent();
 
@@ -504,6 +542,9 @@ fn generate_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if s.category == TypeCategory::Vec {
         emit_vec_to_list_cs(builder, s, ir);
     }
+
+    // The type's derives (`_toDbgString`, `_partialEq`, …) as C# members.
+    derives::emit_value_derives(builder, &s.name, s.category, ir, config);
 
     builder.dedent();
     builder.line("}");
