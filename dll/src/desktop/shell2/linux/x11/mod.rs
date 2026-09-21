@@ -5311,6 +5311,17 @@ impl X11Window {
                     self.release_pointer_lock_on_focus_loss();
 
                     self.dynamic_selector_context.window_focused = false;
+                    // THE KEYBOARD WENT SOMEWHERE ELSE, SO THE MENU IS OVER.
+                    // X11 never gives an override-redirect popup the input
+                    // focus, so this - on the window that OWNS the chain - is
+                    // the only event that ever says "the user clicked the
+                    // root window / another app". Nothing acted on it, so a
+                    // context menu simply stayed on screen (and stayed live)
+                    // after its window lost focus. `is_grab_focus_change`
+                    // already excluded the FocusOut our own pointer grab
+                    // synthesises, which would otherwise dismiss the menu the
+                    // instant it opened.
+                    self.dismiss_menu_chain(self.window as u64);
                     // Tablet reset. Wayland gets this from `pad_leave` /
                     // `pad_removed` / `proximity_out`; X11 has no equivalent
                     // events, so focus loss is the reset point. A pad
@@ -8208,6 +8219,95 @@ impl PlatformWindow for X11Window {
     /// finished. Same shape as `sync_window_state` above.
     fn handle_begin_interactive_move(&mut self) {
         X11Window::handle_begin_interactive_move(self);
+    }
+}
+
+impl X11Window {
+    /// Every live menu window of this app, as the registry knows it, for
+    /// [`crate::desktop::menu::menus_to_dismiss`].
+    fn menu_chain_links(&self) -> Vec<crate::desktop::menu::MenuChainLink> {
+        let own = self.window as u64;
+        // OUR OWN link comes from `self`, never from the registry: the
+        // registry holds a raw pointer to this very window, and taking a
+        // reference through it while `&mut self` is live would alias it.
+        let mut links = alloc::vec![crate::desktop::menu::MenuChainLink {
+            id: own,
+            parent: self.parent_window_id,
+            is_menu: self.common.current_window_state().flags.window_type
+                == azul_core::window::WindowType::Menu,
+        }];
+        for wid in super::registry::get_all_window_ids() {
+            if wid == own {
+                continue;
+            }
+            let Some(wptr) = (unsafe { super::registry::get_window(wid) }) else {
+                continue;
+            };
+            if let super::LinuxWindow::X11(w) = unsafe { &*wptr } {
+                if !w.is_open {
+                    continue;
+                }
+                links.push(crate::desktop::menu::MenuChainLink {
+                    id: wid,
+                    parent: w.parent_window_id,
+                    is_menu: w.common.current_window_state().flags.window_type
+                        == azul_core::window::WindowType::Menu,
+                });
+            }
+        }
+        links
+    }
+
+    /// The user left the menu: take the WHOLE chain down, deepest first.
+    ///
+    /// A menu is transient — it exists only while the user is in it — and it
+    /// is its own X window, which X11 never gives the input focus to (it is
+    /// override-redirect). So the two things that mean "the user left" are
+    /// the owning toplevel's `FocusOut` and a press the menu's own pointer
+    /// grab delivered from outside it, and NEITHER of them can be answered by
+    /// closing one window: the grab belongs to whichever menu took it last,
+    /// and the toplevel is not a menu at all. Nothing in the tree ever closed
+    /// a chain, so menus accumulated — a menu from an earlier right-click was
+    /// still mapped beside a new one on the live run — and every one of them
+    /// stayed live enough to deliver an activation.
+    ///
+    /// Idempotent: a second call finds nothing left to close, so a double
+    /// click, or the focus change that follows the click that already
+    /// dismissed the chain, is a no-op rather than a second teardown.
+    ///
+    /// `close()` ungrabs the pointer for a `Menu` window and destroys its X
+    /// window; the run loop drops it on `!is_open`.
+    pub(super) fn dismiss_menu_chain(&mut self, from: u64) {
+        let doomed = crate::desktop::menu::menus_to_dismiss(&self.menu_chain_links(), from);
+        if doomed.is_empty() {
+            return;
+        }
+        log_debug!(
+            LogCategory::Window,
+            "[X11] dismissing the menu chain reached from {:#x}: {} window(s)",
+            from,
+            doomed.len()
+        );
+        let own = self.window as u64;
+        let mut close_self = false;
+        for wid in doomed {
+            if wid == own {
+                // Last, and not through the registry: `self` is already
+                // borrowed here, and `&mut *wptr` would alias it.
+                close_self = true;
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(menu) = unsafe { &mut *wptr } {
+                    if menu.is_open {
+                        menu.close();
+                    }
+                }
+            }
+        }
+        if close_self && self.is_open {
+            self.close();
+        }
     }
 }
 

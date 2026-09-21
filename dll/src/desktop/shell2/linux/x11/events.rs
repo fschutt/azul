@@ -515,7 +515,15 @@ impl X11Window {
                         return ProcessEventResult::DoNothing;
                     }
                 }
-                self.close();
+                // The CHAIN, not this one window: the grab belongs to
+                // whichever menu took it last, so the popup that received
+                // this press is not necessarily the one the user wants gone -
+                // and closing it alone left its parent mapped, unfocusable
+                // and un-grabbed, which is how menus piled up on the live
+                // run. `dismiss_menu_chain` closes `self` last and is
+                // idempotent, so a second press (a double click) finds
+                // nothing left to tear down.
+                self.dismiss_menu_chain(self.window as u64);
                 return ProcessEventResult::DoNothing;
             }
         }
@@ -1135,7 +1143,8 @@ impl X11Window {
         {
             // close() ungrabs + XDestroyWindow's the popup; setting is_open=false
             // directly would leak the X window (see the click-outside path).
-            self.close();
+            // Escape leaves the MENU, so it leaves the whole chain.
+            self.dismiss_menu_chain(self.window as u64);
             return ProcessEventResult::DoNothing;
         }
 

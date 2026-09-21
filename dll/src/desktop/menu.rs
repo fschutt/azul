@@ -46,6 +46,14 @@ pub struct MenuWindowData {
     pub menu_window_id: Option<u64>,
     /// All child submenu IDs spawned from this menu
     pub child_menu_ids: Arc<std::sync::Mutex<Vec<u64>>>,
+    /// The index of the item whose submenu is currently on screen, if any.
+    ///
+    /// Opening a submenu creates an OS WINDOW, so it is not idempotent and
+    /// the menu has to remember it already did. Shared (not cloned) with
+    /// every item callback of this menu: the hover that opens a submenu and
+    /// the hover that must NOT open a second one are different items of the
+    /// same window. See [`should_open_submenu`].
+    pub open_submenu: Arc<std::sync::Mutex<Option<usize>>>,
 }
 
 /// A menu opens where it ASKED to: only the `Auto*` answers hand the choice
@@ -478,6 +486,7 @@ pub fn show_menu(
         parent_menu_id,
         menu_window_id: None,
         child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
+        open_submenu: Arc::new(std::sync::Mutex::new(None)),
     };
 
     // A menu is a popup window like any other (`<transient-window>` shares
@@ -510,9 +519,24 @@ pub fn show_menu(
         theme: None.into(),
         create_callback: None.into(),
         hot_reload: false,
-        // Set by the spawner (show_window_based_context_menu) which knows the
-        // parent window's id; 0 here = filled in later / no parent.
-        parent_window_id: 0,
+        // A menu opened FROM a menu is placed AGAINST that menu: the
+        // `RelativeToParentWindow` offset above is measured from
+        // `parent_window_position`, and the backend needs to be told which
+        // window that was or it has nothing to add the offset to. X11 then
+        // fell back to the MONITOR origin and a submenu's parent-local offset
+        // (parent width, item y) became its screen position — measured live
+        // as 160x54+160+94 for a parent menu at +962+451.
+        //
+        // The parent id also decides whether the menu shares the opener's X
+        // display connection (`shared_parent_display`): a menu on a
+        // connection of its own is drained by nobody's pump, cannot nest its
+        // pointer grab inside its parent's, and puts a second connection's
+        // window ids into the one registry that routes X events by id.
+        //
+        // A TOP-LEVEL menu still names no parent here; its spawner
+        // (`show_window_based_context_menu` / `show_fallback_menu`) knows the
+        // opener's id and fills it in.
+        parent_window_id: parent_menu_id.unwrap_or(0),
         background_color_light: azul_css::props::basic::OptionColorU::None,
         background_color_dark: azul_css::props::basic::OptionColorU::None,
     }
@@ -733,4 +757,271 @@ mod placement_tests {
         assert_eq!((pos.x, pos.y), (1500.0, 100.0));
     }
 
+}
+
+/// One live window as the platform's window registry knows it: its key, the
+/// key of the window it was opened from, and whether it is a menu.
+///
+/// A menu chain is not a list anywhere — it only exists as this parent link
+/// repeated, so tearing a chain down means walking it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MenuChainLink {
+    /// The registry key (X11: the window id; Windows: the HWND; macOS: the
+    /// NSWindow).
+    pub id: u64,
+    /// The registry key of the window this one was opened from, `0` for a
+    /// toplevel.
+    pub parent: u64,
+    /// `true` for a `WindowType::Menu` window.
+    pub is_menu: bool,
+}
+
+/// Every menu window that must close because the user left the menu at
+/// `from` — deepest first, so a teardown never orphans a submenu.
+///
+/// A menu chain lives only while the user is IN it. Clicking away, or the
+/// window that owns the chain losing focus, dismisses the WHOLE chain and not
+/// just the one window the event happened to reach: X11 never gives an
+/// override-redirect popup the input focus, so the owning toplevel's
+/// `FocusOut` is the only event that ever says "the user went somewhere
+/// else", and the popup the pointer grab delivered the click to is not
+/// necessarily the popup the user wants gone.
+///
+/// `from` may be any window of the chain — the owning toplevel, or a menu
+/// inside it. Either way the walk first climbs out of the chain to the window
+/// that owns it and then collects that window's menu descendants, so the
+/// answer does not depend on which end the dismissal arrived at.
+#[must_use]
+pub(crate) fn menus_to_dismiss(links: &[MenuChainLink], from: u64) -> Vec<u64> {
+    let link_of = |id: u64| links.iter().find(|l| l.id == id).copied();
+
+    // Climb out of the chain: while the window we are standing on is a menu,
+    // step to the window that opened it. `seen` bounds the walk — a registry
+    // whose parent links have gone circular (a reused window id) must not
+    // spin here.
+    let mut root = from;
+    let mut seen = Vec::new();
+    while let Some(link) = link_of(root) {
+        if !link.is_menu || seen.contains(&root) {
+            break;
+        }
+        seen.push(root);
+        root = link.parent;
+    }
+
+    // Then collect that window's menu descendants, breadth-first, and hand
+    // them back deepest LAST reversed — so a caller closing them in order
+    // closes a submenu before the menu it hangs off.
+    let mut out: Vec<u64> = Vec::new();
+    let mut frontier = alloc::vec![root];
+    while let Some(parent) = frontier.pop() {
+        for link in links.iter().filter(|l| l.is_menu && l.parent == parent) {
+            if out.contains(&link.id) {
+                continue;
+            }
+            out.push(link.id);
+            frontier.push(link.id);
+        }
+    }
+    out.reverse();
+    out
+}
+
+/// May a hover on item `item` open its submenu, given that the submenu of
+/// `open` is already on screen for this menu?
+///
+/// Opening a submenu is not idempotent — it creates an OS window — so the
+/// menu has to remember that it already did. `MouseOver` is the entry event,
+/// but a menu window that re-lays out (or whose hover set is rebuilt by the
+/// pointer grab re-entering it) fires the entry again, and every extra firing
+/// used to be another popup: one hover on a parent item produced THREE
+/// identical submenu windows on X11/XFCE, each of them live, each of them
+/// able to deliver its own activation for the single click the user made.
+#[must_use]
+pub(crate) fn should_open_submenu(open: Option<usize>, item: usize) -> bool {
+    open != Some(item)
+}
+
+/// The key a window is registered under, read from the handle a callback can
+/// see. The same mapping every backend's registry uses
+/// (`PlatformWindow::registry_window_id`), repeated here because a callback
+/// holds a `RawWindowHandle` and not the `PlatformWindow`.
+#[must_use]
+pub(crate) fn registry_window_id(handle: &azul_core::window::RawWindowHandle) -> u64 {
+    use azul_core::window::RawWindowHandle;
+    #[allow(clippy::cast_possible_truncation)]
+    match handle {
+        RawWindowHandle::MacOS(h) => h.ns_window as usize as u64,
+        RawWindowHandle::Windows(h) => h.hwnd as usize as u64,
+        RawWindowHandle::Xlib(h) => h.window,
+        RawWindowHandle::Wayland(h) => h.surface as usize as u64,
+        _ => 0,
+    }
+}
+
+/// The laws a menu CHAIN obeys: who a menu's parent window is, when a hover
+/// may open a second one, and what a dismissal takes down with it. Pure
+/// bookkeeping over the window registry's own facts, so these run headless.
+#[cfg(test)]
+mod chain_tests {
+    use alloc::vec;
+
+    use azul_core::{
+        menu::{MenuItem, MenuItemVec, MenuPopupPosition, StringMenuItem},
+        window::ContextMenuMouseButton,
+    };
+
+    use super::*;
+
+    /// The ids measured on the live X11/XFCE run (2026-09-21): the toplevel,
+    /// the right-click menu it opened, and the submenu that menu opened.
+    const TOPLEVEL: u64 = 0x0420_0001;
+    const MENU: u64 = 0x0420_1050;
+    const SUBMENU: u64 = 0x0440_0002;
+
+    fn chain() -> Vec<MenuChainLink> {
+        vec![
+            MenuChainLink {
+                id: TOPLEVEL,
+                parent: 0,
+                is_menu: false,
+            },
+            MenuChainLink {
+                id: MENU,
+                parent: TOPLEVEL,
+                is_menu: true,
+            },
+            MenuChainLink {
+                id: SUBMENU,
+                parent: MENU,
+                is_menu: true,
+            },
+        ]
+    }
+
+    fn one_item_menu() -> Menu {
+        Menu {
+            items: MenuItemVec::from_vec(vec![MenuItem::String(StringMenuItem::create(
+                "Delete".to_string().into(),
+            ))]),
+            position: MenuPopupPosition::RightOfHitRect,
+            context_mouse_btn: ContextMenuMouseButton::Right,
+        }
+    }
+
+    /// A submenu is placed RELATIVE TO THE MENU THAT OPENED IT, so it has to
+    /// name that menu as its parent window — the offset it carries is
+    /// meaningless without it.
+    ///
+    /// On the live X11 run the parent menu sat at +962+451 and the submenu
+    /// opened at +160+94: the parent-local offset (parent menu width, item y)
+    /// used verbatim as a SCREEN position, because the backend had no parent
+    /// to resolve it against and fell back to the monitor origin.
+    #[test]
+    fn a_submenu_names_the_menu_it_was_opened_from_as_its_parent_window() {
+        let opts = show_menu(
+            one_item_menu(),
+            Arc::new(azul_css::system::defaults::kde_breeze_light()),
+            LogicalPosition::new(962.0, 451.0),
+            Some(LogicalRect::new(
+                LogicalPosition::new(0.0, 94.0),
+                LogicalSize::new(160.0, 22.0),
+            )),
+            None,
+            Some(MENU),
+        );
+        assert_eq!(
+            opts.parent_window_id, MENU,
+            "a menu opened FROM a menu is placed against that menu; without the parent id its \
+             parent-relative offset is resolved against the monitor instead"
+        );
+    }
+
+    /// The other half, so the two cannot be confused: the ARITHMETIC is
+    /// right. Given the parent menu's own origin, a submenu lands at its
+    /// item's right edge, aligned with the item's top — (962+160, 451+94).
+    /// This is the value the live run should have produced.
+    #[test]
+    fn a_submenu_opens_at_its_items_right_edge_in_screen_coordinates() {
+        let pos = position_submenu_right(
+            LogicalPosition::new(962.0, 451.0),
+            LogicalRect::new(
+                LogicalPosition::new(0.0, 94.0),
+                LogicalSize::new(160.0, 22.0),
+            ),
+            LogicalSize::new(160.0, 54.0),
+            LogicalRect::new(
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(1920.0, 1080.0),
+            ),
+        );
+        assert_eq!((pos.x, pos.y), (1122.0, 545.0));
+    }
+
+    /// Clicking away dismisses the CHAIN, deepest first — not only the one
+    /// window the pointer grab happened to deliver the click to. On the live
+    /// run a menu from an earlier right-click was still mapped alongside a
+    /// new one, because nothing ever took a chain down.
+    #[test]
+    fn dismissing_a_chain_takes_every_menu_in_it_deepest_first() {
+        assert_eq!(
+            menus_to_dismiss(&chain(), TOPLEVEL),
+            vec![SUBMENU, MENU],
+            "the toplevel losing focus dismisses every menu it owns, submenu before parent"
+        );
+    }
+
+    /// The same answer from either end: a click outside that reached the
+    /// SUBMENU dismisses its parent too, because the user left the menu, not
+    /// one window of it.
+    #[test]
+    fn dismissing_from_inside_the_chain_still_takes_the_whole_chain() {
+        assert_eq!(menus_to_dismiss(&chain(), SUBMENU), vec![SUBMENU, MENU]);
+    }
+
+    /// A dismissal never names the window that OWNS the chain: the toplevel
+    /// must survive its own menus. (The live run lost its toplevel while the
+    /// process stayed alive.)
+    #[test]
+    fn a_dismissal_never_names_the_window_that_owns_the_chain() {
+        for from in [TOPLEVEL, MENU, SUBMENU] {
+            assert!(
+                !menus_to_dismiss(&chain(), from).contains(&TOPLEVEL),
+                "dismissing from {from:#x} must not close the toplevel"
+            );
+        }
+    }
+
+    /// Teardown is idempotent: once the chain is gone there is nothing left
+    /// to close, so a second dismissal (a double click, or the focus change
+    /// that follows the click) is a no-op rather than a second teardown of
+    /// already-freed windows.
+    #[test]
+    fn dismissing_an_already_empty_chain_is_a_no_op() {
+        let alone = vec![MenuChainLink {
+            id: TOPLEVEL,
+            parent: 0,
+            is_menu: false,
+        }];
+        assert!(menus_to_dismiss(&alone, TOPLEVEL).is_empty());
+        assert!(menus_to_dismiss(&[], TOPLEVEL).is_empty());
+    }
+
+    /// A hover opens a submenu ONCE. Re-entering the same item while its
+    /// submenu is up opens nothing; moving to a different parent item does.
+    #[test]
+    fn a_hover_opens_one_submenu_and_re_hovering_the_same_item_opens_none() {
+        assert!(
+            should_open_submenu(None, 3),
+            "nothing open yet: the hover opens the submenu"
+        );
+        assert!(
+            !should_open_submenu(Some(3), 3),
+            "item 3's submenu is already on screen; this hover must not open a second window"
+        );
+        assert!(
+            should_open_submenu(Some(3), 5),
+            "a different parent item opens its own submenu"
+        );
+    }
 }
