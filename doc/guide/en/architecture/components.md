@@ -17,15 +17,25 @@ default-search-keys:
 
 # Components
 
-In Azul, a "component" is a reusable piece of UI—like a button, a navigation bar, or a user profile card. It encapsulates the structure (DOM), the styling (CSS), and the properties (data) required to render it.
+## Introduction
 
-While you can always break your UI down into regular functions that return `Dom` nodes, packaging them formally as a **Component Library** gives you superpowers: it allows your custom widgets to be instantiated from XML, inspected in the visual editor, and live-previewed without recompiling.
+In Azul, a "component" is a reusable piece of UI - like a button, a navigation bar, 
+or a user profile card. It encapsulates the structure and callbacks (`Dom`), the 
+styling (`Css`), and the widget state (`RefAny`) required to render it.
+
+While you can always break your UI down into regular functions that return `Dom` nodes, 
+packaging them formally as a "Component Library" gives you superpowers: it allows your 
+custom widgets to be instantiated from XML, inspected in a visual editor, live-previewed
+without recompiling as well as later on compiled to a target language, such as Rust.
 
 ## Using Built-in Components
 
-You are already using components. The standard HTML elements (`<div>`, `<p>`, `<button>`) are provided out of the box as part of a pre-registered `builtin` component library. 
+When instantiating (X)HTML
+The standard HTML elements (`<div>`, `<p>`, `<button>`) are provided out of the box 
+as part of a pre-registered `builtin` component library. 
 
-Whenever you parse XML or use DOM builder methods, you are instantiating these built-in components under the hood.
+Whenever you parse XML or use DOM builder methods, you are instantiating these built-in 
+components under the hood.
 
 ```xml
 <!-- Uses builtin:div, builtin:h1, and builtin:p -->
@@ -38,12 +48,14 @@ Whenever you parse XML or use DOM builder methods, you are instantiating these b
 ## Creating Custom Components
 
 To create your own component, you need to define two main things:
+
 1. **The Data Model:** The properties (or "props") your component accepts.
 2. **The Render Function:** The logic that takes those properties and returns a `StyledDom`.
 
 ### 1. Define the Data Model
 
-A `ComponentDataModel` is a list of named fields and their types (e.g., strings, booleans, or callbacks) along with their default values.
+A `ComponentDataModel` is a list of named fields and their types (e.g., 
+strings, booleans, or callbacks) along with their default values.
 
 ```rust,ignore
 use azul::prelude::*;
@@ -55,7 +67,7 @@ fn my_card_model() -> ComponentDataModel {
     model.fields.push(ComponentDataField {
         name: AzString::from("title"),
         field_type: ComponentFieldType::String,
-        default_value: OptionComponentDefaultValue::Some(ComponentDefaultValue::String(AzString::from("Default Title"))),
+        default_value: Some(ComponentDefaultValue::String(AzString::from("Default Title"))).into(),
         required: false,
     });
     
@@ -63,7 +75,7 @@ fn my_card_model() -> ComponentDataModel {
     model.fields.push(ComponentDataField {
         name: AzString::from("body"),
         field_type: ComponentFieldType::String,
-        default_value: OptionComponentDefaultValue::Some(ComponentDefaultValue::String(AzString::from("Default body text"))),
+        default_value: Some(ComponentDefaultValue::String(AzString::from("Default body text"))).into(),
         required: false,
     });
     
@@ -98,7 +110,9 @@ extern "C" fn render_my_card(
 
 ## Registering Component Libraries
 
-Components are grouped into a `ComponentLibrary`, which is then registered with the application via the `AppConfig`. Registration uses a callback function so that it can be cleanly bridged across languages (C, Python, etc.).
+Components are grouped into a `ComponentLibrary`, which is then registered with the 
+application via the `AppConfig`. Registration uses a callback function so that it can 
+be cleanly bridged across languages (C, Python, etc.).
 
 ```rust,ignore
 extern "C" fn register_my_library() -> ComponentLibrary {
@@ -133,7 +147,9 @@ fn main() {
 
 ## Using Custom Components in XML
 
-Once registered, your components are available globally in the XML parser. To differentiate them from built-in HTML tags, you prefix them with your library's namespace.
+Once registered, your components are available globally in the XML parser. 
+To differentiate them from built-in HTML tags, you prefix them with your 
+library's namespace.
 
 For example, to use the `card` component from `mylib`:
 
@@ -142,14 +158,23 @@ For example, to use the `card` component from `mylib`:
 ```
 
 When the framework parses this XML:
+
 1. It resolves `<mylib:card>` to your registered `ComponentDef`.
 2. It populates the `ComponentDataModel` using the XML attributes (`title` and `body`).
 3. It calls your `render_fn` to generate the final UI.
 
 ## Why the explicit Data Model? (Live Preview & Codegen)
 
-You might wonder why you have to build a `ComponentDataModel` instead of just writing a standard Rust function `fn my_card(title: String) -> Dom`.
+You might wonder why you have to build a `ComponentDataModel` instead of just writing a 
+standard Rust function `fn my_card(title: String) -> Dom`.
 
 The explicit data model is the secret sauce that powers Azul's visual tooling:
-* **Live Preview:** The design-time tool reads your data model, generates a property-editor UI (text boxes, color pickers, etc.), and allows you to tweak values. When a value changes, it updates the model and instantly calls `render_fn` to show you the result—without recompiling your app.
-* **Code Generation:** When you're happy with the visual layout in the editor, the `compile_fn` (the inverse of `render_fn`) takes the customized data model and generates the raw source code (e.g., `fn card(...)`) to paste back into your project across any supported language (Rust, C, Go, etc.).
+
+* **Live Preview:** The design-time tool reads your data model, generates a property-editor 
+  UI (text boxes, color pickers, etc.), and allows you to tweak values. When a value changes, 
+  it updates the model and instantly calls `render_fn` to show you the result—without recompiling 
+  your app.
+* **Code Generation:** When you're happy with the visual layout in the editor, the `compile_fn` 
+  (the inverse of `render_fn`) takes the customized data model and generates the raw source code 
+  (e.g., `fn card(...)`) to paste back into your project across any supported language (Rust, C, Go, etc.).
+
