@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic", "debug-server"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "debug-server", "android-activity"] }

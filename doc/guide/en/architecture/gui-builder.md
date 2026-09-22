@@ -115,8 +115,8 @@ after the tests have been run:
 ```sh
 git clone https://github.com/fschutt/azul
 cargo run --release -p azul-doc -- codegen all
-cargo build --release -p azul-dll --release --features build-dll
-cargo build --release -p AzBuilder
+CARGO_TARGET_DIR=target/demo cargo build --release -p azul-dll --features build-dll
+CARGO_TARGET_DIR=target/demo cargo build --release -p AzBuilder
 AZ_BACKEND=headless AZ_E2E=e2e ./target/release/AzBuilder
 ```
 
