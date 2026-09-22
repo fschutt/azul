@@ -8309,6 +8309,24 @@ impl X11Window {
     ///
     /// `close()` ungrabs the pointer for a `Menu` window and destroys its X
     /// window; the run loop drops it on `!is_open`.
+    /// A menu that is closing takes its chain with it.
+    ///
+    /// Activating an item sets `close_requested` on the window the item
+    /// lives in - the SUBMENU - and the shell then closes exactly that one.
+    /// Its parent stayed on screen, mapped and grabbed, after the user had
+    /// already chosen something. Measured live: after clicking "Delete" in a
+    /// submenu, the 160x133 parent was still there seconds later.
+    ///
+    /// `menus_to_dismiss` already answers "what else goes with this one"; the
+    /// activation path simply never asked.
+    pub(super) fn dismiss_chain_if_menu(&mut self) {
+        if self.common.current_window_state().flags.window_type
+            == azul_core::window::WindowType::Menu
+        {
+            self.dismiss_menu_chain(self.window as u64);
+        }
+    }
+
     pub(super) fn dismiss_menu_chain(&mut self, from: u64) {
         let doomed = crate::desktop::menu::menus_to_dismiss(&self.menu_chain_links(), from);
         if doomed.is_empty() {

@@ -977,6 +977,23 @@ mod chain_tests {
     #[test]
     fn dismissing_from_inside_the_chain_still_takes_the_whole_chain() {
         assert_eq!(menus_to_dismiss(&chain(), SUBMENU), vec![SUBMENU, MENU]);
+
+        // …and the ACTIVATION path asks it. A menu item's click sets
+        // `close_requested` on the window the ITEM is in - the submenu - and
+        // the shell closes exactly that one, so the parent used to stay on
+        // screen, mapped and grabbed, after the user had already chosen.
+        // Measured live: the 160x133 parent was still there seconds after a
+        // click on "Delete" in its submenu.
+        let run = include_str!("shell2/run.rs");
+        let close_site = run
+            .split_once("if window.close_requested() {")
+            .expect("the shell honours close_requested")
+            .1;
+        let close_site = &close_site[..close_site.find("}\n").unwrap_or(close_site.len())];
+        assert!(
+            close_site.contains("dismiss_chain_if_menu"),
+            "closing a menu must take its chain with it, not just itself"
+        );
     }
 
     /// A dismissal never names the window that OWNS the chain: the toplevel

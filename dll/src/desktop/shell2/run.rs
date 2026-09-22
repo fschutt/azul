@@ -2217,6 +2217,10 @@ pub fn run(
                 // pass below unregisters + drops the window (destroying it and ungrabbing
                 // a menu's pointer grab). X11/Wayland have no native close-flag path.
                 if window.close_requested() {
+                    // A menu item's click closes the window the ITEM is in.
+                    // Its parent menu is just as finished - the user has
+                    // chosen - so the chain goes first.
+                    window.dismiss_chain_if_menu();
                     window.close();
                 }
 
