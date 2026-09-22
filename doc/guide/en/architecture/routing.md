@@ -23,15 +23,11 @@ default-search-keys:
 
 # Routing
 
-Routes map a URL pattern to a layout callback. The same registry
-drives a desktop app's view-switching and a web build's HTTP
-endpoints, so a "settings page" written once shows up at the
-`/settings` URL on the web and as a separate top-level layout on
-desktop.
+In order to structure a larger application with multiple screens, you'd usually set up "routing", to distinguish `/settings/profile` from the `/main` UI. By default all routes simply use your `layout()` as the "default fallback". The framework automatically extracts parameters (e.g. `/profile/:uuid`) and you can access them from the `LayoutCallbackInfo` in your `layout()` callback. Additionally you can trigger a new route to load from a `CallbackInfo`, for example inside of a click event handler.
 
 ## Registering routes
 
-Register routes on the `AppConfig` before passing it to
+You can register routes on the `AppConfig` before passing it to
 `App::create`:
 
 ```rust,no_run
@@ -53,18 +49,17 @@ fn main() {
 ```
 
 Adding a route that already exists (same pattern) replaces the
-previous registration. The first registered route — or the explicit
-`"/"` if present — is the initial layout.
+previous registration. The window registered callback (passed to `WindowCreateOptions::create`) is the default fallback, if no routing is registered.
 
 ## Pattern syntax
 
-Patterns are slash-separated segments. Each segment is either:
+Patterns are slash-separated segments:
 
-- A literal — matches that exact path component.
-- A `:name` placeholder — matches any path component and captures
-  it as a parameter named `name`.
+- A literal matches that exact path component
+- A `:name` placeholder matches any path component and captures
+  it as a parameter
 
-| Pattern         | Path                  | Match                     |
+| Pattern         | Request                  | Match?                     |
 |---|---|---|
 | `"/"`           | `"/"`                 | yes; no params            |
 | `"/about"`      | `"/about"`            | yes; no params            |
@@ -73,73 +68,60 @@ Patterns are slash-separated segments. Each segment is either:
 | `"/user/:id"`   | `"/user/42/edit"`     | no (segment count mismatch) |
 | `"/post/:slug"` | `"/post/hello-world"` | yes; `slug = "hello-world"` |
 
-Patterns are matched by specificity; the most specific match wins (the one with the most static, non-parameter components). For example, if both `/:type/:id` and `/user/:id` are registered, a path like `/user/42` will match `/user/:id` because it has more literal segments. If there is a tie in specificity, the first registered match wins.
+Patterns are matched with "specificity sorting", so that the most specific matching route wins, which is what you'd naturally expect.
 
-## Reading the active route
+## Using routes
 
-The `LayoutCallbackInfo` knows which route the callback is rendering:
+The `LayoutCallbackInfo` internally knows which route the callback should render use `info.get_route_pattern()` and `info.get_route_param(key)` to get a requested parameter as a string.
 
 ```rust,ignore
 extern "C" fn layout_user(_: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let id = info.get_route_param("id".into());
+    let id = info.get_route_param("id");
     Dom::create_h1_with_text(format!("User #{}", id.as_str()).into())
 }
 ```
 
-`info.get_route_pattern()` is the pattern the framework matched -
-`"/"` when the app configured no routes at all, so a callback that
-branches on it always has one string to branch on.
-`info.get_route_param(key)` reads one extracted parameter, empty when
+`info.get_route_pattern()` is the pattern the framework matched, set to `/` by default.
+`info.get_route_param(key)` reads an extracted parameter, returns an empty String when
 there is none.
 
-Inside an event `CallbackInfo`, the same pair reads the same state,
-via
-`info.get_route_pattern()` (the active pattern) and
-`info.get_route_param(key)` (one param). The `set_route_param(key,
-value)` helper modifies a param in place — useful for paginated
-views that want to bump `?page=2` without a full route switch:
+Inside a callback hander (e.g. button click), you can query the `CallbackInfo` with the same APIs. Additonally, here you can use `set_route_param(key, value)` to modify a route in place. This will always trigger a `Update::RefreshDom` to fire automatically.
 
 ```rust,ignore
 extern "C" fn next_page(data: RefAny, mut info: CallbackInfo) -> Update {
-    let cur: u32 = info.get_route_param("page".into()).as_str()
+    let cur: u32 = info.get_route_param("page").as_str()
         .parse().unwrap_or(1);
-    info.set_route_param("page".into(), (cur + 1).to_string().into());
+    info.set_route_param("page", (cur + 1).to_string());
     Update::DoNothing  // set_route_param already triggers a refresh
 }
 ```
 
-On web, `set_route_param` calls `history.replaceState()` so the URL
-in the address bar stays in sync without adding a history entry.
+The idea is that the framework can later use this information on the web with the `history.replaceState()` Browser API, to keep the address bar in sync. However, since the web backend is still unstable, this has not been implemented yet.
 
-## Switching routes from a callback
+## Switching routes
 
-`CallbackInfo::switch_route` is the imperative form — used when a
-button or menu item should navigate elsewhere:
+`CallbackInfo::switch_route` finally allows you to switch to a new route - fundamentally similar to modifying a paraemter. Here you can also provide the values for the URL in a `StringPairVec`:
 
 ```rust,ignore
 extern "C" fn open_settings(_: RefAny, mut info: CallbackInfo) -> Update {
-    info.switch_route("/settings".into(), StringPairVec::new());
+    info.switch_route("/settings", StringPairVec::new());
     Update::RefreshDom
 }
 
 extern "C" fn open_user(data: RefAny, mut info: CallbackInfo) -> Update {
     let id = match data.downcast_ref::<u64>() { Some(i) => *i, None => return Update::DoNothing };
     let params = vec![StringPair { key: "id".into(), value: id.to_string().into() }].into();
-    info.switch_route("/user/:id".into(), params);
+    info.switch_route("/user/:id", params);
     Update::RefreshDom
 }
 ```
 
-The framework swaps the active layout callback on the next frame,
-fires `RefreshDom`, and reconciles the new tree against the
-previous one — focus, scroll, and dataset state migrate across
-matched nodes the same way a `RefreshDom` from an in-place mutation
-does.
+The framework then swaps the active layout callback on the window and fires a `RefreshDom`. The focus and scroll positions are transplanted onto the new UI, if possible (otherwise they are reset).
 
-On web, `switch_route` calls `history.pushState()` so the back
-button works as users expect.
+On web, `switch_route` will call `history.pushState()` so the back
+button works as users expect. However, as noted above, this isn't stable yet.
 
-## A practical multi-route layout
+## Example
 
 A typical app keeps each top-level view in its own callback and
 shares a model:
@@ -161,7 +143,7 @@ extern "C" fn layout_home(data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
 extern "C" fn layout_user(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
-    let id = info.get_route_param("id".into());
+    let id = info.get_route_param("id");
     let user = model.users.iter().find(|u| u.id == id.as_str());
 
     let body = match user {
@@ -191,27 +173,48 @@ fn main() {
 }
 ```
 
-Pull the navbar into its own component (with `add_component_library`
-or a regular function) so the active-link styling — typically a
-`.is-active` class on the link whose `href` matches the current
-route — only lives in one place.
+### Go
 
-## Web vs desktop
+```go
+package main
 
-On a desktop build, the route is purely an in-memory selector for
-which layout callback to run. There's no URL bar, no `history`
-stack, no `window.location` — the route is application state.
-`switch_route` updates that state and triggers a reconcile.
+import "github.com/fschutt/azul-go"
 
-On a web build (compiled to WASM and served through azul's web
-host), each registered route also maps to an HTTP endpoint on the
-server side: a request to `/user/42` runs `layout_user` with the
-extracted params and returns the rendered HTML, so the page is
-SEO-readable on first load. `switch_route` then calls
-`history.pushState()` for the in-page client-side transition;
-`set_route_param` calls `history.replaceState()`. The same callback
-code drives both the server-rendered first-load HTML and the
-client-side updates.
+func layoutHome(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom { /* ... */ }
+func layoutUser(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom { /* ... */ }
+func layoutSettings(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom { /* ... */ }
 
-See [Deploying to the web](../deploying/web.md) for the WASM-build pipeline,
-the static asset layout, and how the web host serves routes.
+func main() {
+    config := azul.AppConfigCreate()
+    config.AddRoute("/", layoutHome)
+    config.AddRoute("/user/:id", layoutUser)
+    config.AddRoute("/settings", layoutSettings)
+
+    // ...
+}
+```
+
+### Haskell
+
+```haskell
+import Azul
+
+layoutHome :: RefAny -> LayoutCallbackInfo -> IO Dom
+layoutUser :: RefAny -> LayoutCallbackInfo -> IO Dom
+layoutSettings :: RefAny -> LayoutCallbackInfo -> IO Dom
+
+main :: IO ()
+main = do
+    config <- appConfigCreate
+              >>= appConfigAddRoute "/" layoutHome
+              >>= appConfigAddRoute "/user/:id" layoutUser
+              >>= appConfigAddRoute "/settings" layoutSettings
+    
+    -- ...
+```
+
+## HTTP Endpoint
+
+In the planned web API, the idea is that registering the routes before startup on the `AppConfig` gives the framework enough information so that it can generate automatic XML sitemaps and match incoming HTTP requests automatically (i.e. directly route the match on a `GET /user/42` to return the respective HTML), without any need for client-side JS or WASM. This is why it's recommended to use the framework-native routing over building your own version - so that the same routing map drives both the server-rendered "first-load" HTML and the client-side re-routing.
+
+See [Deploying to the web](../deploying/web.md) for the WASM pipeline and how the web host serves routes.

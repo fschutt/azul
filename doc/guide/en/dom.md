@@ -609,8 +609,8 @@ extern "C" fn layout_user(_: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
 
 fn main() {
     let mut config = AppConfig::create();
-    config.add_route("/".into(), layout_home.into());
-    config.add_route("/user/:id".into(), layout_user.into());
+    config.add_route("/", layout_home);
+    config.add_route("/user/:id", layout_user);
 
     let app = App::create(initial_data, config);
     app.run(WindowCreateOptions::new(layout_home));
