@@ -25,12 +25,24 @@ use azul_layout::widgets::titlebar::Titlebar;
 ///
 /// Builds a [`Titlebar`] in full-CSD mode (`dom_with_buttons`),
 /// then styles it with the CSD stylesheet from `SystemStyle`.
-pub(crate) fn create_titlebar_styled_dom(title: &str, system_style: &SystemStyle) -> StyledDom {
+pub(crate) fn create_titlebar_styled_dom(
+    title: &str,
+    system_style: &SystemStyle,
+    icons: &azul_core::icon::SharedIconProvider,
+) -> StyledDom {
     let tm = &system_style.metrics.titlebar;
 
     let titlebar = Titlebar::from_system_style_csd(title.into(), system_style);
 
     let mut dom = titlebar.dom_with_buttons(&tm.buttons, tm.button_side);
+    // BEFORE the cascade, not after: replacing an `<icon>` with the artwork
+    // it names is a STRUCTURAL edit, and a StyledDom's structure is already
+    // fixed. Skipping it left the window controls as unresolved icon nodes
+    // that could only ever become a font glyph - and the system pack
+    // registers DOM (SVG) icons, so there was no glyph to become. The
+    // maximize control looked fine only because it is a VirtualView, which
+    // resolves itself at view time.
+    azul_core::icon::resolve_icons_in_dom(&mut dom, icons, system_style);
     let css = system_style.create_csd_stylesheet();
     StyledDom::create(&mut dom, css)
 }
@@ -163,10 +175,15 @@ pub(crate) fn csd_injection_changed(
 ///
 /// No title node, so it claims no width for one; the CSD stylesheet pins it
 /// to the frame's corner over the app's own chrome.
-pub(crate) fn create_controls_only_styled_dom(system_style: &SystemStyle) -> StyledDom {
+pub(crate) fn create_controls_only_styled_dom(
+    system_style: &SystemStyle,
+    icons: &azul_core::icon::SharedIconProvider,
+) -> StyledDom {
     let tm = &system_style.metrics.titlebar;
     let titlebar = Titlebar::from_system_style_csd(String::new().into(), system_style);
     let mut dom = titlebar.dom_controls_only(&tm.buttons, tm.button_side);
+    // See `create_titlebar_styled_dom`: resolve, THEN cascade.
+    azul_core::icon::resolve_icons_in_dom(&mut dom, icons, system_style);
     let css = system_style.create_csd_stylesheet();
     StyledDom::create(&mut dom, css)
 }
@@ -177,11 +194,12 @@ pub(crate) fn create_controls_only_styled_dom(system_style: &SystemStyle) -> Sty
 pub(crate) fn overlay_window_controls(
     user_dom: StyledDom,
     system_style: &SystemStyle,
+    icons: &azul_core::icon::SharedIconProvider,
 ) -> StyledDom {
     let mut container_dom = Dom::create_html();
     let mut container_styled = StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
     container_styled.append_child(user_dom);
-    container_styled.append_child(create_controls_only_styled_dom(system_style));
+    container_styled.append_child(create_controls_only_styled_dom(system_style, icons));
     container_styled
 }
 
@@ -190,6 +208,7 @@ pub(crate) fn wrap_user_dom_with_decorations(
     window_title: &str,
     should_inject_titlebar: bool,
     system_style: &SystemStyle,
+    icons: &azul_core::icon::SharedIconProvider,
 ) -> StyledDom {
     // Nothing to add if no titlebar is wanted (the menu bar, if present, is
     // already inside `user_dom`).
@@ -201,7 +220,7 @@ pub(crate) fn wrap_user_dom_with_decorations(
     let mut container_dom = Dom::create_html();
     let mut container_styled = StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
 
-    let titlebar_styled = create_titlebar_styled_dom(window_title, system_style);
+    let titlebar_styled = create_titlebar_styled_dom(window_title, system_style, icons);
     container_styled.append_child(titlebar_styled);
 
     // Append user's content (which carries the menu bar below the titlebar).
@@ -373,5 +392,49 @@ mod controls_only_tests {
                 "{d:?} asked for no such thing"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod icon_resolution_tests {
+    //! The window controls carry `<icon>` nodes, and an icon is resolved by
+    //! REPLACING that node with the artwork it names - a structural edit. A
+    //! `StyledDom`'s structure is already fixed, so the resolution has to
+    //! happen on the `Dom`, before the cascade.
+    //!
+    //! Both titlebar builders cascaded without it. An unresolved icon can
+    //! then only ever become a font glyph, and the system pack registers DOM
+    //! (SVG) icons - so minimise and close rendered NOTHING, while maximise
+    //! looked fine because it is a VirtualView that resolves itself at view
+    //! time.
+
+    use azul_core::{dom::NodeType, icon::SharedIconProvider};
+    use azul_css::system::SystemStyle;
+
+    use super::{create_controls_only_styled_dom, create_titlebar_styled_dom};
+
+    fn unresolved_icons(styled: &azul_core::styled_dom::StyledDom) -> usize {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .filter(|n| matches!(n.get_node_type(), NodeType::Icon(_)))
+            .count()
+    }
+
+    #[test]
+    fn the_window_controls_carry_no_unresolved_icon_into_the_cascade() {
+        let style = SystemStyle::default();
+        let icons = SharedIconProvider::from_handle(azul_core::icon::IconProviderHandle::new());
+        assert_eq!(
+            unresolved_icons(&create_controls_only_styled_dom(&style, &icons)),
+            0,
+            "an <icon> that reaches the cascade can never become artwork"
+        );
+        assert_eq!(
+            unresolved_icons(&create_titlebar_styled_dom("t", &style, &icons)),
+            0,
+            "the full CSD titlebar has the same law"
+        );
     }
 }

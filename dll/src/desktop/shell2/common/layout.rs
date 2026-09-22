@@ -866,6 +866,7 @@ pub fn regenerate_layout(
                 &current_window_state.title,
                 true,         // inject titlebar
                 system_style, // pass SystemStyle for native look
+                icon_provider,
             )
         }
         csd::CsdInjection::SoftwareTitleOnly => {
@@ -896,7 +897,7 @@ pub fn regenerate_layout(
                 LogCategory::Layout,
                 "[regenerate_layout] Overlaying window controls (NoTitle)"
             );
-            csd::overlay_window_controls(user_styled_dom, system_style)
+            csd::overlay_window_controls(user_styled_dom, system_style, icon_provider)
         }
         csd::CsdInjection::None => user_styled_dom,
     };
