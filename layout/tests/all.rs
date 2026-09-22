@@ -248,6 +248,8 @@ mod keycode_table_manifest_is_exhaustive;
 mod list_marker_counter;
 #[path = "loaded_font_introspection.rs"]
 mod loaded_font_introspection;
+#[path = "materialized_inline_layout.rs"]
+mod materialized_inline_layout;
 #[path = "map_widget_fill.rs"]
 mod map_widget_fill;
 #[path = "margin_collapse_integration.rs"]

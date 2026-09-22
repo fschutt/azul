@@ -7762,11 +7762,16 @@ pub trait PlatformWindow {
                 // nothing in get_selection_rects and the block silently loses
                 // its highlight.
                 let cursors = self.get_layout_window().and_then(|lw| {
+                    // MATERIALIZED, not the sparse view: under the default
+                    // dense text path the sparse layout is the shared empty
+                    // retirement sentinel, so both of these were None for
+                    // every node and Ctrl+A logged "blocks have no
+                    // first/last cluster cursor" and did nothing at all.
                     let start = lw
-                        .get_inline_layout_for_node(dom_id, first)?
+                        .materialized_inline_layout_for_node(dom_id, first)?
                         .get_first_cluster_cursor()?;
                     let end = lw
-                        .get_inline_layout_for_node(dom_id, last)?
+                        .materialized_inline_layout_for_node(dom_id, last)?
                         .get_last_cluster_cursor()?;
                     Some((start, end))
                 });

@@ -10195,6 +10195,26 @@ impl LayoutWindow {
             .collect()
     }
 
+    /// The node's inline layout with CLUSTERS IN IT.
+    ///
+    /// [`Self::get_inline_layout_for_node`] returns the sparse
+    /// `UnifiedLayout`, which under the default dense text path is the shared
+    /// EMPTY retirement sentinel - so `get_first_cluster_cursor()` on it is
+    /// `None` for every node, and any caller that gave up on that `None`
+    /// silently did nothing. Ctrl+A was one such caller.
+    pub fn materialized_inline_layout_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<Arc<UnifiedLayout>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let layout_index = *layout_result.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+        let cached = layout_result
+            .layout_tree
+            .get_cached_inline_layout_for_node(layout_index.index())?;
+        Some(Self::materialized_inline_layout(cached))
+    }
+
     pub fn get_inline_layout_for_node(
         &self,
         dom_id: DomId,
