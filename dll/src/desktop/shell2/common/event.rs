@@ -1234,6 +1234,62 @@ mod scrollbar_button_event_tests {
     }
 }
 
+/// Which node a DragStart is classified against: where the drag STARTED,
+/// never where the pointer has already got to.
+///
+/// A gesture only becomes a drag after it has moved past the threshold, and
+/// X11 coalesces motion - so by the time DragStart is raised, the first
+/// flushed sample can be 50-100px from the press. Classifying from the
+/// CURRENT hover therefore asked "is the thing under the pointer now
+/// draggable?", and over a dense UI the answer is often yes for something
+/// the user never touched: the drag latched onto that node and every later
+/// `TextSelectionDrag` was dropped, freezing the selection at the single
+/// extension the threshold pass had already made. That is the "selection
+/// stops after exactly one character" report, and why a SLOW drag - which
+/// crosses the threshold while still over the text - worked.
+///
+/// The window-drag-region path already reads the press node for the same
+/// reason; this is the node-drag path catching up.
+pub(crate) fn drag_classification_target(
+    drag_source: Option<azul_core::dom::DomNodeId>,
+    event_target: Option<azul_core::dom::DomNodeId>,
+) -> Option<azul_core::dom::DomNodeId> {
+    drag_source.or(event_target)
+}
+
+#[cfg(test)]
+mod drag_classification_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    use super::drag_classification_target;
+
+    fn node(i: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        }
+    }
+
+    #[test]
+    fn a_drag_is_classified_from_where_it_started() {
+        // The pointer has already moved on - that must not decide what is
+        // being dragged.
+        assert_eq!(
+            drag_classification_target(Some(node(7)), Some(node(99))),
+            Some(node(7))
+        );
+    }
+
+    #[test]
+    fn without_a_press_node_the_events_own_target_stands_in() {
+        assert_eq!(drag_classification_target(None, Some(node(99))), Some(node(99)));
+        assert_eq!(drag_classification_target(None, None), None);
+    }
+}
+
 /// Whether a press should be handed to the window manager as a RESIZE grab.
 ///
 /// The whole rule in one place, because both Linux backends had it wrong in
@@ -11551,6 +11607,20 @@ pub trait PlatformWindow {
             .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart));
 
         if had_drag_start {
+            // WHERE THE DRAG STARTED, resolved before the layout-window
+            // borrow below. See `drag_classification_target`: the pointer has
+            // already crossed the gesture threshold by now, and on X11 the
+            // motion in between is coalesced, so the CURRENT hover is
+            // routinely a node the user never pressed.
+            let press_target = drag_classification_target(
+                self.drag_source_node(),
+                pre_filter
+                    .user_events
+                    .iter()
+                    .find(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
+                    .map(|e| e.target),
+            );
+
             // Detect which drag activation to perform (pure analysis, no mutation)
             let drag_activation = if let Some(layout_window) = self.get_layout_window() {
                 use azul_layout::managers::hover::InputPointId;
@@ -11582,8 +11652,15 @@ pub trait PlatformWindow {
                                     depth
                                 });
 
-                            if let Some((target_node_id, _)) = deepest_node {
-                                let mut current = Some(*target_node_id);
+                            // The press node wins; the deepest node under the
+                            // pointer NOW is only the fallback for a drag whose
+                            // press position could not be hit-tested.
+                            let start_node = press_target
+                                .filter(|t| t.dom == *dom_id)
+                                .and_then(|t| t.node.into_crate_internal())
+                                .or(deepest_node.map(|(n, _)| *n));
+                            if let Some(target_node_id) = start_node {
+                                let mut current = Some(target_node_id);
                                 while let Some(node_id) = current {
                                     if let Some(node_data) = node_data_container.get(node_id) {
                                         let is_draggable =
