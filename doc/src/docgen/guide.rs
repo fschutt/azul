@@ -321,6 +321,10 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     // absolute URL of that page. Agents write relative `.md` targets per
     // markdown convention; the deployed page needs a link that means the same
     // thing from either of its two deployed locations.
+    let mut processed_content = processed_content.to_string();
+    if guide.file_name.starts_with("hello-world/") {
+        processed_content = inject_hello_world_fallback_image(&processed_content);
+    }
     let processed_content = rewrite_md_links(&processed_content, &guide.file_name);
 
     let content = comrak::markdown_to_html_with_plugins(
@@ -793,4 +797,34 @@ mod guide_contract {
             "guide pages with no sub-articles (each would be a card with one link): {lonely:?}"
         );
     }
+}
+
+fn inject_hello_world_fallback_image(content: &str) -> String {
+    let script = r#"
+<div id="hw-fallback-image"></div>
+<script>
+(function() {
+  var os = navigator.userAgent.indexOf("Mac") !== -1 ? "mac" : navigator.userAgent.indexOf("Win") !== -1 ? "win" : "linux";
+  var theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light";
+  var img = document.createElement("img");
+  img.src = "/ui/images/hello-world." + os + "." + theme + ".png";
+  img.alt = "Hello World Window";
+  img.style.display = "block";
+  img.style.margin = "20px auto";
+  img.style.maxWidth = "100%";
+  img.style.borderRadius = "6px";
+  img.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  var container = document.getElementById("hw-fallback-image");
+  if (container) container.appendChild(img);
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+      img.src = "/ui/images/hello-world." + os + "." + (e.matches ? "dark" : "light") + ".png";
+    });
+  }
+})();
+</script>
+"#;
+
+    let target = "[hello-world landing page](../hello-world.md).";
+    content.replacen(target, &format!("{}{}", target, script), 1)
 }
