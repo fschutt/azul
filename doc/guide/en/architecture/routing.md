@@ -43,12 +43,12 @@ extern "C" fn layout_settings(_: RefAny, _: LayoutCallbackInfo) -> Dom { /* ... 
 
 fn main() {
     let mut config = AppConfig::create();
-    config.add_route("/".into(), layout_home.into());
-    config.add_route("/user/:id".into(), layout_user.into());
-    config.add_route("/settings".into(), layout_settings.into());
+    config.add_route("/", layout_home);
+    config.add_route("/user/:id", layout_user);
+    config.add_route("/settings", layout_settings);
 
     let app = App::create(initial_data, config);
-    app.run(WindowCreateOptions::new(layout_home));
+    app.run(WindowCreateOptions::create(layout_home));
 }
 ```
 
@@ -182,12 +182,12 @@ extern "C" fn layout_settings(data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
 fn main() {
     let mut config = AppConfig::create();
-    config.add_route("/".into(), layout_home.into());
-    config.add_route("/user/:id".into(), layout_user.into());
-    config.add_route("/settings".into(), layout_settings.into());
+    config.add_route("/", layout_home);
+    config.add_route("/user/:id", layout_user);
+    config.add_route("/settings", layout_settings);
 
     let app = App::create(RefAny::new(initial_model()), config);
-    app.run(WindowCreateOptions::new(layout_home));
+    app.run(WindowCreateOptions::create(layout_home));
 }
 ```
 
