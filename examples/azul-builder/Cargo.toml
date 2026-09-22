@@ -1,0 +1,24 @@
+[package]
+name = "AzBuilder"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic", "debug-server"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "debug-server", "android-activity"] }
+ctor = "0.2"
+
+[lib]
+name = "azul_builder"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzBuilder"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "debug-server"] }
