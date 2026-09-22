@@ -1565,7 +1565,7 @@ pub fn render_display_list_damaged(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
-) -> Result<(), String> {
+) -> Result<Vec<LogicalRect>, String> {
     // The strip/damage raster body - the previously UNSPANNED majority of a
     // scroll frame's present time (7 of 10.2ms measured 2026-08-29).
     let _p = crate::probe::Probe::span("raster_damage_body");
@@ -1582,7 +1582,7 @@ pub fn render_display_list_damaged(
     }
 
     if damage_rects.is_empty() {
-        return Ok(()); // nothing changed
+        return Ok(Vec::new()); // nothing changed
     }
 
     // Snap every damage rect OUTWARD to physical-pixel boundaries (floor the
@@ -1807,7 +1807,11 @@ pub fn render_display_list_damaged(
         }
     }
 
-    Ok(())
+    // The rects this call actually CLEARED AND PAINTED. Overlapping requests
+    // are merged into their bounding box above, so the painted area can be
+    // larger than what was asked for: the caller has to present (and, on a
+    // pool-order target, byte-convert) what was written, not what it wanted.
+    Ok(rects.iter().map(|r| r.logical).collect())
 }
 
 #[allow(
@@ -2735,10 +2739,31 @@ pub fn render_single_item(
             mask_rect,
         } => {
             let mr = &scroll_rect(mask_rect.inner());
-            let px_x = (mr.origin.x * dpi_factor) as i32;
-            let px_y = (mr.origin.y * dpi_factor) as i32;
-            let px_w = (mr.size.width * dpi_factor).ceil() as u32;
-            let px_h = (mr.size.height * dpi_factor).ceil() as u32;
+            // The region has to COVER every pixel the masked drawing can
+            // touch, so it is the box's pixel-aligned BOUNDING BOX: floor the
+            // near edge, ceil the far one. Truncating the origin and ceiling
+            // the SIZE is not the same thing - for a box at 9.5..25.5 it gave
+            // rows 9..25, leaving row 25 outside the region `apply_mask`
+            // blends, so the solid rect under the mask survived there as one
+            // fully-opaque row. A titlebar centring a 16px glyph in a 24px
+            // button puts every icon on exactly that half pixel.
+            //
+            // `floor`, not a cast: `as i32` truncates toward zero, which for
+            // a negative origin rounds the wrong way and leaks the same row
+            // on the other side.
+            //
+            // The mask is then resampled (bilinearly) onto a region up to one
+            // pixel larger in each axis, which spreads its coverage by that
+            // much. That is the honest answer for a mask whose rect sits
+            // between pixels, and it is what the edge is for.
+            let x0 = (mr.origin.x * dpi_factor).floor();
+            let y0 = (mr.origin.y * dpi_factor).floor();
+            let x1 = ((mr.origin.x + mr.size.width) * dpi_factor).ceil();
+            let y1 = ((mr.origin.y + mr.size.height) * dpi_factor).ceil();
+            let px_x = x0 as i32;
+            let px_y = y0 as i32;
+            let px_w = (x1 - x0).max(0.0) as u32;
+            let px_h = (y1 - y0).max(0.0) as u32;
 
             if px_w > 0 && px_h > 0 {
                 let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
@@ -8997,7 +9022,11 @@ mod autotest_generated {
     // render_display_list_damaged
     // ==================================================================
 
-    fn damaged(dl: &DisplayList, p: &mut AzulPixmap, rects: &[LogicalRect]) -> Result<(), String> {
+    fn damaged(
+        dl: &DisplayList,
+        p: &mut AzulPixmap,
+        rects: &[LogicalRect],
+    ) -> Result<Vec<LogicalRect>, String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());

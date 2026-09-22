@@ -252,6 +252,37 @@ pub use azul_layout::window::{FrameDamage, FrameReport};
 /// The backend holds a retained-mode `CompositorState` for efficient
 /// incremental re-rendering.  On resize, only the root layer pixbuf is
 /// reallocated; scroll and damage use pixel-shift / partial re-render.
+/// May the next frame be painted INCREMENTALLY - only the damage rects
+/// re-rastered, every other pixel left standing in the OUTPUT buffer?
+///
+/// Only while that buffer still holds the PREVIOUS frame:
+/// - a resize that GREW the buffer preserved it (`resize_preserved_pixels`);
+///   a shrink threw it away,
+/// - a different canvas colour invalidates every reused pixel,
+/// - `force_full_repaint` is the shell's own "something changed outside the
+///   display list",
+/// - and `target_holds_previous_frame` is the one the PLATFORM BACKBUFFER
+///   path gets wrong. `CpuBackend::native_target` is documented to already
+///   hold frame N-1, but a buffer the platform just (re)created holds
+///   nothing: a `CreateDIBSection` DIB is zeroed, a never-filled `wl_shm`
+///   slot is zeroed, a resized macOS view framebuffer is white-filled.
+///   Rastering damage strips into any of those presents the fill everywhere
+///   the diff found nothing.
+///
+/// Pure so the law can be tested without a window.
+pub fn frame_may_reuse_previous_pixels(
+    needs_resize: bool,
+    resize_preserved_pixels: bool,
+    clear_color_changed: bool,
+    force_full_repaint: bool,
+    target_holds_previous_frame: bool,
+) -> bool {
+    target_holds_previous_frame
+        && (!needs_resize || resize_preserved_pixels)
+        && !clear_color_changed
+        && !force_full_repaint
+}
+
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: azul_layout::headless::CpuHitTester,
@@ -355,6 +386,16 @@ pub struct CpuBackend {
     /// (R/B-swapped scrolled content on the glass). Set by the shell at every
     /// arming; only read while `rendered_native` is true.
     pub native_target_pool_order: bool,
+    /// #27: the shell's answer to "does the armed `native_target` ALREADY
+    /// hold the previous frame?" - clause (b) of the `native_target`
+    /// contract, which until now nothing enforced. Set at EVERY arming, next
+    /// to `native_target` itself; only read while a target is armed.
+    ///
+    /// False means the platform just handed over a buffer it created or
+    /// refilled this frame (a re-created Windows DIB section, a never-filled
+    /// `wl_shm` slot, a white-filled macOS view framebuffer), and the frame
+    /// must be repainted in FULL - see `frame_may_reuse_previous_pixels`.
+    pub native_target_holds_previous_frame: bool,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -394,67 +435,17 @@ pub struct CpuBackend {
 /// renderer's RGBA byte order). NOTE: in native mode `CpuBackend.last_frame`
 /// stays `None` — tools that read the retained frame (live screenshot dumps)
 /// need `AZ_NATIVE_BACKBUFFER=0`.
-/// #32: in-place R↔B swizzle over `rects` (x, y, w, h in buffer px) of a
-/// tightly-packed 4-byte-per-pixel buffer. Converts the CPU renderer's
-/// R,G,B,A byte order to ARGB8888's B,G,R,A where a compositor never
-/// advertises ABGR8888 (KWin offers ABGR only at 10/16-bit depths). Touching
-/// ONLY the damage rects is sound because writes ⊆ damage is pinned by the
-/// damage-sound laws: every pixel written this frame is converted exactly
-/// once, and retained pixels (converted at their own commit) are never
-/// re-swizzled.
-///
-/// The rects may OVERLAP (a shift clip and the repaint strip inside it both
-/// arrive here). The swap is its own inverse, so an overlap swapped once per
-/// rect would be converted twice, i.e. not at all. Each row therefore swaps
-/// the UNION of the rects crossing it.
+/// #32: in-place R<->B swizzle over `rects` (x, y, w, h in buffer px) of a
+/// tightly-packed 4-byte-per-pixel buffer - the ONE implementation lives in
+/// the renderer (`cpurender::swap_rb_in_rects`), where its overlap law is
+/// tested, and every shell converts through it.
 pub(crate) fn swizzle_rb_in_rects(
     buf: &mut [u8],
     stride_bytes: usize,
     buf_height: usize,
     rects: &[(i32, i32, i32, i32)],
 ) {
-    let row_px = stride_bytes / 4;
-    // Clamped, non-empty (x0, y0, x1, y1).
-    let clamped: Vec<(usize, usize, usize, usize)> = rects
-        .iter()
-        .filter(|&&(_, _, w, h)| w > 0 && h > 0)
-        .map(|&(x, y, w, h)| {
-            (
-                x.max(0) as usize,
-                y.max(0) as usize,
-                (x.saturating_add(w).max(0) as usize).min(row_px),
-                (y.saturating_add(h).max(0) as usize).min(buf_height),
-            )
-        })
-        .filter(|&(x0, y0, x1, y1)| x1 > x0 && y1 > y0)
-        .collect();
-    let Some(top) = clamped.iter().map(|r| r.1).min() else {
-        return;
-    };
-    let bottom = clamped.iter().map(|r| r.3).max().unwrap_or(top);
-    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(clamped.len());
-    for row in top..bottom {
-        spans.clear();
-        spans.extend(
-            clamped
-                .iter()
-                .filter(|r| r.1 <= row && row < r.3)
-                .map(|r| (r.0, r.2)),
-        );
-        spans.sort_unstable();
-        let base = row * stride_bytes;
-        let mut cursor = 0usize;
-        for &(s0, s1) in &spans {
-            // Skip what an earlier span on this row already swapped.
-            for px in s0.max(cursor)..s1 {
-                let o = base + px * 4;
-                if o + 4 <= buf.len() {
-                    buf.swap(o, o + 2);
-                }
-            }
-            cursor = cursor.max(s1);
-        }
-    }
+    azul_layout::cpurender::swap_rb_in_rects(buf, stride_bytes, buf_height, rects);
 }
 
 pub fn native_backbuffer_enabled() -> bool {
@@ -501,6 +492,7 @@ impl CpuBackend {
             native_target: None,
             rendered_native: false,
             native_target_pool_order: false,
+            native_target_holds_previous_frame: false,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -754,9 +746,25 @@ impl CpuBackend {
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
         // were copied over verbatim). No on a shrink / first allocation.
-        let can_reuse_previous_frame = (!needs_resize || resize_preserved_pixels)
-            && !clear_color_changed
-            && !core::mem::take(&mut self.force_full_repaint);
+        //
+        // Whose pixels they are depends on where this frame is going: an armed
+        // platform backbuffer answers for itself (the shell sets the flag at
+        // every arming), the owned path answers with the retained frame -
+        // `last_frame` is `None` on the very first frame and after any frame
+        // that went to a native target, and a freshly allocated pixmap holds
+        // nothing to stand on.
+        let target_holds_previous_frame = if self.native_target.is_some() {
+            self.native_target_holds_previous_frame
+        } else {
+            self.last_frame.is_some()
+        };
+        let can_reuse_previous_frame = frame_may_reuse_previous_pixels(
+            needs_resize,
+            resize_preserved_pixels,
+            clear_color_changed,
+            core::mem::take(&mut self.force_full_repaint),
+            target_holds_previous_frame,
+        );
 
         // ROUND 3: the layout patch's presentation hint. Eligible when the
         // dominant delta is INTEGRAL in physical pixels (a fractional blit
@@ -1180,7 +1188,6 @@ impl CpuBackend {
                     &mover_rects,
                     display_list,
                     dpi_factor,
-                    self.rendered_native && self.native_target_pool_order,
                 );
                 all_damage.extend(blit.damage);
                 present_extra.extend(blit.present_extra);
@@ -1196,10 +1203,29 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    self.rendered_native && self.native_target_pool_order,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+            }
+
+            // #32 pool-order target (a native ARGB8888 slot the commit swizzle
+            // converts in place): everything MOVED above came from a committed
+            // slot and is still in pool byte order, while the commit swizzle
+            // will convert the whole presented area. Convert what was moved
+            // back to renderer order here - ONCE over the union, because two
+            // moves that overlap (nested scrollers, a layout blit crossing a
+            // scroll clip) would otherwise convert their overlap twice and
+            // paint it with R and B swapped. The exposed strips are repainted
+            // right after this, so including them is harmless.
+            if self.rendered_native && self.native_target_pool_order && !present_extra.is_empty() {
+                let (bw, bh) = (output.width(), output.height());
+                let moved = cpurender::logical_rects_to_buffer(&present_extra, dpi_factor, bw, bh);
+                cpurender::swap_rb_in_rects(
+                    output.data_mut(),
+                    bw as usize * 4,
+                    bh as usize,
+                    &moved,
+                );
             }
         }
 
@@ -1327,27 +1353,52 @@ impl CpuBackend {
                 .with_clear_color(clear_color)
                 .with_virtual_view_display_lists(vview_dls);
 
-        if is_incremental && !all_damage.is_empty() {
-            // Incremental: render only damaged regions
-            let _ = cpurender::render_display_list_damaged(
-                display_list,
-                &mut output,
-                dpi_factor,
-                renderer_resources,
-                &layout_window.font_manager,
-                &mut self.glyph_cache,
-                &render_state,
-                &all_damage,
-            );
-            // Exits paint ON TOP of the restored live pixels; their current
-            // rects are inside `all_damage` by construction.
-            if zombies_active {
-                layout_window.composite_zombies_cpu(
+        // An INCREMENTAL frame paints exactly its damage - and nothing when it
+        // has none: the target already holds this frame (a scroll step that
+        // rounds to zero device pixels, a GPU-only value change that moved
+        // nothing). Choosing the branch by "damage is non-empty" sent such a
+        // frame into the FULL repaint below while it still reported empty
+        // damage; on a native ARGB8888 commit-swizzle pool that rewrote the
+        // whole buffer in renderer byte order and nothing converted it (the
+        // UI turned orange after a scroll), and everywhere else it was a
+        // wasted full repaint at the tail of every smooth scroll.
+        // What the FRAME damaged, as asked for. The rasteriser paints
+        // overlapping rects as their bounding box - an L-shaped diagonal pan
+        // is one box, not two strips - and every pixel it wrote has to be
+        // presented and, on an ARGB8888 pool, converted. That is a fact about
+        // the WRITE, not about what changed: reporting it as the frame's
+        // damage told everything downstream that a diagonal pan had repainted
+        // the whole scrollport.
+        let requested_damage = all_damage.clone();
+        if is_incremental {
+            if !all_damage.is_empty() {
+                // Incremental: render only damaged regions
+                if let Ok(painted) = cpurender::render_display_list_damaged(
+                    display_list,
                     &mut output,
                     dpi_factor,
                     renderer_resources,
+                    &layout_window.font_manager,
                     &mut self.glyph_cache,
-                );
+                    &render_state,
+                    &all_damage,
+                ) {
+                    // What was WRITTEN, not what was requested: overlapping
+                    // damage rects are painted as their bounding box, and the
+                    // frame must present (and, on an ARGB8888 pool, convert)
+                    // every pixel it wrote.
+                    all_damage = painted;
+                }
+                // Exits paint ON TOP of the restored live pixels; their current
+                // rects are inside `all_damage` by construction.
+                if zombies_active {
+                    layout_window.composite_zombies_cpu(
+                        &mut output,
+                        dpi_factor,
+                        renderer_resources,
+                        &mut self.glyph_cache,
+                    );
+                }
             }
         } else {
             // Full render
@@ -1454,7 +1505,7 @@ impl CpuBackend {
             self.last_frame = Some(output);
         }
         self.last_frame_damage = if is_incremental {
-            FrameDamage::Rects(all_damage.clone())
+            FrameDamage::Rects(requested_damage)
         } else {
             FrameDamage::Full
         };
@@ -2079,6 +2130,33 @@ impl HeadlessWindow {
         let _ = self.process_window_events(0);
     }
 
+    /// Simulate the window system answering the decoration request with a
+    /// different mode than the one the window asked for.
+    ///
+    /// This is the headless analogue of
+    /// `zxdg_toplevel_decoration_v1.configure` reporting `client_side` to a
+    /// window that requested `server_side` (KWin does exactly that): the shell
+    /// flips the window to frameless + CSD and asks for a regeneration, in
+    /// which the titlebar must appear. Same shape as
+    /// `wayland::events::toplevel_decoration_configure_handler` — an
+    /// OS-sourced flag write (the change is already true of the window, so the
+    /// OS-sync baseline advances with it and is never echoed back) followed by
+    /// a plain `RefreshDom` regeneration request.
+    pub fn simulate_decoration_change(
+        &mut self,
+        decorations: azul_core::window::WindowDecorations,
+        has_decorations: bool,
+    ) {
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.flags.decorations = decorations;
+                ws.flags.has_decorations = has_decorations;
+            });
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.wake();
+    }
+
     /// Read the queued reason for the next `regenerate_layout()` call.
     /// Useful for asserting in tests that an event handler tagged the
     /// upcoming relayout correctly.
@@ -2696,7 +2774,7 @@ impl HeadlessWindow {
                         self.snapshot_window_state_baseline("headless.run.mouse_up");
                         // MWA-C-scroll: a release ends any scrollbar drag.
                         if self.common.scrollbar_drag_state.is_some() {
-                            self.common.scrollbar_drag_state = None;
+                            PlatformWindow::set_scrollbar_drag_state(&mut self, None);
                             events_need_redraw = true;
                         }
                         match button {
@@ -4493,7 +4571,10 @@ mod tests {
                     s.variant = step;
                 }
             }
-            // Arm: this frame renders DIRECTLY into the external buffer.
+            // Arm: this frame renders DIRECTLY into the external buffer,
+            // which holds the frame the previous step rendered into it -
+            // which is exactly what makes the incremental path legal.
+            nat.cpu_backend.native_target_holds_previous_frame = step > 1;
             nat.cpu_backend.native_target = unsafe {
                 azul_layout::cpurender::AzulPixmap::from_external(slot.as_mut_ptr(), pw, ph)
             };
@@ -8404,7 +8485,7 @@ mod tests {
                 // MWA-C-scroll: a release ends any scrollbar drag.
                 let ended_scrollbar_drag = window.common.scrollbar_drag_state.is_some();
                 if ended_scrollbar_drag {
-                    window.common.scrollbar_drag_state = None;
+                    PlatformWindow::set_scrollbar_drag_state(&mut *window, None);
                     tier = tier.max_self(ProcessEventResult::ShouldIncrementalRelayout);
                 }
                 match button {
@@ -9092,6 +9173,70 @@ mod tests {
             painted > 0.0,
             "scrolling repainted NOTHING — the newly exposed strip must still be painted, or \
              scrolled-in content is stale pixels"
+        );
+    }
+
+    /// A scroller whose bar is hidden, so a scroll step that moves no whole
+    /// device pixel changes nothing at all on screen.
+    extern "C" fn harness_layout_scroll_no_bar(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let mut container = Dom::create_div().with_css(
+            "width: 200px; height: 100px; overflow-y: scroll; scrollbar-width: none;",
+        );
+        for i in 0..20 {
+            let bg = if i % 2 == 0 { "#c83c3c" } else { "#3c78c8" };
+            container = container.with_child(
+                Dom::create_div()
+                    .with_css(&format!("height: 20px; background-color: {bg};")),
+            );
+        }
+        Dom::create_body().with_child(container)
+    }
+
+    /// THE WRITES-WITHIN-DAMAGE LAW for a frame that has nothing to repaint.
+    ///
+    /// A scroll step smaller than half a device pixel shifts no pixel and
+    /// damages nothing. The incremental renderer then fell into its FULL
+    /// repaint branch (the branch is chosen by "damage is non-empty", not by
+    /// "this frame is incremental") while still reporting empty damage. On a
+    /// native ARGB8888 commit-swizzle pool that wrote every pixel of the
+    /// compositor's buffer in renderer byte order and nothing converted them:
+    /// the whole window turned R<->B swapped the next time that buffer was
+    /// shown (blue UI turning orange after scrolling, KDE Wayland). On every
+    /// other target it was a wasted full repaint per smooth-scroll tail frame.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_frame_with_nothing_to_repaint_writes_no_pixel_outside_its_damage() {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, harness_layout_scroll_no_bar);
+        window.regenerate_layout().expect("initial layout");
+        // 10.6 rounds to 11 device pixels; so does 11.2. The step between them
+        // is larger than half a pixel (the fast path takes it) yet shifts by
+        // round(11.2) - round(10.6) = 0 pixels: nothing moves, nothing is
+        // exposed - a frame with nothing to repaint.
+        scroll_frame_to(&mut window, 10.6);
+        window.regenerate_layout().expect("scroll to 10.6");
+
+        const MARK: [u8; 4] = [1, 2, 3, 4];
+        {
+            let frame = window.cpu_backend.last_frame.as_mut().expect("retained frame");
+            for px in frame.data_mut().chunks_exact_mut(4) {
+                px.copy_from_slice(&MARK);
+            }
+        }
+        scroll_frame_to(&mut window, 11.2);
+        window.regenerate_layout().expect("zero-pixel scroll step");
+
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        assert!(
+            matches!(&damage, FrameDamage::Rects(rs) if rs.is_empty()),
+            "premise: the step must be an incremental frame with nothing to repaint, got \
+             {damage:?}"
+        );
+        let frame = window.cpu_backend.last_frame.as_ref().expect("retained frame");
+        let written = frame.data().chunks_exact(4).filter(|px| *px != MARK).count();
+        assert_eq!(
+            written, 0,
+            "a frame that reports no damage wrote {written} pixels (a full repaint)"
         );
     }
 
@@ -9852,5 +9997,62 @@ mod tests {
         _info: azul_layout::timer::TimerCallbackInfo,
     ) -> azul_core::callbacks::TimerCallbackReturn {
         azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+    }
+}
+
+#[cfg(test)]
+mod native_backbuffer_reuse_law {
+    use super::frame_may_reuse_previous_pixels;
+
+    /// Steady state: same size, same canvas, nothing forced, and the output
+    /// buffer holds the previous frame.
+    #[test]
+    fn a_steady_frame_reuses_the_previous_one() {
+        assert!(frame_may_reuse_previous_pixels(
+            false, false, false, false, true
+        ));
+    }
+
+    #[test]
+    fn a_shrink_a_recolour_and_a_forced_repaint_do_not() {
+        // shrink (resize that did not preserve the pixels)
+        assert!(!frame_may_reuse_previous_pixels(
+            true, false, false, false, true
+        ));
+        // the canvas colour changed under the reused pixels
+        assert!(!frame_may_reuse_previous_pixels(
+            false, false, true, false, true
+        ));
+        // the shell asked for a full repaint
+        assert!(!frame_may_reuse_previous_pixels(
+            false, false, false, true, true
+        ));
+    }
+
+    /// THE LAW (I6): a window GROWN by a resize makes the platform re-create
+    /// its backbuffer - `CreateDIBSection` on Windows hands back a ZEROED
+    /// DIB. The compositor's own layer pixbuf grew with its pixels intact,
+    /// which is what `resize_preserved_pixels` reports, but the buffer the
+    /// frame is about to be painted INTO did not: it holds nothing, so the
+    /// frame cannot be incremental.
+    #[test]
+    fn a_grow_into_a_freshly_allocated_backbuffer_is_a_full_repaint() {
+        assert!(
+            !frame_may_reuse_previous_pixels(true, true, false, false, false),
+            "a grow-resize painted only its damage strips into a backbuffer that holds no \
+             previous frame"
+        );
+    }
+
+    /// Same law without a resize: the shell can hand over a fresh buffer at
+    /// any time (a native frame drops the retained `last_frame`, so the next
+    /// owned frame starts from a blank pixmap).
+    #[test]
+    fn a_frame_with_no_previous_pixels_anywhere_is_a_full_repaint() {
+        assert!(
+            !frame_may_reuse_previous_pixels(false, false, false, false, false),
+            "an unchanged-size frame painted only its damage strips into a buffer that holds no \
+             previous frame"
+        );
     }
 }

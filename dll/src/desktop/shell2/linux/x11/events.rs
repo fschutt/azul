@@ -36,8 +36,8 @@ use super::{
 };
 use crate::{
     desktop::shell2::common::event::{
-        HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
-        BUTTON_STATE_RIGHT,
+        scrollbar_stops_the_button_event, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT,
+        BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     },
     log_debug, log_error, log_info, log_trace, log_warn,
 };
@@ -515,7 +515,15 @@ impl X11Window {
                         return ProcessEventResult::DoNothing;
                     }
                 }
-                self.close();
+                // The CHAIN, not this one window: the grab belongs to
+                // whichever menu took it last, so the popup that received
+                // this press is not necessarily the one the user wants gone -
+                // and closing it alone left its parent mapped, unfocusable
+                // and un-grabbed, which is how menus piled up on the live
+                // run. `dismiss_menu_chain` closes `self` last and is
+                // idempotent, so a second press (a double click) finds
+                // nothing left to tear down.
+                self.dismiss_menu_chain(self.window as u64);
                 return ProcessEventResult::DoNothing;
             }
         }
@@ -578,8 +586,14 @@ impl X11Window {
             let ws = self.common.current_window_state();
             let size = ws.size.dimensions;
             let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // A window has the WM's own resize handles exactly when we asked
+            // the WM for a frame. Read that from the SAME place the request is
+            // built, so the band can never disagree with what was asked for:
+            // no decoration bits, no server frame, and the band is the only
+            // way left to resize.
+            let frameless = super::motif_decor_bits(decorations) == 0;
             if let Some(edge) =
-                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+                csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {
                 // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
                 // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.
@@ -602,17 +616,25 @@ impl X11Window {
             }
         }
 
-        // Check for scrollbar hit FIRST (before state changes)
+        // Check for scrollbar hit FIRST (before state changes). Whether the
+        // scrollbar's involvement STOPS the button event here is one shared
+        // rule — `scrollbar_stops_the_button_event`.
+        let mut ended_scrollbar_drag = false;
         if is_down {
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(self, position)
             {
-                return PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                let handled =
+                    PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                if scrollbar_stops_the_button_event(is_down, true) {
+                    return handled;
+                }
             }
-        } else {
+        } else if self.common.scrollbar_drag_state.is_some() {
             // End scrollbar drag if active
-            if self.common.scrollbar_drag_state.is_some() {
-                self.common.scrollbar_drag_state = None;
+            PlatformWindow::set_scrollbar_drag_state(self, None);
+            ended_scrollbar_drag = true;
+            if scrollbar_stops_the_button_event(is_down, true) {
                 return ProcessEventResult::ShouldReRenderCurrentWindow;
             }
         }
@@ -692,6 +714,11 @@ impl X11Window {
         // the pass, which is what finalizes the selection).
         if !is_down && button == MouseButton::Left {
             self.publish_primary_selection();
+        }
+
+        if ended_scrollbar_drag {
+            // What the swallowed early return used to answer.
+            return result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         result
@@ -1131,7 +1158,8 @@ impl X11Window {
         {
             // close() ungrabs + XDestroyWindow's the popup; setting is_open=false
             // directly would leak the X window (see the click-outside path).
-            self.close();
+            // Escape leaves the MENU, so it leaves the whole chain.
+            self.dismiss_menu_chain(self.window as u64);
             return ProcessEventResult::DoNothing;
         }
 

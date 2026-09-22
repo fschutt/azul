@@ -2375,11 +2375,30 @@ impl StyledDom {
         // visible (found by the css_anim_perf_transition damage law). The
         // per-tick animation channel avoids this whole fn via
         // `set_user_property_override_fast` + display-list patching.
+        //
+        // The rebuild is UNCONDITIONAL. It used to be gated on
+        // `can_trigger_relayout() || is_inheritable()`, which reads as "only
+        // geometry and inheritance need the projection refreshed" - but the
+        // compact cache also serves PAINT-ONLY properties that are neither:
+        // `opacity`, the four border colours and radii, and the presence bits
+        // for `background`, `box-shadow`, `transform`, `clip-path`,
+        // `text-decoration` and the scrollbar rules. For those the override
+        // was recorded, reported as changed, and then ignored by the display
+        // list, which reads the cache - so a tooltip revealed by patching
+        // `opacity: 0 -> 1` resolved to 1 in every query and still drew
+        // nothing. A presence bit is worse than a stale value: `has_background
+        // == false` means the slow path is never consulted at all, so a
+        // background patched onto a node that had none can never appear.
+        // Enumerating the served set here would be a list that rots against
+        // `compact.rs`; the invariant the cache owes is simply that it agrees
+        // with the override layer it is a projection of.
+        self.recompute_inheritance_and_compact_cache();
+        // The font phase is the one consumer that is genuinely about
+        // inheritance and geometry, so it keeps its narrower gate.
         if new_properties
             .iter()
             .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
         {
-            self.recompute_inheritance_and_compact_cache();
             self.get_css_property_cache_mut()
                 .invalidate_resolved_font_sizes();
         }

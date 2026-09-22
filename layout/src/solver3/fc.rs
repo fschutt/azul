@@ -97,6 +97,15 @@ pub(crate) struct BfcLayoutResult {
     /// resumes it in the next fragmentainer. Always `None` on the
     /// continuous path (`constraints.fragmentainer == None`).
     pub outgoing_token: Option<crate::solver3::break_token::BreakToken>,
+    /// A descendant laid out by this formatting context discovered that it
+    /// needs a scrollbar that RESERVES space. Its children were already sized
+    /// against the unreserved width, so the document-level layout loop has to
+    /// run another pass; this is how that need leaves the subtree.
+    pub scrollbar_reflow_needed: bool,
+    /// The scrollbar gutter this formatting context took out of its own
+    /// children's containing block BEFORE laying them out. A node that then
+    /// turns out to need exactly this much has nothing to lay out again.
+    pub reserved_scrollbar_width: f32,
 }
 
 impl BfcLayoutResult {
@@ -106,6 +115,8 @@ impl BfcLayoutResult {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             outgoing_token: None,
+            scrollbar_reflow_needed: false,
+            reserved_scrollbar_width: 0.0,
         }
     }
 }
@@ -1350,9 +1361,15 @@ fn layout_bfc<T: ParsedFontTrait>(
     //   the per-node cache (same available_size) — O(1) per child.
     //
     // Performance: O(n) for the tree. No double-computation thanks to caching.
+    // A child that turns out to need a space-reserving scrollbar was sized in
+    // this very pass against the UNreserved width (Pass 1 is the child's real
+    // layout). Only the document-level loop can lay it out again, so the need
+    // travels up in the result instead of dying in a local: before this, the
+    // flag was raised into a temporary here, and `overflow: auto` reserved its
+    // gutter only for a node that happened to BE a layout root.
+    let mut child_scrollbar_reflow = false;
     {
         let mut temp_positions: super::PositionVec = Vec::new();
-        let mut temp_scrollbar_reflow = false;
 
         let bfc_children = tree.children(node_index).to_vec();
         // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
@@ -1408,7 +1425,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     constraints.available_width_type,
                 ),
                 &mut temp_positions,
-                &mut temp_scrollbar_reflow,
+                &mut child_scrollbar_reflow,
                 float_cache,
                 crate::solver3::cache::ComputeMode::ComputeSize,
             )?;
@@ -3028,6 +3045,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 &ifc_constraints,
                 float_cache,
             )?;
+            child_scrollbar_reflow |= ifc_result.scrollbar_reflow_needed;
 
             // DON'T update used_size - the box keeps its full width!
             // Only the text layout inside changes to wrap around floats
@@ -3381,6 +3399,8 @@ fn layout_bfc<T: ParsedFontTrait>(
         escaped_top_margin,
         escaped_bottom_margin,
         outgoing_token: fragment_token_out,
+        scrollbar_reflow_needed: child_scrollbar_reflow,
+        reserved_scrollbar_width: scrollbar_reservation,
     })
 }
 

@@ -524,6 +524,11 @@ mod autotest_generated {
             NodeType::Script,
             NodeType::Style,
             NodeType::Link,
+            // SVG `<desc>` describes the drawing; it is not part of it. An
+            // icon theme's file carries one, and rendering it put the
+            // description on screen next to the glyph - the same defect as
+            // `<metadata>`, one element along.
+            NodeType::SvgDesc,
         ] {
             assert_eq!(
                 display_of(&nt),

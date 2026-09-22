@@ -870,8 +870,14 @@ pub fn get_ua_property(
             | NT::SvgUse,
             PT::Display,
         ) => Some(&DISPLAY_BLOCK),
-        // `<defs>` and friends define, they do not draw.
-        (NT::SvgDefs | NT::SvgSymbol | NT::SvgClipPathElement, PT::Display) => Some(&DISPLAY_NONE),
+        // `<defs>` and friends define, they do not draw. `<desc>` DESCRIBES
+        // the drawing - an icon theme's file carries one, and it was rendered
+        // as prose beside the glyph, the same defect as the `<metadata>`
+        // block the XML builder now drops.
+        (
+            NT::SvgDefs | NT::SvgSymbol | NT::SvgClipPathElement | NT::SvgDesc,
+            PT::Display,
+        ) => Some(&DISPLAY_NONE),
         // An `<svg>` is a REPLACED element, like `<img>` above - inline-level,
         // but with a box of its own. `inline` is what it used to be, and an
         // inline box has no width or height, so the intrinsic size the parser

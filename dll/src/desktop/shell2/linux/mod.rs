@@ -75,6 +75,16 @@ impl LinuxWindow {
         }
     }
 
+    /// Before closing a window that asked to close: if it is a menu, take
+    /// the rest of its chain with it. Wayland's popups are dismissed through
+    /// their own path.
+    pub fn dismiss_chain_if_menu(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.dismiss_chain_if_menu(),
+            LinuxWindow::Wayland(_) => {}
+        }
+    }
+
     pub fn close(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.close(),

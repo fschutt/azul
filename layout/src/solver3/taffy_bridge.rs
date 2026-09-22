@@ -4208,7 +4208,18 @@ mod autotest_generated {
 
         impl Env {
             fn new() -> Self {
-                let mut dom = Dom::create_body();
+                Self::of(Dom::create_body())
+            }
+
+            /// `body > div`, for the laws that are about an ORDINARY box:
+            /// the root element's overflow belongs to the viewport (CSS
+            /// Overflow 3 3.3), so a law tested on the root tests the
+            /// viewport instead.
+            fn with_a_child() -> Self {
+                Self::of(Dom::create_body().with_child(Dom::create_div()))
+            }
+
+            fn of(mut dom: Dom) -> Self {
                 let (css, _warnings) = azul_css::parser2::new_from_str("");
                 Self {
                     styled_dom: StyledDom::create(&mut dom, css),
@@ -4316,18 +4327,19 @@ mod autotest_generated {
         }
 
         #[test]
-        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_body() {
-            let mut env = Env::new();
+        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_box() {
+            let mut env = Env::with_a_child();
             let mut ctx = env.ctx();
-            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
-            let root = tree.root;
+            let tree = generate_layout_tree(&mut ctx).expect("a body with a div builds");
+            let div = tree.children(tree.root)[0];
 
             // Content far larger than the box: `overflow: visible` still must not
-            // ask for scrollbars (only `auto`/`scroll` do).
+            // ask for scrollbars (only `auto`/`scroll` do). An ORDINARY box -
+            // the root's own `visible` belongs to the viewport, which scrolls.
             let (info, w, h) = compute_taffy_scrollbar_info(
                 &ctx,
                 &tree,
-                root,
+                div,
                 100.0,
                 100.0,
                 10_000.0,
@@ -4339,6 +4351,35 @@ mod autotest_generated {
             assert_eq!(info.scrollbar_width, 0.0);
             assert_eq!(info.scrollbar_height, 0.0);
             assert!(w > 0.0 && h > 0.0, "the taffy content size is passed back");
+        }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_scrolls_the_viewport_for_an_overflow_visible_root() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+            let root = tree.root;
+
+            // CSS Overflow 3 3.3: on the ROOT element `visible` is applied to
+            // the viewport as `auto`, which is what scrolls a page taller than
+            // the window. The bar is an overlay, so it reserves no gutter.
+            let (info, _w, _h) = compute_taffy_scrollbar_info(
+                &ctx,
+                &tree,
+                root,
+                100.0,
+                100.0,
+                10_000.0,
+                10_000.0,
+                ContentSizeOrigin::BorderBox,
+            );
+            assert!(info.needs_vertical, "the page is taller than the window");
+            assert!(info.needs_horizontal, "and wider than it");
+            assert_eq!(
+                (info.scrollbar_width, info.scrollbar_height),
+                (0.0, 0.0),
+                "the viewport's bar is an overlay: it takes no space from the page"
+            );
         }
     }
 }

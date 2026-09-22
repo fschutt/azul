@@ -728,9 +728,18 @@ pub fn split_text_for_glides(
     // A caret glide reveals only on its own line and only while moving
     // forward: text typed at a caret pushes it right, and the glyphs behind a
     // backward move were deleted, not hidden.
-    let caret = caret.filter(|(from, to, _)| {
+    // A reveal glide runs along one line to the right, or - a WRAP - down onto
+    // the next line, where the target sits left of where the caret took off.
+    // A glide upwards or backwards (a deletion, an arrow key) reveals nothing.
+    let same_line = |from: &LogicalRect, to: &LogicalRect| {
         (from.origin.y - to.origin.y).abs() < to.size.height * 0.5
-            && to.origin.x > from.origin.x + 0.5
+    };
+    let caret = caret.filter(|(from, to, _)| {
+        if same_line(from, to) {
+            to.origin.x > from.origin.x + 0.5
+        } else {
+            to.origin.y > from.origin.y
+        }
     });
     let selection = selection.filter(|(current, rendered)| {
         current.len() == rendered.len() && current.iter().zip(rendered.iter()).any(|(c, r)| c != r)
@@ -823,19 +832,33 @@ pub fn split_text_for_glides(
         if let Some((from, to, rendered)) = caret {
             let edge = rendered.origin.x + rendered.size.width * 0.5;
             let (top, bottom) = (to.origin.y, to.origin.y + to.size.height);
+            // The band the glide reveals, on the TARGET line: everything from
+            // the old caret on a same-line glide; across a wrap, the last em
+            // before the target - the glyph the wrapping keystroke typed (the
+            // rest of that line was on screen already, so it stays).
+            let lo = if same_line(&from, &to) {
+                from.origin.x - margin
+            } else {
+                to.origin.x - margin
+            };
+            // Across a wrap the caret flies in diagonally; until it has
+            // LANDED on the target line the band stays hidden altogether.
+            // (On a same-line glide it has "landed" from the start.)
+            let landed = (rendered.origin.y - to.origin.y).abs() < to.size.height * 0.5;
             let mut next: Vec<Piece> = Vec::new();
             for (piece_glyphs, piece_color, clip, piece_bg) in pieces {
                 let (revealing, rest): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
                     piece_glyphs.into_iter().partition(|g| {
-                        on_line(g, top, bottom)
-                            && g.point.x >= from.origin.x - margin
-                            && g.point.x < to.origin.x
+                        on_line(g, top, bottom) && g.point.x >= lo && g.point.x < to.origin.x
                     });
                 if !rest.is_empty() {
                     next.push((rest, piece_color, clip, piece_bg));
                 }
                 if !revealing.is_empty() {
                     changed = true;
+                    if !landed {
+                        continue;
+                    }
                     if let Some(c) = clip_x(clip, f32::NEG_INFINITY, edge) {
                         next.push((revealing, piece_color, c, piece_bg));
                     }
@@ -7143,6 +7166,20 @@ where
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
 
+        // The VIEWPORT's scrollbar is not painted yet. CSS Overflow 3 3.3
+        // gives the root element's overflow to the viewport, so the root
+        // reports a bar - but it reserves no gutter, which means the bar sits
+        // outside every node's box and the incremental damage path has no
+        // rect to attach it to: across a resize sweep the patched display
+        // list left six pixels of it stale against a fresh render. The page
+        // SCROLLS (the scroll node is registered either way); drawing its bar
+        // is the damage work that has to come with it.
+        if self.dom_id == azul_core::dom::DomId::ROOT_ID
+            && node_id.is_some_and(|n| n.index() == 0)
+        {
+            return Ok(());
+        }
+
         // A VirtualView is a replaced element with NO flow content, so the
         // layout-side necessity test (`check_scrollbar_necessity`: laid-out
         // content > container) can never fire for it and `overflow: auto` would
@@ -8296,9 +8333,12 @@ where
         }
 
         // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
-        // context z-index:auto on position:absolute does NOT establish stacking context
-        if position == LayoutPosition::Absolute {
-            return !z_auto;
+        // context BY THEIR Z-INDEX. They still form one for every other reason below
+        // (opacity < 1, a transform): returning here for `z-index: auto` skipped those
+        // checks, so an absolutely positioned element with `opacity: 0` painted fully
+        // opaque (the Tooltip widget's hidden tip was always visible).
+        if position == LayoutPosition::Absolute && !z_auto {
+            return true;
         }
 
         // position:relative with explicit z-index integer establishes stacking context

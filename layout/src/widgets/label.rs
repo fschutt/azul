@@ -902,12 +902,13 @@ mod autotest_generated {
             dom.estimated_total_children, 1,
             "the <p> owns exactly its text node"
         );
-        // The ONLY sheet a <p> widget carries is the UA-margin reset
-        // (`widgets::widget_p_margin_reset`), scoped to the node itself.
+        // The ONLY sheet a <p> widget carries is the widget-<p> sheet: the
+        // UA-margin reset plus, for a chrome carrier like this one,
+        // `user-select: none` (`widgets::widget_p_chrome_sheet`).
         assert_eq!(
             dom.css.as_ref().len(),
             1,
-            "a label attaches exactly the <p> margin reset, nothing else"
+            "a label attaches exactly the widget <p> sheet, nothing else"
         );
         assert!(
             dom.root.callbacks.as_ref().is_empty(),

@@ -1813,6 +1813,26 @@ impl LayoutTree {
     }
 
     #[must_use]
+    /// The node's CACHED inline layout - both representations - walking IFC
+    /// membership exactly as [`Self::get_inline_layout_for_node`] does.
+    ///
+    /// That sibling hands back only the SPARSE `UnifiedLayout`, which under
+    /// the default dense path is the shared empty retirement sentinel. A
+    /// caller that needs actual clusters has to materialise from the dense
+    /// side, and it cannot do that without the cache entry itself.
+    pub fn get_cached_inline_layout_for_node(
+        &self,
+        layout_index: usize,
+    ) -> Option<&CachedInlineLayout> {
+        let warm = self.warm.get(layout_index)?;
+        if let Some(cached) = &warm.inline_layout_result {
+            return Some(cached);
+        }
+        let ifc_membership = warm.ifc_membership.as_ref()?;
+        let ifc_root_warm = self.warm.get(ifc_membership.ifc_root_layout_index)?;
+        ifc_root_warm.inline_layout_result.as_deref()
+    }
+
     pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
         let warm = self.warm.get(layout_index)?;
 

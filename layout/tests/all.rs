@@ -132,6 +132,8 @@ mod fakefont;
 
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
+#[path = "abspos_in_flex_containing_block.rs"]
+mod abspos_in_flex_containing_block;
 #[path = "anonymous_nodes.rs"]
 mod anonymous_nodes;
 #[path = "block_merge_filter.rs"]
@@ -146,12 +148,16 @@ mod cache_and_dirty_propagation;
 mod caption_positioning;
 #[path = "caret_follows_typing.rs"]
 mod caret_follows_typing;
+#[path = "caret_reveal_across_a_wrap.rs"]
+mod caret_reveal_across_a_wrap;
 #[path = "caret_reveal_and_session_identity.rs"]
 mod caret_reveal_and_session_identity;
 #[path = "caret_scroll_glide.rs"]
 mod caret_scroll_glide;
 #[path = "caret_tween.rs"]
 mod caret_tween;
+#[path = "clean_pass_keeps_the_layout_cache.rs"]
+mod clean_pass_keeps_the_layout_cache;
 #[path = "click_into_a_virtual_view_page.rs"]
 mod click_into_a_virtual_view_page;
 #[path = "cpurender_image_probe.rs"]
@@ -160,6 +166,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
+#[path = "damage_raster_reports_what_it_painted.rs"]
+mod damage_raster_reports_what_it_painted;
 #[path = "demo_layout_regressions.rs"]
 mod demo_layout_regressions;
 #[path = "display_list_ids.rs"]
@@ -194,6 +202,8 @@ mod float_and_scrollbar;
 mod float_integration;
 #[path = "focus_manager.rs"]
 mod focus_manager;
+#[path = "focus_ring_survives_full_relayout.rs"]
+mod focus_ring_survives_full_relayout;
 #[path = "focus_ring_tween.rs"]
 mod focus_ring_tween;
 #[path = "frame_perf.rs"]
@@ -210,6 +220,8 @@ mod hover_manager;
 mod icon_pipeline;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
+#[path = "injected_chrome_takes_its_own_space.rs"]
+mod injected_chrome_takes_its_own_space;
 #[path = "inline_atomic_after_block.rs"]
 mod inline_atomic_after_block;
 
@@ -236,6 +248,8 @@ mod keycode_table_manifest_is_exhaustive;
 mod list_marker_counter;
 #[path = "loaded_font_introspection.rs"]
 mod loaded_font_introspection;
+#[path = "materialized_inline_layout.rs"]
+mod materialized_inline_layout;
 #[path = "map_widget_fill.rs"]
 mod map_widget_fill;
 #[path = "margin_collapse_integration.rs"]
@@ -254,8 +268,16 @@ mod menubar_item_clip;
 mod mock_font_metrics;
 #[path = "multi_range_selection.rs"]
 mod multi_range_selection;
+#[path = "drag_into_an_empty_line.rs"]
+mod drag_into_an_empty_line;
+#[path = "an_svg_without_a_viewbox.rs"]
+mod an_svg_without_a_viewbox;
+#[path = "a_mask_clip_on_a_half_pixel.rs"]
+mod a_mask_clip_on_a_half_pixel;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
+#[path = "patched_opacity_reaches_the_paint.rs"]
+mod patched_opacity_reaches_the_paint;
 #[path = "pagination_perf.rs"]
 mod pagination_perf;
 #[path = "preedit_never_enters_the_text_store.rs"]
@@ -278,12 +300,16 @@ mod root_box_sizing_regression;
 mod run_remap;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
+#[path = "scroll_box_reserves_its_gutter.rs"]
+mod scroll_box_reserves_its_gutter;
 #[path = "scroll_degenerate_ifc.rs"]
 mod scroll_degenerate_ifc;
 #[path = "scroll_id_identity.rs"]
 mod scroll_id_identity;
 #[path = "scroll_shift_ghost.rs"]
 mod scroll_shift_ghost;
+#[path = "scrollbar_fade_during_drag.rs"]
+mod scrollbar_fade_during_drag;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
 #[path = "selection_handles.rs"]
@@ -294,6 +320,8 @@ mod session_regression;
 mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
+#[path = "static_opacity_paints.rs"]
+mod static_opacity_paints;
 #[path = "subtree_relayout.rs"]
 mod subtree_relayout;
 #[path = "svg_paint.rs"]
@@ -392,6 +420,8 @@ mod typed_script_font_fallback;
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
 mod variable_font_disk_path;
+#[path = "viewport_scrolls_its_overflow.rs"]
+mod viewport_scrolls_its_overflow;
 #[path = "virtual_view_natural_size.rs"]
 mod virtual_view_natural_size;
 #[path = "virtualized_view_manager.rs"]

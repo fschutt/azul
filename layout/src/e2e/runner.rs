@@ -1142,12 +1142,26 @@ impl Runner {
 
         // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
         let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
-        let (changes_result, callback_update, prevent_default) =
+        let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&synthetic_events);
         result = result.max(changes_result);
 
         // The wheel delta has now been delivered; clear it so no later pass
         // re-fires a stale Scroll event.
+        //
+        // THE WHEEL HAS ONE CONSUMER (the DLL does the same, shell2/common/
+        // event.rs): a `Scroll` callback that vetoed the default claimed the
+        // gesture, so the container scroll queued at ingress must be taken
+        // back — otherwise the widget's answer is ADDED to the page scroll
+        // instead of replacing it.
+        if scroll_prevented {
+            self.layout_window
+                .scroll_manager
+                .cancel_queued_scroll_input();
+        }
+        self.layout_window
+            .scroll_manager
+            .forget_queued_scroll_input();
         self.layout_window.scroll_manager.pending_wheel_event = None;
 
         let mut should_recurse = false;
@@ -1364,7 +1378,7 @@ impl Runner {
                 ));
             }
             if !focus_events.is_empty() {
-                let (focus_result, focus_update, _) =
+                let (focus_result, focus_update, _, _) =
                     self.dispatch_events_propagated(&focus_events);
                 result = result.max(focus_result);
                 if matches!(
@@ -1509,7 +1523,7 @@ impl Runner {
                     )
                 })
                 .collect();
-            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            let (dispatch_result, update, _, _) = self.dispatch_events_propagated(&events);
             result = result.max(dispatch_result);
             if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
@@ -1521,7 +1535,7 @@ impl Runner {
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool, bool) {
         use azul_core::{
             callbacks::{CoreCallbackData, Update},
             events::EventFilter,
@@ -1532,6 +1546,9 @@ impl Runner {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// Which event this callback answers: a `preventDefault` vetoes
+            /// THIS event's default action and nothing else in the pass.
+            event_type: azul_core::events::EventType,
         }
 
         // Phase 1 — build the dispatch plan (read-only over the layout window).
@@ -1610,14 +1627,35 @@ impl Runner {
                                             dom_id,
                                             node_id: *node_id,
                                             callback_data: cb.clone(),
+                                            event_type: event.event_type,
                                         });
                                     }
                                 }
                             }
                         }
                         EventFilter::Focus(_) => {
-                            // Focus events fire on the focused node only.
-                            let Some(focused) = focused_node else {
+                            // Focus events fire on the focused node only -
+                            // except the focus TRANSITION itself, which names
+                            // its node: `Blur` / `FocusOut` / `Change` are aimed
+                            // at the node that just LOST focus, `Focus` /
+                            // `FocusIn` at the one that gained it, and by the
+                            // time they are dispatched the focus manager
+                            // already points at the new node. (Mirror of the
+                            // shell's `dispatch_events_propagated`.)
+                            let is_transition = matches!(
+                                event.event_type,
+                                azul_core::events::EventType::Blur
+                                    | azul_core::events::EventType::FocusOut
+                                    | azul_core::events::EventType::Change
+                                    | azul_core::events::EventType::Focus
+                                    | azul_core::events::EventType::FocusIn
+                            );
+                            let focused = if is_transition {
+                                Some(event.target)
+                            } else {
+                                focused_node
+                            };
+                            let Some(focused) = focused else {
                                 continue;
                             };
                             let Some(node_id) = focused.node.into_crate_internal() else {
@@ -1634,6 +1672,7 @@ impl Runner {
                                         dom_id: focused.dom,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                     });
                                 }
                             }
@@ -1657,6 +1696,7 @@ impl Runner {
                                                 dom_id: *dom_id,
                                                 node_id,
                                                 callback_data: cb.clone(),
+                                                event_type: event.event_type,
                                             });
                                         }
                                     }
@@ -1681,6 +1721,7 @@ impl Runner {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                     });
                                 }
                             }
@@ -1692,7 +1733,7 @@ impl Runner {
         };
 
         if planned_callbacks.is_empty() {
-            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false, false);
         }
 
         // Phase 2 — invoke.
@@ -1704,6 +1745,10 @@ impl Runner {
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
+        // WHICH event was vetoed (the dll does the same): a key handler's
+        // `preventDefault` must not take back the scroll a wheel earned.
+        let mut prevented_event_types: std::collections::BTreeSet<azul_core::events::EventType> =
+            std::collections::BTreeSet::new();
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
 
@@ -1746,7 +1791,10 @@ impl Runner {
             let mut should_stop_propagation = false;
             for change in &changes {
                 match change {
-                    CallbackChange::PreventDefault => any_prevent_default = true,
+                    CallbackChange::PreventDefault => {
+                        any_prevent_default = true;
+                        prevented_event_types.insert(planned.event_type);
+                    }
                     CallbackChange::StopImmediatePropagation => should_stop_immediate = true,
                     CallbackChange::StopPropagation => should_stop_propagation = true,
                     _ => {}
@@ -1773,7 +1821,14 @@ impl Runner {
             .copied()
             .fold(Update::DoNothing, Update::max);
 
-        (changes_result, merged_update, any_prevent_default)
+        let scroll_prevented =
+            prevented_event_types.contains(&azul_core::events::EventType::Scroll);
+        (
+            changes_result,
+            merged_update,
+            any_prevent_default,
+            scroll_prevented,
+        )
     }
 
     /// Port of `PlatformWindow::apply_user_change`
@@ -3023,7 +3078,7 @@ impl Runner {
                     // the frame is stale even when it mapped to no callback.
                     let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
                     if !events.is_empty() {
-                        let (r, _update, _) = self.dispatch_events_propagated(&events);
+                        let (r, _update, _, _) = self.dispatch_events_propagated(&events);
                         result = result.max(r);
                     }
                     result
@@ -3342,7 +3397,7 @@ impl Runner {
                     .collect();
 
                 let mut result = ProcessEventResult::DoNothing;
-                let (text_changes_result, text_update, text_prevent_default) =
+                let (text_changes_result, text_update, text_prevent_default, _) =
                     self.dispatch_events_propagated(&text_events);
                 // A callback veto kills the recorded edit — same as the DLL:
                 // clearing it also stops any later apply from landing it late.
@@ -3913,7 +3968,7 @@ impl Runner {
                     self.now(),
                     azul_core::events::EventData::None,
                 );
-                let (r, _update, _) = self.dispatch_events_propagated(&[click]);
+                let (r, _update, _, _) = self.dispatch_events_propagated(&[click]);
                 (r, false)
             }
             _ => (ProcessEventResult::DoNothing, false),
@@ -4038,6 +4093,9 @@ fn apply_focus_restyle_in_dom(
     );
 
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        // Nothing the cascade calls a change, but the caret and the
+        // `:focus`-conditional paint are built FROM focus state.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     }
 
@@ -4046,6 +4104,12 @@ fn apply_focus_restyle_in_dom(
     if accumulator.needs_layout() {
         ProcessEventResult::ShouldIncrementalRelayout
     } else if accumulator.needs_paint_only() {
+        // THE SAME LAW AS THE SHELL (33d875e27): a producer of the
+        // ShouldUpdateDisplayList tier rebuilds its own list; the tier only
+        // asks to present. This copy of the function had the same hole, so
+        // `pressing_tab_leaves_a_visible_focus_ring` below could not see the
+        // defect it exists to catch - a gate with the wrong premise.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
@@ -5301,6 +5365,96 @@ mod tests {
             filters.contains(&EventFilter::Hover(HoverEventFilter::Click)),
             "the a11y default action must resolve to the same activation filter keyboard \
              activation reaches, got {filters:?}",
+        );
+    }
+
+    /// FocusLost goes to the node that LOST focus.
+    ///
+    /// The focus transition is dispatched after the focus manager already
+    /// points at the new node. Planning the `Blur` on "whatever is focused
+    /// now" handed FocusLost to the NEW node (which has no such handler) and
+    /// never to the old one - so a widget's `on_focus_lost` hook never ran
+    /// and the `RefreshDom` it asked for never happened (AzWidgets' TextArea
+    /// after a Tab).
+    #[test]
+    fn focus_lost_reaches_the_node_that_lost_it() {
+        use azul_core::{
+            dom::{IdOrClass, TabIndex},
+            events::FocusEventFilter,
+        };
+
+        #[derive(Debug)]
+        struct Seen {
+            lost_on_a: u32,
+            received_on_b: u32,
+        }
+
+        extern "C" fn lost_on_a(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.lost_on_a += 1;
+            }
+            Update::RefreshDom
+        }
+        extern "C" fn received_on_b(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.received_on_b += 1;
+            }
+            Update::DoNothing
+        }
+
+        let mut seen = RefAny::new(Seen {
+            lost_on_a: 0,
+            received_on_b: 0,
+        });
+        let field = |class: &str| {
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into());
+            d.set_tab_index(TabIndex::Auto);
+            d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                class,
+            ))
+        };
+        let a = field("a").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+            seen.clone(),
+            lost_on_a as usize,
+        );
+        let b = field("b").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            seen.clone(),
+            received_on_b as usize,
+        );
+        let mut dom = Dom::create_body().with_child(a).with_child(b);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; } \
+             .a, .b { display: block; width: 120px; height: 30px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "focus_lost_target",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".a" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.a" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.b" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let s = seen.downcast_ref::<Seen>().expect("the counter");
+        assert_eq!(s.received_on_b, 1, "premise: focus arrived at B and B was told");
+        assert_eq!(
+            s.lost_on_a, 1,
+            "the node that LOST focus must get its FocusLost callback"
         );
     }
 

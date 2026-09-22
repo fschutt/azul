@@ -53,6 +53,9 @@ pub struct PendingContentEditableFocus {
 pub struct FocusManager {
     /// Currently focused node (if any)
     pub focused_node: Option<DomNodeId>,
+    /// Nodes whose focus a DOM rebuild dropped, waiting to be told.
+    /// See [`FocusManager::take_focus_lost_to_unmount`].
+    pub focus_lost_to_unmount: Vec<DomNodeId>,
     /// Pending focus request from callback
     pub pending_focus_request: Option<FocusTarget>,
 
@@ -145,6 +148,7 @@ impl FocusManager {
     pub const fn new() -> Self {
         Self {
             focused_node: None,
+            focus_lost_to_unmount: Vec::new(),
             pending_focus_request: None,
             focus_is_visible: false,
             cursor_needs_initialization: false,
@@ -367,6 +371,25 @@ impl FocusManager {
     }
 }
 
+impl FocusManager {
+    /// The nodes whose focus this manager dropped because a DOM rebuild did
+    /// not carry them over, drained by whoever is in a position to tell them.
+    ///
+    /// Clearing the focus is right - the arena index now denotes a different
+    /// element - but doing it as a plain field write was not: an app that
+    /// commits a text field, closes a popup or validates on blur heard
+    /// nothing at all when its focused node was unmounted, and no line was
+    /// logged either, which is why this cost a live reconcile session to
+    /// find.
+    pub fn take_focus_lost_to_unmount(&mut self) -> Vec<DomNodeId> {
+        core::mem::take(&mut self.focus_lost_to_unmount)
+    }
+
+    fn record_focus_lost_to_unmount(&mut self, lost: DomNodeId) {
+        self.focus_lost_to_unmount.push(lost);
+    }
+}
+
 impl crate::managers::NodeIdRemap for FocusManager {
     /// Remap the focused node AND the pending contenteditable focus.
     ///
@@ -375,6 +398,7 @@ impl crate::managers::NodeIdRemap for FocusManager {
     fn remap_node_ids(&mut self, dom_id: DomId, map: &crate::managers::NodeIdMap) {
         // 0. the other seats' focus (9b-ii-a-i-d): the same rule as the
         // primary's - follow the node, clear on an unmounted one.
+        let mut seats_lost: Vec<DomNodeId> = Vec::new();
         self.seat_focus.retain(|_, focused| {
             if focused.dom != dom_id {
                 return true;
@@ -388,9 +412,15 @@ impl crate::managers::NodeIdRemap for FocusManager {
                     focused.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
                     true
                 }
-                None => false,
+                None => {
+                    seats_lost.push(*focused);
+                    false
+                }
             }
         });
+        for lost in seats_lost {
+            self.record_focus_lost_to_unmount(lost);
+        }
         // 1. currently focused node
         if let Some(focused) = self.focused_node {
             if focused.dom == dom_id {
@@ -405,7 +435,10 @@ impl crate::managers::NodeIdRemap for FocusManager {
                             node: NodeHierarchyItemId::from_crate_internal(Some(new_id)),
                         });
                     }
-                    None => self.focused_node = None,
+                    None => {
+                        self.focused_node = None;
+                        self.record_focus_lost_to_unmount(focused);
+                    }
                 }
             }
         }
@@ -2696,4 +2729,76 @@ fn next_in_direction(
         }
     }
     best.map(|(_, n)| n)
+}
+
+#[cfg(test)]
+mod focus_lost_to_unmount_tests {
+    //! Focus dropped because the DOM rebuild did not carry the node over is
+    //! RECORDED, so the node it belonged to can still be told.
+    //!
+    //! Clearing it is right - the arena index now denotes a different element
+    //! - but as a plain field write it was silent: an app that commits a text
+    //! field or closes a popup on blur heard nothing when its focused node
+    //! was unmounted.
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    use super::FocusManager;
+    use crate::managers::{NodeIdMap, NodeIdRemap};
+
+    fn node(id: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(id))),
+        }
+    }
+
+    #[test]
+    fn focus_a_rebuild_did_not_carry_over_is_recorded_for_its_node() {
+        let mut fm = FocusManager::new();
+        fm.focused_node = Some(node(7));
+        // The rebuild kept node 3 and dropped node 7.
+        fm.remap_node_ids(
+            DomId::ROOT_ID,
+            &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(3))]),
+        );
+        assert_eq!(fm.focused_node, None, "the index means another element now");
+        assert_eq!(
+            fm.take_focus_lost_to_unmount(),
+            vec![node(7)],
+            "and the node that lost it is named, once"
+        );
+        assert!(
+            fm.take_focus_lost_to_unmount().is_empty(),
+            "draining it twice reports it twice"
+        );
+    }
+
+    #[test]
+    fn focus_that_merely_moved_is_not_a_loss() {
+        let mut fm = FocusManager::new();
+        fm.focused_node = Some(node(7));
+        fm.remap_node_ids(
+            DomId::ROOT_ID,
+            &NodeIdMap::from_pairs([(NodeId::new(7), NodeId::new(21))]),
+        );
+        assert_eq!(fm.focused_node, Some(node(21)));
+        assert!(fm.take_focus_lost_to_unmount().is_empty());
+    }
+
+    #[test]
+    fn every_seat_that_lost_its_node_is_named_too() {
+        let mut fm = FocusManager::new();
+        fm.seat_focus.insert(1, node(4));
+        fm.seat_focus.insert(2, node(5));
+        fm.remap_node_ids(
+            DomId::ROOT_ID,
+            &NodeIdMap::from_pairs([(NodeId::new(4), NodeId::new(9))]),
+        );
+        assert_eq!(fm.seat_focus.get(&1), Some(&node(9)));
+        assert_eq!(fm.take_focus_lost_to_unmount(), vec![node(5)]);
+    }
 }

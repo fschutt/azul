@@ -1490,8 +1490,10 @@ mod autotest_generated {
                 node.root.callbacks.as_ref().is_empty(),
                 "node {i} of a stateless frame carries a callback",
             );
-            // A <p> carries the UA-margin reset sheet (`widget_p_margin_reset`);
-            // nothing else in a frame attaches a stylesheet.
+            // A <p> carries the one widget-<p> sheet (the UA-margin reset, plus
+            // `user-select: none` when it is a chrome carrier — see
+            // `widget_p_margin_reset` / `widget_p_chrome_sheet`); nothing else
+            // in a frame attaches a stylesheet.
             let is_p = matches!(node.root.get_node_type(), azul_core::dom::NodeType::P);
             assert!(
                 node.css.as_ref().is_empty() || (is_p && node.css.as_ref().len() == 1),

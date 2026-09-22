@@ -311,6 +311,119 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
     None
 }
 
+/// The bytes a window title goes onto the wire as, truncated at an interior
+/// NUL rather than refused.
+///
+/// X strings are NUL-terminated, so a title carrying one cannot be expressed
+/// past that byte - but `CString::new(..).unwrap()` turned that into a PANIC,
+/// and a title is often user data (a document name, a URL).
+fn window_title_bytes(title: &str) -> Vec<u8> {
+    let end = title.find('\0').unwrap_or(title.len());
+    title[..end].as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod window_title_tests {
+    use super::window_title_bytes;
+
+    #[test]
+    fn a_title_survives_its_non_ascii_characters() {
+        // The whole point of _NET_WM_NAME: these bytes are UTF-8, and
+        // WM_NAME(STRING) could not carry them.
+        assert_eq!(window_title_bytes("Übersicht — 日本語"), "Übersicht — 日本語".as_bytes());
+    }
+
+    #[test]
+    fn an_interior_nul_truncates_instead_of_panicking() {
+        assert_eq!(window_title_bytes("doc\0evil"), b"doc");
+        assert!(window_title_bytes("\0").is_empty());
+    }
+}
+
+/// The executable's own name, which is what every other toolkit derives a
+/// window class from when the application does not supply one (GTK reads
+/// `g_get_prgname()`, Qt `QCoreApplication::applicationName()`; both fall
+/// back to `argv[0]`).
+fn current_exe_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_default()
+}
+
+/// The bytes of a `WM_CLASS` property: `instance\0class\0`.
+///
+/// A window ALWAYS has one. It is how every taskbar groups windows, how a
+/// dock matches the `.desktop` file that carries the icon and the display
+/// name, and what a WM window rule matches on. azul used to write the
+/// property only when the application had supplied a class of its own, which
+/// almost none do - its own demo does not - so the window arrived on the
+/// desktop anonymous: no grouping, no icon, no rule could name it.
+///
+/// The instance is conventionally the executable's name as invoked, the
+/// class the same with an initial capital.
+fn wm_class_payload(supplied: Option<(&str, &str)>, exe: &str) -> Vec<u8> {
+    let (instance, class) = match supplied {
+        Some((i, c)) if !i.is_empty() || !c.is_empty() => (i.to_string(), c.to_string()),
+        _ => {
+            let instance = if exe.is_empty() { "azul" } else { exe };
+            let mut chars = instance.chars();
+            let class = chars.next().map_or_else(String::new, |f| {
+                f.to_uppercase().collect::<String>() + chars.as_str()
+            });
+            (instance.to_string(), class)
+        }
+    };
+    let mut data = Vec::with_capacity(instance.len() + class.len() + 2);
+    data.extend_from_slice(instance.as_bytes());
+    data.push(0);
+    data.extend_from_slice(class.as_bytes());
+    data.push(0);
+    data
+}
+
+#[cfg(test)]
+mod wm_class_tests {
+    use super::wm_class_payload;
+
+    fn parts(data: &[u8]) -> Vec<String> {
+        data.split(|b| *b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_window_has_a_class_even_when_the_app_supplies_none() {
+        // RED before this existed: no property was written at all, and the
+        // window arrived on the desktop with nothing to group or icon it.
+        let data = wm_class_payload(None, "AzWidgets");
+        assert_eq!(parts(&data), vec!["AzWidgets", "AzWidgets"]);
+        assert_eq!(data.last(), Some(&0), "both strings are NUL-terminated");
+        assert_eq!(data.iter().filter(|b| **b == 0).count(), 2);
+    }
+
+    #[test]
+    fn the_class_is_the_instance_with_an_initial_capital() {
+        assert_eq!(parts(&wm_class_payload(None, "azwidgets")), vec!["azwidgets", "Azwidgets"]);
+    }
+
+    #[test]
+    fn what_the_app_supplies_wins() {
+        assert_eq!(
+            parts(&wm_class_payload(Some(("inkscape", "Inkscape")), "AzWidgets")),
+            vec!["inkscape", "Inkscape"]
+        );
+    }
+
+    #[test]
+    fn a_nameless_executable_still_produces_a_usable_pair() {
+        // `current_exe()` can fail; the property is still owed.
+        assert_eq!(parts(&wm_class_payload(None, "")), vec!["azul", "Azul"]);
+        assert_eq!(parts(&wm_class_payload(Some(("", "")), "")), vec!["azul", "Azul"]);
+    }
+}
+
 /// Publish `_NET_WM_ICON` from whatever icon sizes the caller supplied.
 ///
 /// EWMH format is `[w1, h1, w1*h1 pixels..., w2, h2, ...]`, one entry per size,
@@ -379,6 +492,45 @@ unsafe fn apply_net_wm_icon(
     );
 }
 
+/// The `_MOTIF_WM_HINTS` decoration bits a decoration mode asks the window
+/// manager for.
+///
+/// Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
+/// MINIMIZE=32, MAXIMIZE=64.
+///
+/// Zero means "draw me no frame at all", and it is the ONLY answer an X11
+/// window manager reads unambiguously: every WM that honours these hints -
+/// xfwm4, Metacity/Marco, KWin - treats `MWM_DECOR_BORDER` as "this window
+/// wants a frame" and hands back the WHOLE one, caption included. So a mode
+/// that must not get a server caption has to ask for nothing, and draw the
+/// rest itself.
+///
+/// Separated from [`apply_motif_wm_hints`] so the decision is testable: it is
+/// also what tells the software resize band whether this window has a server
+/// frame to resize by (`x11::events`, `csd_resize_edge_for_press`).
+pub(super) const fn motif_decor_bits(
+    decorations: azul_core::window::WindowDecorations,
+) -> std::os::raw::c_long {
+    match decorations {
+        // Nothing, and for the same reason in both cases: the app is getting
+        // its chrome from azul. `None` asked for that outright; `NoTitle`
+        // asked for a caption-less frame, which no X11 window manager can
+        // give - ask one for BORDER and it draws the caption too - so the
+        // only request that keeps a second titlebar off the screen is none.
+        // The controls `NoTitle` is owed come from `CsdInjection::ControlsOnly`
+        // and the edges from the software resize band, both of which key off
+        // exactly this answer.
+        azul_core::window::WindowDecorations::None
+        | azul_core::window::WindowDecorations::NoTitle => 0,
+        // Same all-or-nothing: ask for TITLE and the window manager draws
+        // its whole caption, BUTTONS INCLUDED - which is precisely what
+        // `NoControls` says it does not want. The title it IS owed comes
+        // from `CsdInjection::SoftwareTitleOnly`.
+        azul_core::window::WindowDecorations::NoControls => 0,
+        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
+    }
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// MWA-B5: `_MOTIF_WM_HINTS` — tell the WM which decorations to draw.
@@ -404,14 +556,7 @@ unsafe fn apply_motif_wm_hints(
         status: c_long,
     }
     const MWM_HINTS_DECORATIONS: c_long = 1 << 1;
-    // Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
-    // MINIMIZE=32, MAXIMIZE=64.
-    let deco_bits: c_long = match decorations {
-        azul_core::window::WindowDecorations::None => 0,
-        azul_core::window::WindowDecorations::NoTitle => 2 | 4,
-        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
-        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
-    };
+    let deco_bits: c_long = motif_decor_bits(decorations);
     let hints = MotifWmHints {
         flags: MWM_HINTS_DECORATIONS,
         functions: 0,
@@ -3206,6 +3351,51 @@ impl X11Window {
         Ok(())
     }
 
+    /// Publish the window title as BOTH `_NET_WM_NAME` and `WM_NAME`.
+    ///
+    /// `WM_NAME` is a `STRING`, which in X means LATIN-1: every window
+    /// manager written this century reads the UTF-8 `_NET_WM_NAME` first and
+    /// keeps `WM_NAME` only as the fallback for clients that predate it.
+    /// azul wrote only the latter, so any title with a character outside
+    /// Latin-1 - an umlaut, an em dash, any CJK - reached the taskbar
+    /// mangled or not at all.
+    fn publish_window_title(&self, title: &str) {
+        let bytes = window_title_bytes(title);
+        unsafe {
+            let utf8 =
+                (self.xlib.XInternAtom)(self.display, b"UTF8_STRING\0".as_ptr() as *const c_char, 0);
+            let net_name = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_NAME\0".as_ptr() as *const c_char,
+                0,
+            );
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                net_name,
+                utf8,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+            let wm_name =
+                (self.xlib.XInternAtom)(self.display, b"WM_NAME\0".as_ptr() as *const c_char, 0);
+            let string_atom =
+                (self.xlib.XInternAtom)(self.display, b"STRING\0".as_ptr() as *const c_char, 0);
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                wm_name,
+                string_atom,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+        }
+    }
+
     /// Set this live window's `_NET_WM_ICON` — the `App::set_app_icon` path
     /// for windows that already exist when the icon is set.
     pub(crate) fn apply_app_icon(&mut self, icons: &[(u32, u32, Vec<u8>)]) {
@@ -3593,12 +3783,12 @@ impl X11Window {
                 .platform_specific_options
                 .linux_options
                 .x11_wm_classes;
-            if let Some(pair) = classes.as_ref().first() {
-                let mut data: Vec<u8> = Vec::new();
-                data.extend_from_slice(pair.key.as_str().as_bytes());
-                data.push(0);
-                data.extend_from_slice(pair.value.as_str().as_bytes());
-                data.push(0);
+            let supplied = classes
+                .as_ref()
+                .first()
+                .map(|pair| (pair.key.as_str(), pair.value.as_str()));
+            {
+                let data = wm_class_payload(supplied, &current_exe_name());
                 unsafe {
                     let wm_class_atom =
                         (xlib.XInternAtom)(display, b"WM_CLASS\0".as_ptr() as *const c_char, 0);
@@ -3615,6 +3805,51 @@ impl X11Window {
                         data.len() as i32,
                     );
                 }
+            }
+        }
+
+        // WHO WE ARE, the other half. `WM_CLASS` says what application this
+        // is; `_NET_WM_PID` + `WM_CLIENT_MACHINE` say which PROCESS on which
+        // host it belongs to, and EWMH requires them together. Without them
+        // `xdotool search --pid` and `wmctrl -lp` report nothing for an azul
+        // window, and the WM cannot offer to force-quit one that hangs.
+        unsafe {
+            let pid: std::os::raw::c_long = std::process::id() as std::os::raw::c_long;
+            let pid_atom =
+                (xlib.XInternAtom)(display, b"_NET_WM_PID\0".as_ptr() as *const c_char, 0);
+            (xlib.XChangeProperty)(
+                display,
+                window_handle,
+                pid_atom,
+                defines::XA_CARDINAL,
+                32,
+                defines::PropModeReplace,
+                &pid as *const std::os::raw::c_long as *const u8,
+                1,
+            );
+            // The hostname has to be the one the WM would see, so it is read
+            // from the kernel rather than from the environment.
+            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|h| h.trim().to_string())
+                .unwrap_or_default();
+            if !host.is_empty() {
+                let machine_atom = (xlib.XInternAtom)(
+                    display,
+                    b"WM_CLIENT_MACHINE\0".as_ptr() as *const c_char,
+                    0,
+                );
+                let string_atom =
+                    (xlib.XInternAtom)(display, b"STRING\0".as_ptr() as *const c_char, 0);
+                (xlib.XChangeProperty)(
+                    display,
+                    window_handle,
+                    machine_atom,
+                    string_atom,
+                    8,
+                    defines::PropModeReplace,
+                    host.as_ptr(),
+                    host.len() as i32,
+                );
             }
         }
 
@@ -5108,6 +5343,17 @@ impl X11Window {
                     self.release_pointer_lock_on_focus_loss();
 
                     self.dynamic_selector_context.window_focused = false;
+                    // THE KEYBOARD WENT SOMEWHERE ELSE, SO THE MENU IS OVER.
+                    // X11 never gives an override-redirect popup the input
+                    // focus, so this - on the window that OWNS the chain - is
+                    // the only event that ever says "the user clicked the
+                    // root window / another app". Nothing acted on it, so a
+                    // context menu simply stayed on screen (and stayed live)
+                    // after its window lost focus. `is_grab_focus_change`
+                    // already excluded the FocusOut our own pointer grab
+                    // synthesises, which would otherwise dismiss the menu the
+                    // instant it opened.
+                    self.dismiss_menu_chain(self.window as u64);
                     // Tablet reset. Wayland gets this from `pad_leave` /
                     // `pad_removed` / `proximity_out`; X11 has no equivalent
                     // events, so focus loss is the reset point. A pad
@@ -7146,12 +7392,7 @@ impl X11Window {
         use azul_core::window::WindowFrame;
 
         // Title — XStoreName is NOT called in new(), so we must apply it here
-        {
-            let c_title = CString::new(self.common.current_window_state().title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
-        }
+        self.publish_window_title(self.common.current_window_state().title.as_str());
 
         // Window frame (Maximized, Minimized, Fullscreen)
         // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
@@ -7467,10 +7708,7 @@ impl X11Window {
 
         // Title changed?
         if previous.title != current.title {
-            let c_title = CString::new(current.title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
+            self.publish_window_title(current.title.as_str());
         }
 
         // Size changed?
@@ -8013,6 +8251,113 @@ impl PlatformWindow for X11Window {
     /// finished. Same shape as `sync_window_state` above.
     fn handle_begin_interactive_move(&mut self) {
         X11Window::handle_begin_interactive_move(self);
+    }
+}
+
+impl X11Window {
+    /// Every live menu window of this app, as the registry knows it, for
+    /// [`crate::desktop::menu::menus_to_dismiss`].
+    fn menu_chain_links(&self) -> Vec<crate::desktop::menu::MenuChainLink> {
+        let own = self.window as u64;
+        // OUR OWN link comes from `self`, never from the registry: the
+        // registry holds a raw pointer to this very window, and taking a
+        // reference through it while `&mut self` is live would alias it.
+        let mut links = alloc::vec![crate::desktop::menu::MenuChainLink {
+            id: own,
+            parent: self.parent_window_id,
+            is_menu: self.common.current_window_state().flags.window_type
+                == azul_core::window::WindowType::Menu,
+        }];
+        for wid in super::registry::get_all_window_ids() {
+            if wid == own {
+                continue;
+            }
+            let Some(wptr) = (unsafe { super::registry::get_window(wid) }) else {
+                continue;
+            };
+            if let super::LinuxWindow::X11(w) = unsafe { &*wptr } {
+                if !w.is_open {
+                    continue;
+                }
+                links.push(crate::desktop::menu::MenuChainLink {
+                    id: wid,
+                    parent: w.parent_window_id,
+                    is_menu: w.common.current_window_state().flags.window_type
+                        == azul_core::window::WindowType::Menu,
+                });
+            }
+        }
+        links
+    }
+
+    /// The user left the menu: take the WHOLE chain down, deepest first.
+    ///
+    /// A menu is transient — it exists only while the user is in it — and it
+    /// is its own X window, which X11 never gives the input focus to (it is
+    /// override-redirect). So the two things that mean "the user left" are
+    /// the owning toplevel's `FocusOut` and a press the menu's own pointer
+    /// grab delivered from outside it, and NEITHER of them can be answered by
+    /// closing one window: the grab belongs to whichever menu took it last,
+    /// and the toplevel is not a menu at all. Nothing in the tree ever closed
+    /// a chain, so menus accumulated — a menu from an earlier right-click was
+    /// still mapped beside a new one on the live run — and every one of them
+    /// stayed live enough to deliver an activation.
+    ///
+    /// Idempotent: a second call finds nothing left to close, so a double
+    /// click, or the focus change that follows the click that already
+    /// dismissed the chain, is a no-op rather than a second teardown.
+    ///
+    /// `close()` ungrabs the pointer for a `Menu` window and destroys its X
+    /// window; the run loop drops it on `!is_open`.
+    /// A menu that is closing takes its chain with it.
+    ///
+    /// Activating an item sets `close_requested` on the window the item
+    /// lives in - the SUBMENU - and the shell then closes exactly that one.
+    /// Its parent stayed on screen, mapped and grabbed, after the user had
+    /// already chosen something. Measured live: after clicking "Delete" in a
+    /// submenu, the 160x133 parent was still there seconds later.
+    ///
+    /// `menus_to_dismiss` already answers "what else goes with this one"; the
+    /// activation path simply never asked.
+    pub(super) fn dismiss_chain_if_menu(&mut self) {
+        if self.common.current_window_state().flags.window_type
+            == azul_core::window::WindowType::Menu
+        {
+            self.dismiss_menu_chain(self.window as u64);
+        }
+    }
+
+    pub(super) fn dismiss_menu_chain(&mut self, from: u64) {
+        let doomed = crate::desktop::menu::menus_to_dismiss(&self.menu_chain_links(), from);
+        if doomed.is_empty() {
+            return;
+        }
+        log_debug!(
+            LogCategory::Window,
+            "[X11] dismissing the menu chain reached from {:#x}: {} window(s)",
+            from,
+            doomed.len()
+        );
+        let own = self.window as u64;
+        let mut close_self = false;
+        for wid in doomed {
+            if wid == own {
+                // Last, and not through the registry: `self` is already
+                // borrowed here, and `&mut *wptr` would alias it.
+                close_self = true;
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(menu) = unsafe { &mut *wptr } {
+                    if menu.is_open {
+                        menu.close();
+                    }
+                }
+            }
+        }
+        if close_self && self.is_open {
+            self.close();
+        }
     }
 }
 
@@ -9528,5 +9873,69 @@ unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEv
     if let Some(ref mut lw) = win.common.layout_window {
         lw.device_event_manager
             .note_raw_motion(dx, dy, ev.sourceid as u64);
+    }
+}
+
+#[cfg(test)]
+mod motif_decoration_tests {
+    //! THE DOUBLE TITLEBAR ON X11.
+    //!
+    //! Measured on Linux Mint 22.2 / Xfwm4 with the AzWidgets demo, which asks
+    //! for `WindowDecorations::NoTitle`:
+    //!
+    //! ```text
+    //! _MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x2, 0x0, 0x6, 0x0, 0x0
+    //! _NET_FRAME_EXTENTS(CARDINAL)     = 2, 2, 36, 2
+    //! ```
+    //!
+    //! `0x6` is `MWM_DECOR_BORDER | MWM_DECOR_RESIZEH` - "no title bit" - and
+    //! the window still came back with a 36 px caption carrying its own
+    //! minimise / maximise / close. Every window manager that reads these
+    //! hints does this: `MWM_DECOR_BORDER` means "this window wants a frame",
+    //! and the frame a WM knows how to draw is the whole one. Xfwm4 and
+    //! Metacity/Marco fold title and border into ONE flag; KWin's `noborder`
+    //! is `!(BORDER | TITLE | ALL)`, so BORDER alone keeps the caption there
+    //! too.
+    //!
+    //! Meanwhile `csd::csd_injection_for` believes no Linux frame can show
+    //! controls without a title, and overlays a software set on top - so the
+    //! window ended up with TWO close buttons, one of them azul's.
+    //!
+    //! X11 has no xdg-decoration to negotiate with. The only request that
+    //! reliably means "no caption" is no decoration bits at all, which is what
+    //! `NoTitle` has to ask for: azul already owns the controls and, once the
+    //! bits are zero, the software resize band as well.
+
+    use azul_core::window::WindowDecorations;
+
+    use super::motif_decor_bits;
+
+    /// `NoTitle` must not ask for a server frame, because every WM that reads
+    /// the hint answers a request for one with the caption included.
+    #[test]
+    fn a_no_title_window_asks_for_no_server_frame() {
+        assert_eq!(
+            motif_decor_bits(WindowDecorations::NoTitle),
+            0,
+            "NoTitle asked the WM for BORDER|RESIZEH and got a 36px caption \
+             with it; the only request that leaves no caption is none at all"
+        );
+    }
+
+    /// Asking for no frame is also what turns the software resize band on -
+    /// one fact, read in both places, so a window can never be left with
+    /// neither the WM's edges nor ours.
+    #[test]
+    fn a_window_with_no_server_frame_resizes_itself() {
+        // Every mode whose chrome azul draws itself asks for NO server frame,
+        // because Motif is all-or-nothing: a request for BORDER or TITLE gets
+        // the whole caption, buttons included.
+        assert_eq!(motif_decor_bits(WindowDecorations::None), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoTitle), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoControls), 0);
+
+        // These keep the WM's frame, and with it its resize handles.
+        assert_ne!(motif_decor_bits(WindowDecorations::Normal), 0);
+        assert_ne!(motif_decor_bits(WindowDecorations::NoTitleAutoInject), 0);
     }
 }

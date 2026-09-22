@@ -75,7 +75,7 @@ fn a_dragged_overlay_scrollbar_is_repainted_at_its_ghost_position_too() {
     let mut pixmap = AzulPixmap::new(200, 100).expect("pixmap");
     let delta = (10.0, 0.0);
     let out =
-        cpurender::execute_scroll_shift(&mut pixmap, &dl, 7, &clip, delta, (10.0, 0.0), 1.0, false);
+        cpurender::execute_scroll_shift(&mut pixmap, &dl, 7, &clip, delta, (10.0, 0.0), 1.0);
 
     // Fast path taken: the whole clip is presented, not repainted.
     assert!(

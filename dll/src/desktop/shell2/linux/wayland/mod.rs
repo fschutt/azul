@@ -293,8 +293,8 @@ use crate::{
         shell2::common::{
             debug_server::LogCategory,
             event::{
-                self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE,
-                BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+                self, scrollbar_stops_the_button_event, HitTestNode, PlatformWindow,
+                BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
             },
             WindowError,
         },
@@ -1520,6 +1520,20 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// The window publishes on ITSELF. The registry route would turn a raw
+    /// pointer back into `&mut WaylandWindow` while this very call holds one.
+    fn write_clipboard_payload(
+        &mut self,
+        payload: &crate::desktop::shell2::common::clipboard::ClipboardPayload,
+    ) -> bool {
+        clipboard::write_payload_on(self, payload).is_ok()
+    }
+
+    /// See [`Self::write_clipboard_payload`].
+    fn read_clipboard_payload(&mut self) -> Option<crate::desktop::shell2::common::clipboard::ClipboardPayload> {
+        clipboard::read_payload_on(self)
+    }
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self
             .common
@@ -1795,6 +1809,7 @@ impl WaylandWindow {
         let trigger_rect = anchor.unwrap_or_else(|| {
             azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
         });
+        let edge = self::menu::menu_edge_for(anchor);
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -1802,6 +1817,7 @@ impl WaylandWindow {
             menu,
             &self.common.system_style,
             trigger_rect,
+            edge,
             menu_size,
         );
 
@@ -1840,15 +1856,14 @@ impl WaylandWindow {
                 let mut r = refany.clone();
                 let menu = r
                     .downcast_ref::<self::menu::MenuLayoutData>()
-                    .map(|d| d.trigger_rect);
+                    .map(|d| (d.trigger_rect, d.edge));
                 let mut r2 = refany.clone();
                 let transient = r2
                     .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>(
                     )
                     .map(|d| (d.placement.anchor_rect, d.placement.anchor));
                 match (menu, transient) {
-                    (Some(rect), _) => (Some(rect), azul_core::transient::TransientAnchor::Cursor),
-                    (None, Some((rect, edge))) => (Some(rect), edge),
+                    (Some((rect, edge)), _) | (None, Some((rect, edge))) => (Some(rect), edge),
                     (None, None) => (None, azul_core::transient::TransientAnchor::Cursor),
                 }
             }
@@ -1867,9 +1882,11 @@ impl WaylandWindow {
         anchor_rect.size.width = anchor_rect.size.width.max(1.0);
         anchor_rect.size.height = anchor_rect.size.height.max(1.0);
 
-        let mut popup_size = options.window_state.size.dimensions;
-        popup_size.width = popup_size.width.max(1.0);
-        popup_size.height = popup_size.height.max(1.0);
+        // One rounding for the positioner, the buffer and the viewport
+        // destination alike (see `menu::popup_size_px`).
+        let popup_size = self::menu::popup_size_px(options.window_state.size.dimensions);
+        let mut options = options;
+        options.window_state.size.dimensions = popup_size;
 
         crate::plog_info!(
             "[wayland-popup] open_menu_popup: anchor=({:.0},{:.0} {:.0}x{:.0}) size={:.0}x{:.0}",
@@ -2462,12 +2479,8 @@ impl WaylandWindow {
                     // client_side (compositor draws nothing); everything
                     // else requests server_side. client_side=1, server_side=2.
                     let flags = &window.common.current_window_state().flags;
-                    let wants_csd = crate::desktop::csd::should_inject_csd(
-                        flags.has_decorations,
-                        flags.decorations,
-                    );
-                    let frameless = flags.decorations == azul_core::window::WindowDecorations::None;
-                    let mode: u32 = if wants_csd || frameless { 1 } else { 2 };
+                    let mode: u32 =
+                        xdg_decoration_mode(flags.has_decorations, flags.decorations);
                     // set_mode: opcode 1, signature "u".
                     type SetModeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32);
                     let set_mode_fn: SetModeFn =
@@ -4361,6 +4374,15 @@ impl WaylandWindow {
 
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
+        // Surface-local position of every real motion event: the one place a
+        // trace can be lined up against injected input and screen-space tools.
+        log_trace!(
+            LogCategory::Input,
+            "[Wayland] pointer motion ({:.1},{:.1}) left_down={}",
+            x,
+            y,
+            self.common.current_window_state().mouse_state.left_down
+        );
 
         // While the pointer is over an open menu popup, forward motion to the
         // popup (just tracks the popup-relative cursor for a later click/Return)
@@ -4472,6 +4494,14 @@ impl WaylandWindow {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
+        log_trace!(
+            LogCategory::Input,
+            "[Wayland] pointer button {:#x} {} at ({:.1},{:.1})",
+            button,
+            if is_down { "down" } else { "up" },
+            position.x,
+            position.y
+        );
 
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("wayland.handle_pointer_button");
@@ -4492,8 +4522,16 @@ impl WaylandWindow {
             // fullscreen window has no resizable edge, and the `return` below
             // precedes `record_input_sample`, so eating the press here costs
             // the DragStart and the DoubleClick the title bar needs.
+            // Wayland asks for client-side decoration for all three of
+            // these (see the `wants_csd` request), and the compositor then
+            // draws NOTHING - no border, no resize handles. A `NoTitle`
+            // window could not be resized by dragging any edge of it.
+            let frameless = {
+                use azul_core::window::WindowDecorations as D;
+                matches!(decorations, D::None | D::NoTitle | D::NoControls)
+            };
             if let Some(edge) =
-                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+                csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,
@@ -4531,7 +4569,9 @@ impl WaylandWindow {
                 // scroll callback can restyle / rebuild the DOM. DoNothing stays a
                 // no-op; the other variants still request_redraw.
                 self.handle_process_event_result(result);
-                return;
+                if scrollbar_stops_the_button_event(is_down, true) {
+                    return;
+                }
             }
 
             // Check for context menu (right-click).
@@ -4539,6 +4579,10 @@ impl WaylandWindow {
             // common.last_hovered_node has no writer anywhere, so hit-node
             // context menus never opened on Wayland.
             if mouse_button == MouseButton::Right {
+                // Hit-test the PRESS position itself (X11 does the same):
+                // the hover snapshot is the last motion's, and a press that
+                // arrives before any motion has none.
+                self.update_hit_test(position);
                 if let Some(hit_node) = self.get_first_hovered_node() {
                     if self.try_show_context_menu(hit_node, position) {
                         // Context menu was shown, consume the event
@@ -4547,11 +4591,12 @@ impl WaylandWindow {
                     }
                 }
             }
-        } else {
-            // End scrollbar drag if active
-            if self.common.scrollbar_drag_state.is_some() {
-                self.common.scrollbar_drag_state = None;
-                self.request_redraw();
+        } else if self.common.scrollbar_drag_state.is_some() {
+            // End scrollbar drag if active. Whether that STOPS the button
+            // event here is the shared rule - `scrollbar_stops_the_button_event`.
+            PlatformWindow::set_scrollbar_drag_state(self, None);
+            self.request_redraw();
+            if scrollbar_stops_the_button_event(is_down, true) {
                 return;
             }
         }
@@ -4585,7 +4630,11 @@ impl WaylandWindow {
                 .as_ref()
                 .is_some_and(|lw| lw.text_edit_manager.has_active_editing()),
         ) {
-            if let Some(text) = clipboard::get_primary_content() {
+            // THIS window's seat, not whichever the registry listed first:
+            // the offer, the device and the serial are all per-connection
+            // here, and the window the click landed in is already on the
+            // stack.
+            if let Some(text) = clipboard::get_primary_content(self) {
                 if !text.is_empty() {
                     if let Some(ref mut layout_window) = self.common.layout_window {
                         layout_window.record_text_input(&text);
@@ -4765,7 +4814,9 @@ impl WaylandWindow {
         if text.is_empty() {
             return;
         }
-        let _ = clipboard::write_to_primary(&text);
+        // The selection belongs to the seat of the window the gesture happened
+        // in — this one.
+        let _ = clipboard::write_to_primary(self, &text);
     }
 
     /// Accumulate one `wl_pointer.axis` event into the current pointer frame.
@@ -4887,6 +4938,23 @@ impl WaylandWindow {
         self.pending_axis_value120_seen = false;
         let (raw_x, raw_y) = std::mem::replace(&mut self.pending_axis_value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
+
+        // THE WHEEL BELONGS TO WHAT THE POINTER IS OVER, and an open menu
+        // popup is a surface of its own. `handle_pointer_motion` and
+        // `handle_pointer_button` both stop here; the axis frame did not, so
+        // it fell through to the parent, re-hit-tested at the parent's stale
+        // cursor position and scrolled the page BEHIND the open menu. The
+        // accumulators above are already drained, so the frame is consumed
+        // rather than deferred: a popup has no axis entry point yet, which is
+        // why a long menu cannot scroll its own list on any backend.
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
+            let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_axis(dx, dy, is_trackpad);
+            }
+            return;
+        }
 
         let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
         // `wl_pointer.axis_source` is the ONLY place Wayland says whether the
@@ -5188,7 +5256,27 @@ impl WaylandWindow {
         frame.value120_seen = false;
         let (raw_x, raw_y) = std::mem::replace(&mut frame.value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut frame.discrete, (0.0, 0.0));
-        let is_trackpad = axis_source_is_trackpad(frame.source);
+        // Ends the `seat_axis` borrow before the popup guard below reads the
+        // rest of `self`.
+        let axis_source = frame.source;
+
+        // THE WHEEL BELONGS TO WHAT THE POINTER IS OVER, and an open menu
+        // popup is a surface of its own. `handle_pointer_motion` and
+        // `handle_pointer_button` both stop here; the axis frame did not, so
+        // it fell through to the parent, re-hit-tested at the parent's stale
+        // cursor position and scrolled the page BEHIND the open menu. The
+        // accumulators above are already drained, so the frame is consumed
+        // rather than deferred: a popup has no axis entry point yet, which is
+        // why a long menu cannot scroll its own list on any backend.
+        if self.pointer_over_popup && self.active_popup.is_some() {
+            let is_trackpad = axis_source_is_trackpad(axis_source);
+            let (dx, dy) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_axis(dx, dy, is_trackpad);
+            }
+            return;
+        }
+        let is_trackpad = axis_source_is_trackpad(axis_source);
         let (delta_x, delta_y) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
         if delta_x == 0.0 && delta_y == 0.0 {
             return;
@@ -5760,56 +5848,53 @@ impl WaylandWindow {
         Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    /// Read EVERY flavor the current clipboard offer advertises that azul has
-    /// a codec for.
+    /// Read the current clipboard offer with EXACTLY ONE pipe transfer.
     ///
     /// Driven by the offer's own advertised mime list (captured at
     /// `wl_data_device.selection`), not by guesswork: `wl_data_offer.receive`
     /// with a mime the source never offered is answered by a pipe the source
     /// is under no obligation to close, so each blind guess costs the full
     /// transfer deadline.
+    ///
+    /// And exactly ONE of the advertised ones, because a transfer costs the UI
+    /// thread `events::PASTE_UI_DEADLINE` whether it is the flavor we end up
+    /// using or not. This used to transfer every flavor it had a codec for and
+    /// hand `decode_payload` the lot, which then kept the richest and threw
+    /// the rest away — four deadlines' worth of frozen event loop to build a
+    /// payload three quarters of which was discarded.
+    /// `clipboard::best_offered_mime` applies the decoder's own ranking to the
+    /// advertised list first, so the one flavor transferred is the one that
+    /// would have survived anyway.
     pub(super) fn read_wayland_selection_payload(
         &mut self,
     ) -> Option<rich_clipboard::ClipboardPayload> {
-        use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
+        use rich_clipboard::Platform;
 
         if self.clipboard_offer.is_null() {
             return None;
         }
-        // Cloned because the receive borrows `self` mutably below.
+        // Cloned because the transport below borrows `self`.
         let offered: Vec<String> = self.drag.clipboard_mimes().to_vec();
         let offer = self.clipboard_offer;
 
-        let mut payload = ClipboardPayload::new(Platform::Unix);
-        // Borrows `offered`, so it must be declared after it (and is dropped
-        // before it). `Flavor` is only `'static` when it came from a literal.
-        let mut seen: Vec<Flavor<'_>> = Vec::new();
-        for mime in &offered {
-            let flavor = Flavor::from_mime(mime);
-            // A flavor nothing here decodes is not worth a pipe transfer, and
-            // two spellings of one flavor (`UTF8_STRING` next to
-            // `text/plain;charset=utf-8`) are one transfer, not two.
-            if matches!(flavor, Flavor::Other(_)) || seen.contains(&flavor) {
-                continue;
-            }
-            let bytes = unsafe { events::receive_offer_bytes(self, offer, mime) };
-            if bytes.is_empty() {
-                continue;
-            }
-            seen.push(flavor);
-            payload.push(ClipboardItem::new(mime.as_str(), bytes));
+        let transferred = {
+            let mut pipe = clipboard::OfferPipe {
+                window: self,
+                offer,
+            };
+            clipboard::read_offer_payload(&offered, &mut pipe)
+        };
+        if let Some(payload) = transferred {
+            return Some(payload);
         }
 
-        if payload.is_empty() {
-            // No advertised mime answered — either the list never arrived
-            // (an offer whose advertisements we missed) or every transfer
-            // failed. Fall back to the single-flavor read, which asks for
-            // plain text unconditionally.
-            let text = self.read_wayland_selection()?;
-            return rich_clipboard::encode(&rich_clipboard::RichItem::Text(text), Platform::Unix)
-                .ok();
-        }
-        Some(payload)
+        // Nothing worth asking for was advertised (an offer whose
+        // advertisements we missed), or the source answered with nothing. Fall
+        // back to the single-flavor read, which asks for plain text
+        // unconditionally — the ONLY path on which a paste costs a second
+        // transfer.
+        let text = self.read_wayland_selection()?;
+        rich_clipboard::encode(&rich_clipboard::RichItem::Text(text), Platform::Unix).ok()
     }
 
     // --- Primary selection (zwp_primary_selection_v1) ---
@@ -6424,6 +6509,7 @@ impl WaylandWindow {
             menu,
             &self.common.system_style,
             trigger_rect,
+            azul_core::transient::TransientAnchor::Cursor,
             menu_size,
         );
 
@@ -7554,6 +7640,15 @@ impl WaylandWindow {
                                     match cpu_state.acquire_slot() {
                                         Some(slot) => {
                                             cpu_state.catch_up_slot(slot);
+                                            {
+                                                let stride = cpu_state.stride.max(0) as usize;
+                                                bb_probe(
+                                                    "after-catch-up",
+                                                    slot,
+                                                    cpu_state.slot_buffer_mut(slot),
+                                                    stride,
+                                                );
+                                            }
                                             if !cpu_state.slots[slot].valid {
                                                 // A never-filled slot (fresh
                                                 // pool after a resize with no
@@ -7571,6 +7666,18 @@ impl WaylandWindow {
                                                 // full-repaint arm.
                                                 self.cpu_backend.previous_display_list = None;
                                             }
+                                            // Whether THIS slot holds frame
+                                            // N-1: `catch_up_slot` above has
+                                            // replayed what it owed, so a
+                                            // valid slot now does. A
+                                            // never-filled one holds zeroed
+                                            // shm, and rastering damage
+                                            // strips into that presents the
+                                            // zeroes everywhere the diff
+                                            // found nothing.
+                                            self.cpu_backend
+                                                .native_target_holds_previous_frame =
+                                                cpu_state.slots[slot].valid;
                                             self.cpu_backend.native_target_pool_order =
                                                 cpu_state.needs_commit_swizzle();
                                             self.cpu_backend.native_target = unsafe {
@@ -7717,6 +7824,12 @@ impl WaylandWindow {
                                         if cpu_state.needs_commit_swizzle() {
                                             let stride = cpu_state.stride.max(0) as usize;
                                             let h = cpu_state.height.max(0) as usize;
+                                            bb_probe(
+                                                "after-render",
+                                                slot,
+                                                cpu_state.slot_buffer_mut(slot),
+                                                stride,
+                                            );
                                             let swizzle_rects = if full_render {
                                                 // A genuinely full render
                                                 // wrote every pixel.
@@ -7757,6 +7870,12 @@ impl WaylandWindow {
                                                 stride,
                                                 h,
                                                 &int_rects,
+                                            );
+                                            bb_probe(
+                                                "after-swizzle",
+                                                slot,
+                                                cpu_state.slot_buffer_mut(slot),
+                                                stride,
                                             );
                                         }
                                     }
@@ -8581,6 +8700,15 @@ impl Drop for WaylandWindow {
                 events::destroy_data_offer_for_teardown(self, self.clipboard_offer);
                 self.clipboard_offer = std::ptr::null_mut();
             }
+            // A Wayland selection lives exactly as long as the client that
+            // owns its `wl_data_source`, and every window here is its own
+            // client connection — so closing the window the user copied from
+            // destroyed the app's OWN clipboard while the app was still
+            // running. Hand it to a surviving window before this connection
+            // goes; when there is none left, `hand_off_selection` says whether
+            // a clipboard manager can carry it past the process (Wayland has
+            // no ICCCM SAVE_TARGETS handoff to make).
+            clipboard::hand_off_selection(self.surface as u64);
             // Same for the primary-selection offer, for the same reason: each
             // `selection` event releases its PREDECESSOR, so exactly one is
             // still held at teardown and nothing else will ever release it.
@@ -8724,6 +8852,45 @@ unsafe fn wp_viewport_destroy(wayland: &Wayland, viewport: *mut defines::wp_view
     let f: DestroyFn = std::mem::transmute(wayland.wl_proxy_marshal);
     f(viewport as *mut defines::wl_proxy, 0);
     (wayland.wl_proxy_destroy)(viewport as *mut _);
+}
+
+/// Which slot of a two-slot `wl_shm` pool the next paint may write into.
+///
+/// `busy[i]` mirrors slot `i`'s `wl_buffer.release` flag. A buffer handed to
+/// the compositor by `wl_surface.attach` + `commit` is the COMPOSITOR's memory
+/// until that release comes back - writing into it before then is a torn
+/// frame at best and a write into a buffer being scanned out at worst. The
+/// current `active` slot is preferred (it already holds the previous frame);
+/// `None` means both slots are held and the caller must skip this paint and
+/// retry when a release lands.
+///
+/// Pure so the ownership law can be tested without a compositor.
+pub(crate) fn next_writable_slot(active: usize, busy: [bool; 2]) -> Option<usize> {
+    let a = active & 1;
+    if !busy[a] {
+        return Some(a);
+    }
+    let b = 1 - a;
+    if !busy[b] {
+        return Some(b);
+    }
+    None
+}
+
+/// Which slot a POPUP repaint (`WaylandPopup::render_if_ready`) writes into.
+///
+/// Split out of the popup paint path so the same law can be asserted there: a
+/// popup owns its own two-slot pool and its own `wl_buffer.release`
+/// bookkeeping, and a repaint (hover, a submenu opening, a scroll inside the
+/// menu) is a SECOND write into that pool.
+pub(crate) fn popup_paint_slot(active: usize, busy: [bool; 2]) -> Option<usize> {
+    // A popup owns its own two-slot pool and its own `wl_buffer.release`
+    // bookkeeping, and it used to write the slot it wrote LAST time, every
+    // time - whether or not the compositor still held that buffer. A menu
+    // that repaints while its last frame is on screen tears, and the
+    // protocol says the bytes were not ours to touch. The law is the
+    // toplevel's, so it is literally the toplevel's.
+    next_writable_slot(active, busy)
 }
 
 impl CpuFallbackState {
@@ -8902,16 +9069,15 @@ impl CpuFallbackState {
     /// `active` slot; returns None when both are busy (caller skips the
     /// attach this cycle and retries after the next frame callback/release).
     fn acquire_slot(&mut self) -> Option<usize> {
-        let a = self.active;
-        if unsafe { !*self.slots[a].busy } {
-            return Some(a);
-        }
-        let b = 1 - a;
-        if unsafe { !*self.slots[b].busy } {
-            self.active = b;
-            return Some(b);
-        }
-        None
+        let slot = next_writable_slot(self.active, self.busy_flags())?;
+        self.active = slot;
+        Some(slot)
+    }
+
+    /// The compositor's holds on the two slots: `busy[i]` is slot `i`'s
+    /// `wl_buffer.release` flag, `true` while the compositor still owns it.
+    fn busy_flags(&self) -> [bool; 2] {
+        unsafe { [*self.slots[0].busy, *self.slots[1].busy] }
     }
 
     /// The buffer that will be (or was last) attached.
@@ -9290,6 +9456,82 @@ impl WaylandPopup {
         let wayland = parent.wayland.clone();
         let xkb = parent.xkb.clone();
 
+        let current_window_state = FullWindowState {
+            title: options.window_state.title.clone(),
+            size: options.window_state.size,
+            position: options.window_state.position,
+            flags: options.window_state.flags,
+            theme: parent.common.current_window_state().theme,
+            debug_state: parent.common.current_window_state().debug_state,
+            keyboard_state: azul_core::window::KeyboardState::default(),
+            mouse_state: azul_core::window::MouseState::default(),
+            touch_state: azul_core::window::TouchState::default(),
+            ime_position: parent.common.current_window_state().ime_position,
+            platform_specific_options: options.window_state.platform_specific_options.clone(),
+            renderer_options: parent.common.current_window_state().renderer_options,
+            background_color: options.window_state.background_color,
+            layout_callback: options.window_state.layout_callback.clone(),
+            close_callback: options.window_state.close_callback.clone(),
+            monitor_id: parent.common.current_window_state().monitor_id,
+            window_id: options.window_state.window_id.clone(),
+            // The xdg_popup grab gives it the keyboard; report it focused so
+            // the engine's focus-loss dismiss sees a true→false edge later.
+            window_focused: true,
+            active_route: azul_core::resources::OptionRouteMatch::None,
+            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
+        };
+        // A popup is a CHILD: share the PARENT's already-warmed manager, which
+        // is both the warmest option and the one whose embedded (icon) faces the
+        // popup is most likely to need. Falls back to the app-level manager.
+        let mut layout_window = match parent.common.layout_window.as_ref() {
+            Some(parent_lw) => {
+                LayoutWindow::from_font_manager(parent_lw.font_manager.clone_shared())
+            }
+            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                parent.resources.font_manager.as_ref(),
+                &parent.resources.fc_cache,
+            )
+            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
+        };
+        layout_window.routes = parent.resources.config.routes.clone();
+        // Seed with the parent window's image map so css-id / url("...")
+        // images inside the popup resolve (whole-map seed at creation).
+        if let Some(parent_lw) = parent.common.layout_window.as_ref() {
+            layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
+        }
+        let mut common = event::CommonWindowState::new(
+            current_window_state,
+            options.theme,
+            options.background_color_light,
+            options.background_color_dark,
+            parent.common.fc_cache.clone(),
+            parent.resources.system_style.clone(),
+            parent.common.app_data.clone(),
+            parent.resources.undo_manager.clone(),
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+        common.gl_context_ptr = None.into();
+        common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
+        // A menu is SIZED TO ITS CONTENT, and a Wayland popup has to know its
+        // size before it exists: the positioner is created with it and the
+        // compositor places and constrains the popup against it. X11 maps
+        // its menu window at an estimate and resizes it once laid out; here
+        // the menu is laid out first, off-screen, and the measured size is
+        // what the positioner, the buffer and the layout all see. Before
+        // this every menu was a 200-by-n-items estimate and its real items,
+        // padding and shadow were clipped into that box.
+        let popup_size = if options.size_to_content {
+            match measure_popup_content(&mut common, &parent.resources, popup_size) {
+                Some(measured) => measured,
+                None => popup_size,
+            }
+        } else {
+            popup_size
+        };
+        common.update_unsynced_state(|ws| ws.size.dimensions = popup_size);
+
         // 1. Create xdg_positioner
         let positioner = unsafe { (wayland.xdg_wm_base_create_positioner)(parent.xdg_wm_base) };
 
@@ -9445,64 +9687,6 @@ impl WaylandPopup {
 
         // 11. Create window state — the popup's own `CommonWindowState`, so it
         // is a `PlatformWindow` like every toplevel.
-        let current_window_state = FullWindowState {
-            title: options.window_state.title.clone(),
-            size: options.window_state.size,
-            position: options.window_state.position,
-            flags: options.window_state.flags,
-            theme: parent.common.current_window_state().theme,
-            debug_state: parent.common.current_window_state().debug_state,
-            keyboard_state: azul_core::window::KeyboardState::default(),
-            mouse_state: azul_core::window::MouseState::default(),
-            touch_state: azul_core::window::TouchState::default(),
-            ime_position: parent.common.current_window_state().ime_position,
-            platform_specific_options: options.window_state.platform_specific_options.clone(),
-            renderer_options: parent.common.current_window_state().renderer_options,
-            background_color: options.window_state.background_color,
-            layout_callback: options.window_state.layout_callback.clone(),
-            close_callback: options.window_state.close_callback.clone(),
-            monitor_id: parent.common.current_window_state().monitor_id,
-            window_id: options.window_state.window_id.clone(),
-            // The xdg_popup grab gives it the keyboard; report it focused so
-            // the engine's focus-loss dismiss sees a true→false edge later.
-            window_focused: true,
-            active_route: azul_core::resources::OptionRouteMatch::None,
-            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
-            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
-        };
-        // A popup is a CHILD: share the PARENT's already-warmed manager, which
-        // is both the warmest option and the one whose embedded (icon) faces the
-        // popup is most likely to need. Falls back to the app-level manager.
-        let mut layout_window = match parent.common.layout_window.as_ref() {
-            Some(parent_lw) => {
-                LayoutWindow::from_font_manager(parent_lw.font_manager.clone_shared())
-            }
-            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
-                parent.resources.font_manager.as_ref(),
-                &parent.resources.fc_cache,
-            )
-            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
-        };
-        layout_window.routes = parent.resources.config.routes.clone();
-        // Seed with the parent window's image map so css-id / url("...")
-        // images inside the popup resolve (whole-map seed at creation).
-        if let Some(parent_lw) = parent.common.layout_window.as_ref() {
-            layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
-        }
-        let mut common = event::CommonWindowState::new(
-            current_window_state,
-            options.theme,
-            options.background_color_light,
-            options.background_color_dark,
-            parent.common.fc_cache.clone(),
-            parent.resources.system_style.clone(),
-            parent.common.app_data.clone(),
-            parent.resources.undo_manager.clone(),
-        );
-        common.layout_window = Some(layout_window);
-        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
-        common.gl_context_ptr = None.into();
-        common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
         Ok(Self {
             wayland,
             xkb,
@@ -9707,6 +9891,16 @@ impl WaylandPopup {
         let laid_out = self.ensure_layout();
 
         if let RenderMode::Cpu(Some(cpu_state)) = &mut self.render_mode {
+            // #27: which slot of the popup's OWN pool this repaint may write
+            // is `popup_paint_slot`'s to say - the first frame and every
+            // repaint after it go through the same rule.
+            let Some(slot) = popup_paint_slot(cpu_state.active, cpu_state.busy_flags()) else {
+                // Both slots are the compositor's. Leave `needs_repaint` set;
+                // the release event wakes the loop and `drive_active_popup`
+                // retries.
+                return;
+            };
+            cpu_state.active = slot;
             let mut painted = false;
 
             #[cfg(feature = "cpurender")]
@@ -9906,6 +10100,59 @@ impl WaylandPopup {
         // Gestures (a tear-off drag on the popup's grip) need the samples.
         let buttons = self.pressed_button_state();
         self.record_input_sample(pos, buttons, false, false, None);
+        let r = self.process_window_events(0);
+        self.apply_event_result(r);
+    }
+
+    /// A wheel or a trackpad pan over the popup.
+    ///
+    /// A menu is a LIST, and a list longer than the output has to scroll
+    /// itself. No backend gave a popup an axis entry point at all, so the
+    /// frame fell through to the parent (which now stops at an open popup
+    /// instead) and a long menu could not be scrolled on any platform.
+    pub fn pointer_axis(&mut self, delta_x: f32, delta_y: f32, is_trackpad: bool) {
+        use azul_core::task::Instant;
+        use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
+
+        if delta_x == 0.0 && delta_y == 0.0 {
+            return;
+        }
+        self.snapshot_window_state_baseline("wayland.popup.pointer_axis");
+        let pos = self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+            .get_position();
+        if let Some(pos) = pos {
+            self.update_hit_test_at(pos);
+        }
+        let (source, device) = if is_trackpad {
+            (
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            )
+        } else {
+            (
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+            )
+        };
+        let input_id = InputPointId::Mouse;
+        let now = Instant::from(std::time::Instant::now());
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            layout_window.scroll_manager.record_scroll_from_hit_test(
+                delta_x,
+                delta_y,
+                source,
+                device,
+                &layout_window.hover_manager,
+                &input_id,
+                now,
+            );
+        }
         let r = self.process_window_events(0);
         self.apply_event_result(r);
     }
@@ -11091,6 +11338,160 @@ impl WaylandWindow {
     }
 }
 
+/// Lay the popup's DOM out once at the parent's size and return its natural
+/// content size (rounded up like `menu::popup_size_px`), or `None` when the
+/// layout callback produced nothing measurable. The popup's window state is
+/// left pointing at the measured size only by the caller.
+fn measure_popup_content(
+    common: &mut event::CommonWindowState,
+    resources: &super::AppResources,
+    fallback: azul_core::geom::LogicalSize,
+) -> Option<azul_core::geom::LogicalSize> {
+    use azul_core::geom::LogicalSize;
+    // Measure the way X11's `apply_size_to_content` does: lay out at the
+    // ESTIMATED width, with room to grow downwards. A block-level menu
+    // container fills whatever width it is given, so a generous width is
+    // what it measures back (a 4096-wide "menu" the compositor clamped to
+    // the whole screen); at the estimate it measures the estimate, or more
+    // where an item overflows it. The height is the content's own extent.
+    common.update_unsynced_state(|ws| {
+        ws.size.dimensions = LogicalSize::new(fallback.width.max(1.0), 4096.0);
+    });
+    let relayout_reason = common.take_relayout_reason();
+    let borrows = common.layout_borrows();
+    let layout_window = borrows.layout_window?;
+    let mut debug_messages = None;
+    crate::desktop::shell2::common::layout::regenerate_layout(
+        layout_window,
+        borrows.app_data,
+        borrows.current_window_state,
+        borrows.renderer_resources,
+        borrows.gl_context_ptr,
+        borrows.fc_cache,
+        &resources.font_registry,
+        borrows.system_style,
+        &resources.icon_provider,
+        &mut debug_messages,
+        relayout_reason,
+    )
+    .ok()?;
+    let natural = common
+        .layout_window
+        .as_ref()
+        .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId { inner: 0 }))
+        .map(|lr| {
+            lr.layout_tree
+                .get_content_size(azul_layout::solver3::LayoutNodeId::new(0))
+        })?;
+    if natural.width <= 0.0 || natural.height <= 0.0 {
+        common.update_unsynced_state(|ws| ws.size.dimensions = fallback);
+        return None;
+    }
+    let measured = self::menu::popup_size_px(natural);
+    crate::plog_info!(
+        "[wayland-popup] size_to_content: measured {:.0}x{:.0} (estimate was {:.0}x{:.0})",
+        measured.width,
+        measured.height,
+        fallback.width,
+        fallback.height
+    );
+    Some(measured)
+}
+
+/// The `zxdg_toplevel_decoration_v1` mode a window asks for: `1` =
+/// client-side (the compositor draws nothing), `2` = server-side.
+///
+/// A compositor's decoration is all or nothing: there is no "frame without a
+/// title" the way X11's Motif hints (`NoTitle` -> border only) or macOS's
+/// hidden title (`NoTitle` -> traffic lights over the app's own content) can
+/// express. So every mode in which the APP draws its own title row asks for
+/// client-side, and only `Normal` (and the auto-injected titlebar, which
+/// X11 also maps to full WM decorations) leaves the frame to the compositor.
+/// Asking for server-side under `NoTitle` put KWin's full title bar above
+/// the app's own: a double titlebar.
+fn xdg_decoration_mode(
+    has_decorations: bool,
+    decorations: azul_core::window::WindowDecorations,
+) -> u32 {
+    use azul_core::window::WindowDecorations as D;
+    let wants_csd = crate::desktop::csd::should_inject_csd(has_decorations, decorations);
+    if wants_csd || matches!(decorations, D::None | D::NoTitle | D::NoControls) {
+        1
+    } else {
+        2
+    }
+}
+
+/// Whether the compositor's decoration answer (`granted`: 1 = client-side,
+/// 2 = server-side) means it REFUSED to draw the server-side decorations this
+/// window asked for, so azul has to draw its own.
+fn compositor_refused_server_side(
+    has_decorations: bool,
+    decorations: azul_core::window::WindowDecorations,
+    granted: u32,
+) -> bool {
+    granted == 1 && xdg_decoration_mode(has_decorations, decorations) == 2
+}
+
+#[cfg(test)]
+mod decoration_mode_tests {
+    use azul_core::window::WindowDecorations as D;
+
+    use super::xdg_decoration_mode;
+
+    #[test]
+    fn only_a_normal_frame_is_left_to_the_compositor() {
+        assert_eq!(xdg_decoration_mode(true, D::Normal), 2);
+        assert_eq!(xdg_decoration_mode(true, D::NoTitleAutoInject), 2);
+    }
+
+    /// A client-side answer is a REFUSAL only when server-side was asked for.
+    /// A `NoTitle` window asks for client-side itself (it draws its own title
+    /// row); reading the confirmation as a refusal switched it to azul's full
+    /// CSD titlebar - a second title row above the app's - and did so at the
+    /// next DOM rebuild, which shifted every node and dropped focus.
+    #[test]
+    fn a_granted_client_side_request_is_not_a_refusal() {
+        use super::compositor_refused_server_side as refused;
+        assert!(!refused(true, D::NoTitle, 1), "NoTitle asked for client-side and got it");
+        assert!(!refused(true, D::NoControls, 1));
+        assert!(refused(true, D::Normal, 1), "a normal frame asked for server-side");
+        assert!(!refused(true, D::Normal, 2), "server-side granted");
+    }
+
+    #[test]
+    fn a_window_that_draws_its_own_title_asks_for_client_side() {
+        assert_eq!(xdg_decoration_mode(true, D::NoTitle), 1, "the app draws the title");
+        assert_eq!(xdg_decoration_mode(true, D::NoControls), 1);
+        assert_eq!(xdg_decoration_mode(true, D::None), 1, "frameless");
+        assert_eq!(xdg_decoration_mode(false, D::None), 1);
+    }
+}
+
+/// `AZ_BB_PROBE=x,y`: print the four bytes of one buffer pixel of a slot
+/// at a named stage of the native-backbuffer frame (after catch-up, after
+/// the render, after the commit swizzle). A pool-order (ARGB8888) slot holds
+/// B,G,R,A; the renderer writes R,G,B,A. Diagnostic only.
+fn bb_probe(stage: &str, slot: usize, buf: &[u8], stride: usize) {
+    let Ok(spec) = std::env::var("AZ_BB_PROBE") else {
+        return;
+    };
+    let mut it = spec.split(',').filter_map(|v| v.trim().parse::<usize>().ok());
+    let (Some(x), Some(y)) = (it.next(), it.next()) else {
+        return;
+    };
+    let o = y * stride + x * 4;
+    if o + 4 <= buf.len() {
+        eprintln!(
+            "[bb] PROBE {stage} slot={slot} ({x},{y}) = [{},{},{},{}]",
+            buf[o],
+            buf[o + 1],
+            buf[o + 2],
+            buf[o + 3]
+        );
+    }
+}
+
 /// xdg_popup configure callback
 extern "C" fn popup_configure(
     data: *mut c_void,
@@ -11611,5 +12012,121 @@ mod wayland_input_state_tests {
         assert!(!axis_source_is_trackpad(WL_AXIS_SOURCE_WHEEL));
         assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_FINGER));
         assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_CONTINUOUS));
+    }
+}
+
+#[cfg(test)]
+mod popup_axis_tests {
+    //! An open menu popup owns the wheel over it.
+    //!
+    //! `handle_pointer_motion` and `handle_pointer_button` both stop at an
+    //! open popup and never touch the parent's hover or hit-test state. The
+    //! axis frame did not, so a wheel over an open menu fell through to the
+    //! parent, re-hit-tested at the parent's stale cursor position and
+    //! scrolled the page behind the menu.
+    //!
+    //! Neither flush can be called without a compositor, so the law is read
+    //! off the code, the way `clipboard.rs` reads its own.
+
+    /// The body of a free-standing `fn <name>` in this module's source, up to
+    /// the first line that is de-indented back to its own `fn` level.
+    fn body_of(name: &str) -> String {
+        let source = include_str!("mod.rs");
+        let source = source.split_once("mod popup_axis_tests {").map_or(source, |(b, _)| b);
+        let start = source
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("{name} exists"));
+        let rest = &source[start..];
+        let end = rest[1..]
+            .find("\n    fn ")
+            .map_or(rest.len(), |i| i + 1);
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn an_axis_frame_stops_at_an_open_popup_like_every_other_pointer_event() {
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            assert!(
+                body.contains("pointer_over_popup"),
+                "{flush} delivers the wheel to the parent while a popup is open, so scrolling \
+                 over a menu scrolls the page behind it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_frame_reaches_the_popup_rather_than_being_dropped() {
+        // A menu is a list, and a list longer than the output scrolls itself.
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            assert!(
+                body.contains("popup.pointer_axis("),
+                "{flush} swallows the wheel over an open menu instead of scrolling the menu"
+            );
+        }
+    }
+
+    #[test]
+    fn the_guard_runs_after_the_accumulators_are_drained() {
+        // Consumed, not deferred: a frame held back would be replayed against
+        // the parent the moment the menu closed.
+        for flush in ["flush_pending_axis", "flush_seat_axis"] {
+            let body = body_of(flush);
+            let drained = body.find("std::mem::replace").expect("the frame is drained");
+            let guarded = body.find("pointer_over_popup").expect("the guard is there");
+            assert!(
+                drained < guarded,
+                "{flush} returns before draining its accumulators"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod native_backbuffer_slot_ownership {
+    use super::{next_writable_slot, popup_paint_slot};
+
+    /// The toplevel path's rule, for contrast with the popup's.
+    #[test]
+    fn a_paint_rotates_away_from_a_slot_the_compositor_holds() {
+        assert_eq!(next_writable_slot(0, [false, false]), Some(0));
+        assert_eq!(next_writable_slot(0, [true, false]), Some(1));
+        assert_eq!(next_writable_slot(1, [false, true]), Some(0));
+        assert_eq!(next_writable_slot(1, [false, false]), Some(1));
+    }
+
+    /// THE LAW: a buffer is the compositor's from `wl_surface.attach` until
+    /// `wl_buffer.release`. A popup repaint that lands before the release must
+    /// take the OTHER slot.
+    #[test]
+    fn a_popup_repaint_never_writes_a_slot_the_compositor_holds() {
+        // Frame 1: nothing is held.
+        let mut busy = [false, false];
+        let first = popup_paint_slot(0, busy).expect("a free slot");
+        // attach + commit hands it to the compositor.
+        busy[first] = true;
+
+        // Frame 2 - a hover, a submenu opening, a scroll inside the menu -
+        // arrives before any `wl_buffer.release`.
+        let second = popup_paint_slot(first, busy).expect("the other slot is free");
+        assert_ne!(
+            second, first,
+            "the popup repainted the slot the compositor still holds"
+        );
+
+        // And once the compositor gives the first one back, it may be reused.
+        busy[second] = true;
+        busy[first] = false;
+        assert_eq!(popup_paint_slot(second, busy), Some(first));
+    }
+
+    /// Both slots held = no paint at all. Skipping is the only correct answer;
+    /// picking one anyway is the same protocol violation.
+    #[test]
+    fn a_paint_with_both_slots_held_is_skipped() {
+        assert_eq!(next_writable_slot(0, [true, true]), None);
+        assert_eq!(popup_paint_slot(0, [true, true]), None);
+        assert_eq!(popup_paint_slot(1, [true, true]), None);
     }
 }

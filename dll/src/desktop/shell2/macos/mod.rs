@@ -8122,6 +8122,12 @@ impl MacOSWindow {
                             if let Some(ptr) =
                                 cpu_view.native_target_ptr(native_pw as usize, native_ph as usize)
                             {
+                                // `native_target_ptr` refuses the view's
+                                // framebuffer while `fb_content_valid` is
+                                // false (a resize white-filled it), so a
+                                // pointer coming back means it holds frame
+                                // N-1.
+                                self.cpu_backend.native_target_holds_previous_frame = true;
                                 self.cpu_backend.native_target = unsafe {
                                     azul_layout::cpurender::AzulPixmap::from_external(
                                         ptr, native_pw, native_ph,

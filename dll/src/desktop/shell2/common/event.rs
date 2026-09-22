@@ -192,7 +192,75 @@ macro_rules! focus_trace {
 }
 
 const AUTO_SCROLL_EDGE_THRESHOLD: f32 = 30.0;
-const AUTO_SCROLL_MAX_SPEED: f32 = 15.0;
+/// Pixels PER SECOND the scrollport travels while the pointer is held at the
+/// very edge of the band. 900 px/s is the 15 px per tick this used to move at
+/// 60 Hz - the same speed on a 60 Hz screen, and now the same speed on a 144
+/// Hz one and across a dropped frame, both of which used to change it.
+const AUTO_SCROLL_MAX_SPEED_PX_PER_SEC: f32 = 900.0;
+/// Longest tick the speed is scaled by. A window that was starved for a
+/// second must not answer with a second's worth of scrolling in one jump.
+const AUTO_SCROLL_MAX_TICK_SECS: f32 = 1.0 / 20.0;
+
+/// What one drag-autoscroll timer remembers between its ticks.
+///
+/// The timer fires at the refresh rate, so "how much to scroll" is a SPEED,
+/// and a speed needs the length of the tick it is being applied over.
+#[derive(Debug, Clone, Default)]
+struct AutoScrollTimerState {
+    /// `frame_start` of the previous tick; `None` on the first one, which
+    /// therefore scrolls by nothing and only starts the clock.
+    last_tick: Option<azul_core::task::Instant>,
+}
+
+/// How deep the band at a scrollport's edge is, on an axis of the given
+/// extent.
+///
+/// Capped at a THIRD of the box: at the flat 30px, a control shorter than
+/// twice the band - a single-line `TextInput` is about 24px tall - lies
+/// ENTIRELY inside its own top band, so holding the pointer still anywhere
+/// in the field scrolled it upwards for as long as the drag lasted, and the
+/// field had no middle where a selection drag could rest.
+fn auto_scroll_edge_band(extent: f32) -> f32 {
+    if !extent.is_finite() || extent <= 0.0 {
+        return 0.0;
+    }
+    AUTO_SCROLL_EDGE_THRESHOLD.min(extent / 3.0)
+}
+
+/// How far the scrollport travels this tick, given where the pointer is
+/// relative to it and how long since the last tick.
+///
+/// Positive is towards the content's end (down / right), which is what the
+/// pointer past the bottom or right edge asks for.
+fn auto_scroll_delta(
+    container: azul_core::geom::LogicalRect,
+    mouse: LogicalPosition,
+    tick_secs: f32,
+) -> LogicalPosition {
+    let tick = if tick_secs.is_finite() {
+        tick_secs.clamp(0.0, AUTO_SCROLL_MAX_TICK_SECS)
+    } else {
+        0.0
+    };
+    let axis = |start: f32, extent: f32, pos: f32| -> f32 {
+        let band = auto_scroll_edge_band(extent);
+        if band <= 0.0 || !pos.is_finite() || !start.is_finite() {
+            return 0.0;
+        }
+        let past = if pos < start + band {
+            pos - (start + band)
+        } else if pos > start + extent - band {
+            pos - (start + extent - band)
+        } else {
+            return 0.0;
+        };
+        (past / band).clamp(-1.0, 1.0) * AUTO_SCROLL_MAX_SPEED_PX_PER_SEC * tick
+    };
+    LogicalPosition::new(
+        axis(container.origin.x, container.size.width, mouse.x),
+        axis(container.origin.y, container.size.height, mouse.y),
+    )
+}
 /// One wheel detent / one scroll "line", in logical pixels — the engine's
 /// canonical unit for DISCRETE scroll input. Every backend converts its
 /// native tick to this (X11 button-4/5 ticks, Win32 WHEEL_DELTA notches
@@ -308,10 +376,30 @@ use super::clipboard::{
 /// - Mouse button is released (no longer dragging)
 /// - Mouse returns to within container bounds (no scroll needed)
 extern "C" fn auto_scroll_timer_callback(
-    _data: RefAny,
+    mut data: RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
+
+    // How long this tick covers. The scroll speed is per SECOND, so the
+    // drag moves the same distance on a 60 Hz and a 144 Hz screen, and a
+    // frame the compositor delayed does not become a slower drag.
+    let frame_start = timer_info.frame_start.clone();
+    let tick_secs = match data.downcast_mut::<AutoScrollTimerState>() {
+        Some(mut state) => {
+            let elapsed = state.last_tick.as_ref().map_or(0.0, |last| {
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    frame_start.duration_since(last).as_nanos() as f32 / 1_000_000_000.0
+                }
+            });
+            state.last_tick = Some(frame_start.clone());
+            elapsed
+        }
+        // A timer created before this state existed: fall back to one frame
+        // at the rate the timer was scheduled with rather than not scrolling.
+        None => 1.0 / 60.0,
+    };
 
     // Access window state through callback_info
     let callback_info = &timer_info.callback_info;
@@ -433,33 +521,8 @@ extern "C" fn auto_scroll_timer_callback(
         ),
         size: scroll_info.container_rect.size,
     };
-    let edge_threshold = AUTO_SCROLL_EDGE_THRESHOLD;
-    let max_speed = AUTO_SCROLL_MAX_SPEED;
-
-    let mut delta_x = 0.0_f32;
-    let mut delta_y = 0.0_f32;
-
-    // Check vertical edges
-    if mouse_position.y < container.origin.y + edge_threshold {
-        // Mouse above container — scroll up
-        let distance = (container.origin.y + edge_threshold) - mouse_position.y;
-        delta_y = -(distance / edge_threshold * max_speed).min(max_speed);
-    } else if mouse_position.y > container.origin.y + container.size.height - edge_threshold {
-        // Mouse below container — scroll down
-        let distance =
-            mouse_position.y - (container.origin.y + container.size.height - edge_threshold);
-        delta_y = (distance / edge_threshold * max_speed).min(max_speed);
-    }
-
-    // Check horizontal edges
-    if mouse_position.x < container.origin.x + edge_threshold {
-        let distance = (container.origin.x + edge_threshold) - mouse_position.x;
-        delta_x = -(distance / edge_threshold * max_speed).min(max_speed);
-    } else if mouse_position.x > container.origin.x + container.size.width - edge_threshold {
-        let distance =
-            mouse_position.x - (container.origin.x + container.size.width - edge_threshold);
-        delta_x = (distance / edge_threshold * max_speed).min(max_speed);
-    }
+    let delta = auto_scroll_delta(container, mouse_position, tick_secs);
+    let (delta_x, delta_y) = (delta.x, delta.y);
 
     if delta_x.abs() < 0.01 && delta_y.abs() < 0.01 {
         // Mouse within container bounds — no scroll needed but keep timer running
@@ -740,6 +803,22 @@ fn apply_focus_restyle(
 }
 
 /// `:focus` / `:focus-within` restyle of ONE DOM for nodes of THAT DOM.
+/// The events that carry a focus TRANSITION and therefore name their own
+/// node (the one that lost focus for `Blur` / `FocusOut` / `Change`, the one
+/// that gained it for `Focus` / `FocusIn`) - as opposed to the focus-filter
+/// events that are aimed at whichever node is focused when they fire.
+const fn is_focus_transition(event_type: azul_core::events::EventType) -> bool {
+    use azul_core::events::EventType;
+    matches!(
+        event_type,
+        EventType::Blur
+            | EventType::FocusOut
+            | EventType::Change
+            | EventType::Focus
+            | EventType::FocusIn
+    )
+}
+
 fn apply_focus_restyle_in_dom(
     layout_window: &mut LayoutWindow,
     dom_id: DomId,
@@ -781,6 +860,14 @@ fn apply_focus_restyle_in_dom(
         // re-evaluated against the node's focused flag when the display list is
         // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
         // display list forever until the app laid out for some other reason.
+        //
+        // And the rebuild happens HERE, like every other producer of this
+        // tier does for itself (a selection drag, a caret move): the tier only
+        // asks the shell to present. Wayland presented its cached list - a
+        // frame with no visual change - so a Tab that changed no rule (the
+        // focus ring is a display-list post-pass, not a style) moved focus
+        // and showed nothing.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
@@ -791,6 +878,25 @@ fn apply_focus_restyle_in_dom(
         r = ProcessEventResult::ShouldIncrementalRelayout;
     } else if restyle_result.gpu_only_changes {
         r = ProcessEventResult::ShouldReRenderCurrentWindow;
+    } else {
+        // PAINT-ONLY, AND THEREFORE OURS TO REBUILD. Same law as the
+        // no-delta arm above, and the case that actually happens: every
+        // field in the widget set rings itself with a `:focus` border
+        // COLOUR (`themes::flat::FIELD_BORDER_STATES`), which is
+        // `RelayoutScope::None` and not a GPU-only property - so this arm,
+        // not that one, is where a Tab between two text fields lands.
+        //
+        // Staging the CSS diff is not a repaint. `pending_css_dirty` is
+        // consumed by a LAYOUT pass and by nothing else, and the shells
+        // answer `ShouldUpdateDisplayListCurrentWindow` by presenting the
+        // list they already have (x11/mod.rs's `request_redraw()` arm, and
+        // its twin on every other backend). So the frame after a focus move
+        // held the colours from before it: the field that LOST focus kept
+        // its ring and the field that GAINED it stayed plain, until some
+        // unrelated edit happened to rebuild the list - "the old field stays
+        // highlighted until the next input arrives", and both fields ringed
+        // at once whenever a partial rebuild caught only one of them.
+        layout_window.regenerate_display_list_for_dom(dom_id);
     }
     r
 }
@@ -1059,6 +1165,131 @@ pub fn csd_resize_edge_at(
     })
 }
 
+/// Does the scrollbar layer STOP a pointer button event where it stands - no
+/// `mouse_state` write, no `record_input_sample`, no state-diff pass?
+///
+/// `scrollbar_acted` is "the press landed on a scrollbar part" for a press, and
+/// "a live thumb drag was ended" for a release.
+///
+/// A PRESS that landed on a scrollbar part is the scrollbar's alone: a press
+/// on a thumb is not a press on the document, and the scrollbar's own handler
+/// answers it.
+///
+/// A RELEASE that ends a live thumb drag is NOT. Ending the drag is the
+/// scrollbar's business; the BUTTON GOING UP is the window's. `mouse_state`
+/// has to see the button fall and the state-diff pass has to emit the
+/// `MouseUp` — both Linux backends used to return before either, and the
+/// window then believed the button was held for the rest of its life. That is
+/// the state `x11/mod.rs`'s FocusOut handler already names: "`left_down` would
+/// stay true forever — every later move reads as a DRAG (text selects, buttons
+/// stop clicking)". With it stuck, the press edge `curr_down && !prev_down`
+/// can never fire again, so no later left press produces a `MouseDown`, a
+/// `SystemChange::TextSelectionClick` or a selection anchor — while the 60 Hz
+/// drag-autoscroll timer, which is gated on nothing but `left_down`, keeps
+/// extending a selection from whatever caret a press of another button plants.
+/// Left-drag selects nothing; middle-drag selects.
+///
+/// Headless has always said this (its `MouseUp` arm ends the drag and then
+/// still records the button and runs the pass).
+pub const fn scrollbar_stops_the_button_event(is_down: bool, scrollbar_acted: bool) -> bool {
+    scrollbar_acted && is_down
+}
+
+#[cfg(test)]
+mod scrollbar_button_event_tests {
+    use super::scrollbar_stops_the_button_event;
+
+    /// A press on a scrollbar part is the scrollbar's alone: a press on a
+    /// thumb is not a press on the document, and its own handler answers it.
+    #[test]
+    fn a_press_on_a_scrollbar_part_is_the_scrollbars_alone() {
+        assert!(scrollbar_stops_the_button_event(true, true));
+    }
+
+    /// A button event the scrollbar did nothing with is nobody's business but
+    /// the pipeline's.
+    #[test]
+    fn a_button_the_scrollbar_did_not_act_on_always_continues() {
+        assert!(!scrollbar_stops_the_button_event(true, false));
+        assert!(!scrollbar_stops_the_button_event(false, false));
+    }
+
+    /// THE LAW: a RELEASE that ends a thumb drag does not stop there. Ending
+    /// the drag is the scrollbar's business; the BUTTON GOING UP is the
+    /// window's. `mouse_state.left_down` has to fall and the state-diff pass
+    /// has to emit the `MouseUp`.
+    ///
+    /// Swallow it and the window believes the button is held for the rest of
+    /// its life - the state `x11/mod.rs`'s `FocusOut` handler already names:
+    /// "`left_down` would stay true forever - every later move reads as a DRAG
+    /// (text selects, buttons stop clicking)". The press edge
+    /// `curr_down && !prev_down` can never fire again, so no later left press
+    /// produces a `MouseDown`, no `SystemChange::TextSelectionClick`, no
+    /// selection anchor - while the 60 Hz drag-autoscroll timer, which is
+    /// gated on nothing but `left_down`, keeps extending a selection from
+    /// whatever caret a press of ANOTHER button plants.
+    #[test]
+    fn a_release_that_ends_a_scrollbar_drag_still_reports_the_button_going_up() {
+        assert!(!scrollbar_stops_the_button_event(false, true));
+    }
+}
+
+/// Which node a DragStart is classified against: where the drag STARTED,
+/// never where the pointer has already got to.
+///
+/// A gesture only becomes a drag after it has moved past the threshold, and
+/// X11 coalesces motion - so by the time DragStart is raised, the first
+/// flushed sample can be 50-100px from the press. Classifying from the
+/// CURRENT hover therefore asked "is the thing under the pointer now
+/// draggable?", and over a dense UI the answer is often yes for something
+/// the user never touched: the drag latched onto that node and every later
+/// `TextSelectionDrag` was dropped, freezing the selection at the single
+/// extension the threshold pass had already made. That is the "selection
+/// stops after exactly one character" report, and why a SLOW drag - which
+/// crosses the threshold while still over the text - worked.
+///
+/// The window-drag-region path already reads the press node for the same
+/// reason; this is the node-drag path catching up.
+pub(crate) fn drag_classification_target(
+    drag_source: Option<azul_core::dom::DomNodeId>,
+    event_target: Option<azul_core::dom::DomNodeId>,
+) -> Option<azul_core::dom::DomNodeId> {
+    drag_source.or(event_target)
+}
+
+#[cfg(test)]
+mod drag_classification_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    use super::drag_classification_target;
+
+    fn node(i: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        }
+    }
+
+    #[test]
+    fn a_drag_is_classified_from_where_it_started() {
+        // The pointer has already moved on - that must not decide what is
+        // being dragged.
+        assert_eq!(
+            drag_classification_target(Some(node(7)), Some(node(99))),
+            Some(node(7))
+        );
+    }
+
+    #[test]
+    fn without_a_press_node_the_events_own_target_stands_in() {
+        assert_eq!(drag_classification_target(None, Some(node(99))), Some(node(99)));
+        assert_eq!(drag_classification_target(None, None), None);
+    }
+}
+
 /// Whether a press should be handed to the window manager as a RESIZE grab.
 ///
 /// The whole rule in one place, because both Linux backends had it wrong in
@@ -1070,15 +1301,20 @@ pub fn csd_resize_edge_at(
 /// top 8 px sit at screen y = 0, exactly where a user aims for the title bar.
 ///
 /// A window the WM decorates has no client band at all: the frame is the
-/// compositor's, and its own edges do the resizing.
+/// compositor's, and its own edges do the resizing. WHICH windows those are
+/// is the backend's to say, not this function's - `decorations` alone does
+/// not answer it. On X11 the Motif hints keep a border and resize handles for
+/// `NoTitle` and `NoControls`, so only `None` is frameless; on Wayland all
+/// three ask for client-side decoration and the compositor draws nothing at
+/// all, so a `NoTitle` window could not be resized by any edge.
 pub fn csd_resize_edge_for_press(
     pos: LogicalPosition,
+    frameless: bool,
     size: azul_core::geom::LogicalSize,
-    decorations: azul_core::window::WindowDecorations,
     frame: azul_core::window::WindowFrame,
     band: f32,
 ) -> Option<CsdResizeEdge> {
-    if decorations != azul_core::window::WindowDecorations::None {
+    if !frameless {
         return None;
     }
     if matches!(
@@ -1167,8 +1403,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Normal,
                 8.0
             ),
@@ -1179,8 +1415,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Maximized,
                 8.0
             ),
@@ -1189,8 +1425,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                true,
                 size(),
-                WindowDecorations::None,
                 WindowFrame::Fullscreen,
                 8.0
             ),
@@ -1201,8 +1437,8 @@ mod csd_resize_edge_tests {
         assert_eq!(
             csd_resize_edge_for_press(
                 top,
+                false,
                 size(),
-                WindowDecorations::Normal,
                 WindowFrame::Normal,
                 8.0
             ),
@@ -3480,6 +3716,24 @@ macro_rules! impl_platform_window_getters {
             &mut self.$field.scrollbar_drag_state
         }
         fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+            // The scroll manager keeps its own view of the drag (see
+            // `ScrollManager::begin_thumb_drag`): the fade it drives must know
+            // the bar is being held. Every start and end of a drag goes
+            // through here so the two never disagree.
+            if let Some(lw) = self.$field.layout_window.as_mut() {
+                let now = (azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                    .get_system_time_fn
+                    .cb)();
+                match state.as_ref().map(|s| s.hit_id) {
+                    Some(azul_core::hit_test::ScrollbarHitId::VerticalThumb(dom, node)) => lw
+                        .scroll_manager
+                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Vertical, now),
+                    Some(azul_core::hit_test::ScrollbarHitId::HorizontalThumb(dom, node)) => lw
+                        .scroll_manager
+                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Horizontal, now),
+                    Some(_) | None => lw.scroll_manager.end_thumb_drag(now),
+                }
+            }
             self.$field.scrollbar_drag_state = state;
         }
         fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
@@ -3573,6 +3827,27 @@ pub trait PlatformWindow {
 
     /// Get mutable access to the layout window
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow>;
+
+    /// Publish a payload to the system clipboard, ON THIS WINDOW.
+    ///
+    /// Routing by window id costs the Wayland backend a registry lookup that
+    /// turns a raw pointer back into `&mut WaylandWindow` - and every one of
+    /// these calls already happens inside a `&mut` method of that same
+    /// window, so the two alias. A window that has itself in hand hands
+    /// itself over instead; the default is for the platforms whose clipboard
+    /// is process-wide and needs no window at all.
+    fn write_clipboard_payload(
+        &mut self,
+        payload: &crate::desktop::shell2::common::clipboard::ClipboardPayload,
+    ) -> bool {
+        set_system_clipboard(self.registry_window_id(), payload)
+    }
+
+    /// Read the system clipboard, ON THIS WINDOW. See
+    /// [`Self::write_clipboard_payload`].
+    fn read_clipboard_payload(&mut self) -> Option<crate::desktop::shell2::common::clipboard::ClipboardPayload> {
+        get_system_clipboard(self.registry_window_id())
+    }
 
     /// Get immutable access to the layout window
     fn get_layout_window(&self) -> Option<&LayoutWindow>;
@@ -4030,7 +4305,7 @@ pub trait PlatformWindow {
                     )
                 })
                 .collect();
-            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            let (dispatch_result, update, _, _) = self.dispatch_events_propagated(&events);
             result = result.max(dispatch_result);
             if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
@@ -5287,6 +5562,17 @@ pub trait PlatformWindow {
                     }
                 };
 
+                // The node that is ABOUT to lose it. `SystemChange::SetFocus`
+                // reads this and restyles both ends; this path - the public
+                // `set_focus()` / `focus_next()` / `clear_focus()` API - wrote
+                // the manager and stopped there, so the old node kept `:focus`
+                // in the styled DOM and the new one never got it until some
+                // later full rebuild reseeded both. Two rings at once, from
+                // one call.
+                let old_focus = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
                 if let Some(new_focus) = new_focus {
                     // Focus a specific node
                     let timer_action = if let Some(lw) = self.get_layout_window_mut() {
@@ -5326,7 +5612,12 @@ pub trait PlatformWindow {
                             azul_layout::CursorBlinkTimerAction::NoChange => {}
                         }
                     }
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    let restyled = self
+                        .get_layout_window_mut()
+                        .map_or(ProcessEventResult::DoNothing, |lw| {
+                            apply_focus_restyle(lw, old_focus, Some(new_focus))
+                        });
+                    restyled.max(ProcessEventResult::ShouldReRenderCurrentWindow)
                 } else {
                     // Clear focus
                     let timer_action = if let Some(lw) = self.get_layout_window_mut() {
@@ -5350,7 +5641,14 @@ pub trait PlatformWindow {
                             azul_layout::CursorBlinkTimerAction::NoChange => {}
                         }
                     }
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    // Same law as the focus branch: the node that LOST focus
+                    // has to stop being painted as focused.
+                    let restyled = self
+                        .get_layout_window_mut()
+                        .map_or(ProcessEventResult::DoNothing, |lw| {
+                            apply_focus_restyle(lw, old_focus, None)
+                        });
+                    restyled.max(ProcessEventResult::ShouldReRenderCurrentWindow)
                 }
             }
 
@@ -6322,7 +6620,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(&payload);
+                    self.write_clipboard_payload(&payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -6335,7 +6633,7 @@ pub trait PlatformWindow {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
                 if let Some(payload) = clipboard_content_to_payload(content) {
-                    set_system_clipboard(&payload);
+                    self.write_clipboard_payload(&payload);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -6606,7 +6904,7 @@ pub trait PlatformWindow {
                 let mut text_prevented = false;
 
                 if !text_events.is_empty() {
-                    let (text_changes_result, text_update, text_prevent_default) =
+                    let (text_changes_result, text_update, text_prevent_default, _) =
                         self.dispatch_events_propagated(&text_events);
                     text_prevented = text_prevent_default;
                     result = result.max_self(text_changes_result);
@@ -7251,7 +7549,7 @@ pub trait PlatformWindow {
                     if let Some(clipboard_content) = clipboard_content {
                         match clipboard_content_to_payload(&clipboard_content) {
                             Some(payload) => {
-                                set_system_clipboard(&payload);
+                                self.write_clipboard_payload(&payload);
                             }
                             None => {
                                 log_debug!(
@@ -7268,34 +7566,42 @@ pub trait PlatformWindow {
 
             SystemChange::CutToClipboard { target } => {
                 let mut affected = false;
-                if let Some(layout_window) = self.get_layout_window_mut() {
+                // Hoisted: the layout-window borrow below is mutable, and the
+                // copy has to name the window it came from (Wayland routes the
+                // selection on it).
+                // The cut is copy-then-delete, and the copy has to leave the
+                // layout window's borrow before it runs: publishing goes
+                // through the WINDOW now, not through a registry lookup that
+                // would alias it.
+                let payload = self.get_layout_window_mut().and_then(|layout_window| {
                     // MWA-C-text_edit: editing DOM, not hardcoded DomId 0
                     // (see CopyToClipboard above).
                     let dom_id = layout_window
                         .text_edit_manager
                         .get_editing_dom_id()
                         .unwrap_or(DomId { inner: 0 });
-                    if let Some(clipboard_content) =
-                        layout_window.get_selected_content_for_clipboard(&dom_id)
-                    {
-                        let committed = clipboard_content_to_payload(&clipboard_content)
-                            .is_some_and(|payload| set_system_clipboard(&payload));
-                        if committed {
-                            // Cross-block cut: the copy above already joined the
-                            // multi-paragraph text; the delete is the atomic
-                            // replace-merge changeset.
-                            let deleted = if layout_window
-                                .text_edit_manager
-                                .get_cross_block_selection()
-                                .is_some()
-                            {
-                                layout_window.delete_cross_block_selection().is_some()
-                            } else {
-                                layout_window.delete_selection(*target, false).is_some()
-                            };
-                            if deleted {
-                                affected = true;
-                            }
+                    layout_window
+                        .get_selected_content_for_clipboard(&dom_id)
+                        .as_ref()
+                        .and_then(clipboard_content_to_payload)
+                });
+                let committed = payload.is_some_and(|p| self.write_clipboard_payload(&p));
+                if committed {
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        // Cross-block cut: the copy above already joined the
+                        // multi-paragraph text; the delete is the atomic
+                        // replace-merge changeset.
+                        let deleted = if layout_window
+                            .text_edit_manager
+                            .get_cross_block_selection()
+                            .is_some()
+                        {
+                            layout_window.delete_cross_block_selection().is_some()
+                        } else {
+                            layout_window.delete_selection(*target, false).is_some()
+                        };
+                        if deleted {
+                            affected = true;
                         }
                     }
                 }
@@ -7307,10 +7613,14 @@ pub trait PlatformWindow {
             }
 
             SystemChange::PasteFromClipboard => {
+                // Read BEFORE borrowing the layout window: a Wayland paste
+                // reads THIS window's `wl_data_offer`, so it goes through the
+                // window, which cannot be borrowed twice.
+                let pasted = self
+                    .read_clipboard_payload()
+                    .as_ref()
+                    .and_then(payload_to_clipboard_content);
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let pasted = get_system_clipboard()
-                        .as_ref()
-                        .and_then(payload_to_clipboard_content);
                     if let Some(clipboard_content) = pasted {
                         let clipboard_text = clipboard_content.plain_text.as_str().to_string();
                         // Paste over a cross-block selection: one atomic
@@ -7531,11 +7841,16 @@ pub trait PlatformWindow {
                 // nothing in get_selection_rects and the block silently loses
                 // its highlight.
                 let cursors = self.get_layout_window().and_then(|lw| {
+                    // MATERIALIZED, not the sparse view: under the default
+                    // dense text path the sparse layout is the shared empty
+                    // retirement sentinel, so both of these were None for
+                    // every node and Ctrl+A logged "blocks have no
+                    // first/last cluster cursor" and did nothing at all.
                     let start = lw
-                        .get_inline_layout_for_node(dom_id, first)?
+                        .materialized_inline_layout_for_node(dom_id, first)?
                         .get_first_cluster_cursor()?;
                     let end = lw
-                        .get_inline_layout_for_node(dom_id, last)?
+                        .materialized_inline_layout_for_node(dom_id, last)?
                         .get_last_cluster_cursor()?;
                     Some((start, end))
                 });
@@ -7666,11 +7981,13 @@ pub trait PlatformWindow {
                 // node's stack like the primary's and put the SEAT's caret
                 // where the edit found it.
                 use azul_core::events::KeyboardShortcut;
-                let Some(layout_window) = self.get_layout_window_mut() else {
-                    return ProcessEventResult::DoNothing;
-                };
+                // Hoisted past the mutable layout-window borrow: a Wayland
+                // copy or paste is routed on the window that asked.
                 match shortcut {
                     KeyboardShortcut::SelectAll => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         if layout_window.select_all_for_seat(*seat_id, *target) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
@@ -7680,16 +7997,23 @@ pub trait PlatformWindow {
                     KeyboardShortcut::Copy | KeyboardShortcut::Cut => {
                         // The seat's selection with its runs' formatting
                         // (9b-ii-a-i-d-ii-b-iii), as the primary's copy carries.
-                        let Some(content) =
-                            layout_window.seat_selected_content_for_clipboard(*seat_id)
-                        else {
+                        // Extracted, then published with the borrow dropped -
+                        // the publish goes through THIS window.
+                        let payload = self
+                            .get_layout_window_mut()
+                            .and_then(|lw| lw.seat_selected_content_for_clipboard(*seat_id))
+                            .as_ref()
+                            .and_then(clipboard_content_to_payload);
+                        let Some(payload) = payload else {
                             return ProcessEventResult::DoNothing;
                         };
-                        let committed = clipboard_content_to_payload(&content)
-                            .is_some_and(|payload| set_system_clipboard(&payload));
+                        let committed = self.write_clipboard_payload(&payload);
                         if !committed || matches!(shortcut, KeyboardShortcut::Copy) {
                             return ProcessEventResult::DoNothing;
                         }
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         // Cut: the seat's Delete op removes its (anchored) selection.
                         let delete = azul_core::events::SelectionOp::new(
                             azul_core::events::SelectionDirection::Backward,
@@ -7703,10 +8027,14 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Paste => {
-                        let pasted = get_system_clipboard()
+                        let pasted = self
+                            .read_clipboard_payload()
                             .as_ref()
                             .and_then(payload_to_clipboard_content);
                         let Some(clipboard_content) = pasted else {
+                            return ProcessEventResult::DoNothing;
+                        };
+                        let Some(layout_window) = self.get_layout_window_mut() else {
                             return ProcessEventResult::DoNothing;
                         };
                         let text = clipboard_content.plain_text.as_str().to_string();
@@ -7723,6 +8051,9 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Undo => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         match undo_text_edit_on(layout_window, *target, *seat_id) {
                             Some(restore) => {
                                 let (cursor, anchor) = match (restore.range, restore.cursor) {
@@ -7741,6 +8072,9 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Redo => {
+                        let Some(layout_window) = self.get_layout_window_mut() else {
+                            return ProcessEventResult::DoNothing;
+                        };
                         if redo_text_edit_on(layout_window, *target, *seat_id) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
@@ -8070,6 +8404,13 @@ pub trait PlatformWindow {
                         let restyle_result = apply_focus_restyle(layout_window, *old_focus, *new_focus);
                         result = result.max(restyle_result);
                     } else if visibility_changed {
+                        // Same node, different indication (a Tab that lands
+                        // on the node a click focused): the ring lives in the
+                        // display list, so rebuild it before asking for the
+                        // present.
+                        if let Some(dom) = new_focus.map(|n| n.dom) {
+                            layout_window.regenerate_display_list_for_dom(dom);
+                        }
                         result =
                             result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                     }
@@ -8327,7 +8668,7 @@ pub trait PlatformWindow {
                         let external = ExternalSystemCallbacks::rust_internal();
 
                         let timer = Timer::create(
-                            RefAny::new(()),
+                            RefAny::new(AutoScrollTimerState::default()),
                             auto_scroll_timer_callback as TimerCallbackType,
                             external.get_system_time_fn,
                         )
@@ -8536,7 +8877,7 @@ pub trait PlatformWindow {
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool, bool) {
         use azul_core::{
             callbacks::{CoreCallbackData, Update},
             dom::{DomId, NodeId as CoreNodeId},
@@ -8752,6 +9093,10 @@ pub trait PlatformWindow {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// Which event this callback answers. A `preventDefault` is a veto
+            /// of THIS event's default action, not of everything else the
+            /// pass happened to carry.
+            event_type: azul_core::events::EventType,
             /// The pointer seat of the event this callback answers (9b-ii-b):
             /// a `capture_pointer` it pushes binds to THIS seat.
             seat_id: u64,
@@ -8763,7 +9108,7 @@ pub trait PlatformWindow {
         let planned_callbacks: Vec<PlannedInvocation> = {
             let layout_window = match self.get_layout_window() {
                 Some(lw) => lw,
-                None => return (ProcessEventResult::DoNothing, Update::DoNothing, false),
+                None => return (ProcessEventResult::DoNothing, Update::DoNothing, false, false),
             };
 
             let focused_node = layout_window.focus_manager.get_focused_node().cloned();
@@ -8847,6 +9192,7 @@ pub trait PlatformWindow {
                                                 dom_id,
                                                 node_id: *node_id,
                                                 callback_data: cb.clone(),
+                                                event_type: event.event_type,
                                                 seat_id:
                                                     azul_layout::managers::hover::seat_of_event(
                                                         event,
@@ -8861,13 +9207,28 @@ pub trait PlatformWindow {
                             // Focus events fire on the focused node only - of
                             // the SEAT that produced the event (9b-ii-a-i-d):
                             // a second seat's keys go to its own focus.
+                            //
+                            // EXCEPT the focus TRANSITION itself, which names
+                            // its node: `Blur` / `FocusOut` / `Change` are aimed
+                            // at the node that just LOST focus, `Focus` /
+                            // `FocusIn` at the one that gained it. By the time
+                            // they are dispatched the focus manager already
+                            // points at the new node, so planning them on
+                            // "whatever is focused now" sent FocusLost to the
+                            // NEW node (which has no such handler) and never to
+                            // the old one: a widget's `on_focus_lost` hook never
+                            // ran, and the `RefreshDom` it returned never
+                            // happened. A key or typed text is aimed at the
+                            // focused node by event determination, so there
+                            // the seat's focus and the target agree.
                             let event_seat = azul_layout::managers::hover::seat_of_event(event);
-                            let seat_focus =
-                                if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                    focused_node
-                                } else {
-                                    layout_window.focus_manager.focused_node_for(event_seat)
-                                };
+                            let seat_focus = if is_focus_transition(event.event_type) {
+                                Some(event.target)
+                            } else if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                focused_node
+                            } else {
+                                layout_window.focus_manager.focused_node_for(event_seat)
+                            };
                             if let Some(ref focused) = seat_focus {
                                 let dom_id = focused.dom;
                                 if let Some(node_id) = focused.node.into_crate_internal() {
@@ -8880,6 +9241,7 @@ pub trait PlatformWindow {
                                                         dom_id,
                                                         node_id,
                                                         callback_data: cb.clone(),
+                                                        event_type: event.event_type,
                                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
                                                     });
                                                 }
@@ -8902,6 +9264,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    event_type: event.event_type,
                                                     seat_id:
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
@@ -8932,6 +9295,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    event_type: event.event_type,
                                                     seat_id:
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
@@ -8965,6 +9329,7 @@ pub trait PlatformWindow {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
                                     });
                                 }
@@ -8981,13 +9346,18 @@ pub trait PlatformWindow {
         // Phase 2: Invoke planned callbacks (mutable access)
         // ===================================================================
         if planned_callbacks.is_empty() {
-            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false, false);
         }
 
         let borrows = self.prepare_callback_invocation();
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
+        // WHICH event was vetoed, not merely that something was. A pass can
+        // carry a wheel and a key at once, and a key handler's
+        // `preventDefault` must not eat the scroll the wheel earned.
+        let mut prevented_event_types: alloc::collections::BTreeSet<azul_core::events::EventType> =
+            alloc::collections::BTreeSet::new();
 
         // Track propagation control flags (W3C semantics):
         //  - stop_propagation: remaining handlers on the *same* node still fire, but handlers on
@@ -9039,6 +9409,7 @@ pub trait PlatformWindow {
                 match change {
                     CallbackChange::PreventDefault => {
                         any_prevent_default = true;
+                        prevented_event_types.insert(planned.event_type);
                     }
                     CallbackChange::StopImmediatePropagation => {
                         should_stop_immediate = true;
@@ -9091,7 +9462,14 @@ pub trait PlatformWindow {
             .copied()
             .fold(Update::DoNothing, |acc, u| acc.max(u));
 
-        (changes_result, merged_update, any_prevent_default)
+        let scroll_prevented =
+            prevented_event_types.contains(&azul_core::events::EventType::Scroll);
+        (
+            changes_result,
+            merged_update,
+            any_prevent_default,
+            scroll_prevented,
+        )
     }
 
     // PROVIDED: Complete Logic (Default Implementations)
@@ -9450,7 +9828,7 @@ pub trait PlatformWindow {
         if events.is_empty() {
             return azul_core::callbacks::Update::DoNothing;
         }
-        let (_, update, _) = self.dispatch_events_propagated(&events);
+        let (_, update, _, _) = self.dispatch_events_propagated(&events);
         update
     }
 
@@ -9878,7 +10256,7 @@ pub trait PlatformWindow {
         let mut any_refresh = false;
 
         if !events.is_empty() {
-            let (_, update, _) = self.dispatch_events_propagated(&events);
+            let (_, update, _, _) = self.dispatch_events_propagated(&events);
             if !matches!(update, azul_core::callbacks::Update::DoNothing) {
                 any_refresh = true;
             }
@@ -11108,7 +11486,7 @@ pub trait PlatformWindow {
         // Dispatch user events using W3C Capture→Target→Bubble propagation
         // dispatch_events_propagated applies all CallbackChanges internally
         // via apply_user_change(), and returns the merged Update level.
-        let (changes_result, callback_update, prevent_default) =
+        let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
 
@@ -11129,7 +11507,27 @@ pub trait PlatformWindow {
         // and a trackpad pinch over the map did nothing. Clearing it here
         // still stops an ended pinch from re-firing on every later pass
         // (iOS/Android clear per-frame in their own loops).
+        //
+        // THE WHEEL HAS ONE CONSUMER. A `Scroll` callback that called
+        // preventDefault claimed this gesture (the map zooms, a time-picker
+        // column spins), so the container scroll queued at INGRESS — before
+        // any callback could see the delta — has to be taken back. It is the
+        // same veto the text input above and the keyboard default actions
+        // below already honour; `stopPropagation` cannot do it, because the
+        // container scroll is not a callback. Without this a wheel widget
+        // could only ADD to the page scroll, never replace it: the map zoomed
+        // and the page moved under it in the same gesture.
+        // The veto that counts is the one a SCROLL callback cast. A pass that
+        // also carried a key whose handler vetoed its own default must not
+        // take the wheel back with it.
+        let wheel_claimed = scroll_prevented;
         if let Some(w) = self.get_layout_window_mut() {
+            if wheel_claimed {
+                w.scroll_manager.cancel_queued_scroll_input();
+            }
+            // The pass is over either way: a LATER preventDefault must not
+            // reach back and eat a scroll the user already got.
+            w.scroll_manager.forget_queued_scroll_input();
             w.scroll_manager.pending_wheel_event = None;
             w.gesture_drag_manager.clear_native_gesture();
         }
@@ -11151,7 +11549,7 @@ pub trait PlatformWindow {
                 .iter()
                 .any(|c| matches!(c, SystemChange::PasteFromClipboard));
             if has_paste {
-                let pasted = get_system_clipboard()
+                let pasted = self.read_clipboard_payload()
                     .as_ref()
                     .and_then(payload_to_clipboard_content);
                 if let Some(clipboard_content) = pasted {
@@ -11187,7 +11585,7 @@ pub trait PlatformWindow {
                     )
                 })
                 .collect();
-            let (clip_result, _clip_update, clip_prevented) =
+            let (clip_result, _clip_update, clip_prevented, _) =
                 self.dispatch_events_propagated(&clip_events);
             result = result.max(clip_result);
             if !clip_prevented {
@@ -11232,6 +11630,20 @@ pub trait PlatformWindow {
             .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart));
 
         if had_drag_start {
+            // WHERE THE DRAG STARTED, resolved before the layout-window
+            // borrow below. See `drag_classification_target`: the pointer has
+            // already crossed the gesture threshold by now, and on X11 the
+            // motion in between is coalesced, so the CURRENT hover is
+            // routinely a node the user never pressed.
+            let press_target = drag_classification_target(
+                self.drag_source_node(),
+                pre_filter
+                    .user_events
+                    .iter()
+                    .find(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
+                    .map(|e| e.target),
+            );
+
             // Detect which drag activation to perform (pure analysis, no mutation)
             let drag_activation = if let Some(layout_window) = self.get_layout_window() {
                 use azul_layout::managers::hover::InputPointId;
@@ -11263,8 +11675,15 @@ pub trait PlatformWindow {
                                     depth
                                 });
 
-                            if let Some((target_node_id, _)) = deepest_node {
-                                let mut current = Some(*target_node_id);
+                            // The press node wins; the deepest node under the
+                            // pointer NOW is only the fallback for a drag whose
+                            // press position could not be hit-tested.
+                            let start_node = press_target
+                                .filter(|t| t.dom == *dom_id)
+                                .and_then(|t| t.node.into_crate_internal())
+                                .or(deepest_node.map(|(n, _)| *n));
+                            if let Some(target_node_id) = start_node {
+                                let mut current = Some(target_node_id);
                                 while let Some(node_id) = current {
                                     if let Some(node_data) = node_data_container.get(node_id) {
                                         let is_draggable =
@@ -11890,7 +12309,7 @@ pub trait PlatformWindow {
                                             now,
                                             azul_core::events::EventData::None,
                                         );
-                                        let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                        let (r, _u, _p, _s) = self.dispatch_events_propagated(&[ev]);
                                         result = result.max(r);
                                     } else {
                                         // PUBLISH THE REASONS BEFORE DISPATCHING.
@@ -11924,7 +12343,7 @@ pub trait PlatformWindow {
                                                 )
                                             })
                                             .collect();
-                                        let (r, _u, _p) = self.dispatch_events_propagated(&events);
+                                        let (r, _u, _p, _s) = self.dispatch_events_propagated(&events);
                                         result = result.max(r);
                                     }
                                 }
@@ -11956,7 +12375,7 @@ pub trait PlatformWindow {
                                         now,
                                         azul_core::events::EventData::None,
                                     );
-                                    let (r, _u, prevented) = self.dispatch_events_propagated(&[ev]);
+                                    let (r, _u, prevented, _s) = self.dispatch_events_propagated(&[ev]);
                                     result = result.max(r);
 
                                     if !prevented {
@@ -12077,7 +12496,7 @@ pub trait PlatformWindow {
                     azul_core::events::EventData::None,
                 );
 
-                let (click_changes_result, click_update, _) =
+                let (click_changes_result, click_update, _, _) =
                     self.dispatch_events_propagated(&[click_event]);
                 result = result.max(click_changes_result);
 
@@ -12266,7 +12685,7 @@ pub trait PlatformWindow {
                 }
 
                 if !focus_events.is_empty() {
-                    let (focus_changes_result, focus_update, _) =
+                    let (focus_changes_result, focus_update, _, _) =
                         self.dispatch_events_propagated(&focus_events);
                     result = result.max(focus_changes_result);
                     if matches!(
@@ -12672,7 +13091,7 @@ pub trait PlatformWindow {
         if self.get_scrollbar_drag_state().is_none() {
             return None;
         }
-        *self.get_scrollbar_drag_state_mut() = None;
+        self.set_scrollbar_drag_state(None);
         self.get_common_mut().update_unsynced_state(|ws| {
             apply_pointer_button_state(&mut ws.mouse_state, position, button, false);
         });
@@ -13342,6 +13761,292 @@ mod tests {
         assert!(
             !focused(&lw, DomId::ROOT_ID),
             "the root node with the same index took :focus"
+        );
+    }
+
+    /// A focus change that alters no CSS rule still rebuilds the display
+    /// list: the focus ring is appended by the list's post-pass, and a shell
+    /// that presents its cached list (Wayland) otherwise shows a Tab as
+    /// "nothing happened".
+    #[test]
+    fn a_focus_change_without_a_style_delta_rebuilds_the_display_list() {
+        use azul_core::{
+            dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+            geom::LogicalSize,
+            resources::{RendererResources, SystemAnimations},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+        use azul_layout::{
+            callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+            window::LayoutWindow, window_state::FullWindowState,
+        };
+
+        let mut dom = Dom::create_body();
+        for label in ["one", "two"] {
+            let mut d = Dom::create_div();
+            d.set_tab_index(TabIndex::Auto);
+            dom = dom.with_child(d.with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(label),
+            ));
+        }
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations::default());
+        let rr = RendererResources::default();
+        let cb = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &cb, &mut dbg)
+            .unwrap();
+
+        let ends_with_ring = |lw: &LayoutWindow| {
+            matches!(
+                lw.layout_results[&DomId::ROOT_ID].display_list.items.last(),
+                Some(DisplayListItem::Border { .. })
+            )
+        };
+        assert!(!ends_with_ring(&lw), "harness: nothing focused, no ring");
+
+        // Keyboard focus lands on "one" (node 1): no CSS rule mentions :focus,
+        // so the restyle reports no changed node.
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        };
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(target), true);
+        let r = apply_focus_restyle(&mut lw, None, Some(target));
+
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert!(
+            ends_with_ring(&lw),
+            "the display list was rebuilt with the focus ring appended"
+        );
+    }
+
+    /// The twin of the test above, for the case the shell actually meets: a
+    /// focus change that DOES change a rule must repaint the list too.
+    ///
+    /// Every field in the widget set rings itself with a `:focus`
+    /// border-colour (`themes::flat::FOCUS_BORDER_*`). A border colour is
+    /// `RelayoutScope::None` and is not a GPU-only property, so the restyle
+    /// lands in the paint-only arm — which staged the CSS diff, answered
+    /// `ShouldUpdateDisplayListCurrentWindow` and rebuilt NOTHING. Every shell
+    /// answers that tier by presenting the list it already has (x11/mod.rs's
+    /// `request_redraw()` arm), and only a real LAYOUT pass ever consumes
+    /// `pending_css_dirty` — so the two fields kept the colours of the frame
+    /// before the Tab: the one that lost focus stayed ringed and the one that
+    /// gained it stayed plain, until some unrelated edit rebuilt the list.
+    #[test]
+    fn the_public_focus_api_restyles_both_ends_too() {
+        // `SystemChange::SetFocus` (Tab, a click) reads the OLD focus and
+        // restyles both ends. `CallbackChange::SetFocusTarget` - the public
+        // `set_focus()` / `focus_next()` / `clear_focus()` API - wrote the
+        // manager and stopped, so the old node kept `:focus` in the styled
+        // DOM and the new one never got it until some later full rebuild
+        // reseeded both. That is the one mechanism that really can paint two
+        // rings at once.
+        //
+        // The restyle itself is covered by the test below, which calls it
+        // directly; what this pins is that the programmatic arm ASKS for it,
+        // which cannot be driven here without a live PlatformWindow.
+        let src = include_str!("event.rs");
+        let arm = src
+            .split_once("CallbackChange::SetFocusTarget { target } => {")
+            .expect("the programmatic focus arm exists")
+            .1;
+        let arm = &arm[..arm
+            .find("// === Propagation Control")
+            .unwrap_or(arm.len())];
+        assert_eq!(
+            arm.matches("apply_focus_restyle(").count(),
+            2,
+            "both the focus and the clear branch must restyle the node they moved focus off"
+        );
+    }
+
+    #[test]
+    fn a_focus_change_with_a_style_delta_rebuilds_the_display_list() {
+        use azul_core::{
+            dom::{Dom, DomId, DomNodeId, NodeId, TabIndex},
+            geom::LogicalSize,
+            resources::{RendererResources, SystemAnimations},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{
+                basic::color::ColorU,
+                layout::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::{
+                    BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+                    LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+                    StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+                    StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+                    StyleBorderTopStyle,
+                },
+            },
+        };
+        use azul_layout::{
+            callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+            window::LayoutWindow, window_state::FullWindowState,
+        };
+
+        /// The resting border colour of a field.
+        const PLAIN: ColorU = ColorU::new_rgb(0xac, 0xac, 0xac);
+        /// The `:focus` ring colour — the widget set's accent.
+        const RING: ColorU = ColorU::new_rgb(0x42, 0x86, 0xf4);
+
+        // A field: 1px solid PLAIN on all four edges, RING on all four while
+        // focused. Exactly the shape `themes::flat::FIELD_BORDER_STATES` has.
+        let field_style = || {
+            CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::simple(CssProperty::const_width(
+                    LayoutWidth::const_px(120),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_height(
+                    LayoutHeight::const_px(24),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+                    LayoutBorderTopWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+                    LayoutBorderBottomWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+                    LayoutBorderLeftWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+                    LayoutBorderRightWidth::const_px(1),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+                    StyleBorderTopStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+                    StyleBorderBottomStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+                    StyleBorderLeftStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+                    StyleBorderRightStyle {
+                        inner: BorderStyle::Solid,
+                    },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
+                    StyleBorderLeftColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+                    StyleBorderRightColor { inner: PLAIN },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+                    StyleBorderLeftColor { inner: RING },
+                )),
+                CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
+                    StyleBorderRightColor { inner: RING },
+                )),
+            ])
+        };
+
+        let mut dom = Dom::create_body();
+        for _ in 0..2 {
+            let mut d = Dom::create_div();
+            d.set_tab_index(TabIndex::Auto);
+            dom = dom.with_child(d.with_css_props(field_style()));
+        }
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations::default());
+        let rr = RendererResources::default();
+        let cb = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &cb, &mut dbg)
+            .unwrap();
+
+        // How many borders the PAINTED list draws in the ring colour. This is
+        // the only authority on what the user sees: the styled node's
+        // `:focus` flag is what the restyle writes, the display list is what
+        // the shell presents.
+        let ringed_borders = |lw: &LayoutWindow| {
+            lw.layout_results[&DomId::ROOT_ID]
+                .display_list
+                .items
+                .iter()
+                .filter(|i| match i {
+                    DisplayListItem::Border { colors, .. } => {
+                        colors.top.as_ref().and_then(|v| v.get_property()).map(|c| c.inner)
+                            == Some(RING)
+                    }
+                    _ => false,
+                })
+                .count()
+        };
+        let node = |idx: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        };
+
+        assert_eq!(
+            ringed_borders(&lw),
+            0,
+            "harness: nothing is focused, so nothing is painted in the ring colour"
+        );
+
+        // A click focuses the first field.
+        let first = node(1);
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(first), false);
+        let r = apply_focus_restyle(&mut lw, None, Some(first));
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert_eq!(
+            ringed_borders(&lw),
+            1,
+            "the field that gained :focus is painted ringed"
+        );
+
+        // Tab moves focus to the second field.
+        let second = node(2);
+        lw.focus_manager
+            .set_focused_node_with_visibility(Some(second), true);
+        let r = apply_focus_restyle(&mut lw, Some(first), Some(second));
+        assert!(
+            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+            "the shell is asked to present the new list, got {r:?}"
+        );
+        assert_eq!(
+            ringed_borders(&lw),
+            1,
+            "exactly ONE field is ringed after a Tab - the old one let go of it"
         );
     }
 
@@ -14896,5 +15601,125 @@ mod initial_window_theme_tests {
                 assert_eq!(initial_window_theme(requested, probed), expected);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod auto_scroll_tests {
+    //! The drag-autoscroll band and speed. A selection drag asks the
+    //! scrollport to move when the pointer nears its edge; how deep that
+    //! band is and how fast the content travels are the whole of the
+    //! behaviour, and both were wrong for a small box and a fast screen.
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    use super::{
+        auto_scroll_delta, auto_scroll_edge_band, AUTO_SCROLL_EDGE_THRESHOLD,
+        AUTO_SCROLL_MAX_SPEED_PX_PER_SEC, AUTO_SCROLL_MAX_TICK_SECS,
+    };
+
+    const FRAME: f32 = 1.0 / 60.0;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(w, h),
+        }
+    }
+
+    #[test]
+    fn the_band_is_never_deeper_than_a_third_of_the_box() {
+        // A roomy page keeps the flat band.
+        assert!((auto_scroll_edge_band(600.0) - AUTO_SCROLL_EDGE_THRESHOLD).abs() < 0.001);
+        // A single-line TextInput does not: at 30px its top and bottom bands
+        // would cover it twice over.
+        assert!((auto_scroll_edge_band(24.0) - 8.0).abs() < 0.001);
+        // Degenerate boxes have no band at all rather than a NaN one.
+        for extent in [0.0, -10.0, f32::NAN] {
+            assert_eq!(auto_scroll_edge_band(extent), 0.0, "extent {extent}");
+        }
+    }
+
+    #[test]
+    fn a_pointer_resting_in_a_single_line_field_does_not_scroll_it() {
+        // 24px tall, pointer in the middle of it: there IS a middle now.
+        let d = auto_scroll_delta(
+            rect(0.0, 0.0, 200.0, 24.0),
+            LogicalPosition::new(100.0, 12.0),
+            FRAME,
+        );
+        assert_eq!((d.x, d.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_pointer_in_the_middle_of_a_page_does_not_scroll_it() {
+        let d = auto_scroll_delta(
+            rect(0.0, 0.0, 800.0, 600.0),
+            LogicalPosition::new(400.0, 300.0),
+            FRAME,
+        );
+        assert_eq!((d.x, d.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_pointer_drags_the_content_towards_the_edge_it_is_past() {
+        let page = rect(100.0, 50.0, 400.0, 300.0);
+        let up = auto_scroll_delta(page, LogicalPosition::new(300.0, 40.0), FRAME);
+        let down = auto_scroll_delta(page, LogicalPosition::new(300.0, 360.0), FRAME);
+        let left = auto_scroll_delta(page, LogicalPosition::new(90.0, 200.0), FRAME);
+        let right = auto_scroll_delta(page, LogicalPosition::new(510.0, 200.0), FRAME);
+        assert!(up.y < 0.0 && up.x == 0.0, "{up:?}");
+        assert!(down.y > 0.0 && down.x == 0.0, "{down:?}");
+        assert!(left.x < 0.0 && left.y == 0.0, "{left:?}");
+        assert!(right.x > 0.0 && right.y == 0.0, "{right:?}");
+    }
+
+    #[test]
+    fn the_speed_is_per_second_not_per_tick() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let far_below = LogicalPosition::new(400.0, 1000.0);
+        let at_60 = auto_scroll_delta(page, far_below, FRAME).y;
+        let at_120 = auto_scroll_delta(page, far_below, FRAME / 2.0).y;
+        assert!(
+            (at_60 - at_120 * 2.0).abs() < 0.001,
+            "two 120Hz ticks travel one 60Hz tick: {at_60} vs {at_120}"
+        );
+        assert!(
+            (at_60 - AUTO_SCROLL_MAX_SPEED_PX_PER_SEC * FRAME).abs() < 0.001,
+            "and one 60Hz tick is the speed for a sixtieth of a second: {at_60}"
+        );
+    }
+
+    #[test]
+    fn a_stalled_frame_does_not_arrive_as_one_long_jump() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let far_below = LogicalPosition::new(400.0, 1000.0);
+        let stalled = auto_scroll_delta(page, far_below, 5.0).y;
+        let capped =
+            auto_scroll_delta(page, far_below, AUTO_SCROLL_MAX_TICK_SECS).y;
+        assert!((stalled - capped).abs() < 0.001, "{stalled} vs {capped}");
+    }
+
+    #[test]
+    fn the_speed_saturates_one_band_past_the_edge() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let one_band = auto_scroll_delta(
+            page,
+            LogicalPosition::new(400.0, 600.0 + AUTO_SCROLL_EDGE_THRESHOLD),
+            FRAME,
+        )
+        .y;
+        let a_screen_away =
+            auto_scroll_delta(page, LogicalPosition::new(400.0, 5000.0), FRAME).y;
+        assert!((one_band - a_screen_away).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_nonsense_tick_or_pointer_scrolls_by_nothing_rather_than_by_nan() {
+        let page = rect(0.0, 0.0, 800.0, 600.0);
+        let nan_tick = auto_scroll_delta(page, LogicalPosition::new(400.0, 1000.0), f32::NAN);
+        assert_eq!((nan_tick.x, nan_tick.y), (0.0, 0.0));
+        let nan_pointer =
+            auto_scroll_delta(page, LogicalPosition::new(f32::NAN, f32::NAN), FRAME);
+        assert_eq!((nan_pointer.x, nan_pointer.y), (0.0, 0.0));
     }
 }

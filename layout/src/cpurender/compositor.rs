@@ -1424,31 +1424,6 @@ pub fn scroll_shift_region(
         new_offset,
         dpi_factor,
         false,
-        false,
-    )
-}
-
-/// [`scroll_shift_region`] for a NATIVE target in POOL byte order (#32
-/// ARGB8888 commit-swizzle pools): the moved pixels came from a COMMITTED
-/// slot and are B,G,R,A; the commit swizzle converts the whole presented
-/// clip, so the moved block is converted back to renderer order here —
-/// otherwise moved pixels get double-swizzled and scrolled content paints
-/// with R and B swapped on the glass.
-pub fn scroll_shift_region_pool_order(
-    pixmap: &mut AzulPixmap,
-    clip_bounds: &LogicalRect,
-    delta: (f32, f32),
-    new_offset: (f32, f32),
-    dpi_factor: f32,
-) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(
-        pixmap,
-        clip_bounds,
-        delta,
-        new_offset,
-        dpi_factor,
-        false,
-        true,
     )
 }
 
@@ -1472,27 +1447,6 @@ pub fn scroll_shift_region_exact(
         new_offset,
         dpi_factor,
         true,
-        false,
-    )
-}
-
-/// [`scroll_shift_region_exact`] for a pool-order native target — see
-/// [`scroll_shift_region_pool_order`].
-pub fn scroll_shift_region_exact_pool_order(
-    pixmap: &mut AzulPixmap,
-    clip_bounds: &LogicalRect,
-    delta: (f32, f32),
-    new_offset: (f32, f32),
-    dpi_factor: f32,
-) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(
-        pixmap,
-        clip_bounds,
-        delta,
-        new_offset,
-        dpi_factor,
-        true,
-        true,
     )
 }
 
@@ -1504,7 +1458,6 @@ fn scroll_shift_region_impl(
     new_offset: (f32, f32),
     dpi_factor: f32,
     exact_strips: bool,
-    unswizzle_rb_moved: bool,
 ) -> Vec<LogicalRect> {
     // The "just move the pixels" cost of a scroll frame, made visible as a
     // phase: this memmove inside OUR pixmap (plus the strip raster the
@@ -1561,28 +1514,6 @@ fn scroll_shift_region_impl(
         (true, false) => shift_horizontal_1d(data, stride_px, cx0, cy0, cx1, cy1, px_dx),
         (true, true) => shift_diagonal_2d(data, stride_px, cx0, cy0, cx1, cy1, px_dx, px_dy),
         (false, false) => {}
-    }
-
-    // #32 pool-order targets: convert the shifted region back to renderer
-    // byte order (the moved pixels are committed B,G,R,A; the commit swizzle
-    // will re-convert the whole presented clip). The exposed strips are
-    // repainted fresh right after this returns, so including them here is
-    // harmless — the swizzled bytes are overwritten.
-    if unswizzle_rb_moved {
-        if std::env::var("AZ_BB_DEBUG").is_ok() {
-            eprintln!(
-                "[bb] UNSWIZZLE clip px=({cx0},{cy0})..({cx1},{cy1}) delta=({px_dx},{px_dy})"
-            );
-        }
-        for y in cy0..cy1 {
-            let row = (y * stride_px) as usize;
-            for x in cx0..cx1 {
-                let o = (row + x as usize) * 4;
-                if o + 4 <= data.len() {
-                    data.swap(o, o + 2);
-                }
-            }
-        }
     }
 
     // Exposed strip(s) in LOGICAL coords. Over-cover the moving edge by one
@@ -2190,8 +2121,96 @@ pub struct ScrollShiftOutcome {
     pub present_extra: Vec<LogicalRect>,
 }
 
-/// See [`ScrollShiftOutcome`]. `pool_order` selects the commit-swizzle mover
-/// for native ARGB pools ([`scroll_shift_region_pool_order`]).
+/// In-place R<->B swap over `rects` (x, y, w, h in BUFFER pixels) of a
+/// tightly packed 4-bytes-per-pixel buffer: the conversion between the CPU
+/// renderer's R,G,B,A byte order and an ARGB8888 surface's B,G,R,A, used
+/// where a compositor never advertises ABGR8888 (KWin at 8-bit).
+///
+/// The rects MAY OVERLAP (a scroll clip and the strip inside it; two moves
+/// that cross). The swap is its own inverse, so swapping an overlap once per
+/// rect would convert it twice, i.e. not at all. Each row therefore swaps the
+/// UNION of the rects crossing it, exactly once.
+pub fn swap_rb_in_rects(
+    buf: &mut [u8],
+    stride_bytes: usize,
+    buf_height: usize,
+    rects: &[(i32, i32, i32, i32)],
+) {
+    let row_px = stride_bytes / 4;
+    let clamped: Vec<(usize, usize, usize, usize)> = rects
+        .iter()
+        .filter(|&&(_, _, w, h)| w > 0 && h > 0)
+        .map(|&(x, y, w, h)| {
+            (
+                x.max(0) as usize,
+                y.max(0) as usize,
+                (x.saturating_add(w).max(0) as usize).min(row_px),
+                (y.saturating_add(h).max(0) as usize).min(buf_height),
+            )
+        })
+        .filter(|&(x0, y0, x1, y1)| x1 > x0 && y1 > y0)
+        .collect();
+    let Some(top) = clamped.iter().map(|r| r.1).min() else {
+        return;
+    };
+    let bottom = clamped.iter().map(|r| r.3).max().unwrap_or(top);
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(clamped.len());
+    for row in top..bottom {
+        spans.clear();
+        spans.extend(
+            clamped
+                .iter()
+                .filter(|r| r.1 <= row && row < r.3)
+                .map(|r| (r.0, r.2)),
+        );
+        spans.sort_unstable();
+        let base = row * stride_bytes;
+        let mut cursor = 0usize;
+        for &(s0, s1) in &spans {
+            // Skip what an earlier span on this row already swapped.
+            for px in s0.max(cursor)..s1 {
+                let o = base + px * 4;
+                if o + 4 <= buf.len() {
+                    buf.swap(o, o + 2);
+                }
+            }
+            cursor = cursor.max(s1);
+        }
+    }
+}
+
+/// The BUFFER rects of a set of logical rects, snapped outward - what
+/// [`swap_rb_in_rects`] wants from a caller that moved logical clips.
+#[must_use]
+pub fn logical_rects_to_buffer(
+    rects: &[LogicalRect],
+    dpi_factor: f32,
+    buf_w: u32,
+    buf_h: u32,
+) -> Vec<(i32, i32, i32, i32)> {
+    rects
+        .iter()
+        .filter_map(|r| {
+            let x0 = ((r.origin.x * dpi_factor).floor() as i32).clamp(0, buf_w as i32);
+            let y0 = ((r.origin.y * dpi_factor).floor() as i32).clamp(0, buf_h as i32);
+            let x1 = (((r.origin.x + r.size.width) * dpi_factor).ceil() as i32)
+                .clamp(0, buf_w as i32);
+            let y1 = (((r.origin.y + r.size.height) * dpi_factor).ceil() as i32)
+                .clamp(0, buf_h as i32);
+            (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
+        })
+        .collect()
+}
+
+/// See [`ScrollShiftOutcome`].
+///
+/// A move is a PURE BYTE MOVE: on a target in pool byte order (a native
+/// ARGB8888 slot the commit swizzle converts in place) the moved pixels are
+/// still in pool order afterwards, and it is the CALLER that converts the
+/// union of everything it moved this frame back to renderer order, exactly
+/// once. Converting per move double-converted wherever two moves overlapped
+/// (two nested scrollers scrolling together, a layout blit crossing a scroll
+/// clip) and painted that overlap with R and B swapped.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_scroll_shift(
     pixmap: &mut AzulPixmap,
@@ -2201,20 +2220,15 @@ pub fn execute_scroll_shift(
     delta: (f32, f32),
     offset: (f32, f32),
     dpi_factor: f32,
-    pool_order: bool,
 ) -> ScrollShiftOutcome {
     let mut damage = Vec::new();
     let mut present_extra = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
     if scroll_fast_path_eligible(display_list, scroll_id, clip, offset, prev_offset) {
-        let strips = if pool_order {
-            scroll_shift_region_pool_order(pixmap, clip, delta, offset, dpi_factor)
-        } else {
-            scroll_shift_region(pixmap, clip, delta, offset, dpi_factor)
-        };
+        let strips = scroll_shift_region(pixmap, clip, delta, offset, dpi_factor);
         // Empty strips = the delta rounded to ZERO physical pixels: no
-        // memmove ran and (pool-order targets) NOTHING was unswizzled. The
-        // clip must then stay OUT of present_extra - on the in-place
+        // memmove ran, so nothing moved. The clip must then stay OUT of
+        // present_extra - on the in-place
         // commit-swizzle path an extra rect is not "harmless over-coverage"
         // but a byte swap of pixels nobody wrote: AzWriter's caret blink
         // carried a stationary scroll clip here every frame, and each
@@ -2694,7 +2708,6 @@ pub fn execute_translate_blit(
     mover_rects: &[LogicalRect],
     new_display_list: &DisplayList,
     dpi_factor: f32,
-    pool_order: bool,
 ) -> TranslateBlitResult {
     let mut res = TranslateBlitResult::default();
     let d = hint.delta;
@@ -2731,12 +2744,7 @@ pub fn execute_translate_blit(
                 height: y1 - y0,
             },
         };
-        let shift_exact = if pool_order {
-            scroll_shift_region_exact_pool_order
-        } else {
-            scroll_shift_region_exact
-        };
-        let strips = shift_exact(output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
+        let strips = scroll_shift_region_exact(output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
         // Inflate the vacated strips by 1px: LCD fringe of a run hugging the
         // mover's edge hangs one device pixel OUTSIDE the mover rect, so the
         // un-inflated vacated region leaves that column stale after the move
@@ -3732,86 +3740,91 @@ mod scroll_shift_tests {
         }
     }
 
-    /// #32 LAW: on a pool-order (B,G,R,A) target, shift + commit-swizzle must
-    /// leave the moved pixels byte-identical to a PLAIN byte-move of the slot
-    /// — a pure move never changes displayed colors. The pool-order variant
-    /// un-swizzles the moved block so the commit swizzle re-converts it; the
-    /// shipped bug (plain variant + commit swizzle) double-converts and paints
-    /// scrolled content with R and B swapped (see the NC below).
-    #[test]
-    fn pool_order_shift_then_commit_swizzle_is_a_pure_byte_move() {
-        let (w, h) = (32u32, 32u32);
-        let clip = rect(0.0, 0.0, 32.0, 32.0);
-        let mk = || {
-            let mut p = AzulPixmap::new(w, h).unwrap();
-            let d = p.data_mut();
-            for y in 0..h as usize {
-                for x in 0..w as usize {
-                    let o = (y * w as usize + x) * 4;
-                    d[o] = (10 + x) as u8; // R
-                    d[o + 1] = (100 + y) as u8; // G
-                    d[o + 2] = (200 - x) as u8; // B (never equals R)
-                    d[o + 3] = 255;
-                }
-            }
-            p
-        };
-        let swizzle_all = |p: &mut AzulPixmap| {
-            let d = p.data_mut();
-            for o in (0..d.len()).step_by(4) {
-                d.swap(o, o + 2);
-            }
-        };
-
-        // Simulated committed slot: pattern in POOL order.
-        let mut slot = mk();
-        swizzle_all(&mut slot);
-        // Reference: a plain byte-move of the same slot (what the compositor
-        // must end up displaying — a move never recolors).
-        let mut reference = mk();
-        swizzle_all(&mut reference);
-        let ref_strips =
-            scroll_shift_region_exact(&mut reference, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
-
-        // Production path: pool-order shift, then the commit swizzle over the
-        // whole presented clip.
-        let strips =
-            scroll_shift_region_exact_pool_order(&mut slot, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
-        assert_eq!(
-            strips, ref_strips,
-            "both variants must expose the same strips"
-        );
-        swizzle_all(&mut slot); // the commit swizzle (full clip = full pixmap here)
-
-        let in_strip = |x: usize, y: usize| {
-            strips.iter().any(|r| {
-                (x as f32) >= r.origin.x
-                    && (x as f32) < r.origin.x + r.size.width
-                    && (y as f32) >= r.origin.y
-                    && (y as f32) < r.origin.y + r.size.height
-            })
-        };
-        let (a, b) = (slot.data(), reference.data());
+    /// A pixmap whose R and B differ everywhere, in POOL byte order (what a
+    /// committed ARGB8888 slot holds).
+    fn pool_order_pattern(w: u32, h: u32) -> AzulPixmap {
+        let mut p = AzulPixmap::new(w, h).unwrap();
+        let d = p.data_mut();
         for y in 0..h as usize {
             for x in 0..w as usize {
-                if in_strip(x, y) {
-                    continue; // strips are repainted fresh in production
-                }
                 let o = (y * w as usize + x) * 4;
-                assert_eq!(
-                    &a[o..o + 4],
-                    &b[o..o + 4],
-                    "moved pixel recolored at {x},{y} — the double-swizzle bug"
-                );
+                d[o] = (200 - x) as u8; // B (pool order)
+                d[o + 1] = (100 + y) as u8; // G
+                d[o + 2] = (10 + x) as u8; // R
+                d[o + 3] = 255;
             }
         }
+        p
     }
 
-    /// NEGATIVE CONTROL for the law above: the SHIPPED-BUG combination (plain
-    /// shift + commit swizzle) must DIFFER from the pure byte-move in the
-    /// moved region — proving the law's comparison can fail. If this ever
-    /// passes with equality, the fixture can no longer express the bug and
-    /// the law is vacuous.
+    /// THE POOL-ORDER LAW: on a target in pool byte order (B,G,R,A), a move
+    /// plus the caller's conversion of what it moved plus the commit swizzle
+    /// must leave the moved pixels byte-identical to a PLAIN byte move - a
+    /// move never recolours. The MOVERS do not convert; the caller converts
+    /// the UNION of everything it moved, exactly once.
+    #[test]
+    fn a_move_plus_the_callers_conversion_is_a_pure_byte_move() {
+        let (w, h) = (32u32, 32u32);
+        let clip = rect(0.0, 0.0, 32.0, 32.0);
+        let mut slot = pool_order_pattern(w, h);
+        let mut reference = pool_order_pattern(w, h);
+        let ref_strips =
+            scroll_shift_region_exact(&mut reference, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+        let strips = scroll_shift_region_exact(&mut slot, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
+        assert_eq!(strips, ref_strips);
+        // The caller converts what it moved, then the commit swizzle converts
+        // the presented clip back.
+        let moved = logical_rects_to_buffer(&[clip], 1.0, w, h);
+        swap_rb_in_rects(slot.data_mut(), w as usize * 4, h as usize, &moved);
+        swap_rb_in_rects(slot.data_mut(), w as usize * 4, h as usize, &moved);
+        assert_eq!(
+            slot.data(),
+            reference.data(),
+            "a moved pixel must reach the glass with the bytes a plain move gives it"
+        );
+    }
+
+    /// TWO OVERLAPPING MOVES in one frame (nested scrollers scrolling
+    /// together, a layout blit crossing a scroll clip). Converting per move
+    /// swaps the overlap twice - i.e. not at all - and paints it with R and B
+    /// swapped; converting the UNION once is correct. The second half is the
+    /// negative control: it fails if the law is read the other way.
+    #[test]
+    fn overlapping_moves_are_converted_once_not_once_per_move() {
+        let (w, h) = (32u32, 32u32);
+        let a = rect(0.0, 0.0, 32.0, 20.0);
+        let b = rect(0.0, 12.0, 32.0, 20.0); // overlaps rows 12..20
+        let mut slot = pool_order_pattern(w, h);
+        let mut reference = pool_order_pattern(w, h);
+        for clip in [a, b] {
+            scroll_shift_region_exact(&mut slot, &clip, (0.0, 4.0), (0.0, 4.0), 1.0);
+            scroll_shift_region_exact(&mut reference, &clip, (0.0, 4.0), (0.0, 4.0), 1.0);
+        }
+        let union = logical_rects_to_buffer(&[a, b], 1.0, w, h);
+        swap_rb_in_rects(slot.data_mut(), w as usize * 4, h as usize, &union);
+        swap_rb_in_rects(slot.data_mut(), w as usize * 4, h as usize, &union);
+        assert_eq!(
+            slot.data(),
+            reference.data(),
+            "converting the union once must be a pure byte move"
+        );
+
+        // NEGATIVE CONTROL: per-move conversion (the shipped behaviour) leaves
+        // the overlapping rows swapped.
+        let mut per_move = pool_order_pattern(w, h);
+        for clip in [a, b] {
+            scroll_shift_region_exact(&mut per_move, &clip, (0.0, 4.0), (0.0, 4.0), 1.0);
+            let one = logical_rects_to_buffer(&[clip], 1.0, w, h);
+            swap_rb_in_rects(per_move.data_mut(), w as usize * 4, h as usize, &one);
+        }
+        swap_rb_in_rects(per_move.data_mut(), w as usize * 4, h as usize, &union);
+        assert_ne!(
+            per_move.data(),
+            reference.data(),
+            "premise: per-move conversion double-converts the overlap"
+        );
+    }
+
     #[test]
     fn nc_plain_shift_then_commit_swizzle_recolors_moved_pixels() {
         let (w, h) = (32u32, 32u32);

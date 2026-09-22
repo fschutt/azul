@@ -18,6 +18,8 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
+use azul_core::{geom::LogicalPosition, transient::TransientAnchor};
+
 use super::{super::super::common::debug_server::LogCategory, WaylandWindow};
 use crate::log_error;
 
@@ -34,6 +36,36 @@ pub(crate) struct MenuLayoutData {
     /// address absolute screen coordinates, so positioning must happen via
     /// the compositor with this rect.
     pub trigger_rect: LogicalRect,
+    /// Which edge of `trigger_rect` the popup opens on. A menu bar item and
+    /// a dropdown open BELOW their trigger with the left edges aligned; a
+    /// context menu opens at the pointer. This used to be decided at popup
+    /// creation with a single answer for every menu - the pointer corner -
+    /// so every dropdown hung off its trigger's bottom-RIGHT corner, one
+    /// trigger width to the right of where it belongs.
+    pub edge: TransientAnchor,
+}
+
+/// The edge a menu opens on, from what the opener knew: a real trigger rect
+/// means "below the control"; none means "at the pointer" (a context menu,
+/// whose trigger rect is the zero-sized cursor point).
+#[must_use]
+pub fn menu_edge_for(anchor: Option<LogicalRect>) -> TransientAnchor {
+    match anchor {
+        Some(rect) if rect.size.width > 0.0 || rect.size.height > 0.0 => TransientAnchor::Bottom,
+        _ => TransientAnchor::Cursor,
+    }
+}
+
+/// The popup size as the positioner and the buffer must both see it.
+///
+/// A menu's measured size is a fraction; the positioner took it truncated
+/// (`as i32`) while the buffer and the viewport destination took it
+/// rounded up, so the surface was one pixel larger than the box the
+/// compositor had positioned and constrained (the "258 logical -> 259 px"
+/// in the log). One rounding, up, for everyone.
+#[must_use]
+pub fn popup_size_px(size: LogicalSize) -> LogicalSize {
+    LogicalSize::new(size.width.max(1.0).ceil(), size.height.max(1.0).ceil())
 }
 
 /// Layout callback for menu popup windows
@@ -95,12 +127,14 @@ pub fn create_menu_popup_options(
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
+    edge: TransientAnchor,
     menu_size: LogicalSize,
 ) -> WindowCreateOptions {
     let menu_data = MenuLayoutData {
         menu: menu.clone(),
         system_style: system_style.clone(),
         trigger_rect,
+        edge,
     };
 
     let menu_data_refany = RefAny::new(menu_data);
@@ -114,6 +148,9 @@ pub fn create_menu_popup_options(
         ctx: azul_core::refany::OptionRefAny::Some(menu_data_refany),
     };
 
+    // Measured before the popup is created (see `measure_popup_content`);
+    // `menu_size` is only the estimate the measurement falls back to.
+    options.size_to_content = true;
     options.window_state.flags.window_type = azul_core::window::WindowType::Menu;
     options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
     options.window_state.flags.is_always_on_top = true;
@@ -122,34 +159,75 @@ pub fn create_menu_popup_options(
     options
 }
 
-/// Default menu item height in logical pixels
-const DEFAULT_MENU_ITEM_HEIGHT: f32 = 24.0;
-/// Vertical padding above and below menu items in logical pixels
-const DEFAULT_MENU_PADDING: f32 = 8.0;
-/// Default menu popup width in logical pixels
-const DEFAULT_MENU_WIDTH: f32 = 200.0;
-
-/// Calculate menu size from Menu structure
+/// The size the menu popup surface is created at.
 ///
-/// This estimates the menu size based on the number of items and their content.
-/// Used when caller doesn't specify an explicit size.
-pub fn calculate_menu_size(menu: &Menu, _system_style: &SystemStyle) -> LogicalSize {
-    // TODO: Implement proper size calculation using system_style font metrics
-
-    let item_count = menu.items.len();
-    let height = (item_count as f32 * DEFAULT_MENU_ITEM_HEIGHT) + (DEFAULT_MENU_PADDING * 2.0);
-
-    LogicalSize::new(DEFAULT_MENU_WIDTH, height)
+/// Every number comes from the live `SystemStyle` (see
+/// `menu_renderer::MenuMetrics`, which the menu STYLESHEET is built from too,
+/// so the surface and its contents cannot disagree). It used to be a flat
+/// 200x(items*24)+16 that ignored its `system_style` argument outright — a
+/// menu the same size on every desktop, at every font size, and never the size
+/// the stylesheet said.
+#[must_use]
+pub fn calculate_menu_size(menu: &Menu, system_style: &SystemStyle) -> LogicalSize {
+    crate::desktop::menu_renderer::MenuMetrics::from_system_style(system_style)
+        .estimate_menu_size(menu)
 }
 
 #[cfg(test)]
 mod tests {
+    use azul_core::menu::{MenuItem, StringMenuItem};
+    use azul_css::system::defaults;
+
     use super::*;
+
+    enum Entry {
+        Item,
+        Separator,
+    }
+
+    fn menu_of(entries: &[Entry]) -> Menu {
+        Menu {
+            items: entries
+                .iter()
+                .map(|e| match e {
+                    Entry::Item => {
+                        MenuItem::String(StringMenuItem::create("Item".to_string().into()))
+                    }
+                    Entry::Separator => MenuItem::Separator,
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            position: azul_core::menu::MenuPopupPosition::AutoCursor,
+            context_mouse_btn: azul_core::window::ContextMenuMouseButton::Left,
+        }
+    }
+
+    /// A real trigger rect (a menu bar item, a dropdown's control) opens the
+    /// menu below it; the zero-sized cursor point of a context menu opens it
+    /// at the pointer.
+    #[test]
+    fn a_trigger_rect_opens_below_and_a_cursor_point_opens_at_the_pointer() {
+        let swatch = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::new(14.0, 14.0));
+        assert_eq!(menu_edge_for(Some(swatch)), TransientAnchor::Bottom);
+        let cursor = LogicalRect::new(LogicalPosition::new(50.0, 396.0), LogicalSize::zero());
+        assert_eq!(menu_edge_for(Some(cursor)), TransientAnchor::Cursor);
+        assert_eq!(menu_edge_for(None), TransientAnchor::Cursor);
+    }
+
+    /// The size the positioner is told and the buffer that is attached must
+    /// agree: 258.4 logical is 259 for both, never 258 for one and 259 for
+    /// the other.
+    #[test]
+    fn the_positioner_and_the_buffer_round_the_popup_size_the_same_way() {
+        let px = popup_size_px(LogicalSize::new(258.4, 288.0));
+        assert_eq!((px.width as i32, px.height as i32), (259, 288));
+        assert_eq!(px.width, px.width.ceil(), "already integral");
+        let tiny = popup_size_px(LogicalSize::new(0.0, 0.2));
+        assert_eq!((tiny.width, tiny.height), (1.0, 1.0), "never a zero-sized popup");
+    }
 
     #[test]
     fn test_calculate_menu_size() {
-        use azul_core::menu::{MenuItem, StringMenuItem};
-
         let menu = Menu {
             items: vec![
                 MenuItem::String(StringMenuItem::create("Item 1".to_string().into())),
@@ -161,11 +239,53 @@ mod tests {
             context_mouse_btn: azul_core::window::ContextMenuMouseButton::Left,
         };
 
-        let system_style = SystemStyle::default();
-        let size = calculate_menu_size(&menu, &system_style);
+        // KDE Breeze: menuFont "Noto Sans,10" (POINTS -> 13.33px), control
+        // padding 4px (menus take half), border 1px.
+        //   nominal line box (1.2em)   = 16px
+        //   checkmark gutter (1.4em)   = 19px   <- the taller of the two
+        //   item height                = 19 + 2*2 = 23px
+        //   frame                      = 2*1 border + 2*2 padding = 6px
+        let size = calculate_menu_size(&menu, &defaults::kde_breeze_light());
 
-        assert!(size.width > 0.0);
-        assert!(size.height > 0.0);
-        assert_eq!(size.height, 3.0 * 24.0 + 16.0); // 3 items * 24px + padding
+        assert_eq!(
+            size.height,
+            3.0 * 23.0 + 6.0,
+            "three items in the desktop's own menu font and padding"
+        );
+    }
+
+    /// A menu is exactly as tall as the SYSTEM says: the desktop's menu font
+    /// size, the desktop's control padding, the desktop's border width - not
+    /// a 24px item and an 8px pad azul made up. A separator is not an item
+    /// and must not be counted as one.
+    #[test]
+    fn a_menu_is_as_tall_as_the_desktop_says() {
+        let menu = menu_of(&[Entry::Item, Entry::Item, Entry::Separator, Entry::Item]);
+        let size = calculate_menu_size(&menu, &defaults::kde_breeze_light());
+
+        // 3 items * 23 + separator (1px rule + 2*2 margin = 5) + 6 frame.
+        assert_eq!(size.height, 80.0, "3 items + 1 separator at Breeze's 10pt");
+        // The estimate is the MINIMUM the stylesheet promises, so the layout
+        // pass - not the estimate - decides the real width. 12em at 13.33px.
+        assert_eq!(size.width, 160.0, "the menu's declared minimum width");
+    }
+
+    /// The same menu on a desktop with a bigger menu font is a bigger menu.
+    /// A size that ignores `system_style` cannot be.
+    #[test]
+    fn the_menu_estimate_follows_the_desktops_font() {
+        let menu = menu_of(&[Entry::Item, Entry::Item, Entry::Separator, Entry::Item]);
+        let mut big = defaults::kde_breeze_light();
+        big.fonts.menu_font_size = azul_css::corety::OptionF32::Some(12.0);
+        let size = calculate_menu_size(&menu, &big);
+
+        // 12pt -> 16px: line box 19, gutter 22, item 26. 3*26 + 5 + 6.
+        assert_eq!(size.height, 89.0);
+        assert_eq!(size.width, 192.0, "12em at 16px");
+        assert_ne!(
+            size,
+            calculate_menu_size(&menu, &defaults::kde_breeze_light()),
+            "the desktop's font size must reach the menu's size"
+        );
     }
 }

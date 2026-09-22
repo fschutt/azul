@@ -115,6 +115,26 @@ pub enum ScrollInputSource {
     AnimateTo,
 }
 
+impl ScrollInputSource {
+    /// Whether this input is the USER moving the view with their own hand.
+    ///
+    /// The four gesture sources are; the two engine ones are not. A caret
+    /// glide (`AnimateTo`) and an app's `scroll_to` (`Programmatic`) are the
+    /// engine moving the view on somebody's behalf, and a reveal that ends up
+    /// in this queue must not be read back as the user having scrolled away
+    /// from it.
+    #[must_use]
+    pub const fn is_user_scroll(self) -> bool {
+        matches!(
+            self,
+            Self::TrackpadContinuous
+                | Self::TrackpadMomentum
+                | Self::TrackpadEnd
+                | Self::WheelDiscrete
+        )
+    }
+}
+
 /// WHERE a scroll input physically came from - distinct from
 /// [`ScrollInputSource`], which is the PROCESSING model. Different devices
 /// deserve different curves (a wheel step animated with the trackpad's
@@ -216,6 +236,36 @@ impl ScrollInputQueue {
                 events
             },
         )
+    }
+
+    /// Remove the most recently pushed input matching `input` (same target,
+    /// same delta, same timestamp), if it is still pending.
+    ///
+    /// The one caller is [`ScrollManager::cancel_queued_scroll_input`], i.e.
+    /// a `Scroll` callback that vetoed the default scroll in the very pass
+    /// that queued it. The physics timer drains the queue wholesale and never
+    /// runs inside a dispatch, so "still pending" is the normal case; a
+    /// `false` return means the timer already spent the delta.
+    pub fn cancel(&self, input: &ScrollInput) -> bool {
+        let Ok(mut queue) = self.inner.lock() else {
+            return false;
+        };
+        let found = queue.iter().rposition(|q| {
+            q.dom_id == input.dom_id
+                && q.node_id == input.node_id
+                && q.timestamp == input.timestamp
+                // Bit equality, not `==`: a NaN delta (platforms do forward
+                // them) must still match itself so the veto can remove it.
+                && q.delta.x.to_bits() == input.delta.x.to_bits()
+                && q.delta.y.to_bits() == input.delta.y.to_bits()
+        });
+        match found {
+            Some(idx) => {
+                queue.remove(idx);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Check if there are pending inputs without consuming them
@@ -352,6 +402,33 @@ pub enum ScrollPhaseTransition {
     Ended,
 }
 
+/// What last laid claim to where the view is looking.
+///
+/// Two mechanisms move a scroll container that the user did not ask for by
+/// name: the user's own scrolling (wheel, trackpad, touch pan, a scrollbar
+/// thumb) and the engine's REVEAL (`scroll_into_view`,
+/// `scroll_selection_into_view`), which drags a focused node or a caret back
+/// on screen. Both are correct and neither may be deleted - without the
+/// reveal, typing into a field the user has scrolled past shows nothing;
+/// without the user's scroll, the page is nailed to whatever was clicked
+/// last.
+///
+/// Which one applies is decided by WHICH CAME LAST, and this is the whole
+/// record of that. A reveal re-asserted after the user has turned the wheel
+/// is a STALE reveal and must move nothing; a reveal asked for AFTER the
+/// wheel - a keystroke, a caret move, a focus change - is the newest thing
+/// the user did and wins, however recently they scrolled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewAction {
+    /// A reveal: focus moved, the caret moved, a key reached an editable, the
+    /// app asked for a node to be shown. The default, so that a window nobody
+    /// has scrolled yet still reveals what it focuses.
+    #[default]
+    Reveal,
+    /// The user moved the view themselves.
+    UserScroll,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -382,10 +459,31 @@ pub struct ScrollManager {
     /// `Scroll` event is aimed at THAT seat's hovered node. `Default` (0) is
     /// the primary.
     pub pending_wheel_seat: u64,
+    /// The container input the CURRENT input pass queued, if any.
+    ///
+    /// The wheel is queued against a scroll container at INGRESS — before any
+    /// callback has seen the delta — because that ordering is what lets a
+    /// wheel-as-zoom widget read the raw delta at all. A `Scroll` callback
+    /// that claims the gesture must therefore be able to take that scroll
+    /// back; see [`Self::cancel_queued_scroll_input`]. Dropped at the end of
+    /// every pass, next to `pending_wheel_event`, so a later `preventDefault`
+    /// cannot reach back into a gesture that is already spent.
+    #[cfg(feature = "std")]
+    queued_this_pass: Option<ScrollInput>,
     /// Set when a scroll position changes; cleared after the display list
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
     scroll_dirty: bool,
+    /// The scrollbar thumb the user is currently holding, if any: set at the
+    /// press that starts a thumb drag, cleared at the release that ends it.
+    ///
+    /// The shell keeps the drag's geometry (`ScrollbarDragState`); this is
+    /// the manager's own view of it, so that everything the manager drives —
+    /// the fade in particular — can ask "is this bar being held?" without
+    /// reaching into the shell. A held bar never fades: `last_activity` is
+    /// only refreshed by scroll-position changes, and a thumb held still
+    /// produces none.
+    thumb_drag: Option<(DomId, NodeId, ScrollbarOrientation)>,
     /// Scroll-direction preference, applied ONCE in [`Self::record_scroll_input`]
     /// (the single chokepoint every platform's wheel/axis event flows through).
     ///
@@ -422,6 +520,13 @@ pub struct ScrollManager {
     /// Phase transitions observed since the last drain, oldest first. Drained
     /// by `EventProvider::get_pending_events`.
     pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
+    /// THE LAST ACTION WINS: which of the two things that move the view
+    /// without being asked - the user's own scrolling, or a reveal - did so
+    /// most recently. See [`ViewAction`]; written by
+    /// [`ScrollManager::note_user_scroll`] and
+    /// [`ScrollManager::note_reveal_intent`], read by
+    /// [`ScrollManager::reveal_may_move_view`].
+    last_view_action: ViewAction,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -659,6 +764,37 @@ impl ScrollManager {
     }
 
     // ========================================================================
+    // THE LAST ACTION WINS - who owns the view right now
+    // ========================================================================
+
+    /// The user just moved the view themselves: a wheel step, a trackpad or
+    /// touch pan, a scrollbar thumb. Any reveal asked for BEFORE this is
+    /// abandoned.
+    pub const fn note_user_scroll(&mut self) {
+        self.last_view_action = ViewAction::UserScroll;
+    }
+
+    /// A reveal's intent arose just now: focus moved, the caret moved, a key
+    /// was pressed, the app asked for a node to be shown. From here until the
+    /// user scrolls again, a reveal may move the view.
+    pub const fn note_reveal_intent(&mut self) {
+        self.last_view_action = ViewAction::Reveal;
+    }
+
+    /// Whether a reveal may move the view: only while it is still the last
+    /// thing that happened.
+    ///
+    /// Asked by the ONE reveal that is re-asserted rather than issued -
+    /// `LayoutWindow::scroll_focused_cursor_into_view`, which runs after
+    /// every successful layout, including the layouts a wheel step itself
+    /// causes. Every other reveal is an input in its own right and simply
+    /// says so with [`Self::note_reveal_intent`].
+    #[must_use]
+    pub const fn reveal_may_move_view(&self) -> bool {
+        matches!(self.last_view_action, ViewAction::Reveal)
+    }
+
+    // ========================================================================
     // Input Recording API (timer-based architecture)
     // ========================================================================
 
@@ -676,12 +812,51 @@ impl ScrollManager {
     /// now pending inputs and no timer is running yet).
     #[cfg(feature = "std")]
     pub fn record_scroll_input(&mut self, mut input: ScrollInput) -> bool {
+        // THE USER MOVED THE VIEW. Recorded at the same chokepoint the
+        // direction sign is applied at, so no backend can forget it. The
+        // engine's own motion rides this queue too - a caret glide as
+        // `AnimateTo`, an app's `scroll_to` as `Programmatic` - and must not
+        // be read back as the user having scrolled away from the reveal that
+        // produced it.
+        if input.source.is_user_scroll() {
+            self.note_user_scroll();
+        }
         let sign = self.scroll_sign();
         input.delta.x *= sign;
         input.delta.y *= sign;
         let was_empty = !self.scroll_input_queue.has_pending();
+        self.queued_this_pass = Some(input.clone());
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
+    }
+
+    /// THE WHEEL HAS ONE CONSUMER: take back the container scroll this pass
+    /// queued, because a `Scroll` callback claimed the gesture for itself.
+    ///
+    /// Called by the input pass when a `Scroll` callback returned
+    /// `preventDefault` — the same veto the text input and the keyboard
+    /// default actions already honour. `stopPropagation` cannot do this job:
+    /// it silences other CALLBACKS, while the container scroll is queued
+    /// before dispatch and is not a callback at all. Without the veto a
+    /// wheel-driven widget could only ADD to the page scroll (the map zoomed
+    /// AND the page moved under it), never replace it.
+    ///
+    /// Returns whether a queued input was actually removed.
+    #[cfg(feature = "std")]
+    pub fn cancel_queued_scroll_input(&mut self) -> bool {
+        let Some(input) = self.queued_this_pass.take() else {
+            return false;
+        };
+        self.pending_wheel_event = None;
+        self.scroll_input_queue.cancel(&input)
+    }
+
+    /// Forget which input this pass queued, WITHOUT cancelling it: the pass
+    /// is over, so the next one's `preventDefault` must not reach back into
+    /// a scroll the user already got.
+    #[cfg(feature = "std")]
+    pub fn forget_queued_scroll_input(&mut self) {
+        self.queued_this_pass = None;
     }
 
     /// High-level entry point for platform event handlers: performs hit-test lookup
@@ -706,6 +881,16 @@ impl ScrollManager {
         // counts as the start or end of a gesture, which is the whole reason
         // the latch lives on the manager rather than in the shells.
         self.note_scroll_phase(source);
+
+        // ...and so is the claim on the view, for the same reason and one
+        // more: a wheel step that lands on nothing scrollable - or one a
+        // `Scroll` callback takes back with `cancel_queued_scroll_input` to
+        // zoom a map with - never reaches `record_scroll_input`, and it is
+        // still the user's hand. A stale reveal hauling the page around
+        // underneath a map the user is zooming is the same bug.
+        if source.is_user_scroll() {
+            self.note_user_scroll();
+        }
 
         // Record the raw wheel delta for this pass unconditionally — even when the
         // cursor isn't over a scroll container — so a `Scroll` event can be aimed
@@ -1137,6 +1322,58 @@ impl ScrollManager {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
+    }
+
+    /// The user pressed the thumb of `orientation`'s scrollbar on `node_id`
+    /// and is dragging it. The bar counts as active for as long as the drag
+    /// lasts (see [`Self::thumb_drag`]).
+    pub fn begin_thumb_drag(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        now: Instant,
+    ) {
+        self.thumb_drag = Some((dom_id, node_id, orientation));
+        // Holding the bar is the user moving the view as much as the wheel
+        // is, and it does not go through the input queue at all.
+        self.note_user_scroll();
+        self.touch_activity(dom_id, node_id, now);
+    }
+
+    /// The thumb drag ended (release, or the pointer/window went away). The
+    /// bar's activity stamp restarts from `now`, so the fade delay is counted
+    /// from the release and not from the last scroll the drag produced.
+    pub fn end_thumb_drag(&mut self, now: Instant) {
+        if let Some((dom_id, node_id, _)) = self.thumb_drag.take() {
+            self.touch_activity(dom_id, node_id, now);
+        }
+    }
+
+    /// The scrollbar thumb being held right now, if any.
+    #[must_use]
+    pub const fn thumb_drag(&self) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
+        self.thumb_drag
+    }
+
+    /// Whether `orientation`'s scrollbar on `node_id` is being held.
+    #[must_use]
+    pub fn is_thumb_dragged(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+    ) -> bool {
+        self.thumb_drag == Some((dom_id, node_id, orientation))
+    }
+
+    /// Record activity on a node without moving it: the fade delay restarts
+    /// from `now`. A node the manager has never scrolled has no state and
+    /// therefore no visible bar to keep alive; nothing is created for it.
+    fn touch_activity(&mut self, dom_id: DomId, node_id: NodeId, now: Instant) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.last_activity = now;
+        }
     }
 
     /// Returns the internal scroll state for a node
@@ -1651,6 +1888,93 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
             // ulp and t=1 landed at 0.99999994).
             let end = 1.0 - (1.0 + OMEGA) * (-OMEGA).exp();
             (settle / end).clamp(0.0, 1.0)
+        }
+    }
+}
+
+#[cfg(test)]
+mod last_action_wins {
+    use super::{ScrollInputSource, ScrollManager};
+
+    /// THE LAW, as the user stated it (2026-09-21):
+    ///
+    /// > the LAST action should always win, so that scrolling is not
+    /// > interrupted (and vice versa: if I do key input to a component that is
+    /// > off-screen then it should be scrolled into view - because now the key
+    /// > input is the "last" thing)
+    ///
+    /// Reported as: click a checkbox, then turn the wheel, and the reveal
+    /// keeps hauling the view back to the thing that was clicked - the user
+    /// cannot scroll away from whatever they last touched.
+    ///
+    /// BOTH directions are pinned here on purpose. A "fix" that simply stops
+    /// revealing would satisfy the first half and break the second, which is
+    /// the half the user called out by name.
+    #[test]
+    fn a_reveal_moves_the_view_only_while_it_is_the_last_thing_that_happened() {
+        let mut sm = ScrollManager::new();
+
+        // Nothing has happened yet. A reveal is free to move the view, or a
+        // freshly opened window could never scroll its focused field on
+        // screen.
+        assert!(
+            sm.reveal_may_move_view(),
+            "a window nobody has scrolled must still reveal what it focuses",
+        );
+
+        // A focus change asks for a reveal - and THEN the user turns the
+        // wheel. The wheel is the last action, so the reveal asked for before
+        // it is stale.
+        sm.note_reveal_intent();
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "the user scrolled AFTER the reveal was asked for: the stale reveal must not haul \
+             the view back, or scrolling away from a focused node is impossible",
+        );
+
+        // The wheel does not disable the reveal for good. Key input to a
+        // component the user has just scrolled off-screen is now the last
+        // thing that happened, so it reveals.
+        sm.note_reveal_intent();
+        assert!(
+            sm.reveal_may_move_view(),
+            "key input AFTER a user scroll is the last action: the off-screen component it \
+             reaches must be scrolled into view",
+        );
+
+        // ...and the next wheel step takes the view back again. This is the
+        // case that matters most: the caret reveal is re-asserted after EVERY
+        // successful layout, so it asks this question once per wheel step.
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "a reveal re-asserted on the pass a wheel step caused must not move the view",
+        );
+    }
+
+    /// Only the user's own hand counts as a user scroll. The engine puts its
+    /// own motion through the same queue - a caret glide rides `AnimateTo`,
+    /// an app's `scroll_to` rides `Programmatic` - and a reveal must not be
+    /// read back as the user having scrolled away from it.
+    #[test]
+    fn the_engines_own_scrolling_is_not_the_user_scrolling() {
+        for user in [
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputSource::TrackpadEnd,
+        ] {
+            assert!(user.is_user_scroll(), "{user:?} is the user's own hand");
+        }
+        for engine in [
+            ScrollInputSource::Programmatic,
+            ScrollInputSource::AnimateTo,
+        ] {
+            assert!(
+                !engine.is_user_scroll(),
+                "{engine:?} is the engine moving the view, not the user",
+            );
         }
     }
 }
@@ -4309,6 +4633,67 @@ mod autotest_generated {
         assert_eq!(q[0].delta.y, 10.0, "raw -10 * traditional sign (-1) = +10");
         assert_eq!(q[0].source, ScrollInputSource::WheelDiscrete);
         assert_eq!(q[0].timestamp, at(1));
+    }
+
+    #[test]
+    fn a_vetoed_wheel_takes_its_queued_container_scroll_back() {
+        // THE WHEEL HAS ONE CONSUMER: a `Scroll` callback that claimed the
+        // gesture (the map zooms, a spinner column spins) leaves nothing for
+        // the physics timer, so the page under the widget does not move too.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+        assert!(m.get_input_queue().has_pending());
+
+        assert!(
+            m.cancel_queued_scroll_input(),
+            "the veto found nothing to take back"
+        );
+        assert!(
+            !m.get_input_queue().has_pending(),
+            "a vetoed wheel still moves the container"
+        );
+        assert_eq!(m.pending_wheel_event, None, "the delta outlived its veto");
+
+        // The veto applies to ONE pass: a second call has nothing to cancel,
+        // so a later `preventDefault` cannot eat a scroll the user got.
+        assert!(!m.cancel_queued_scroll_input());
+    }
+
+    #[test]
+    fn forgetting_the_pass_leaves_the_queued_scroll_alone() {
+        // End of pass with no veto: the input stays queued for the physics
+        // timer, and the NEXT pass's veto can no longer reach it.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+
+        m.forget_queued_scroll_input();
+
+        assert!(
+            !m.cancel_queued_scroll_input(),
+            "the veto reached back a pass"
+        );
+        assert!(
+            m.get_input_queue().has_pending(),
+            "forgetting the pass threw the scroll away"
+        );
     }
 
     #[test]

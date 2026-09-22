@@ -1392,6 +1392,33 @@ pub fn get_overflow_x(
     }
 }
 
+/// CSS Overflow 3 §3.3: the ROOT element's overflow is applied to the
+/// VIEWPORT, and there `visible` must be read as `auto` and `clip` as
+/// `hidden` - the viewport is what scrolls a page that is taller than the
+/// window. The root element is node 0 of its DOM.
+///
+/// It is applied ONLY where the scrollport is decided
+/// ([`crate::solver3::cache::compute_scrollbar_info_core`]). The root's own
+/// clip, hit testing and pagination keep reading the declared value: applied
+/// to every reader, the rule turned every page into a clipping box and
+/// reddened pagination, hit testing and margin escape alike.
+pub(crate) fn apply_viewport_overflow_rule(
+    node_id: NodeId,
+    value: MultiValue<LayoutOverflow>,
+) -> MultiValue<LayoutOverflow> {
+    if node_id.index() != 0 {
+        return value;
+    }
+    match value {
+        MultiValue::Exact(LayoutOverflow::Visible) => MultiValue::Exact(LayoutOverflow::Auto),
+        MultiValue::Exact(LayoutOverflow::Clip) => MultiValue::Exact(LayoutOverflow::Hidden),
+        // Nothing declared: the initial value IS `visible`, so the viewport
+        // rule applies to it too.
+        MultiValue::Auto | MultiValue::Initial => MultiValue::Exact(LayoutOverflow::Auto),
+        other => other,
+    }
+}
+
 /// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
 #[must_use]
 pub fn get_overflow_y(

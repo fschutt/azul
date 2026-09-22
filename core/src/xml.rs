@@ -5870,7 +5870,24 @@ fn apply_xml_node_attributes(
             .get_key("viewBox")
             .or_else(|| xml_node.attributes.get_key("viewbox"))
             .and_then(|v| parse_svg_view_box(v.as_str()));
-        if let Some((min_x, min_y, width, height)) = view_box {
+        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
+        let usable = |v: f32| v.is_finite() && v > 0.0;
+        // An ABSENT `viewBox` is not "no user space": SVG's sizing rules make
+        // user units map straight onto the viewport, which is the same thing
+        // as `viewBox="0 0 <width> <height>"`. Recording it only when the
+        // attribute was literally there left every shape in such a document
+        // without a coordinate system, and the mask rasteriser then drew it at
+        // half scale anchored at the box's origin rather than at its own
+        // coordinates. Every window-control icon in a GTK theme is this
+        // document - Mint-Y writes `height="16" width="16"` and no viewBox -
+        // so a titlebar's controls came out as an illegible cluster in the
+        // corner of each button, while azul's own close glyph, the one markup
+        // that carries a viewBox, drew correctly.
+        let implied = match (stated("width"), stated("height")) {
+            (Some(w), Some(h)) if usable(w) && usable(h) => Some((0.0, 0.0, w, h)),
+            _ => None,
+        };
+        if let Some((min_x, min_y, width, height)) = view_box.or(implied) {
             node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
                 min_x,
                 min_y,
@@ -5878,8 +5895,6 @@ fn apply_xml_node_attributes(
                 height,
             });
         }
-        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
-        let usable = |v: f32| v.is_finite() && v > 0.0;
         if let Some(w) = stated("width")
             .or_else(|| view_box.map(|(_, _, w, _)| w))
             .filter(|w| usable(*w))
@@ -6264,6 +6279,40 @@ fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
     }
 }
 
+/// Is this element one that DRAWS NOTHING, subtree and all?
+///
+/// Not "unknown" - unknown tags are ordinary boxes and stay `<div>`s. These
+/// are elements that a renderer is DEFINED not to draw, so whatever they
+/// contain is about the document rather than in it, and turning their text
+/// into text nodes puts prose on screen.
+///
+/// Two kinds, and a real icon theme hands us both in every file:
+///
+///   * `<metadata>` (SVG 1.1 §5.10), which is where Inkscape parks an RDF block - and inside it
+///     `<dc:format>image/svg+xml</dc:format>`, whose text drew across the window controls of a
+///     client-side titlebar, clipped to 16px, as the letters `im`;
+///   * anything in a FOREIGN NAMESPACE (SVG 1.1 §23.2), which is the rest of what Inkscape leaves
+///     behind: `<sodipodi:namedview>`, `<inkscape:grid>`, `<rdf:RDF>`, `<cc:Work>`.
+///
+/// A prefix alone does not make an element foreign: a document that declares
+/// the SVG or XHTML namespace may well write `<svg:path>`, which is a path.
+///
+/// `<style>` belongs to this family too but is handled separately at the call
+/// site: its text is not nothing, it is a stylesheet, and it is lifted onto
+/// the element that contains it.
+fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
+    if normalized_tag == "metadata" {
+        return true;
+    }
+    match raw_tag.split_once(':') {
+        Some((prefix, _)) => !matches!(
+            prefix.trim().to_lowercase().as_str(),
+            "svg" | "html" | "xhtml"
+        ),
+        None => false,
+    }
+}
+
 // `component_map` is threaded through purely to reach the recursive calls; it
 // stays in the signature because the sibling `xml_node_to_fast_dom` reads it and
 // the two must keep the same shape. `RenderDomError` is large but is the crate's
@@ -6334,6 +6383,16 @@ fn xml_node_to_dom_fast<'a>(
                     }
                 }
             }
+            // Draws nothing, subtree and all - see `element_draws_nothing`.
+            // Dropped rather than emitted-and-hidden because there is no node
+            // type to hang a `display: none` on: an unrecognised tag becomes a
+            // `<div>`, and a `<div>` full of an icon's RDF block renders the
+            // RDF.
+            XmlNodeChild::Element(child_node)
+                if element_draws_nothing(
+                    child_node.node_type.as_str(),
+                    &normalize_casing(&child_node.node_type),
+                ) => {}
             XmlNodeChild::Element(child_node) => {
                 let child_dom =
                     xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
@@ -6507,6 +6566,13 @@ fn xml_node_to_fast_dom<'a>(
         // Recursively convert children
         for child in xml_node.children.as_ref() {
             match child {
+                // The same law as in the tree builder: an element that draws
+                // nothing contributes nothing, subtree and all.
+                XmlNodeChild::Element(child_node)
+                    if element_draws_nothing(
+                        child_node.node_type.as_str(),
+                        &normalize_casing(&child_node.node_type),
+                    ) => {}
                 XmlNodeChild::Element(child_node) => {
                     xml_node_to_fast_dom(
                         child_node,

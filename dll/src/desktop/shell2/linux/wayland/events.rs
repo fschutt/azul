@@ -502,6 +502,13 @@ pub(super) extern "C" fn registry_global_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let interface_str = unsafe { CStr::from_ptr(interface).to_str().unwrap_or_default() };
 
+    // NOTICED, never bound: `zwlr_data_control_manager_v1` /
+    // `ext_data_control_manager_v1` are what a clipboard MANAGER watches the
+    // selection through, and Wayland's answer to "must a copy outlive the
+    // app" is "run one". Binding it would make this toolkit a second manager;
+    // knowing it is there is what lets the app tell the truth at shutdown.
+    super::clipboard::note_global(interface_str);
+
     match interface_str {
         "wl_compositor" => {
             window.compositor = unsafe {
@@ -998,10 +1005,10 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
         return;
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    const CLIENT_SIDE: u32 = 1;
-    let refuses_ssd = mode == CLIENT_SIDE
-        && window.common.current_window_state().flags.decorations
-            != azul_core::window::WindowDecorations::None;
+    let refuses_ssd = {
+        let flags = &window.common.current_window_state().flags;
+        super::compositor_refused_server_side(flags.has_decorations, flags.decorations, mode)
+    };
     if refuses_ssd {
         window.common.update_window_state(
             crate::desktop::shell2::common::event::WindowStateSource::Os,

@@ -3726,19 +3726,20 @@ impl LayoutWindow {
             (focus_node, focus_cursor, anchor_node, anchor_cursor)
         };
 
-        // Walk first -> last along the sibling chain, collecting middles.
-        let mut middles: Vec<NodeId> = Vec::new();
-        let mut cur = first;
-        loop {
-            let Some(next) = self.block_sibling(dom_id, cur, true) else {
-                return false; // ran off the chain: not siblings
-            };
-            if next == last {
-                break;
-            }
-            middles.push(next);
-            cur = next;
-        }
+        // The blocks between the two ends IN DOCUMENT ORDER - every text
+        // block the selection passes over, wherever it sits in the tree.
+        //
+        // This used to walk the SIBLING chain and reject the selection the
+        // moment it ran off it, so a drag from a paragraph in one container
+        // into a paragraph in another - a heading in a wrapper, a list, two
+        // cards: every real document - was refused and the drag collapsed
+        // back to the anchor's paragraph.
+        let ifc_roots = self.ifc_roots_in_document_order(dom_id);
+        let index_of = |n: NodeId| ifc_roots.iter().position(|&x| x == n);
+        let (Some(i_first), Some(i_last)) = (index_of(first), index_of(last)) else {
+            return false; // an end that is not a text block of this dom
+        };
+        let middles: Vec<NodeId> = ifc_roots[i_first + 1..i_last].to_vec();
 
         let node_start = |_n: NodeId| TextCursor {
             cluster_id: GraphemeClusterId {
@@ -4033,6 +4034,25 @@ impl LayoutWindow {
     /// the `<ul>`, so the merge is a no-op. (The previous version returned
     /// the raw sibling unfiltered, so Backspace at a block start could merge
     /// a whole block INTO an XML whitespace text node.)
+    /// Every IFC root (text block) of `dom_id`, in DOCUMENT order.
+    ///
+    /// The layout tree is built in pre-order, so its own order IS document
+    /// order; anonymous boxes carry no `dom_node_id` and are skipped.
+    #[must_use]
+    pub fn ifc_roots_in_document_order(&self, dom_id: DomId) -> Vec<NodeId> {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let tree = &lr.layout_tree;
+        (0..tree.nodes.len())
+            .filter(|idx| {
+                tree.warm(LayoutNodeId::new(*idx))
+                    .is_some_and(|w| w.inline_layout_result.is_some())
+            })
+            .filter_map(|idx| tree.nodes[idx].dom_node_id)
+            .collect()
+    }
+
     fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
         use azul_core::dom::NodeType;
 
@@ -6939,19 +6959,16 @@ impl LayoutWindow {
             }
         }
 
-        // Caret / selection tween post-pass: compare the freshly built caret /
-        // selection geometry against what the previous frame rendered and, if
-        // a tween is configured and in flight, PATCH the display-list items
-        // with interpolated rects (the solver's cached DL keeps the true
-        // geometry — Arc::make_mut copies before the patch, same contract as
-        // the VirtualView placeholder swap above).
-        {
-            let now = (system_callbacks.get_system_time_fn.cb)();
-            self.apply_text_tweens(dom_id, &mut display_list, now);
-        }
-
         // Store the final layout result for this DOM. `styled_dom` was passed
         // in by value, so we move it into the map without cloning.
+        //
+        // This happens BEFORE the tween post-pass below: that pass looks the
+        // focused node up in `layout_results` (its hierarchy, its enclosing
+        // scroll frame) to place the focus ring, and a full relayout cleared
+        // the map at its start. With the pass running first, every
+        // full-layout frame found no result and appended no ring - so a
+        // widget whose focus callback asks for a DOM refresh (AzWidgets'
+        // TextArea) ended each Tab press on a ring-less frame.
         self.layout_results.insert(
             dom_id,
             DomLayoutResult {
@@ -6964,6 +6981,27 @@ impl LayoutWindow {
                 scroll_id_to_node_id,
             },
         );
+
+        // Caret / selection tween post-pass: compare the freshly built caret /
+        // selection geometry against what the previous frame rendered and, if
+        // a tween is configured and in flight, PATCH the display-list items
+        // with interpolated rects (the solver's cached DL keeps the true
+        // geometry — Arc::make_mut copies before the patch, same contract as
+        // the VirtualView placeholder swap above). The list is taken out of
+        // the stored result for the pass and put back, so the Arc stays
+        // unique and the patch never deep-copies it.
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            let mut display_list = self
+                .layout_results
+                .get_mut(&dom_id)
+                .map(|lr| core::mem::take(&mut lr.display_list))
+                .unwrap_or_default();
+            self.apply_text_tweens(dom_id, &mut display_list, now);
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                lr.display_list = display_list;
+            }
+        }
 
         // PUBLISH-AFTER-CONSUME, closed: a VirtualView invoke above may have
         // published a new virtual size into the ScrollManager — an input the
@@ -8557,6 +8595,13 @@ impl LayoutWindow {
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
         now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        // THE LAST ACTION WINS. Every node reveal the engine issues comes
+        // through here - a focus change, an a11y `Focus`, an app's
+        // `scroll_node_into_view` - and every one of them is an input in its
+        // own right, so it takes the claim on the view. That is what lets a
+        // key press reach a component the user has scrolled off-screen and
+        // still pull it back.
+        self.scroll_manager.note_reveal_intent();
         // Precomputed, because the resolver would otherwise borrow `self`
         // immutably while `scroll_manager` is borrowed mutably below.
         let hops = self.nested_dom_hops();
@@ -9707,14 +9752,29 @@ impl LayoutWindow {
             // the body), and `clear_editing` then erased the highlight the user
             // was still looking at. Tear the caret machinery down, keep the
             // range.
-            let non_editable_range = self
+            //
+            // A COLLAPSED caret counts too while the pointer is still making
+            // the selection. A press is one pass: the shell plants the anchor
+            // from `SystemChange::TextSelectionClick` and only then runs
+            // click-to-focus, whose `SystemChange::SetFocus` lands here — so on
+            // plain, non-editable text the anchor was destroyed before the
+            // first drag move ever arrived, and `process_mouse_drag_for_
+            // selection` (which opens with `multi_cursor.as_ref()?`) had
+            // nothing to extend. Left-click-drag over document text could
+            // therefore never select anything at all. The press edge latches
+            // `text_selection_drag_anchor`, and that is exactly the "a
+            // selection gesture is in flight" signal this needs.
+            let selection_gesture_in_flight = self.text_selection_drag_anchor.is_some();
+            let non_editable_selection = self
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
                 .filter(|mc| {
-                    mc.selections
-                        .iter()
-                        .any(|sel| matches!(sel.selection, Selection::Range(_)))
+                    selection_gesture_in_flight
+                        || mc
+                            .selections
+                            .iter()
+                            .any(|sel| matches!(sel.selection, Selection::Range(_)))
                 })
                 .and_then(|mc| {
                     mc.node_id
@@ -9726,7 +9786,7 @@ impl LayoutWindow {
                     !self.is_node_contenteditable_inherited_internal(dom, node)
                 });
 
-            if non_editable_range {
+            if non_editable_selection {
                 let had_blink = self.text_edit_manager.blink.is_visible
                     || self.text_edit_manager.blink.blink_timer_active;
                 self.text_edit_manager.blink.clear();
@@ -10133,6 +10193,26 @@ impl LayoutWindow {
             .iter()
             .map(|w| w.content_dom)
             .collect()
+    }
+
+    /// The node's inline layout with CLUSTERS IN IT.
+    ///
+    /// [`Self::get_inline_layout_for_node`] returns the sparse
+    /// `UnifiedLayout`, which under the default dense text path is the shared
+    /// EMPTY retirement sentinel - so `get_first_cluster_cursor()` on it is
+    /// `None` for every node, and any caller that gave up on that `None`
+    /// silently did nothing. Ctrl+A was one such caller.
+    pub fn materialized_inline_layout_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<Arc<UnifiedLayout>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let layout_index = *layout_result.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+        let cached = layout_result
+            .layout_tree
+            .get_cached_inline_layout_for_node(layout_index.index())?;
+        Some(Self::materialized_inline_layout(cached))
     }
 
     pub fn get_inline_layout_for_node(
@@ -11908,27 +11988,41 @@ impl LayoutWindow {
                 continue; // Skip anonymous boxes
             };
 
-            // Calculate current opacity from ScrollManager
-            let vertical_opacity = if scrollbar_info.needs_vertical {
+            // Calculate current opacity from ScrollManager. A bar whose thumb
+            // the user is holding is pinned fully visible: its activity stamp
+            // only moves with the scroll position, and a thumb held still
+            // produces none, so the fade would otherwise take the bar away
+            // under the pointer.
+            use azul_core::dom::ScrollbarOrientation;
+            let vertical_opacity = if !scrollbar_info.needs_vertical {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical)
+            {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
-            let horizontal_opacity = if scrollbar_info.needs_horizontal {
+            let horizontal_opacity = if !scrollbar_info.needs_horizontal {
+                0.0
+            } else if scroll_manager.is_thumb_dragged(
+                dom_id,
+                node_id,
+                ScrollbarOrientation::Horizontal,
+            ) {
+                1.0
+            } else {
                 Self::calculate_scrollbar_opacity(
                     scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
                 )
-            } else {
-                0.0
             };
 
             // Track whether any scrollbar is actively fading (0 < opacity < 1).
@@ -13591,6 +13685,13 @@ impl LayoutWindow {
         scroll_type: SelectionScrollType,
         scroll_mode: ScrollMode,
     ) -> bool {
+        // THE LAST ACTION WINS. Every caret and selection reveal comes
+        // through here, and each of its callers is a real input - a
+        // keystroke's changeset, a caret move, a paste, an a11y focus. The
+        // one caller that is NOT an input is
+        // `scroll_focused_cursor_into_view`, which asks
+        // `reveal_may_move_view()` before it gets this far.
+        self.scroll_manager.note_reveal_intent();
         // Get bounds to scroll into view
         let bounds = match scroll_type {
             SelectionScrollType::Cursor => {
@@ -13788,6 +13889,19 @@ impl LayoutWindow {
     /// Delegates to `scroll_selection_into_view` with cursor mode.
     /// Called internally from `layout_and_generate_display_list()`.
     fn scroll_focused_cursor_into_view(&mut self) -> bool {
+        // THE LAST ACTION WINS, and this is the only reveal in the engine
+        // that is RE-ASSERTED rather than issued: it runs after every
+        // successful layout, which includes every layout a wheel step causes.
+        // The caret gate below asks "did the caret change?", which is a
+        // question about CONTENT - it cannot tell a fresh intent from the
+        // same intent asserted one frame later, and it is blind to what the
+        // user did in between. Asking the scroll manager first is what stops
+        // the reveal fighting the wheel. Before the latch, deliberately: an
+        // abandoned reveal must not be recorded as satisfied, so the next
+        // keystroke still finds the caret unrevealed and shows it.
+        if !self.scroll_manager.reveal_may_move_view() {
+            return false;
+        }
         // ONLY when the caret actually moved — see `last_revealed_caret_rect`.
         // This is called after EVERY successful layout, so without the gate the
         // user cannot scroll away from a focused text field: every frame drags
@@ -18593,6 +18707,54 @@ impl LayoutWindow {
             .fold(ScrollOffset::zero(), |acc, off| acc.plus(ScrollOffset(off)))
     }
 
+    /// The `source_run → (that run's shared source text, its style)` table
+    /// a node's SELECTION cursors are numbered against.
+    ///
+    /// A [`TextCursor`]'s `source_run` indexes the inline content
+    /// `solver3::fc` BUILT for the IFC, and `start_byte_in_run` indexes THAT
+    /// run's shaped text. [`Self::get_text_before_textinput`] returns a
+    /// different vector — a DOM-child recursion that emits no `::marker`,
+    /// no `<br>` break and no replaced item, and does not collapse
+    /// whitespace — so addressing it by `source_run` names the wrong run,
+    /// or none at all, for any block holding more than plain text. That is
+    /// why a document selection over a list, or over a paragraph with a
+    /// `<br>` in it, highlighted correctly and copied nothing.
+    ///
+    /// `ShapedCluster::source_text` is the string the cursor was minted
+    /// against, by construction (the same reason `DenseText` stopped mapping
+    /// through `content.get(source_run)`), so this table cannot drift from
+    /// the cursors the way the DOM vector does.
+    fn selection_runs_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> {
+        let mut out: BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> = BTreeMap::new();
+        // Dense-first: under the default `AZ_DENSE_TEXT` the sparse half may
+        // be the retirement sentinel.
+        if let Some(dense) = self.get_dense_for_node(dom_id, node_id) {
+            for run in &dense.runs {
+                out.entry(run.source_run)
+                    .or_insert_with(|| (run.text.clone(), run.style.clone()));
+            }
+        }
+        if out.is_empty() {
+            // The MATERIALIZED layout, never the raw sparse one: under the
+            // default dense path `get_inline_layout_for_node` hands back the
+            // shared empty retirement sentinel, which has no clusters and so
+            // would leave this table empty for every node.
+            if let Some(layout) = self.materialized_inline_layout_for_node(dom_id, node_id) {
+                for item in &layout.items {
+                    if let ShapedItem::Cluster(c) = &item.item {
+                        out.entry(c.source_cluster_id.source_run)
+                            .or_insert_with(|| (c.source_text.clone(), c.style.clone()));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn materialized_inline_layout(
         cached: &solver3::layout_tree::CachedInlineLayout,
     ) -> Arc<UnifiedLayout> {
@@ -19901,8 +20063,17 @@ impl LayoutWindow {
             .warm(LayoutNodeId::new(layout_idx))?
             .inline_layout_result
             .as_ref()?;
-        // (d6h) Materialized: sentinel-safe click hittest.
-        let focus = Self::materialized_inline_layout(cached).hittest_point(local_pos)?;
+        // (d6h) Materialized: sentinel-safe click hittest, with the same
+        // empty-line fallback - dragging BACK onto a blank line inside the
+        // anchor block is the same question as arriving on one.
+        let materialized = Self::materialized_inline_layout(cached);
+        let focus = materialized.hittest_point(local_pos).or_else(|| {
+            Self::empty_editing_host_caret(
+                &layout_result.styled_dom,
+                node_id,
+                materialized.as_ref(),
+            )
+        })?;
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -20020,7 +20191,17 @@ impl LayoutWindow {
             size.height - inset.top - bottom,
         );
         // (d6h) Materialized: sentinel-safe drag hittest.
-        let cursor = Self::materialized_inline_layout(cached).hittest_point(clamped)?;
+        let layout = Self::materialized_inline_layout(cached);
+        // ... and the same empty-line fallback BOTH branches of the click path
+        // take. A block with no clusters has no glyph to measure a point
+        // against, so `hittest_point` answers `None` - and on an editing host
+        // that block is a real, standable line kept by `layout_ifc` precisely
+        // so a caret can go there. Without this, a selection dragged across a
+        // blank paragraph stopped at the paragraph before it, and a document
+        // that is ONE blank line could not be dragged in at all.
+        let cursor = layout.hittest_point(clamped).or_else(|| {
+            Self::empty_editing_host_caret(&layout_result.styled_dom, node_dom_id, layout.as_ref())
+        })?;
         Some((node_dom_id, cursor))
     }
 
@@ -20111,6 +20292,28 @@ impl LayoutWindow {
 
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
+        // A DOCUMENT selection spans several text blocks and is held beside
+        // the primary cursor, not on it: deleting through the single-node
+        // path below would trim only the anchor's paragraph and leave every
+        // other selected block untouched (Backspace over a multi-paragraph
+        // selection deleted inside one of them). Copy and Cut already go
+        // through the cross-block path; every delete does now.
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            let affected: Vec<DomNodeId> = self
+                .text_edit_manager
+                .get_cross_block_selection()
+                .map(|sel| {
+                    sel.affected_nodes
+                        .keys()
+                        .map(|n| DomNodeId {
+                            dom: dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(*n)),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            return self.delete_cross_block_selection().map(|_| affected);
+        }
         // `target` is the focused HOST (the undo stack's key); the content
         // is keyed to the caret's IFC owner, exactly like typing is. Keying
         // deletions to the host spliced the host-flattened blob at per-IFC
@@ -20306,36 +20509,42 @@ impl LayoutWindow {
                 nodes.sort_by_key(|(n, _)| n.index());
                 let mut acc = ClipboardExtract::default();
                 for (block, (node, range)) in nodes.iter().enumerate() {
-                    let content = self.get_text_before_textinput(*dom_id, *node);
+                    // The runs the selection's own cursors are numbered
+                    // against — NOT the DOM-child recursion of
+                    // `get_text_before_textinput`, which is a different
+                    // vector with different indices (see
+                    // `selection_runs_for_node`).
+                    let runs = self.selection_runs_for_node(*dom_id, *node);
                     // The paragraph joiner, carrying the style of the text it
                     // follows — a `\n` of its own would be a run with no
                     // formatting between two that have it.
                     if block > 0 {
                         acc.push_inheriting("\n");
                     }
-                    let sr = range.start.cluster_id.source_run as usize;
-                    let er = range.end.cluster_id.source_run as usize;
-                    for (i, c) in content.iter().enumerate() {
-                        if let InlineContent::Text(run) = c {
-                            if i < sr || i > er {
-                                continue;
-                            }
-                            // Affinity-aware: a Trailing end cursor on the
-                            // final cluster means AFTER that grapheme.
-                            let lo = if i == sr {
-                                cursor_byte_offset_in_run(&run.text, &range.start)
-                                    .min(run.text.len())
-                            } else {
-                                0
-                            };
-                            let hi = if i == er {
-                                cursor_byte_offset_in_run(&run.text, &range.end).min(run.text.len())
-                            } else {
-                                run.text.len()
-                            };
-                            if lo < hi {
-                                acc.push(&run.text[lo..hi], &run.style);
-                            }
+                    let sr = range.start.cluster_id.source_run;
+                    let er = range.end.cluster_id.source_run;
+                    if sr > er {
+                        continue;
+                    }
+                    for (r, (text, style)) in runs.range(sr..=er) {
+                        // Affinity-aware: a Trailing end cursor on the final
+                        // cluster means AFTER that grapheme. A run the range
+                        // only passes OVER is taken whole, and an end that
+                        // names a non-text item (a `<br>`, a `::marker`) has
+                        // no entry here at all — which is exactly the
+                        // "take the neighbours whole" answer.
+                        let lo = if *r == sr {
+                            cursor_byte_offset_in_run(text, &range.start).min(text.len())
+                        } else {
+                            0
+                        };
+                        let hi = if *r == er {
+                            cursor_byte_offset_in_run(text, &range.end).min(text.len())
+                        } else {
+                            text.len()
+                        };
+                        if lo < hi {
+                            acc.push(&text[lo..hi], style);
                         }
                     }
                 }
@@ -27124,6 +27333,120 @@ mod window_theme_context {
         assert!(
             after.size.width > before.size.width,
             "a longer label widens the box: {before:?} -> {after:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod selection_anchor_survives_focus_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    const CSS: &str = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; }";
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    /// `body(0) > div.p(1) > text(2)`, laid out. NOT contenteditable: plain,
+    /// selectable document text, which is what a paragraph or a label is.
+    fn plain_paragraph_window() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello world",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut win = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        win.current_window_state = ws.clone();
+        win.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        (win, ws)
+    }
+
+    /// Exactly what a single LEFT PRESS on plain text leaves behind:
+    /// `process_mouse_click_for_selection` plants a COLLAPSED caret on the IFC
+    /// root (no range yet - the drag has not moved), and the shell latches the
+    /// drag anchor on the press edge to say a selection gesture is in flight.
+    fn press_on_plain_text(win: &mut LayoutWindow, gesture_in_flight: bool) {
+        win.text_edit_manager
+            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(1), 0);
+        win.text_selection_drag_anchor = gesture_in_flight.then(|| LogicalPosition::new(12.0, 8.0));
+    }
+
+    /// THE LAW: a press that begins a text selection keeps its anchor through
+    /// the focus change that same press causes.
+    ///
+    /// The press and the focus move are ONE pass: the shell applies
+    /// `SystemChange::TextSelectionClick` in the pre-filter and only then runs
+    /// click-to-focus, which emits `SystemChange::SetFocus` and lands here. A
+    /// press on non-editable text therefore plants the anchor and blurs into a
+    /// non-editable focus in the same breath - and
+    /// `process_mouse_drag_for_selection` starts with `multi_cursor.as_ref()?`,
+    /// so an anchor torn down here means the drag that follows can never
+    /// select anything.
+    ///
+    /// EXPECTED TO FAIL TODAY: `has_active_editing()` is `false` after the
+    /// call, because the keep-the-selection guard only recognises a selection
+    /// that is ALREADY a `Selection::Range` and a single press has only a
+    /// collapsed `Selection::Cursor`, so `clear_editing()` runs.
+    #[test]
+    fn a_press_that_begins_a_selection_keeps_its_anchor_through_the_focus_it_causes() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, true);
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "premise: the press planted an anchor"
+        );
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            win.text_edit_manager.has_active_editing(),
+            "a focus change must not destroy the anchor of a selection the pointer is still making"
+        );
+    }
+
+    /// The other half of the law, so the fix cannot be "never clear anything":
+    /// with no pointer gesture in flight, a focus change off non-editable text
+    /// still tears the caret down, exactly as before.
+    #[test]
+    fn a_focus_change_with_no_gesture_in_flight_still_clears_the_caret() {
+        let (mut win, ws) = plain_paragraph_window();
+        press_on_plain_text(&mut win, false);
+
+        let _ = win.handle_focus_change_for_cursor_blink(None, &ws);
+
+        assert!(
+            !win.text_edit_manager.has_active_editing(),
+            "a caret nobody is dragging dies with the focus that owned it"
         );
     }
 }

@@ -3386,7 +3386,7 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
             .with_css_props(style.resolved_mobile_tab_button_style())
             .with_children(DomVec::from_vec(vec![
-                crate::widgets::widget_p()
+                crate::widgets::widget_p_chrome()
                     .with_css_props(style.resolved_mobile_tab_label_style())
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(active_label),
@@ -3745,7 +3745,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         );
     }
     footer_children.push(
-        crate::widgets::widget_p()
+        crate::widgets::widget_p_chrome()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.resolved_group_label_style())
             .with_children(DomVec::from_vec(vec![
@@ -3809,7 +3809,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             } else {
                 (CLS_GALLERY_CELL, s.resolved_gallery_cell_style())
             };
-            let label = crate::widgets::widget_p()
+            let label = crate::widgets::widget_p_chrome()
                 .with_css_props(s.resolved_gallery_cell_label_style())
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),

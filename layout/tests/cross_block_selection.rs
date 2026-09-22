@@ -87,6 +87,51 @@ fn layout_three_paragraphs() -> LayoutWindow {
 }
 
 /// Node layout: body=0, div1=1, text=2, div2=3, text=4, div3=5, text=6.
+/// The same three paragraphs, but NESTED: two in one wrapper div and the
+/// third in another. Nothing about a document selection should care.
+///
+/// body(0) > div.box(1) > [p(2)>text(3), p(4)>text(5)], div.box(6) > p(7)>text(8)
+fn layout_paragraphs_in_two_boxes() -> LayoutWindow {
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { font-size: 14px; width: 600px; }
+        .box { display: block; }
+        .p { display: block; }
+    "#;
+    let class =
+        |name: &str| -> azul_core::dom::IdOrClassVec { vec![IdOrClass::Class(name.into())].into() };
+    let para = |txt: &str| {
+        Dom::create_div()
+            .with_ids_and_classes(class("p"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(txt))
+    };
+    let mut dom = Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("box"))
+                .with_child(para("first paragraph"))
+                .with_child(para("second paragraph")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("box"))
+                .with_child(para("third paragraph")),
+        );
+    let (css, warnings) = azul_css::parser2::new_from_str(CSS);
+    assert!(warnings.is_empty(), "css warnings: {warnings:?}");
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = Some(Vec::new());
+    lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+        .unwrap();
+    lw
+}
+
 const P1: usize = 1;
 const P2: usize = 3;
 const P3: usize = 5;
@@ -383,4 +428,205 @@ fn cross_block_copy_joins_paragraphs_and_paste_replaces_atomically() {
     // Caret resumes AFTER the pasted text: 6 + len("PASTED") = 12.
     let pos = format!("{:?}", edit.resume.position);
     assert!(pos.contains("12"), "caret after the insert: {pos}");
+}
+
+/// A DOCUMENT selection spans whatever text blocks lie between its ends, in
+/// document order - it is not a sibling walk. Dragging from a paragraph in
+/// one container into a paragraph in another (every real document: a heading
+/// in a wrapper, a list, a card) used to run off the sibling chain and be
+/// rejected, and the drag collapsed back to the anchor paragraph.
+#[test]
+fn a_selection_spans_text_blocks_in_other_containers() {
+    let mut lw = layout_paragraphs_in_two_boxes();
+    const FIRST_P: usize = 2;
+    const THIRD_P: usize = 7;
+    let ok = lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        node_id(FIRST_P),
+        cursor(6),
+        node_id(THIRD_P),
+        cursor(5),
+    );
+    assert!(ok, "a selection across containers must be accepted");
+    let sel = lw
+        .text_edit_manager
+        .get_cross_block_selection()
+        .expect("the selection is stored");
+    assert_eq!(
+        sel.affected_nodes.len(),
+        3,
+        "both ends and the paragraph between them: {:?}",
+        sel.affected_nodes.keys().collect::<Vec<_>>()
+    );
+}
+
+/// Reversed drag (bottom-up) selects the same blocks.
+#[test]
+fn a_selection_across_containers_works_in_both_directions() {
+    let mut lw = layout_paragraphs_in_two_boxes();
+    assert!(lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        node_id(7),
+        cursor(5),
+        node_id(2),
+        cursor(6),
+    ));
+    assert_eq!(
+        lw.text_edit_manager
+            .get_cross_block_selection()
+            .expect("stored")
+            .affected_nodes
+            .len(),
+        3
+    );
+}
+
+/// Backspace over a DOCUMENT selection deletes every block it spans, not just
+/// the anchor's. The cross-block selection lives beside the primary cursor,
+/// so the single-node delete path trimmed one paragraph and left the rest.
+#[test]
+fn deleting_a_document_selection_trims_every_block_it_spans() {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    let mut lw = layout_three_paragraphs();
+    assert!(lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        node_id(P1),
+        cursor(6), // after "first "
+        node_id(P3),
+        cursor(6), // after "third "
+    ));
+    let host = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_id(P1))),
+    };
+    let affected = lw
+        .delete_selection(host, false)
+        .expect("the delete reports the blocks it touched");
+    assert!(
+        affected.len() >= 3,
+        "every spanned block is reported: {affected:?}"
+    );
+    assert!(
+        lw.text_edit_manager.get_cross_block_selection().is_none(),
+        "the selection is consumed by the delete"
+    );
+}
+
+/// A BLOCK THAT HOLDS MORE THAN PLAIN TEXT STILL COPIES.
+///
+/// A `TextCursor`'s `source_run` indexes the inline content `solver3::fc`
+/// built for the IFC, where a `<br>` is a `LineBreak` item of its own
+/// (`layout/src/solver3/fc.rs`, the `NodeType::Br` arm). The clipboard
+/// extraction indexes a DIFFERENT vector — the DOM-child recursion of
+/// `get_text_before_textinput`, which drops `<br>` (and `::marker`, and
+/// replaced content) entirely. With a leading `<br>` the block's text is
+/// run 1 to the selection and item 0 to the copy, so the copy's
+/// `if i < sr { continue }` walks past the only run it has and the whole
+/// block is dropped from the clipboard.
+///
+/// RED today: the copy yields `"\ngamma"` — the anchor block contributes
+/// nothing and only the joiner and the second block survive.
+#[test]
+fn a_document_selection_copies_a_block_whose_text_is_not_its_first_run() {
+    use azul_core::geom::LogicalPosition;
+
+    const CSS: &str = r#"
+        * { margin: 0; padding: 0; }
+        body { font-size: 14px; width: 600px; }
+        .p { display: block; }
+    "#;
+    let class =
+        |name: &str| -> azul_core::dom::IdOrClassVec { vec![IdOrClass::Class(name.into())].into() };
+    // body(0) > div.p(1) [display: list-item] > text(2), div.p(3) > text(4)
+    //
+    // MEASURED on this tree: a `display: list-item` block's clusters carry
+    // `source_run` 0 AND 1 - the `::marker` fc emits takes run 0, so the
+    // text is run 1 - while the DOM-child walk the clipboard indexes with
+    // that number sees the text at 0. A leading `<br>` does NOT diverge
+    // here, which is why the first version of this fixture could not fail.
+    let mut dom = Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("p"))
+                .with_css("display: list-item;")
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "alpha",
+                )),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("p"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "gamma",
+                )),
+        );
+    let (css, _) = azul_css::parser2::new_from_str(CSS);
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = ws.clone();
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = Some(Vec::new());
+    lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+        .unwrap();
+
+    // Mint both ends the way a real drag does — through the hit test, so the
+    // cursors carry the LAYOUT's run numbering and not a hand-written 0.
+    let a_rect = lw
+        .get_node_layout_rect(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id(1))),
+        })
+        .expect("the first block is laid out");
+    let b_rect = lw
+        .get_node_layout_rect(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id(3))),
+        })
+        .expect("the second block is laid out");
+
+    let (a_node, a_cursor) = lw
+        .hittest_text_position_global(
+            DomId::ROOT_ID,
+            LogicalPosition::new(a_rect.origin.x + 1.0, a_rect.origin.y + a_rect.size.height * 0.5),
+        )
+        .expect("the pointer resolves a cursor in the first block");
+    let (b_node, b_cursor) = lw
+        .hittest_text_position_global(
+            DomId::ROOT_ID,
+            LogicalPosition::new(
+                b_rect.origin.x + b_rect.size.width - 1.0,
+                b_rect.origin.y + b_rect.size.height * 0.5,
+            ),
+        )
+        .expect("the pointer resolves a cursor in the second block");
+
+    assert_eq!(a_node, node_id(1), "the first end is the first block");
+    assert_eq!(b_node, node_id(3), "the second end is the second block");
+    // The premise this test stands on: the `<br>` occupies run 0, so the
+    // block's text is run 1 — a number the DOM-derived content has no item for.
+    assert_eq!(
+        a_cursor.cluster_id.source_run, 1,
+        "the <br> is run 0 of the layout's inline content, so 'alpha' is run 1"
+    );
+
+    assert!(lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        a_node,
+        a_cursor,
+        b_node,
+        b_cursor,
+    ));
+
+    let clip = lw
+        .get_selected_content_for_clipboard(&DomId::ROOT_ID)
+        .expect("a document selection puts something on the clipboard");
+    assert_eq!(
+        clip.plain_text.as_str(),
+        "alpha\ngamma",
+        "both blocks' text comes out, newline-joined, in document order"
+    );
 }

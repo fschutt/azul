@@ -508,7 +508,6 @@ impl CpuBackend {
                     &mover_rects,
                     display_list,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
                 );
                 all_damage.extend(blit.damage);
                 present_extra.extend(blit.present_extra);
@@ -524,7 +523,6 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -549,26 +547,35 @@ impl CpuBackend {
                 .with_system_style(layout_window.system_style.clone())
                 .with_virtual_view_display_lists(vview_dls);
 
-        if is_incremental && !all_damage.is_empty() {
-            drop(cpurender::render_display_list_damaged(
-                display_list,
-                &mut output,
-                dpi_factor,
-                renderer_resources,
-                &layout_window.font_manager,
-                &mut self.glyph_cache,
-                &render_state,
-                &all_damage,
-            ));
-            // Exits paint ON TOP of the restored live pixels; their current
-            // rects are inside `all_damage` by construction.
-            if zombies_active {
-                layout_window.composite_zombies_cpu(
+        // An INCREMENTAL frame paints exactly its damage - and nothing when it
+        // has none (the twin of the shell renderer's law: a frame that reports
+        // no damage must not rewrite the target).
+        if is_incremental {
+            if !all_damage.is_empty() {
+                if let Ok(painted) = cpurender::render_display_list_damaged(
+                    display_list,
                     &mut output,
                     dpi_factor,
                     renderer_resources,
+                    &layout_window.font_manager,
                     &mut self.glyph_cache,
-                );
+                    &render_state,
+                    &all_damage,
+                ) {
+                    // What was WRITTEN, which is what must be presented:
+                    // overlapping requests are painted as their bounding box.
+                    all_damage = painted;
+                }
+                // Exits paint ON TOP of the restored live pixels; their current
+                // rects are inside `all_damage` by construction.
+                if zombies_active {
+                    layout_window.composite_zombies_cpu(
+                        &mut output,
+                        dpi_factor,
+                        renderer_resources,
+                        &mut self.glyph_cache,
+                    );
+                }
             }
         } else {
             output.fill(255, 255, 255, 255);
