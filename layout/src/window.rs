@@ -20063,8 +20063,17 @@ impl LayoutWindow {
             .warm(LayoutNodeId::new(layout_idx))?
             .inline_layout_result
             .as_ref()?;
-        // (d6h) Materialized: sentinel-safe click hittest.
-        let focus = Self::materialized_inline_layout(cached).hittest_point(local_pos)?;
+        // (d6h) Materialized: sentinel-safe click hittest, with the same
+        // empty-line fallback - dragging BACK onto a blank line inside the
+        // anchor block is the same question as arriving on one.
+        let materialized = Self::materialized_inline_layout(cached);
+        let focus = materialized.hittest_point(local_pos).or_else(|| {
+            Self::empty_editing_host_caret(
+                &layout_result.styled_dom,
+                node_id,
+                materialized.as_ref(),
+            )
+        })?;
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -20182,7 +20191,17 @@ impl LayoutWindow {
             size.height - inset.top - bottom,
         );
         // (d6h) Materialized: sentinel-safe drag hittest.
-        let cursor = Self::materialized_inline_layout(cached).hittest_point(clamped)?;
+        let layout = Self::materialized_inline_layout(cached);
+        // ... and the same empty-line fallback BOTH branches of the click path
+        // take. A block with no clusters has no glyph to measure a point
+        // against, so `hittest_point` answers `None` - and on an editing host
+        // that block is a real, standable line kept by `layout_ifc` precisely
+        // so a caret can go there. Without this, a selection dragged across a
+        // blank paragraph stopped at the paragraph before it, and a document
+        // that is ONE blank line could not be dragged in at all.
+        let cursor = layout.hittest_point(clamped).or_else(|| {
+            Self::empty_editing_host_caret(&layout_result.styled_dom, node_dom_id, layout.as_ref())
+        })?;
         Some((node_dom_id, cursor))
     }
 
