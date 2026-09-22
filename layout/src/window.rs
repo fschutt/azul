@@ -18707,6 +18707,54 @@ impl LayoutWindow {
             .fold(ScrollOffset::zero(), |acc, off| acc.plus(ScrollOffset(off)))
     }
 
+    /// The `source_run → (that run's shared source text, its style)` table
+    /// a node's SELECTION cursors are numbered against.
+    ///
+    /// A [`TextCursor`]'s `source_run` indexes the inline content
+    /// `solver3::fc` BUILT for the IFC, and `start_byte_in_run` indexes THAT
+    /// run's shaped text. [`Self::get_text_before_textinput`] returns a
+    /// different vector — a DOM-child recursion that emits no `::marker`,
+    /// no `<br>` break and no replaced item, and does not collapse
+    /// whitespace — so addressing it by `source_run` names the wrong run,
+    /// or none at all, for any block holding more than plain text. That is
+    /// why a document selection over a list, or over a paragraph with a
+    /// `<br>` in it, highlighted correctly and copied nothing.
+    ///
+    /// `ShapedCluster::source_text` is the string the cursor was minted
+    /// against, by construction (the same reason `DenseText` stopped mapping
+    /// through `content.get(source_run)`), so this table cannot drift from
+    /// the cursors the way the DOM vector does.
+    fn selection_runs_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> {
+        let mut out: BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> = BTreeMap::new();
+        // Dense-first: under the default `AZ_DENSE_TEXT` the sparse half may
+        // be the retirement sentinel.
+        if let Some(dense) = self.get_dense_for_node(dom_id, node_id) {
+            for run in &dense.runs {
+                out.entry(run.source_run)
+                    .or_insert_with(|| (run.text.clone(), run.style.clone()));
+            }
+        }
+        if out.is_empty() {
+            // The MATERIALIZED layout, never the raw sparse one: under the
+            // default dense path `get_inline_layout_for_node` hands back the
+            // shared empty retirement sentinel, which has no clusters and so
+            // would leave this table empty for every node.
+            if let Some(layout) = self.materialized_inline_layout_for_node(dom_id, node_id) {
+                for item in &layout.items {
+                    if let ShapedItem::Cluster(c) = &item.item {
+                        out.entry(c.source_cluster_id.source_run)
+                            .or_insert_with(|| (c.source_text.clone(), c.style.clone()));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn materialized_inline_layout(
         cached: &solver3::layout_tree::CachedInlineLayout,
     ) -> Arc<UnifiedLayout> {
@@ -20442,36 +20490,42 @@ impl LayoutWindow {
                 nodes.sort_by_key(|(n, _)| n.index());
                 let mut acc = ClipboardExtract::default();
                 for (block, (node, range)) in nodes.iter().enumerate() {
-                    let content = self.get_text_before_textinput(*dom_id, *node);
+                    // The runs the selection's own cursors are numbered
+                    // against — NOT the DOM-child recursion of
+                    // `get_text_before_textinput`, which is a different
+                    // vector with different indices (see
+                    // `selection_runs_for_node`).
+                    let runs = self.selection_runs_for_node(*dom_id, *node);
                     // The paragraph joiner, carrying the style of the text it
                     // follows — a `\n` of its own would be a run with no
                     // formatting between two that have it.
                     if block > 0 {
                         acc.push_inheriting("\n");
                     }
-                    let sr = range.start.cluster_id.source_run as usize;
-                    let er = range.end.cluster_id.source_run as usize;
-                    for (i, c) in content.iter().enumerate() {
-                        if let InlineContent::Text(run) = c {
-                            if i < sr || i > er {
-                                continue;
-                            }
-                            // Affinity-aware: a Trailing end cursor on the
-                            // final cluster means AFTER that grapheme.
-                            let lo = if i == sr {
-                                cursor_byte_offset_in_run(&run.text, &range.start)
-                                    .min(run.text.len())
-                            } else {
-                                0
-                            };
-                            let hi = if i == er {
-                                cursor_byte_offset_in_run(&run.text, &range.end).min(run.text.len())
-                            } else {
-                                run.text.len()
-                            };
-                            if lo < hi {
-                                acc.push(&run.text[lo..hi], &run.style);
-                            }
+                    let sr = range.start.cluster_id.source_run;
+                    let er = range.end.cluster_id.source_run;
+                    if sr > er {
+                        continue;
+                    }
+                    for (r, (text, style)) in runs.range(sr..=er) {
+                        // Affinity-aware: a Trailing end cursor on the final
+                        // cluster means AFTER that grapheme. A run the range
+                        // only passes OVER is taken whole, and an end that
+                        // names a non-text item (a `<br>`, a `::marker`) has
+                        // no entry here at all — which is exactly the
+                        // "take the neighbours whole" answer.
+                        let lo = if *r == sr {
+                            cursor_byte_offset_in_run(text, &range.start).min(text.len())
+                        } else {
+                            0
+                        };
+                        let hi = if *r == er {
+                            cursor_byte_offset_in_run(text, &range.end).min(text.len())
+                        } else {
+                            text.len()
+                        };
+                        if lo < hi {
+                            acc.push(&text[lo..hi], style);
                         }
                     }
                 }
