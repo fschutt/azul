@@ -4093,6 +4093,9 @@ fn apply_focus_restyle_in_dom(
     );
 
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        // Nothing the cascade calls a change, but the caret and the
+        // `:focus`-conditional paint are built FROM focus state.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     }
 
@@ -4101,6 +4104,12 @@ fn apply_focus_restyle_in_dom(
     if accumulator.needs_layout() {
         ProcessEventResult::ShouldIncrementalRelayout
     } else if accumulator.needs_paint_only() {
+        // THE SAME LAW AS THE SHELL (33d875e27): a producer of the
+        // ShouldUpdateDisplayList tier rebuilds its own list; the tier only
+        // asks to present. This copy of the function had the same hole, so
+        // `pressing_tab_leaves_a_visible_focus_ring` below could not see the
+        // defect it exists to catch - a gate with the wrong premise.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
