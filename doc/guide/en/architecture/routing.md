@@ -67,38 +67,50 @@ This pattern also works in other languages, e.g. Go and Haskell:
 ```go
 package main
 
-import "github.com/fschutt/azul-go"
+import (
+	azul "azul.rs/ui/go"
+)
 
-func layoutHome(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom {
-    return azul.Dom.createPWithText("home")
+type appModel struct{}
+
+func layoutHome(model *appModel, info *azul.LayoutCallbackInfo) *azul.Dom {
+	return azul.DomCreatePWithText(azul.Str("home"))
 }
 
-func layoutUser(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom {
-    return azul.Dom.createPWithText("user")
+func layoutUser(model *appModel, info *azul.LayoutCallbackInfo) *azul.Dom {
+	return azul.DomCreatePWithText(azul.Str("user"))
 }
 
-func layoutSettings(data azul.RefAny, info azul.LayoutCallbackInfo) azul.Dom {
-    return azul.Dom.createPWithText("settings")
+func layoutSettings(model *appModel, info *azul.LayoutCallbackInfo) *azul.Dom {
+	return azul.DomCreatePWithText(azul.Str("settings"))
 }
 
 func main() {
-    config := azul.AppConfigCreate()
-    config.AddRoute("/", layoutHome)
-    config.AddRoute("/user/:id", layoutUser)
-    config.AddRoute("/settings", layoutSettings)
-
-    // ...
+	config := azul.AppConfigCreate()
+	config.AddRoute(azul.Str("/"), azul.Bind(layoutHome))
+	config.AddRoute(azul.Str("/user/:id"), azul.Bind(layoutUser))
+	config.AddRoute(azul.Str("/settings"), azul.Bind(layoutSettings))
+	
+	// ...
 }
 ```
 
 ```haskell
 import Azul
 import qualified Azul.AppConfig as AppConfig
+import qualified Azul.Dom as Dom
+
+data AppModel = AppModel
 
 -- Haskell layouts take your model (not RefAny) - conversion is automatic
 layoutHome :: AppModel -> LayoutCallbackInfo -> IO Dom
+layoutHome _ _ = Dom.createPWithText "home"
+
 layoutUser :: AppModel -> LayoutCallbackInfo -> IO Dom
+layoutUser _ _ = Dom.createPWithText "user"
+
 layoutSettings :: AppModel -> LayoutCallbackInfo -> IO Dom
+layoutSettings _ _ = Dom.createPWithText "settings"
 
 main :: IO ()
 main = do
