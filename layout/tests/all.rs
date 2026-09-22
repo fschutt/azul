@@ -268,6 +268,8 @@ mod menubar_item_clip;
 mod mock_font_metrics;
 #[path = "multi_range_selection.rs"]
 mod multi_range_selection;
+#[path = "drag_into_an_empty_line.rs"]
+mod drag_into_an_empty_line;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
 #[path = "patched_opacity_reaches_the_paint.rs"]
