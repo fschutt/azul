@@ -137450,6 +137450,20 @@
                                     "type": "ResultUrlUrlParseError"
                                 },
                                 "fn_body": "object.join(path.as_str()).into()"
+                            },
+                            "open": {
+                                "doc": [
+                                    "Opens this URL in the system's default browser."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.open()"
                             }
                         },
                         "repr": "C"
