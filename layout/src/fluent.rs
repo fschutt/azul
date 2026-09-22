@@ -1807,7 +1807,7 @@ mod autotest_generated {
                 let s = shared.clone();
                 std::thread::spawn(move || {
                     for _ in 0..50 {
-                        s.add_resource(&format!("l{i}"), &format!("m{i} = v{i}\n"));
+                        let _ = s.add_resource(&format!("l{i}"), &format!("m{i} = v{i}\n"));
                         let _ = s.get_loaded_locales();
                         let _ = s.get_language_info();
                         let _ = tr(&s, "en-US", "k");
