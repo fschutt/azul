@@ -522,7 +522,11 @@ pub(super) const fn motif_decor_bits(
         // exactly this answer.
         azul_core::window::WindowDecorations::None
         | azul_core::window::WindowDecorations::NoTitle => 0,
-        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
+        // Same all-or-nothing: ask for TITLE and the window manager draws
+        // its whole caption, BUTTONS INCLUDED - which is precisely what
+        // `NoControls` says it does not want. The title it IS owed comes
+        // from `CsdInjection::SoftwareTitleOnly`.
+        azul_core::window::WindowDecorations::NoControls => 0,
         _ => 1, // Normal / NoTitleAutoInject: full WM decorations
     }
 }
@@ -9905,12 +9909,15 @@ mod motif_decoration_tests {
     /// neither the WM's edges nor ours.
     #[test]
     fn a_window_with_no_server_frame_resizes_itself() {
+        // Every mode whose chrome azul draws itself asks for NO server frame,
+        // because Motif is all-or-nothing: a request for BORDER or TITLE gets
+        // the whole caption, buttons included.
         assert_eq!(motif_decor_bits(WindowDecorations::None), 0);
         assert_eq!(motif_decor_bits(WindowDecorations::NoTitle), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoControls), 0);
 
-        // These two keep the WM's frame, and with it its resize handles.
+        // These keep the WM's frame, and with it its resize handles.
         assert_ne!(motif_decor_bits(WindowDecorations::Normal), 0);
-        assert_ne!(motif_decor_bits(WindowDecorations::NoControls), 0);
         assert_ne!(motif_decor_bits(WindowDecorations::NoTitleAutoInject), 0);
     }
 }

@@ -108,6 +108,20 @@ pub(crate) const fn frame_shows_controls_without_title() -> bool {
     !cfg!(target_os = "linux")
 }
 
+/// Can this platform's own frame show a TITLE without CONTROLS?
+///
+/// That is what [`WindowDecorations::NoControls`] asks for. Windows can (the
+/// caption's buttons are separate style bits) and macOS can (the traffic
+/// lights hide individually). X11's Motif hints cannot: ask for TITLE and the
+/// window manager draws its whole caption, buttons included - the same
+/// all-or-nothing that makes `NoTitle` impossible there. So on Linux the bar
+/// is drawn in software instead, WITHOUT controls, which is exactly
+/// [`CsdInjection::SoftwareTitleOnly`].
+#[inline]
+pub(crate) const fn frame_shows_title_without_controls() -> bool {
+    !cfg!(target_os = "linux")
+}
+
 /// What the shell prepends above the user's DOM for a given set of window
 /// decoration flags.
 ///
@@ -143,6 +157,8 @@ pub(crate) fn csd_injection_for(
         CsdInjection::SoftwareTitleOnly
     } else if decorations == WindowDecorations::NoTitle && !frame_shows_controls_without_title() {
         CsdInjection::ControlsOnly
+    } else if decorations == WindowDecorations::NoControls && !frame_shows_title_without_controls() {
+        CsdInjection::SoftwareTitleOnly
     } else {
         CsdInjection::None
     }
@@ -286,13 +302,12 @@ mod tests {
         // Nothing moved.
         assert!(!csd_injection_changed(true, Normal, true, Normal));
         assert!(!csd_injection_changed(true, NoDeco, true, NoDeco));
-        // A title-bar-less mode swapped for another title-bar-less mode.
-        assert!(!csd_injection_changed(
-            true,
-            Normal,
-            true,
-            WindowDecorations::NoControls
-        ));
+        // Normal -> NoControls reshapes on Linux, where the frame cannot show
+        // a title without its buttons and the bar is drawn in software.
+        assert_eq!(
+            csd_injection_changed(true, Normal, true, WindowDecorations::NoControls),
+            cfg!(target_os = "linux"),
+        );
 
         // THE BUG: the compositor refused server-side decorations, the shell
         // flipped the window to frameless+CSD, and the tree now grows a
@@ -350,7 +365,10 @@ mod controls_only_tests {
 
     use azul_core::window::WindowDecorations;
 
-    use super::{csd_injection_for, frame_shows_controls_without_title, CsdInjection};
+    use super::{
+        csd_injection_for, frame_shows_controls_without_title, frame_shows_title_without_controls,
+        CsdInjection,
+    };
 
     #[test]
     fn a_no_title_window_gets_its_controls_drawn_where_the_frame_cannot() {
@@ -375,6 +393,19 @@ mod controls_only_tests {
         assert_eq!(
             frame_shows_controls_without_title(),
             !cfg!(target_os = "linux")
+        );
+    }
+
+    #[test]
+    fn a_no_controls_window_gets_a_title_bar_without_buttons_where_the_frame_cannot() {
+        let expected = if frame_shows_title_without_controls() {
+            CsdInjection::None
+        } else {
+            CsdInjection::SoftwareTitleOnly
+        };
+        assert_eq!(
+            csd_injection_for(true, WindowDecorations::NoControls),
+            expected
         );
     }
 
