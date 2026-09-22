@@ -272,6 +272,8 @@ mod multi_range_selection;
 mod drag_into_an_empty_line;
 #[path = "an_svg_without_a_viewbox.rs"]
 mod an_svg_without_a_viewbox;
+#[path = "a_mask_clip_on_a_half_pixel.rs"]
+mod a_mask_clip_on_a_half_pixel;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
 #[path = "patched_opacity_reaches_the_paint.rs"]
