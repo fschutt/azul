@@ -321,10 +321,6 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     // absolute URL of that page. Agents write relative `.md` targets per
     // markdown convention; the deployed page needs a link that means the same
     // thing from either of its two deployed locations.
-    let mut processed_content = processed_content.to_string();
-    if guide.file_name.starts_with("hello-world/") {
-        processed_content = inject_hello_world_fallback_image(&processed_content);
-    }
     let processed_content = rewrite_md_links(&processed_content, &guide.file_name);
 
     let content = comrak::markdown_to_html_with_plugins(
@@ -368,6 +364,11 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
             },
         },
     );
+
+    let mut content = content;
+    if guide.file_name.starts_with("hello-world/") {
+        content = inject_hello_world_fallback_image(&content);
+    }
 
     // Prev/next chapter links follow the linear teaching order of the
     // full guide list (same ordering as the index page).
@@ -805,26 +806,31 @@ fn inject_hello_world_fallback_image(content: &str) -> String {
 <script>
 (function() {
   var os = navigator.userAgent.indexOf("Mac") !== -1 ? "mac" : navigator.userAgent.indexOf("Win") !== -1 ? "win" : "linux";
-  var theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? "dark" : "light";
+  function getTheme() {
+    var c = document.documentElement.getAttribute('data-theme');
+    return (c === 'dark' || c === 'light') ? c : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }
   var img = document.createElement("img");
-  img.src = "/ui/images/hello-world." + os + "." + theme + ".png";
+  var updateImage = function() {
+    img.src = window.location.origin + "/ui/images/hello-world." + os + "." + getTheme() + ".png";
+  };
+  updateImage();
   img.alt = "Hello World Window";
   img.style.display = "block";
   img.style.margin = "20px auto";
   img.style.maxWidth = "100%";
   img.style.borderRadius = "6px";
   img.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  
   var container = document.getElementById("hw-fallback-image");
   if (container) container.appendChild(img);
-  if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
-      img.src = "/ui/images/hello-world." + os + "." + (e.matches ? "dark" : "light") + ".png";
-    });
-  }
+
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateImage);
+  if (window.MutationObserver) new MutationObserver(updateImage).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 })();
 </script>
 "#;
 
-    let target = "[hello-world landing page](../hello-world.md).";
+    let target = ">hello-world landing page</a>.";
     content.replacen(target, &format!("{}{}", target, script), 1)
 }
