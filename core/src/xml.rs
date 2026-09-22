@@ -5870,7 +5870,24 @@ fn apply_xml_node_attributes(
             .get_key("viewBox")
             .or_else(|| xml_node.attributes.get_key("viewbox"))
             .and_then(|v| parse_svg_view_box(v.as_str()));
-        if let Some((min_x, min_y, width, height)) = view_box {
+        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
+        let usable = |v: f32| v.is_finite() && v > 0.0;
+        // An ABSENT `viewBox` is not "no user space": SVG's sizing rules make
+        // user units map straight onto the viewport, which is the same thing
+        // as `viewBox="0 0 <width> <height>"`. Recording it only when the
+        // attribute was literally there left every shape in such a document
+        // without a coordinate system, and the mask rasteriser then drew it at
+        // half scale anchored at the box's origin rather than at its own
+        // coordinates. Every window-control icon in a GTK theme is this
+        // document - Mint-Y writes `height="16" width="16"` and no viewBox -
+        // so a titlebar's controls came out as an illegible cluster in the
+        // corner of each button, while azul's own close glyph, the one markup
+        // that carries a viewBox, drew correctly.
+        let implied = match (stated("width"), stated("height")) {
+            (Some(w), Some(h)) if usable(w) && usable(h) => Some((0.0, 0.0, w, h)),
+            _ => None,
+        };
+        if let Some((min_x, min_y, width, height)) = view_box.or(implied) {
             node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
                 min_x,
                 min_y,
@@ -5878,8 +5895,6 @@ fn apply_xml_node_attributes(
                 height,
             });
         }
-        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
-        let usable = |v: f32| v.is_finite() && v > 0.0;
         if let Some(w) = stated("width")
             .or_else(|| view_box.map(|(_, _, w, _)| w))
             .filter(|w| usable(*w))
