@@ -270,6 +270,8 @@ mod mock_font_metrics;
 mod multi_range_selection;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
+#[path = "patched_opacity_reaches_the_paint.rs"]
+mod patched_opacity_reaches_the_paint;
 #[path = "pagination_perf.rs"]
 mod pagination_perf;
 #[path = "preedit_never_enters_the_text_store.rs"]
