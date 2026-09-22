@@ -756,7 +756,47 @@ fn titlebar_close_glyph(tint: ColorU) -> String {
 ///   * there is nothing to cache, invalidate or garbage-collect on the GPU.
 fn icon_dom(markup: &str) -> Option<azul_core::dom::Dom> {
     let parsed = azul_layout::xml::parse_xml(markup).ok()?;
-    Some(azul_layout::xml::dom_from_parsed_xml(parsed))
+    Some(unwrap_icon_document(azul_layout::xml::dom_from_parsed_xml(parsed)))
+}
+
+/// An icon is a SUBTREE, not a document.
+///
+/// `str_to_dom_unstyled` wraps whatever it parses in `<html><body>`, because
+/// its job is to turn a string into a page. An icon's `<svg>` is then spliced
+/// into a button WITH that wrapper - and `<body>` carries the UA margin of
+/// 8px on every side, so a 16x16 glyph inside a 32x24 window control was
+/// pushed to (8, 8) of a box whose centre is (8, 4): measured on the widgets
+/// demo, the maximize square sat 4px below the middle of its button and the
+/// close glyph, which is azul's own markup and not a themed file, sat
+/// somewhere else again.
+///
+/// The wrapper is peeled off while it is a single-child `<html>` or `<body>`,
+/// and the document's stylesheet travels with what is left - an icon that
+/// declared its colours in a `<style>` block must keep them.
+fn unwrap_icon_document(dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
+    use azul_core::dom::NodeType;
+
+    let mut cur = dom;
+    let mut css = core::mem::take(&mut cur.css);
+    loop {
+        let wrapper = matches!(cur.root.get_node_type(), NodeType::Html | NodeType::Body);
+        if !wrapper || cur.children.len() != 1 {
+            break;
+        }
+        let mut inner = cur.children.as_ref()[0].clone();
+        // The stylesheets accumulate outermost-first, which is cascade order:
+        // a rule the document declared is overridden by one the subtree
+        // declares, exactly as it was before the wrapper came off.
+        if !inner.css.is_empty() {
+            let mut merged = css.as_ref().to_vec();
+            merged.extend(inner.css.as_ref().iter().cloned());
+            css = merged.into();
+        }
+        inner.css = azul_css::css::CssVec::from_vec(Vec::new());
+        cur = inner;
+    }
+    cur.css = css;
+    cur
 }
 
 #[cfg(test)]
@@ -1136,5 +1176,24 @@ mod tests {
         assert!(out.contains("#bebebe"), "{out}");
     }
 
+    /// An icon is a SUBTREE, not a document. `str_to_dom_unstyled` wraps what
+    /// it parses in `<html><body>` because its job is to make a page, and
+    /// `<body>` carries the UA 8px margin - which, inside a 32x24 window
+    /// control, pushed a 16x16 glyph to (8, 8) of a box whose centre is
+    /// (8, 4). MEASURED on the widgets demo, 2026-09-22: the icon's `<body>`
+    /// box came out at (548, 13.5) in a button at (540, 5.5).
+    ///
+    /// NEGATIVE CONTROL: return `dom_from_parsed_xml(parsed)` unchanged and
+    /// the root here is `Html`.
+    #[test]
+    fn an_icon_is_its_own_root_not_a_document_body() {
+        use azul_core::dom::NodeType;
+        let dom = icon_dom(&titlebar_close_glyph(TINT)).expect("the close glyph parses");
+        assert!(
+            !matches!(dom.root.get_node_type(), NodeType::Html | NodeType::Body),
+            "the icon kept a document wrapper: {:?}",
+            dom.root.get_node_type()
+        );
+    }
 
 }

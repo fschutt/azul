@@ -1912,12 +1912,18 @@ impl SystemStyle {
         // buttons rather than to a bar.
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
-        // Buttons
+        // Buttons. The glyph inside is CENTRED BY THE BOX, not by the line
+        // box: a control's glyph is an `<svg>` (an inline-block) as often as
+        // it is a character, and an inline-block sits on the BASELINE, which
+        // put a 16px icon roughly 3px above the middle of a 24px button while
+        // a text glyph landed correctly. `text-align` and `line-height` stay
+        // for the text case and cost nothing for the other.
         let _ = write!(
             css,
             ".csd-button {{ width: 32px; height: 24px; border-radius: {}; background: \
              transparent; color: rgb({}, {}, {}); font-size: 16px; line-height: 24px; text-align: \
-             center; cursor: pointer; user-select: none; }} ",
+             center; cursor: pointer; user-select: none; display: flex; flex-direction: row; \
+             align-items: center; justify-content: center; }} ",
             corner_radius, text_color.r, text_color.g, text_color.b,
         );
 
