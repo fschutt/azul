@@ -5562,6 +5562,17 @@ pub trait PlatformWindow {
                     }
                 };
 
+                // The node that is ABOUT to lose it. `SystemChange::SetFocus`
+                // reads this and restyles both ends; this path - the public
+                // `set_focus()` / `focus_next()` / `clear_focus()` API - wrote
+                // the manager and stopped there, so the old node kept `:focus`
+                // in the styled DOM and the new one never got it until some
+                // later full rebuild reseeded both. Two rings at once, from
+                // one call.
+                let old_focus = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
                 if let Some(new_focus) = new_focus {
                     // Focus a specific node
                     let timer_action = if let Some(lw) = self.get_layout_window_mut() {
@@ -5601,7 +5612,12 @@ pub trait PlatformWindow {
                             azul_layout::CursorBlinkTimerAction::NoChange => {}
                         }
                     }
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    let restyled = self
+                        .get_layout_window_mut()
+                        .map_or(ProcessEventResult::DoNothing, |lw| {
+                            apply_focus_restyle(lw, old_focus, Some(new_focus))
+                        });
+                    restyled.max(ProcessEventResult::ShouldReRenderCurrentWindow)
                 } else {
                     // Clear focus
                     let timer_action = if let Some(lw) = self.get_layout_window_mut() {
@@ -5625,7 +5641,14 @@ pub trait PlatformWindow {
                             azul_layout::CursorBlinkTimerAction::NoChange => {}
                         }
                     }
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    // Same law as the focus branch: the node that LOST focus
+                    // has to stop being painted as focused.
+                    let restyled = self
+                        .get_layout_window_mut()
+                        .map_or(ProcessEventResult::DoNothing, |lw| {
+                            apply_focus_restyle(lw, old_focus, None)
+                        });
+                    restyled.max(ProcessEventResult::ShouldReRenderCurrentWindow)
                 }
             }
 
@@ -13819,6 +13842,34 @@ mod tests {
     /// `pending_css_dirty` — so the two fields kept the colours of the frame
     /// before the Tab: the one that lost focus stayed ringed and the one that
     /// gained it stayed plain, until some unrelated edit rebuilt the list.
+    #[test]
+    fn the_public_focus_api_restyles_both_ends_too() {
+        // `SystemChange::SetFocus` (Tab, a click) reads the OLD focus and
+        // restyles both ends. `CallbackChange::SetFocusTarget` - the public
+        // `set_focus()` / `focus_next()` / `clear_focus()` API - wrote the
+        // manager and stopped, so the old node kept `:focus` in the styled
+        // DOM and the new one never got it until some later full rebuild
+        // reseeded both. That is the one mechanism that really can paint two
+        // rings at once.
+        //
+        // The restyle itself is covered by the test below, which calls it
+        // directly; what this pins is that the programmatic arm ASKS for it,
+        // which cannot be driven here without a live PlatformWindow.
+        let src = include_str!("event.rs");
+        let arm = src
+            .split_once("CallbackChange::SetFocusTarget { target } => {")
+            .expect("the programmatic focus arm exists")
+            .1;
+        let arm = &arm[..arm
+            .find("// === Propagation Control")
+            .unwrap_or(arm.len())];
+        assert_eq!(
+            arm.matches("apply_focus_restyle(").count(),
+            2,
+            "both the focus and the clear branch must restyle the node they moved focus off"
+        );
+    }
+
     #[test]
     fn a_focus_change_with_a_style_delta_rebuilds_the_display_list() {
         use azul_core::{
