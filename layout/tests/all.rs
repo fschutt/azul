@@ -220,6 +220,8 @@ mod hover_manager;
 mod icon_pipeline;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
+#[path = "injected_chrome_takes_its_own_space.rs"]
+mod injected_chrome_takes_its_own_space;
 #[path = "inline_atomic_after_block.rs"]
 mod inline_atomic_after_block;
 

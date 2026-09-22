@@ -2189,11 +2189,23 @@ fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom
         Some(boxed_menu) => boxed_menu.clone(),
         None => return user_dom,
     };
-    let menubar = azul_layout::widgets::menubar::build_menubar_dom(&menu);
+    let menubar =
+        azul_layout::widgets::menubar::build_menubar_dom(&menu).with_css("flex-shrink: 0;");
 
     // Html root (not Body) so we don't double-nest <body> / double the UA margin.
     // Order: menu bar first, then the user's content below it.
-    Dom::create_html().with_children(DomVec::from_vec(vec![menubar, user_dom]))
+    //
+    // A COLUMN, not a block stack. Stacked, the bar was simply added on top of
+    // a `height: 100%` body that still resolved to the whole window, so the
+    // document came out taller than the window by the bar plus the UA margins
+    // - measured live at 640x480 as a 640x522 root, with the last 42px of the
+    // page below the bottom edge. Chrome the shell injects has to take its
+    // space FROM the user's content, and a column flex container is what makes
+    // the body shrink by exactly the bar's height without anyone doing the
+    // arithmetic.
+    Dom::create_html()
+        .with_css("display: flex; flex-direction: column; height: 100%;")
+        .with_children(DomVec::from_vec(vec![menubar, user_dom]))
 }
 
 /// `LayoutRect` (integer origin, used by the layout query API) → `LogicalRect`
