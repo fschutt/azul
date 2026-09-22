@@ -44,10 +44,6 @@ path = "src/calc.rs"
 
 
 [[example]]
-name = "azbuilder"
-path = "src/azbuilder.rs"
-
-[[example]]
 name = "hello-world"
 
 path = "src/hello-world.rs"
