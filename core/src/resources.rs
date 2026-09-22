@@ -1201,12 +1201,30 @@ impl AppConfig {
     /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
     #[must_use]
     pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
+        let mut best_match: Option<(&Route, RouteMatch, usize)> = None;
+
         for route in self.routes.as_ref() {
             if let Some(m) = match_route(route.pattern.as_str(), path) {
-                return Some((route, m));
+                // Specificity: number of exact static segments
+                let specificity = route
+                    .pattern
+                    .as_str()
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .filter(|s| !s.starts_with(':'))
+                    .count();
+
+                if let Some((_, _, best_spec)) = best_match {
+                    if specificity > best_spec {
+                        best_match = Some((route, m, specificity));
+                    }
+                } else {
+                    best_match = Some((route, m, specificity));
+                }
             }
         }
-        None
+
+        best_match.map(|(r, m, _)| (r, m))
     }
 }
 

@@ -73,7 +73,7 @@ Patterns are slash-separated segments. Each segment is either:
 | `"/user/:id"`   | `"/user/42/edit"`     | no (segment count mismatch) |
 | `"/post/:slug"` | `"/post/hello-world"` | yes; `slug = "hello-world"` |
 
-Patterns are matched in registration order; the first match wins.
+Patterns are matched by specificity; the most specific match wins (the one with the most static, non-parameter components). For example, if both `/:type/:id` and `/user/:id` are registered, a path like `/user/42` will match `/user/:id` because it has more literal segments. If there is a tie in specificity, the first registered match wins.
 
 ## Reading the active route
 
