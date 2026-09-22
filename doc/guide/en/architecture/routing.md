@@ -93,17 +93,19 @@ func main() {
 
 ```haskell
 import Azul
+import qualified Azul.AppConfig as AppConfig
 
-layoutHome :: RefAny -> LayoutCallbackInfo -> IO Dom
-layoutUser :: RefAny -> LayoutCallbackInfo -> IO Dom
-layoutSettings :: RefAny -> LayoutCallbackInfo -> IO Dom
+-- Haskell layouts take your model (not RefAny) - conversion is automatic
+layoutHome :: AppModel -> LayoutCallbackInfo -> IO Dom
+layoutUser :: AppModel -> LayoutCallbackInfo -> IO Dom
+layoutSettings :: AppModel -> LayoutCallbackInfo -> IO Dom
 
 main :: IO ()
 main = do
-    config <- appConfigCreate
-              >>= appConfigAddRoute "/" layoutHome
-              >>= appConfigAddRoute "/user/:id" layoutUser
-              >>= appConfigAddRoute "/settings" layoutSettings
+    config <- AppConfig.create
+              >>= AppConfig.addRoute "/" layoutHome
+              >>= AppConfig.addRoute "/user/:id" layoutUser
+              >>= AppConfig.addRoute "/settings" layoutSettings
     
     -- ...
 ```
