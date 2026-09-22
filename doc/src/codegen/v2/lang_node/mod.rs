@@ -41,12 +41,14 @@
 //!
 //! ## What is and is NOT skipped
 //!
-//! Skipped (matches the Lua / PHP filters):
+//! Skipped by the wrapper layer (they are still registered with koffi
+//! and still declared in the FFI layer, so `azul.__lib` reaches them):
 //!
 //! - `TypeCategory::Recursive`        (infinite-size types)
-//! - `TypeCategory::VecRef`           (raw slice pointers)
-//! - `TypeCategory::Boxed`            (internal heap wrappers)
-//! - `TypeCategory::GenericTemplate`  (parameterised shells)
+//! - `TypeCategory::VecRef`           (borrowed slices over memory the CALLER owns; a wrapper
+//!   class would register a finalizer over someone else's buffer)
+//! - `TypeCategory::GenericTemplate`  (parameterised shells — their MONOMORPHIZATIONS do get
+//!   wrapper classes, see `wrappers::emit_alias_wrapper`)
 //! - `TypeCategory::DestructorOrClone`(internal callback typedefs)
 //! - `TypeCategory::CallbackTypedef`  (function-pointer typedefs; user-facing CallbackDataPair
 //!   wrappers ARE emitted, and consumers wrap their JS callbacks via `koffi.proto(...)`)
@@ -54,8 +56,14 @@
 //! Emitted with full wrapper treatment:
 //!
 //! - `TypeCategory::Regular` and `TypeCategory::CallbackDataPair`
+//! - `TypeCategory::Boxed` (`GlContextPtr`, `ImageRef`, `Texture`, `FontRef`, `Svg`): a boxed
+//!   payload is an implementation detail, not a reason to hide the whole OpenGL and image API
+//! - Monomorphized generic aliases (`CaretColorValue = CssPropertyValue<CaretColor>`), which are
+//!   real C unions with their own exported derives
 //! - Unit-only enums become flat constant tables (`azul.LayoutAxis.Horizontal`)
 //! - Tagged-union enums get tag constants + per-variant predicates
+//! - api.json constants become frozen tables (`azul.Constants.GlContextPtr.TEXTURE_2D`, also
+//!   reachable as `GlContextPtr.Constants.TEXTURE_2D`)
 //!
 //! ## koffi parser tolerance vs. LuaJIT
 //!
@@ -427,63 +435,9 @@ fn generate_azul_js(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     // `registerCallback` / `refanyCreate`.
     managed::emit_managed(&mut b, ir);
     wrappers::generate_wrappers(&mut b, ir);
-    emit_value_helpers(&mut b);
     emit_exports(&mut b, ir);
 
     Ok(b.finish())
-}
-
-/// AzOption / AzResult helpers exposed on the module so user code can do
-/// `azul.optionToNullable(opt)` / `azul.resultUnwrap(res, 'Name')` without
-/// having to know which variant koffi materialized. AzOption/AzResult
-/// types don't get a per-type JS wrapper class (they're koffi unions), so
-/// module-level helpers fill the ergonomic gap. Mirrors the per-type
-/// `toNullable` / `Unwrap` methods that Java/Kotlin/C#/Ruby get.
-fn emit_value_helpers(b: &mut CodeBuilder) {
-    b.blank();
-    b.line("// ----------------------------------------------------------------------------");
-    b.line("// AzOption / AzResult helpers. Operate on koffi-decoded objects whose Ok /");
-    b.line("// Some / Err / None members each carry a `tag` byte at offset 0 (shared via");
-    b.line("// repr(C, u8)). Per-type methods aren't possible on koffi unions, so these");
-    b.line("// expose the same affordance as Java's .toNullable() / .unwrap() but at");
-    b.line("// module level.");
-    b.line("// ----------------------------------------------------------------------------");
-    b.line("function optionToNullable(opt) {");
-    b.indent();
-    b.line("if (!opt) return null;");
-    b.line("// Tag byte lives in either variant (they overlap); prefer Some/None.");
-    b.line("var tag = (opt.Some && opt.Some.tag) != null ? opt.Some.tag");
-    b.line("        : (opt.None && opt.None.tag) != null ? opt.None.tag");
-    b.line("        : null;");
-    b.line("if (tag === 0 || tag == null) return null;");
-    b.line("return opt.Some && opt.Some.payload;");
-    b.dedent();
-    b.line("}");
-    b.blank();
-    b.line("function resultUnwrap(res, label) {");
-    b.indent();
-    b.line("if (!res) throw new Error('unwrap on null');");
-    b.line("var tag = (res.Ok && res.Ok.tag) != null ? res.Ok.tag");
-    b.line("        : (res.Err && res.Err.tag) != null ? res.Err.tag");
-    b.line("        : null;");
-    b.line("if (tag === 0) return res.Ok.payload;");
-    b.line("var name = label || 'Result';");
-    b.line("var errPayload = res.Err && res.Err.payload;");
-    b.line(
-        "throw new Error(name + ' unwrap on Err: ' + (errPayload && errPayload.toString ? \
-         errPayload.toString() : JSON.stringify(errPayload)));",
-    );
-    b.dedent();
-    b.line("}");
-    b.blank();
-    b.line("function resultIsOk(res) {");
-    b.indent();
-    b.line("if (!res) return false;");
-    b.line("var tag = (res.Ok && res.Ok.tag) != null ? res.Ok.tag : (res.Err && res.Err.tag);");
-    b.line("return tag === 0;");
-    b.dedent();
-    b.line("}");
-    b.line("function resultIsErr(res) { return !resultIsOk(res); }");
 }
 
 fn emit_header(b: &mut CodeBuilder) {
@@ -789,6 +743,8 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// mutable ArrayBuffer view — DataView writes go straight through.");
     b.line("// Little-endian: all supported targets (x86_64/aarch64) are LE.");
     b.line("writeInt32(p, v) { new DataView(toArrayBuffer(p, 0, 4)).setInt32(0, v, true); },");
+    b.line("// Copy `len` bytes out of native memory (AzString decode).");
+    b.line("readBytes(p, len) { return new Uint8Array(toArrayBuffer(p, 0, len)).slice(); },");
     b.line("ptr: FFIType.ptr,");
     b.dedent();
     b.line("};");
@@ -829,19 +785,22 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("__ffi: azulFFI,");
     b.line("// Raw `lib` object for direct access to C-ABI symbols (advanced).");
     b.line("__lib: lib,");
-    b.line("// Managed-FFI runtime helpers (host-invoker pattern). User callbacks");
-    b.line("// pass through `registerCallback(kind, fn)`; arbitrary user data goes");
-    b.line("// through `refanyCreate(value)` + `refanyGet(refany)`.");
+    b.line("// Managed-FFI runtime helpers (host-invoker pattern). Wrapper methods");
+    b.line("// apply these automatically (plain functions and plain JS values are");
+    b.line("// accepted wherever the C API takes a callback / RefAny); they are");
+    b.line("// exported for code that drives `__lib` directly.");
     b.line("registerCallback,");
     b.line("refanyCreate,");
     b.line("refanyGet,");
-    b.line("// Auto-AzString-conversion helper (referenced by hello-world).");
+    b.line("// JS string <-> AzString helpers.");
     b.line("_azString,");
-    b.line("// AzOption / AzResult ergonomic helpers.");
-    b.line("optionToNullable,");
-    b.line("resultUnwrap,");
-    b.line("resultIsOk,");
-    b.line("resultIsErr,");
+    b.line("_azStringDecode,");
+    if !ir.constants.is_empty() {
+        b.line("// Constant tables, keyed by the class api.json declares them on");
+        b.line("// (`azul.Constants.GlContextPtr.TEXTURE_2D`). Each owning class also");
+        b.line("// carries its own table as a static.");
+        b.line("Constants,");
+    }
     // List wrapper class names
     for s in &ir.structs {
         if !wrappers::should_emit_struct(s) {
@@ -855,12 +814,20 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
         }
         b.line(&format!("{},", sanitize_export_name(&e.name)));
     }
+    // Monomorphized generic aliases (`CaretColorValue`, `BoxOrStaticString`):
+    // real C types with their own wrapper class, see `emit_alias_wrapper`.
+    for ta in &ir.type_aliases {
+        if !wrappers::should_emit_alias(ta, ir) {
+            continue;
+        }
+        b.line(&format!("{},", sanitize_export_name(&ta.name)));
+    }
     b.dedent();
     b.line("};");
 }
 
 // ============================================================================
-// Shared naming helpers
+// Shared naming / classification helpers
 // ============================================================================
 
 /// FFI / koffi type name for an IR type. We keep the `Az` prefix on
@@ -868,6 +835,44 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
 /// the same way other bindings preserve `AzApp` / `AzDom` etc.
 pub fn ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
+}
+
+/// JS member name for an api.json method key: the lowerCamel form
+/// (`create_p_with_text` → `createPWithText`, `with_css` → `withCss`),
+/// i.e. exactly the suffix `ir_builder` derives for the C symbol
+/// (`AzDom_createPWithText`). One derivation for every emission site;
+/// reserved words get the usual trailing underscore.
+pub fn js_method_name(method_name: &str) -> String {
+    sanitize_js_identifier(&crate::utils::string::snake_case_to_lower_camel(method_name))
+}
+
+/// JS parameter name for an IR function/callback argument: lowerCamel
+/// of the api.json spelling, with a leading underscore preserved
+/// (`snake_case_to_lower_camel` would capitalise the segment after it).
+pub fn js_arg_name(a: &super::ir::FunctionArg) -> String {
+    let name = a.name.as_str();
+    let stripped = name.trim_start_matches('_');
+    let prefix = &name[..name.len() - stripped.len()];
+    sanitize_js_identifier(&format!(
+        "{}{}",
+        prefix,
+        crate::utils::string::snake_case_to_lower_camel(stripped)
+    ))
+}
+
+/// Is `type_name` the IR's `RefAny` (by `TypeCategory`, not by name)?
+/// Wrapper call sites create a host-handle RefAny from the user's JS
+/// value for such args; callback invokers unwrap it back.
+pub fn is_refany_type(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| matches!(s.category, super::ir::TypeCategory::RefAny))
+}
+
+/// The IR struct categorised as the string type (`TypeCategory::String`).
+pub fn string_struct(ir: &CodegenIR) -> Option<&super::ir::StructDef> {
+    ir.structs
+        .iter()
+        .find(|s| matches!(s.category, super::ir::TypeCategory::String))
 }
 
 /// Public JS export name. We drop the `Az` prefix on the wrapper layer

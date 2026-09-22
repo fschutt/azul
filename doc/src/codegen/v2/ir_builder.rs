@@ -4,7 +4,7 @@
 //! and building a complete Intermediate Representation (IR) that can
 //! be consumed by language-specific generators.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -405,6 +405,8 @@ impl<'a> IRBuilder<'a> {
                 if let Some(repr) = &class_data.repr {
                     if class_data.struct_fields.is_some() {
                         // Struct: must be repr(C)
+                        // allow-api-name: `transparent` is the Rust #[repr] spelling
+                        // here, not the API method that happens to share the name.
                         if repr != "C" && repr != "transparent" {
                             errors.push(format!(
                                 "Invalid repr for struct {}: got repr({}), expected repr(C). \
@@ -452,6 +454,7 @@ impl<'a> IRBuilder<'a> {
                     "eq",
                     "clone",
                     "default",
+                    "createDefault",
                     "debug",
                     "display",
                 ];
@@ -948,6 +951,88 @@ impl<'a> IRBuilder<'a> {
         Ok(())
     }
 
+    /// The api.json class `name`, in whichever module holds it.
+    fn class_by_name(&self, name: &str) -> Option<&ClassData> {
+        self.version_data
+            .api
+            .values()
+            .find_map(|m| m.classes.get(name))
+    }
+
+    /// Every trait `type_name` implements, as far as api.json says: its
+    /// `derive` and `custom_impls` for a class (an alias resolved through
+    /// its own rules), the standard library's set for a primitive.
+    fn implemented_traits(&self, type_name: &str, depth: usize) -> BTreeSet<String> {
+        let t = type_name.trim();
+        let all = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<BTreeSet<_>>();
+        match t {
+            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64"
+            | "i128" | "isize" | "bool" | "char" => {
+                return all(&[
+                    "Debug", "Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+                    "Default",
+                ])
+            }
+            "f32" | "f64" => {
+                return all(&["Debug", "Clone", "Copy", "PartialEq", "PartialOrd", "Default"])
+            }
+            _ => {}
+        }
+        let Some(c) = self.class_by_name(t) else {
+            return BTreeSet::new();
+        };
+        if let (Some(alias), None, None, true) =
+            (&c.type_alias, &c.derive, &c.custom_impls, depth < 8)
+        {
+            return self
+                .inherited_alias_traits_at(&alias.target, &alias.generic_args, depth + 1)
+                .map(|(d, i, _)| d.into_iter().chain(i).collect())
+                .unwrap_or_default();
+        }
+        c.derive
+            .iter()
+            .flatten()
+            .chain(c.custom_impls.iter().flatten())
+            .cloned()
+            .collect()
+    }
+
+    /// `(derive, custom_impls, has_custom_drop)` an alias of `target<args>`
+    /// inherits: the target's, keeping a trait only when every type argument
+    /// implements it too (`Drop` always carries over).
+    fn inherited_alias_traits(
+        &self,
+        target: &str,
+        args: &[String],
+    ) -> Option<(Vec<String>, Vec<String>, bool)> {
+        self.inherited_alias_traits_at(target, args, 0)
+    }
+
+    fn inherited_alias_traits_at(
+        &self,
+        target: &str,
+        args: &[String],
+        depth: usize,
+    ) -> Option<(Vec<String>, Vec<String>, bool)> {
+        let t = self.class_by_name(target.trim())?;
+        let arg_traits: Vec<BTreeSet<String>> = args
+            .iter()
+            .map(|a| self.implemented_traits(a, depth))
+            .collect();
+        let keep = |trait_name: &String| {
+            trait_name == "Drop" || arg_traits.iter().all(|at| at.contains(trait_name))
+        };
+        let derive: Vec<String> = t.derive.iter().flatten().filter(|d| keep(d)).cloned().collect();
+        let custom: Vec<String> = t
+            .custom_impls
+            .iter()
+            .flatten()
+            .filter(|d| keep(d))
+            .cloned()
+            .collect();
+        Some((derive, custom, t.has_custom_drop()))
+    }
+
     fn build_struct_def(
         &self,
         name: &str,
@@ -974,12 +1059,12 @@ impl<'a> IRBuilder<'a> {
         }
 
         // Vec types should have Clone (they have a deep_copy function that clones the data)
-        // Vec types end with "Vec" but NOT "VecRef"
+        // (the `ptr` / `len` / `cap` / `destructor` layout; see `vec_layout_element`)
         // IMPORTANT: Vec Clone CANNOT be derived! The derive(Clone) would do a bitwise copy,
         // copying the pointer without allocating new memory, leading to double-free on drop.
         // Vec types have a custom clone_self() that properly allocates and copies the data.
         // The Clone trait must be implemented via transmute to the real type's .clone() method.
-        if name.ends_with("Vec") && !name.ends_with("VecRef") {
+        if matches!(category, TypeCategory::Vec) {
             traits.is_clone = true;
             traits.clone_is_derived = false; // Vec Clone MUST NOT be derived - needs custom impl
         }
@@ -1189,7 +1274,7 @@ impl<'a> IRBuilder<'a> {
                         .iter()
                         .map(|arg_data| {
                             FunctionArg {
-                                name: String::new(), // CallbackArgData doesn't have a name field
+                                name: arg_data.name.clone().unwrap_or_default(),
                                 type_name: arg_data.r#type.clone(),
                                 ref_kind: match arg_data.ref_kind {
                                     crate::api::RefKind::Ref => ArgRefKind::Ref,
@@ -1214,6 +1299,8 @@ impl<'a> IRBuilder<'a> {
                         doc: class_data.doc.clone().unwrap_or_default(),
                         module: module_name.clone(),
                         external_path: class_data.external.clone(),
+                        // Linked in `link_callback_wrappers`
+                        wrapper: None,
                         // Will be populated in analyze_dependencies phase
                         dependencies: Vec::new(),
                         sort_order: 0,
@@ -1253,11 +1340,23 @@ impl<'a> IRBuilder<'a> {
                         None
                     };
 
-                    // Build traits from derive/custom_impls (same logic as structs/enums)
-                    // For type aliases, inherit traits from the target type if not explicitly set
-                    let derives = class_data.derive.clone().unwrap_or_default();
-                    let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
-                    let has_custom_drop = class_data.has_custom_drop();
+                    // Build traits from derive/custom_impls (same logic as structs/enums).
+                    // An alias without its own `derive` / `custom_impls` inherits
+                    // the target's, restricted to what every type argument
+                    // implements: `#[derive]` on a generic adds a `T: Trait`
+                    // bound, so `CssPropertyValue<T>` is `Hash` only when `T` is.
+                    let (derives, custom_impls, has_custom_drop) = if class_data.derive.is_none()
+                        && class_data.custom_impls.is_none()
+                    {
+                        self.inherited_alias_traits(&type_alias.target, &type_alias.generic_args)
+                            .unwrap_or_default()
+                    } else {
+                        (
+                            class_data.derive.clone().unwrap_or_default(),
+                            class_data.custom_impls.clone().unwrap_or_default(),
+                            class_data.has_custom_drop(),
+                        )
+                    };
                     let traits = TypeTraits::from_derives_and_custom_impls(
                         &derives,
                         &custom_impls,
@@ -1443,48 +1542,52 @@ impl<'a> IRBuilder<'a> {
             .map(|cb| cb.name.clone())
             .collect();
 
-        // Iterate through all structs and find callback wrappers
+        // A callback wrapper is structural: exactly one field whose type is a
+        // callback typedef (the function pointer) and exactly one
+        // `OptionRefAny` field (the host context the managed bindings
+        // carry their closure in), whatever the fields or the struct are
+        // called. Other fields may follow (`CustomE2eOpCallback.op_schema`).
         for struct_def in &mut self.ir.structs {
-            // Quick reject: must end with "Callback" but not "CallbackType" or "CallbackInfo"
-            if !struct_def.name.ends_with("Callback") {
-                continue;
+            let callbacks: Vec<&FieldDef> = struct_def
+                .fields
+                .iter()
+                .filter(|f| {
+                    f.ref_kind == FieldRefKind::Owned
+                        && callback_typedef_names.contains(&f.type_name)
+                })
+                .collect();
+            let contexts: Vec<&FieldDef> = struct_def
+                .fields
+                .iter()
+                // allow-api-name: this is where the IR DEFINES the callback-wrapper
+                // shape - the context slot is an `OptionRefAny` by definition.
+                .filter(|f| f.ref_kind == FieldRefKind::Owned && f.type_name == "OptionRefAny")
+                .collect();
+            if let ([cb], [ctx]) = (callbacks.as_slice(), contexts.as_slice()) {
+                struct_def.callback_wrapper_info = Some(CallbackWrapperInfo {
+                    callback_typedef_name: cb.type_name.clone(),
+                    callback_field_name: cb.name.clone(),
+                    context_field_name: ctx.name.clone(),
+                });
             }
-            if struct_def.name.ends_with("CallbackType")
-                || struct_def.name.ends_with("CallbackInfo")
-            {
-                continue;
+        }
+
+        // Each typedef's wrapper: the one struct that holds it that way. A
+        // typedef two wrappers hold has no single kind, so it gets none.
+        let mut holders: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for s in &self.ir.structs {
+            if let Some(info) = &s.callback_wrapper_info {
+                holders
+                    .entry(info.callback_typedef_name.clone())
+                    .or_default()
+                    .push(s.name.clone());
             }
-
-            // Find the callback typedef field and the context field
-            let mut callback_field: Option<(String, String)> = None; // (field_name, typedef_name)
-            let mut context_field_name: Option<String> = None;
-
-            for field in &struct_def.fields {
-                // Check if field type is a callback_typedef
-                if callback_typedef_names.contains(&field.type_name) {
-                    callback_field = Some((field.name.clone(), field.type_name.clone()));
-                }
-
-                // Check for "ctx" or "callable" field with type "OptionRefAny"
-                // "ctx" is used in api.json for some callbacks, "callable" for others
-                if (field.name == "ctx" || field.name == "callable")
-                    && field.type_name == "OptionRefAny"
-                {
-                    context_field_name = Some(field.name.clone());
-                }
-            }
-
-            // If we found both a callback typedef field and a ctx/callable field, this is a
-            // callback wrapper
-            if let Some((field_name, typedef_name)) = callback_field {
-                if let Some(ctx_name) = context_field_name {
-                    struct_def.callback_wrapper_info = Some(CallbackWrapperInfo {
-                        callback_typedef_name: typedef_name,
-                        callback_field_name: field_name,
-                        context_field_name: ctx_name,
-                    });
-                }
-            }
+        }
+        for cb in &mut self.ir.callback_typedefs {
+            cb.wrapper = match holders.get(&cb.name).map(Vec::as_slice) {
+                Some([w]) => Some(w.clone()),
+                _ => None,
+            };
         }
     }
 
@@ -1580,6 +1683,32 @@ impl<'a> IRBuilder<'a> {
 
                     // Check if this is a callback typedef type
                     let callback_info = self.detect_callback_arg_info(&actual_type);
+
+                    // A callback argument of an API function is presented as
+                    // its WRAPPER, whatever api.json declares: a raw typedef
+                    // there comes from a generic `C: Into<Wrapper>` source
+                    // argument, whose body accepts the wrapper too, and only
+                    // the wrapper carries a closure's context - so every
+                    // emitter's raw / `WithCtx` / `Struct` path applies. The
+                    // wrapper's own constructors take the function pointer to
+                    // BUILD the wrapper, and keep it.
+                    let is_api_function = matches!(
+                        kind,
+                        FunctionKind::Constructor
+                            | FunctionKind::StaticMethod
+                            | FunctionKind::Method
+                            | FunctionKind::MethodMut
+                    );
+                    let actual_type = match &callback_info {
+                        Some(ci)
+                            if is_api_function
+                                && ref_kind == ArgRefKind::Owned
+                                && ci.callback_wrapper_name != class_name =>
+                        {
+                            ci.callback_wrapper_name.clone()
+                        }
+                        _ => actual_type,
+                    };
 
                     FunctionArg {
                         name: name.clone(),
@@ -1700,10 +1829,6 @@ impl<'a> IRBuilder<'a> {
 
         for (enum_name, variants) in enum_infos {
             for variant in variants {
-                // Skip "Default" variant to avoid conflict with Default trait's default() function
-                if variant.name == "Default" {
-                    continue;
-                }
                 let func = self.build_variant_constructor(&enum_name, &variant);
                 // Only add if not already defined manually in api.json
                 if !existing_c_names.contains(&func.c_name) {
@@ -1716,16 +1841,7 @@ impl<'a> IRBuilder<'a> {
     fn build_variant_constructor(&self, enum_name: &str, variant: &EnumVariantDef) -> FunctionDef {
         use crate::codegen::v2::ir::FunctionKind;
 
-        // Convert variant name to lowerCamelCase for method name
-        // e.g., "MouseUp" -> "mouseUp", "LeftMouseDown" -> "leftMouseDown"
-        let method_name = variant
-            .name
-            .chars()
-            .next()
-            .map(|c| c.to_lowercase().to_string())
-            .unwrap_or_default()
-            + &variant.name[1..];
-
+        let method_name = variant_constructor_method_name(&variant.name);
         // C-ABI name: Az{EnumName}_{methodName}
         let c_name = format!("Az{}_{}", enum_name, method_name);
 
@@ -2036,9 +2152,9 @@ impl<'a> IRBuilder<'a> {
         // _default (Default)
         if traits.is_default {
             self.ir.functions.push(FunctionDef {
-                c_name: format!("Az{}_default", type_name),
+                c_name: format!("Az{}_createDefault", type_name),
                 class_name: type_name.to_string(),
-                method_name: "default".to_string(),
+                method_name: "createDefault".to_string(),
                 kind: FunctionKind::Default,
                 args: vec![], // No arguments - static function
                 return_type: Some(type_name.to_string()),
@@ -2063,6 +2179,7 @@ impl<'a> IRBuilder<'a> {
                     doc: None,
                     callback_info: None,
                 }],
+                // allow-api-name: `_toDbgString` returns the API's String by definition.
                 return_type: Some("String".to_string()),
                 fn_body: None,
                 doc: vec![format!(
@@ -2086,46 +2203,24 @@ impl<'a> IRBuilder<'a> {
     /// - callback_wrapper_name: The wrapper struct name (e.g., "Callback", "ButtonOnClickCallback")
     /// - trampoline_name: The name of the Python trampoline function
     fn detect_callback_arg_info(&self, type_name: &str) -> Option<CallbackArgInfo> {
-        // Two shapes are recognized as callback arguments:
-        //
-        //  1. The raw function-pointer typedef itself, e.g. "CallbackType", "LayoutCallbackType",
-        //     "ButtonOnClickCallbackType" — present on api.json entries that take a bare fn pointer
-        //     (legacy shape).
-        //
-        //  2. The *wrapper struct*, e.g. "Callback", "LayoutCallback", "ButtonOnClickCallback" —
-        //     present on api.json entries that take the full `{ cb, ctx }` wrapper. Managed-FFI
-        //     bindings prefer this shape because the host-handle ctx survives the C-ABI round trip.
-        //
-        // Both map to the same `CallbackArgInfo` so language adapters can
-        // route through `azul._register_callback` / the host-invoker path
-        // regardless of which shape api.json declares.
-
-        let (typedef_name, wrapper_name) = if type_name.ends_with("CallbackType") {
-            // Skip destructor / clone callback types — these are internal
-            // and don't go through the host-invoker path.
-            if type_name.contains("Destructor") || type_name.ends_with("CloneCallbackType") {
-                return None;
+        // A callback argument is typed as a callback wrapper struct (one
+        // callback-typedef field, one `OptionRefAny` context), or as the
+        // function-pointer typedef such a wrapper holds - recognised by
+        // structure (`link_callback_wrappers`), whatever the names. Both
+        // shapes map to the same `CallbackArgInfo`, so language adapters route
+        // through the host-invoker path whichever one api.json declares.
+        let (typedef_name, wrapper_name) = match self
+            .ir
+            .structs
+            .iter()
+            .find(|s| s.name == type_name)
+            .and_then(|s| s.callback_wrapper_info.as_ref())
+        {
+            Some(info) => (info.callback_typedef_name.clone(), type_name.to_string()),
+            None => {
+                let cb = self.ir.callback_typedefs.iter().find(|c| c.name == type_name)?;
+                (cb.name.clone(), cb.wrapper.clone()?)
             }
-            let wrapper = type_name.strip_suffix("Type").unwrap_or(type_name);
-            (type_name.to_string(), wrapper.to_string())
-        } else {
-            // Wrapper-struct shape: only treat as callback if the IR's
-            // callback_wrapper_info linkage tags this type as such.
-            // We check by name pattern (ends with "Callback" but not
-            // "CallbackInfo" / "CallbackType") and let downstream code
-            // assume it's a known wrapper. The Python adapter has long
-            // resolved this via `is_callback_wrapper_type`; we mirror that.
-            if !type_name.ends_with("Callback") {
-                return None;
-            }
-            if type_name.ends_with("CallbackInfo") || type_name.ends_with("CallbackType") {
-                return None;
-            }
-            // Skip destructor / clone wrapper structs same as above.
-            if type_name.contains("Destructor") || type_name.ends_with("CloneCallback") {
-                return None;
-            }
-            (format!("{}Type", type_name), type_name.to_string())
         };
 
         // Build trampoline name: invoke_py_{snake_case_of_wrapper}
@@ -2216,68 +2311,135 @@ fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
 /// These would need Box<> indirection which the C-API doesn't have
 const RECURSIVE_TYPE_NAMES: &[&str] = &[];
 
-/// VecRef types - raw pointer slice wrappers
-/// These need special trampolines and are skipped in Python for now
-const VECREF_TYPE_NAMES: &[&str] = &[
-    // Immutable VecRef types
-    "GLuintVecRef",
-    "GLintVecRef",
-    "GLenumVecRef",
-    "U8VecRef",
-    "U16VecRef",
-    "U32VecRef",
-    "I32VecRef",
-    "F32VecRef",
-    "Refstr",
-    "RefstrVecRef",
-    "TessellatedSvgNodeVecRef",
-    "TessellatedColoredSvgNodeVecRef",
-    "OptionU8VecRef",
-    "OptionI16VecRef",
-    "OptionI32VecRef",
-    "OptionF32VecRef",
-    "OptionFloatVecRef",
-    // Mutable VecRefMut types
-    "GLintVecRefMut",
-    "GLint64VecRefMut",
-    "GLbooleanVecRefMut",
-    "GLfloatVecRefMut",
-    "U8VecRefMut",
-    "F32VecRefMut",
-];
-
-/// String type name
+/// String type name.
+// allow-api-name: the IR defining the two fundamental API types every
+// binding special-cases; naming them here is what lets everything else
+// ask the IR instead of spelling them out again.
 const STRING_TYPE_NAME: &str = "String";
 
-/// Vec types that use C-API directly with special conversion
-/// These types should NOT get a Python wrapper struct because they
-/// have type aliases defined and PyO3 traits implemented on the C-API types
-const VEC_TYPE_NAMES: &[&str] = &["U8Vec", "StringVec", "GLuintVec", "GLintVec"];
-
 /// RefAny type name
+// allow-api-name: see STRING_TYPE_NAME.
 const REFANY_TYPE_NAME: &str = "RefAny";
 
-/// Types that use C-API types directly without Python wrapper structs
-/// These have type aliases + PyO3 trait impls on C-API types in the patches section
-/// They must NOT get wrapper structs generated
-const CAPI_DIRECT_TYPES: &[&str] = &[
-    // String types
-    "String",
-    // Vec types
-    "U8Vec",
-    "StringVec",
-    "GLuintVec",
-    "GLintVec",
-    // RefAny
-    "RefAny",
-    // Destructor types
-    "U8VecDestructor",
-    "StringVecDestructor",
-    // Opaque pointer types
-    "InstantPtr",
-    // Menu types with special handling
-    "StringMenuItem",
-];
+/// The struct fields of `class_data` as `(name, data)` pairs, in order.
+fn struct_field_list(class_data: &ClassData) -> Vec<(&String, &crate::api::FieldData)> {
+    class_data
+        .struct_fields
+        .iter()
+        .flatten()
+        .flat_map(|m| m.iter())
+        .collect()
+}
+
+/// The C `Vec` layout every `*Vec` in the API has, e.g. `DomVec`:
+/// `ptr` (a pointer to the elements), `len`, `cap` and `destructor`. Returns
+/// the element type (`ptr`'s pointee). This is the only thing that makes a
+/// struct a Vec: no name list, no api.json marker.
+pub fn vec_layout_element(class_data: &ClassData) -> Option<String> {
+    let fields = struct_field_list(class_data);
+    if fields.len() != 4 {
+        return None;
+    }
+    let get = |n: &str| fields.iter().find(|(k, _)| k.as_str() == n).map(|(_, v)| *v);
+    let ptr = get("ptr")?;
+    get("len")?;
+    get("cap")?;
+    get("destructor")?;
+    matches!(
+        ptr.ref_kind,
+        crate::api::RefKind::ConstPtr | crate::api::RefKind::MutPtr
+    )
+    .then(|| ptr.r#type.clone())
+}
+
+/// A borrowed slice, `*VecRef` / `*VecRefMut` (e.g. `U8VecRef`, `GLintVecRefMut`):
+/// exactly `ptr` (an untyped pointer) and `len`. The element type is not in
+/// api.json (`ptr` is `c_void`); it is the name's prefix, resolved against the
+/// API's own types: a class (`TessellatedSvgNode`, `GLuint`) or, lowercased, a
+/// primitive (`U8` -> `u8`). Returns `Some(element)` for a VecRef; the element
+/// is `None` when the prefix names nothing the API knows.
+pub fn vecref_layout_element(
+    name: &str,
+    class_data: &ClassData,
+    version_data: &VersionData,
+) -> Option<Option<String>> {
+    let prefix = name
+        .strip_suffix("VecRefMut")
+        .or_else(|| name.strip_suffix("VecRef"))?;
+    let fields = struct_field_list(class_data);
+    let is_slice = fields.len() == 2
+        && fields.iter().any(|(k, v)| {
+            k.as_str() == "ptr"
+                && matches!(
+                    v.ref_kind,
+                    crate::api::RefKind::ConstPtr | crate::api::RefKind::MutPtr
+                )
+        })
+        && fields.iter().any(|(k, _)| k.as_str() == "len");
+    if !is_slice {
+        return None;
+    }
+    let known = |n: &str| {
+        version_data
+            .api
+            .values()
+            .any(|m| m.classes.contains_key(n))
+    };
+    let lower = prefix.to_ascii_lowercase();
+    let element = if known(prefix) {
+        Some(prefix.to_string())
+    } else if matches!(
+        lower.as_str(),
+        "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize" | "f32"
+            | "f64" | "bool"
+    ) {
+        Some(lower)
+    } else {
+        None
+    };
+    Some(element)
+}
+
+/// Is `name` taken by a trait function? The C suffixes of `FunctionKind`s
+/// (`delete`, `clone`, `partialEq`, `partialCmp`, `cmp`, `hash`,
+/// `createDefault`, `toDbgString`), plus `default`, the name the bindings give
+/// the `Default` impl.
+/// The method name of an enum variant's constructor: the variant in
+/// lowerCamelCase (`MouseUp` -> `mouseUp`). A variant constructor shares the
+/// `Az{Enum}_*` namespace with the trait functions, which every binding
+/// recognizes by name: a variant `Delete` / `Clone` / `Default` must not
+/// become `_delete` / `_clone` / `default`, so it is `_deleteVariant` /
+/// `_cloneVariant` / `_defaultVariant` instead. `CodegenIR::variant_constructor`
+/// looks a constructor up by it.
+pub fn variant_constructor_method_name(variant_name: &str) -> String {
+    let mut method_name = variant_name
+        .chars()
+        .next()
+        .map(|c| c.to_lowercase().to_string())
+        .unwrap_or_default()
+        + &variant_name[variant_name.chars().next().map_or(0, char::len_utf8)..];
+    if variant_ctor_name_is_reserved(&method_name) {
+        method_name.push_str("Variant");
+    }
+    method_name
+}
+
+fn variant_ctor_name_is_reserved(name: &str) -> bool {
+    use crate::codegen::v2::ir::FunctionKind;
+    name == "default"
+        || [
+            FunctionKind::Delete,
+            FunctionKind::DeepCopy,
+            FunctionKind::PartialEq,
+            FunctionKind::PartialCmp,
+            FunctionKind::Cmp,
+            FunctionKind::Hash,
+            FunctionKind::Default,
+            FunctionKind::DebugToString,
+        ]
+        .iter()
+        .any(|k| k.c_suffix().trim_start_matches('_') == name)
+}
 
 /// Detect whether `class_data` (regardless of struct/enum kind) describes an
 /// Option-shaped tagged union: name prefix + sibling/own enum_fields with
@@ -2339,14 +2501,15 @@ pub fn classify_struct_type(
         return TypeCategory::Recursive;
     }
 
-    // 2. Check for VecRef types (by name or vec_ref_element_type)
-    if VECREF_TYPE_NAMES.contains(&name) || class_data.vec_ref_element_type.is_some() {
+    // 2. VecRef: a borrowed `ptr` + `len` slice named `*VecRef` / `*VecRefMut`
+    if class_data.vec_ref_element_type.is_some()
+        || vecref_layout_element(name, class_data, version_data).is_some()
+    {
         return TypeCategory::VecRef;
     }
 
-    // 3. Check for Vec types (by vec_element_type field or hardcoded names)
-    // This is the primary detection method - if vec_element_type is set, it's a Vec
-    if class_data.vec_element_type.is_some() || VEC_TYPE_NAMES.contains(&name) {
+    // 3. Vec: the `ptr` / `len` / `cap` / `destructor` layout
+    if class_data.vec_element_type.is_some() || vec_layout_element(class_data).is_some() {
         return TypeCategory::Vec;
     }
 
@@ -2360,22 +2523,12 @@ pub fn classify_struct_type(
         return TypeCategory::Result;
     }
 
-    // 4. Check for types that use C-API directly (no Python wrapper)
-    // This includes String, RefAny, destructors, InstantPtr, etc.
-    if CAPI_DIRECT_TYPES.contains(&name) {
-        // Determine the specific sub-category
-        if name == STRING_TYPE_NAME {
-            return TypeCategory::String;
-        }
-        if name == REFANY_TYPE_NAME {
-            return TypeCategory::RefAny;
-        }
-        if name.ends_with("Destructor") {
-            return TypeCategory::DestructorOrClone;
-        }
-        // For other C-API direct types (InstantPtr, StringMenuItem, etc.)
-        // treat them as types that use C-API directly
-        return TypeCategory::Vec; // Vec is used as "uses C-API directly" marker
+    // 4. The two fundamental types every binding maps natively
+    if name == STRING_TYPE_NAME {
+        return TypeCategory::String;
+    }
+    if name == REFANY_TYPE_NAME {
+        return TypeCategory::RefAny;
     }
 
     // 5. Check for boxed objects
@@ -2472,6 +2625,8 @@ fn is_callback_data_pair(class_data: &ClassData, version_data: &VersionData) -> 
             let field_type = &field_data.r#type;
 
             // Check for RefAny field
+            // allow-api-name: the IR deciding which struct carries a type-erased
+            // data slot - `RefAny` is that type, there is no other spelling.
             if field_type == "RefAny" {
                 has_refany_field = true;
             }

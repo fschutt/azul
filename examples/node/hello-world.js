@@ -1,47 +1,33 @@
 'use strict';
 
-let azul;
-try { azul = require('./azul.js'); } catch (_) { azul = require('azul'); }
-const {
-    App, AppConfig, Button, ButtonType, Dom, Update, WindowCreateOptions,
-    refanyCreate, refanyGet,
-} = azul;
+// Use require('./azul.js') if downloaded manually
+const azul = require('azul');
 const model = { counter: 5 };
 
-function onClick(dataPtr, _info) {
-    const m = refanyGet(dataPtr);
-    if (m == null) return Update.DoNothing;
-    m.counter += 1;
-    return Update.RefreshDom;
+function onClick(data, _info) {
+    data.counter += 1;
+    return azul.Update.RefreshDom;
 }
 
-function layout(dataPtr, _info) {
-    const m = refanyGet(dataPtr);
-    if (m == null) return Dom.create_body();
+function layout(data, _info) {
+    const label = azul.Dom.createPWithText(String(data.counter))
+        .withCss('font-size: 32px; margin: 0;');
 
-    const label = Dom.create_p_with_text(String(m.counter))
-        .with_css('font-size: 32px; margin: 0;');
+    const button = azul.Button.create('Increase counter')
+        .setButtonType(azul.ButtonType.Primary)
+        .withOnClick(data, onClick)
+        .dom();
 
-    const button = Button.create('Increase counter')
-        .with_button_type(ButtonType.Primary)
-        .on_click(model, onClick);
-
-    return Dom.create_body()
-        .with_child(label)
-        .with_child(button.dom());
+    return azul.Dom.createBody()
+        .addChild(label)
+        .addChild(button);
 }
 
-process.on('uncaughtException', (e) => {
-    console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
-});
-
-const window = WindowCreateOptions.createWithLayout(layout).with({
-    window_state: {
+const window = azul.WindowCreateOptions.create(layout).with({
+    windowState: {
         title: 'Hello World',
-        size: { dimensions: { width: 400.0, height: 300.0 } },
-        flags: {
-        },
+        size: { dimensions: { width: 400.0, height: 300.0 } }
     },
 });
 
-App.create(refanyCreate(model), AppConfig.create()).run(window);
+azul.App.create(model, azul.AppConfig.create()).run(window);

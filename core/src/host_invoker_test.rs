@@ -448,6 +448,12 @@ mod autotest_generated {
 
     const DEFAULT_RET: AutoRet = AutoRet(0xDEAD);
 
+    impl crate::host_invoker::HostOut for AutoRet {
+        fn unwritten() -> Self {
+            DEFAULT_RET
+        }
+    }
+
     #[repr(C)]
     #[derive(Debug)]
     struct AutoInfo {
@@ -457,6 +463,11 @@ mod autotest_generated {
     impl AutoInfo {
         fn get_ctx(&self) -> OptionRefAny {
             self.ctx.clone()
+        }
+    }
+    impl crate::host_invoker::HostCtxCarrier for AutoInfo {
+        fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+            self.ctx = ctx.clone();
         }
     }
 

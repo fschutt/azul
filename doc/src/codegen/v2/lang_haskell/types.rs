@@ -240,13 +240,13 @@ pub fn emit_type_decls_for(
     let mut foreign_imports: BTreeMap<String, String> = BTreeMap::new();
 
     for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
+        // A generic template (`PhysicalSize<T>`) is not a C type and has no
+        // C symbol: libazul exports only its monomorphizations
+        // (`AzPhysicalSizeU32`, ...), and every one of those IS emitted
+        // below as its own concrete Haskell type. Nothing is lost here, so
+        // the template is skipped in silence - a placeholder comment would
+        // claim a gap in the binding that does not exist.
         if !should_emit_struct(s, config) {
-            if !s.generic_params.is_empty() {
-                builder.line(&format!(
-                    "-- SKIPPED: generic struct {} (no Haskell equivalent over the C ABI)",
-                    s.name
-                ));
-            }
             continue;
         }
         emit_struct_decl(builder, s, ir, &mut foreign_imports)?;
@@ -258,13 +258,11 @@ pub fn emit_type_decls_for(
     builder.blank();
 
     for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
+        // Same as the struct loop: a generic template enum
+        // (`CssPropertyValue<T>`) has no C type of its own. Its
+        // monomorphizations reach Haskell through `ir.type_aliases`, which
+        // carry the concrete definition and are emitted further down.
         if !should_emit_enum(e, config) {
-            if !e.generic_params.is_empty() {
-                builder.line(&format!(
-                    "-- SKIPPED: generic enum {} (no Haskell equivalent over the C ABI)",
-                    e.name
-                ));
-            }
             continue;
         }
         if e.is_union {
@@ -506,7 +504,7 @@ fn emit_vec_to_list_helper(
     let helper = format!("{}ToList", lname);
 
     // When the element type has a `_clone` export, the shim layer provides
-    // `Az<X>_clone_via` (input ptr + output ptr). Each list entry then owns
+    // `Az<X>_clone_byref` (input ptr + output ptr). Each list entry then owns
     // an independent heap allocation — closing the Vec later doesn't
     // dangle the yielded `Storable` peeks. Without `_clone`, fall back to
     // the shallow `peekElemOff` path (POD elements).
@@ -514,11 +512,11 @@ fn emit_vec_to_list_helper(
         .functions
         .iter()
         .any(|f| f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy));
-    let clone_via_binding = format!(
-        "az_{}_clone_via_internal",
+    let clone_byref_binding = format!(
+        "az_{}_clone_byref_internal",
         lower_first(&haskell_data_name(elem_rust))
     );
-    let clone_via_symbol = format!("Az{}_clone_via", elem_rust);
+    let clone_byref_symbol = format!("Az{}_clone_byref", elem_rust);
 
     if has_clone {
         // A local foreign-import bound to the same C symbol the FFI module
@@ -528,25 +526,25 @@ fn emit_vec_to_list_helper(
         // the binding is keyed on the *element* type while the helper runs
         // once per *Vec* struct (`StringVec` + `IcuStringVec` over
         // `String`). `foreign_imports` makes the declaration emit once.
-        match foreign_imports.get(&clone_via_binding) {
+        match foreign_imports.get(&clone_byref_binding) {
             None => {
-                foreign_imports.insert(clone_via_binding.clone(), clone_via_symbol.clone());
+                foreign_imports.insert(clone_byref_binding.clone(), clone_byref_symbol.clone());
                 builder.line(&format!(
                     "foreign import ccall safe \"{}\"",
-                    clone_via_symbol
+                    clone_byref_symbol
                 ));
                 builder.indent();
                 builder.line(&format!(
                     "{} :: Ptr {} -> Ptr {} -> IO ()",
-                    clone_via_binding, elem_haskell, elem_haskell
+                    clone_byref_binding, elem_haskell, elem_haskell
                 ));
                 builder.dedent();
                 builder.blank();
             }
-            Some(prev) if *prev == clone_via_symbol => {
+            Some(prev) if *prev == clone_byref_symbol => {
                 builder.line(&format!(
                     "-- `{}` (= C `{}`) already declared above for another Vec over `{}`.",
-                    clone_via_binding, clone_via_symbol, elem_rust
+                    clone_byref_binding, clone_byref_symbol, elem_rust
                 ));
             }
             Some(prev) => {
@@ -555,9 +553,9 @@ fn emit_vec_to_list_helper(
                      C symbols in Azul.Types: `{}` (already emitted) and `{}` (required by `{}` \
                      over element `{}`). The generated binding name must be made unique per C \
                      symbol.",
-                    clone_via_binding,
+                    clone_byref_binding,
                     prev,
-                    clone_via_symbol,
+                    clone_byref_symbol,
                     s.name,
                     elem_rust
                 );
@@ -568,7 +566,7 @@ fn emit_vec_to_list_helper(
     builder.line("-- | Decode the underlying buffer into a Haskell list.");
     if has_clone {
         builder.line(&format!(
-            "-- Each element is cloned via `Az{}_clone_via` so the yielded list",
+            "-- Each element is cloned via `Az{}_clone_byref` so the yielded list",
             elem_rust
         ));
         builder.line("-- entries own independent heap allocations and survive the Vec being");
@@ -597,7 +595,7 @@ fn emit_vec_to_list_helper(
         ));
         builder.line("mapM (\\i -> Foreign.Marshal.Alloc.alloca $ \\__out -> do");
         builder.line("    let __ep = __p `Foreign.Ptr.plusPtr` (i * __elem_sz)");
-        builder.line(&format!("    {} __ep __out", clone_via_binding));
+        builder.line(&format!("    {} __ep __out", clone_byref_binding));
         builder.line("    peek __out) [0 .. __n - 1]");
     } else {
         builder.line("mapM (peekElemOff __p) [0 .. __n - 1]");
@@ -1263,7 +1261,7 @@ mod tests {
     }
 
     /// The element type carries a `_clone` export, so every Vec over it
-    /// wants the `az_<elem>_clone_via_internal` foreign import. Two such
+    /// wants the `az_<elem>_clone_byref_internal` foreign import. Two such
     /// Vec structs must still produce exactly ONE declaration — GHC
     /// rejects a repeat with GHC-29916 "Multiple declarations of ...".
     ///
@@ -1298,13 +1296,13 @@ mod tests {
     }
 
     #[test]
-    fn vec_clone_via_foreign_import_emitted_once_per_module() {
+    fn vec_clone_byref_foreign_import_emitted_once_per_module() {
         let src = emit_two_vecs_over_same_elem();
 
         let names = foreign_import_names(&src);
         let hits = names
             .iter()
-            .filter(|n| n.as_str() == "az_azString_clone_via_internal")
+            .filter(|n| n.as_str() == "az_azString_clone_byref_internal")
             .count();
         assert_eq!(
             hits, 1,
@@ -1341,7 +1339,7 @@ mod tests {
         );
         // The second Vec's decoder still calls the shared binding.
         assert_eq!(
-            src.matches("az_azString_clone_via_internal __ep __out")
+            src.matches("az_azString_clone_byref_internal __ep __out")
                 .count(),
             2,
             "both decoders must call the shared clone-via binding:\n{}",
@@ -1452,17 +1450,17 @@ mod tests {
         let regressed = concat!(
             "module Azul.Types where\n",
             "\n",
-            "foreign import ccall unsafe \"AzString_clone_via\"\n",
-            "    az_azString_clone_via_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
+            "foreign import ccall unsafe \"AzString_clone_byref\"\n",
+            "    az_azString_clone_byref_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
             "\n",
-            "foreign import ccall unsafe \"AzString_clone_via\"\n",
-            "    az_azString_clone_via_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
+            "foreign import ccall unsafe \"AzString_clone_byref\"\n",
+            "    az_azString_clone_byref_internal :: Ptr AzString -> Ptr AzString -> IO ()\n",
         );
         let err = super::super::check_no_duplicate_declarations("src/Azul/Types.hs", regressed)
             .expect_err("the guard must reject a duplicated declaration");
         let msg = err.to_string();
         assert!(
-            msg.contains("az_azString_clone_via_internal"),
+            msg.contains("az_azString_clone_byref_internal"),
             "error must name the offending binding, got: {}",
             msg
         );

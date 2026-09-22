@@ -1289,6 +1289,7 @@ impl ThreadReceiver {
         let Some(ts) = self.ptr.lock().ok() else {
             return None.into();
         };
+        // direct-cb-call: the thread channel's receive function, not a callback wrapper.
         (ts.recv_fn.cb)(std::ptr::from_ref(ts.ptr.as_ref()) as *const c_void)
     }
 }

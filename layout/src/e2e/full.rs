@@ -12850,7 +12850,7 @@ Dom layout(RefAny& data, LayoutCallbackInfo& info) {{
 int main() {{
     RefAny data = RefAny::create(0);
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    App app = App::create(std::move(data), AppConfig::default_());
+    App app = App::create(std::move(data), AppConfig::create());
     app.run(std::move(window));
     return 0;
 }}

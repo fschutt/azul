@@ -1846,7 +1846,7 @@ mod sync {
                                     local_modified_ms: local_modified,
                                     remote_modified_ms: op.modified,
                                 };
-                                let merged = (h.callback.cb)(h.data.clone(), conflict);
+                                let merged = h.callback.invoke(h.data.clone(), conflict);
                                 let merged = if merged.is_null() { None } else { Some(merged) };
                                 // The merged value is a new local write: it
                                 // goes back through the oplog.

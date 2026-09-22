@@ -90,8 +90,8 @@ pub struct TypeAddition {
 /// Information about a callback typedef (function pointer type)
 #[derive(Debug, Clone)]
 pub struct CallbackTypedefInfo {
-    /// Arguments to the callback function: (arg_type, ref_kind)
-    pub fn_args: Vec<(String, String)>,
+    /// Arguments to the callback function: (name, arg_type, ref_kind)
+    pub fn_args: Vec<(Option<String>, String, String)>,
     /// Return type (None = void)
     pub returns: Option<String>,
 }
@@ -653,7 +653,9 @@ pub fn generate_diff(
                             let callback_info = CallbackTypedefInfo {
                                 fn_args: args
                                     .iter()
-                                    .map(|arg| (arg.ty.clone(), arg.ref_kind.as_str().to_string()))
+                                    .map(|arg| {
+                                        (arg.name.clone(), arg.ty.clone(), arg.ref_kind.as_str().to_string())
+                                    })
                                     .collect(),
                                 returns: returns.clone(),
                             };
@@ -966,10 +968,10 @@ fn collect_api_json_types(api_data: &ApiData) -> BTreeMap<String, ApiTypeInfo> {
                 // Extract callback typedef - use RefKind directly, no string conversion
                 let (callback_args, callback_returns) =
                     if let Some(ref callback_def) = class_data.callback_typedef {
-                        let args: Vec<(String, crate::api::RefKind)> = callback_def
+                        let args: Vec<(Option<String>, String, crate::api::RefKind)> = callback_def
                             .fn_args
                             .iter()
-                            .map(|arg| (arg.r#type.clone(), arg.ref_kind))
+                            .map(|arg| (arg.name.clone(), arg.r#type.clone(), arg.ref_kind))
                             .collect();
                         let returns = callback_def.returns.as_ref().map(|r| r.r#type.clone());
                         (Some(args), returns)
@@ -1078,7 +1080,8 @@ pub struct ApiTypeInfo {
     /// Enum variants: (variant_name, variant_type, ref_kind)
     pub enum_variants: Option<Vec<(String, Option<String>, crate::api::RefKind)>>,
     /// Callback typedef args: (arg_type, ref_kind) - uses RefKind directly, no string conversion
-    pub callback_args: Option<Vec<(String, crate::api::RefKind)>>,
+    /// (name, type, ref_kind) per callback argument
+    pub callback_args: Option<Vec<(Option<String>, String, crate::api::RefKind)>>,
     /// Callback typedef return type
     pub callback_returns: Option<String>,
     /// Type alias target
@@ -1386,10 +1389,10 @@ fn generate_diff_v2(
         });
         let enum_variants = addition.enum_variants.clone();
         let (callback_args, callback_returns) = if let Some(ref cb) = addition.callback_typedef {
-            let args: Vec<(String, crate::api::RefKind)> = cb
+            let args: Vec<(Option<String>, String, crate::api::RefKind)> = cb
                 .fn_args
                 .iter()
-                .map(|(ty, rk)| {
+                .map(|(name, ty, rk)| {
                     let ref_kind = match rk.as_str() {
                         "constptr" => crate::api::RefKind::ConstPtr,
                         "mutptr" => crate::api::RefKind::MutPtr,
@@ -1397,7 +1400,7 @@ fn generate_diff_v2(
                         "refmut" => crate::api::RefKind::RefMut,
                         _ => crate::api::RefKind::Value,
                     };
-                    (ty.clone(), ref_kind)
+                    (name.clone(), ty.clone(), ref_kind)
                 })
                 .collect();
             let returns = cb.returns.clone();
@@ -1446,12 +1449,24 @@ fn generate_diff_v2(
         }
     }
 
-    // Filter out modifications and additions for dead types - they'd conflict with removals
-    if !dead_types.is_empty() {
+    // Filter out modifications and additions ONLY for the dead types that are
+    // actually being removed (gone from the workspace) - they'd conflict with
+    // the removal. A "dead" type that still exists in the source (reachable
+    // through struct fields only, e.g. a callback typedef behind an
+    // `OptionX` field like `NodeGraphCallbacks.on_node_connected`) is kept
+    // by the guard above, so its modifications must be kept too: filtering
+    // on the whole dead set silently froze every such type at its first
+    // api.json snapshot (found 2026-09-19: the node-graph typedefs never
+    // received their parameter names).
+    let removed_dead: BTreeSet<&String> = dead_types
+        .iter()
+        .filter(|t| index.resolve(t, None).is_none())
+        .collect();
+    if !removed_dead.is_empty() {
         diff.modifications
-            .retain(|m| !dead_types.contains(&m.type_name));
+            .retain(|m| !removed_dead.contains(&m.type_name));
         diff.additions
-            .retain(|a| !dead_types.contains(&a.type_name));
+            .retain(|a| !removed_dead.contains(&a.type_name));
     }
 
     diff
@@ -1507,7 +1522,7 @@ fn find_dead_type_clusters(current_api_types: &BTreeMap<String, ApiTypeInfo>) ->
 
         // Callback typedef args + return
         if let Some(ref cb_args) = api_info.callback_args {
-            for (arg_type, _) in cb_args {
+            for (_, arg_type, _) in cb_args {
                 let clean = strip_ptr_prefix(arg_type);
                 if all_type_names.contains(clean) {
                     refs.insert(clean);
@@ -1963,15 +1978,20 @@ fn compare_callback_typedef(
                 any_arg_differs = true;
             } else {
                 for (i, workspace_arg) in workspace_args.iter().enumerate() {
-                    if let Some((api_arg_ty, api_arg_ref_kind)) = api_args.get(i) {
+                    if let Some((api_arg_name, api_arg_ty, api_arg_ref_kind)) = api_args.get(i) {
                         let workspace_normalized = normalize_type_name(&workspace_arg.ty);
                         let api_normalized = normalize_type_name(api_arg_ty);
 
                         // Direct RefKind comparison - no string conversion needed
                         let type_differs = workspace_normalized != api_normalized;
                         let ref_differs = workspace_arg.ref_kind != *api_arg_ref_kind;
+                        // A named parameter in the source whose name api.json does
+                        // not carry (or carries differently) is drift too: bindings
+                        // derive their parameter names from it.
+                        let name_differs =
+                            workspace_arg.name.is_some() && *api_arg_name != workspace_arg.name;
 
-                        if type_differs || ref_differs {
+                        if type_differs || ref_differs || name_differs {
                             any_arg_differs = true;
                             break;
                         }
@@ -2250,7 +2270,9 @@ fn get_type_kind_with_fields(
                 let callback_info = CallbackTypedefInfo {
                     fn_args: args
                         .iter()
-                        .map(|arg| (arg.ty.clone(), arg.ref_kind.as_str().to_string()))
+                        .map(|arg| {
+                            (arg.name.clone(), arg.ty.clone(), arg.ref_kind.as_str().to_string())
+                        })
                         .collect(),
                     returns: returns.clone(),
                 };
@@ -2849,7 +2871,14 @@ mod api_json_declared_derives {
                     let path = entry.ok()?.path();
                     let t = if path.is_dir() {
                         newest(&path)
-                    } else if path.extension().is_some_and(|e| e == "rs") {
+                    } else if path.extension().is_some_and(|e| e == "rs")
+                        // A test file emits nothing, so touching one cannot
+                        // stale the artifact - and treating it as an emitter
+                        // turns every edit to a codegen test into a false red
+                        // on this one. `bug_classes.rs` excludes itself from
+                        // its own guard for the same reason.
+                        && path.file_name().is_some_and(|n| n != "bug_classes.rs")
+                    {
                         path.metadata().ok()?.modified().ok()
                     } else {
                         None

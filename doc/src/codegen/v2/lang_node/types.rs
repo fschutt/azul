@@ -19,8 +19,10 @@
 //! - The shape is documented in JSDoc-comment form right above the call for human readers
 //!   regardless of runtime.
 //!
-//! Tagged-union enums are emitted as koffi unions with an outer wrapper
-//! struct carrying the tag. Each variant payload struct is registered
+//! Tagged-union enums (direct and monomorphized alike) are emitted the
+//! way `azul.h` declares them: one struct per variant, each beginning
+//! with the `uint8_t` tag, and the type itself as a koffi `union` of
+//! those variant structs. Each variant payload struct is registered
 //! separately so its fields are nameable.
 //!
 //! ## Skipped categories
@@ -125,6 +127,87 @@ pub fn generate_type_registrations(b: &mut CodeBuilder, ir: &CodegenIR) {
     }
 
     b.blank();
+    generate_constants(b, ir);
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// api.json declares constants on an owning class (`GlContextPtr_ACCUM`
+/// is `ACCUM` on `GlContextPtr`) and gives each a type and a literal
+/// value. They are compile-time numbers — the OpenGL enum values — so
+/// they need no FFI call and no type registration: one frozen table per
+/// owning class, which `wrappers::emit_constants_static` then hangs off
+/// that class as `GlContextPtr.Constants.TEXTURE_2D`.
+///
+/// The table is keyed by class rather than flattened into one namespace
+/// so a second class growing constants cannot collide with the first.
+/// A 64-bit value is emitted as a BigInt literal: `0xFFFFFFFFFFFFFFFF`
+/// is not representable as a JS Number and would round to 2^64.
+fn generate_constants(b: &mut CodeBuilder, ir: &CodegenIR) {
+    if ir.constants.is_empty() {
+        return;
+    }
+    b.line("// ----------------------------------------------------------------------------");
+    b.line("// Constants, grouped by the class api.json declares them on. Frozen plain");
+    b.line("// values: reading one never crosses the FFI boundary.");
+    b.line("// ----------------------------------------------------------------------------");
+    b.blank();
+    b.line("const Constants = Object.create(null);");
+    b.blank();
+
+    // Group in IR order, keeping each class's constants in the order
+    // api.json lists them.
+    let mut classes: Vec<&str> = Vec::new();
+    for c in &ir.constants {
+        let Some((class, _)) = c.name.split_once('_') else {
+            continue;
+        };
+        if !classes.contains(&class) {
+            classes.push(class);
+        }
+    }
+
+    for class in classes {
+        b.line(&format!(
+            "Constants.{} = Object.freeze({{",
+            sanitize_js_identifier(class)
+        ));
+        b.indent();
+        for c in &ir.constants {
+            let Some((owner, _)) = c.name.split_once('_') else {
+                continue;
+            };
+            let name = &c.member_name();
+            if owner != class {
+                continue;
+            }
+            for d in &c.doc {
+                b.line(&format!("// {}", d));
+            }
+            b.line(&format!(
+                "{}: {},",
+                sanitize_js_identifier(name),
+                js_constant_literal(&c.type_name, &c.value)
+            ));
+        }
+        b.dedent();
+        b.line("});");
+        b.blank();
+    }
+}
+
+/// A constant's api.json value as a JS literal. 64-bit widths become
+/// BigInt (`123n`) because a JS Number cannot hold them exactly;
+/// everything narrower is a Number, which is what every consumer of a
+/// GL enum wants to pass straight back into an FFI call.
+fn js_constant_literal(type_name: &str, value: &str) -> String {
+    let v = value.trim();
+    match type_name.trim() {
+        "u64" | "i64" | "usize" | "isize" => format!("{}n", v),
+        _ => v.to_string(),
+    }
 }
 
 fn emit_monomorphized_alias(
@@ -162,9 +245,21 @@ fn emit_monomorphized_alias(
             b.dedent();
             b.line("});");
         }
-        MonomorphizedKind::TaggedUnion { variants, .. } => {
-            // Tag alias + JS frozen object.
-            b.line(&format!("azulFFI.alias('{}_Tag', 'uint32_t');", name));
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            // Same layout as the direct tagged-enum path below and as
+            // `azul.h` (lang_c `generate_monomorphized_type`): the C
+            // type is a `union` of per-variant structs, each starting
+            // with the tag. For `#[repr(C, u8)]` the tag field is one
+            // byte; a C-enum-sized tag is 4 bytes. There is NO outer
+            // `{ tag, payload: union }` struct — that shape added a
+            // second tag slot plus padding and made 178 CssPropertyValue
+            // instantiations 4-8 bytes larger than the DLL's.
+            let tag_width = if repr.as_ref().is_some_and(|r| r.contains("u8")) {
+                "uint8_t"
+            } else {
+                "uint32_t"
+            };
+            b.line(&format!("azulFFI.alias('{}_Tag', '{}');", name, tag_width));
             b.line(&format!("Enums.{}_Tag = Object.freeze({{", ta.name));
             b.indent();
             for (idx, v) in variants.iter().enumerate() {
@@ -173,7 +268,7 @@ fn emit_monomorphized_alias(
             b.dedent();
             b.line("});");
 
-            // Per-variant payload structs.
+            // Per-variant payload structs (tag first, optional payload).
             for v in variants {
                 b.line(&format!("azulFFI.struct('{}Variant_{}', {{", name, v.name));
                 b.indent();
@@ -186,8 +281,8 @@ fn emit_monomorphized_alias(
                 b.line("});");
             }
 
-            // Outer wrapper (struct with tag + union of payloads).
-            b.line(&format!("azulFFI.union('{}_Union', {{", name));
+            // The type itself: a union of the variant structs.
+            b.line(&format!("azulFFI.union('{}', {{", name));
             b.indent();
             for v in variants {
                 b.line(&format!(
@@ -197,12 +292,6 @@ fn emit_monomorphized_alias(
                     v.name
                 ));
             }
-            b.dedent();
-            b.line("});");
-            b.line(&format!("azulFFI.struct('{}', {{", name));
-            b.indent();
-            b.line(&format!("tag: '{}_Tag',", name));
-            b.line(&format!("payload: '{}_Union',", name));
             b.dedent();
             b.line("});");
         }

@@ -28,14 +28,21 @@
 //!    `Azul.Internal.Handles.<Module>` (the managed wrapper types, one file
 //!    per api.json module, plus the `Azul.Internal.Handles` facade),
 //!    `Azul.Internal.Callbacks` (the host-handle `RefAny`, one closure type
-//!    and invoker per callback kind) and `Azul.<Module>` (constructors and
-//!    methods of that module's classes, receiver last). See `wrappers.rs`.
-//! 5. `src/Azul.hs` — the facade user code imports: re-exports the whole
+//!    and invoker per callback kind) and `Azul.Internal.Api.<Module>`
+//!    (constructors and methods of that module's classes, receiver last).
+//!    A class the layer keeps as a plain value rather than a managed
+//!    wrapper — every enum, every monomorphized generic alias, the POD
+//!    structs — has its functions in a size-bounded
+//!    `Azul.Internal.Api.Values<n>` chunk instead; its api.json constants
+//!    (the GL enum values) live in `Azul.<Class>.Constants`.
+//! 5. `src/Azul/<Class>.hs` — one module per class, its functions under
+//!    their short names (`Button.create`), for a qualified import.
+//! 6. `src/Azul.hs` — the facade user code imports: re-exports the whole
 //!    idiomatic layer and the `Azul.Types` entities it does not wrap.
-//! 6. `cbits/azul_<module>.c` — the `_via` shims, inbound trampolines and
+//! 7. `cbits/azul_<module>.c` — the `_byref` shims, inbound trampolines and
 //!    layout-oracle functions for one api.json module; `cbits/azul_host.c`
 //!    the host-invoker prototypes. See `cshim.rs`.
-//! 7. `azul.cabal` — Cabal manifest listing every module and C source.
+//! 8. `azul.cabal` — Cabal manifest listing every module and C source.
 //!
 //! ## Output protocol
 //!
@@ -244,14 +251,50 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         module: "Azul.Internal.Callbacks".to_string(),
         src: wrappers::generate_callbacks_module(&ctx),
     });
-    let mut api_hs_modules = Vec::new();
     for m in &api_modules {
-        let module = format!("Azul.{}", module_segment(m));
         files.push(HsFile {
-            module: module.clone(),
+            module: wrappers::api_module_name(m),
             src: wrappers::generate_api_module(&ctx, m),
         });
-        api_hs_modules.push(module);
+    }
+    // The classes the layer represents as plain `Azul.Types` values - the
+    // enums, the monomorphized generic aliases and the POD structs - have
+    // no wrapper type to hang methods off, but they DO have a C surface:
+    // variant constructors, `_toDbgString`, `_partialEq`, `_cmp`, `_hash`,
+    // `_createDefault`, `_clone`. Without these the binding could name
+    // every one of those values and call none of their functions.
+    for (module, classes) in wrappers::value_class_chunks(&ctx) {
+        files.push(HsFile {
+            src: wrappers::generate_value_module(&ctx, &module, &classes),
+            module,
+        });
+    }
+    // The api.json constants of a class (the GL enum values on
+    // `GlContextPtr`), as `<class><Name>` values. Their own module per
+    // class: a Haskell value name must start lowercase, which puts
+    // `GL_CLEAR` and the `clear` method in one namespace, and 15 of the GL
+    // constants collide with the method of the same name.
+    for (class, constants) in constants_by_class(ir) {
+        files.push(HsFile {
+            module: constants_module_name(&class),
+            src: generate_constants_module(ir, config, &class, &constants),
+        });
+    }
+    // One module per class, its functions by short name: `Button.create`
+    // with `import qualified Azul.Button as Button`, never a global
+    // `buttonCreate`.
+    let taken: std::collections::BTreeSet<String> =
+        files.iter().map(|f| f.module.clone()).collect();
+    for (class, aliases) in ctx.aliases.borrow().iter() {
+        let module = wrappers::class_module_name(class);
+        anyhow::ensure!(
+            !taken.contains(&module) && module != "Azul",
+            "the Haskell module of class {class}, {module}, is already another generated module"
+        );
+        files.push(HsFile {
+            module,
+            src: wrappers::generate_class_module(&ctx, class, aliases),
+        });
     }
     let idiomatic_bodies: Vec<&str> = files
         .iter()
@@ -259,20 +302,30 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
             f.module == "Azul.Internal.Runtime"
                 || f.module == "Azul.Internal.Callbacks"
                 || f.module.starts_with("Azul.Internal.Handles.")
-                || api_hs_modules.contains(&f.module)
         })
         .map(|f| f.src.as_str())
         .collect();
-    let mut facade_modules = vec![
+    let facade_modules = vec![
         "Azul.Internal.Runtime".to_string(),
         "Azul.Internal.Handles".to_string(),
         "Azul.Internal.Callbacks".to_string(),
     ];
-    facade_modules.extend(api_hs_modules.iter().cloned());
     files.push(HsFile {
         module: "Azul".to_string(),
         src: wrappers::generate_facade(&ctx, &facade_modules, &idiomatic_bodies),
     });
+
+    // Each internal module imports the modules that declare the names it
+    // uses, never a whole-API facade: through `Azul.Types`,
+    // `Azul.Internal.FFI` and `Azul.Internal.Handles` every module depended
+    // on (and loaded the interfaces of) every module below it, so the ~200
+    // units compiled one layer at a time instead of in parallel.
+    let facades: Vec<(&str, Vec<String>)> = vec![
+        ("Azul.Types", type_modules.clone()),
+        ("Azul.Internal.FFI", ffi_modules.clone()),
+        ("Azul.Internal.Handles", handle_modules.clone()),
+    ];
+    narrow_facade_imports(&mut files, &facades);
 
     // Codegen-time guard: a Haskell module may declare each name at most
     // once. Emitters that key a declaration on something other than the
@@ -335,6 +388,93 @@ fn generated_header(builder: &mut CodeBuilder, what: &str) {
     builder.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
 }
 
+/// The api.json constants, grouped by the class they belong to.
+/// `ConstantDef::name` is `<Class>_<CONSTANT>`; anything without that shape
+/// has no class to hang off and is left for the caller to notice.
+fn constants_by_class(
+    ir: &CodegenIR,
+) -> std::collections::BTreeMap<String, Vec<&super::ir::ConstantDef>> {
+    let mut out: std::collections::BTreeMap<String, Vec<&super::ir::ConstantDef>> =
+        std::collections::BTreeMap::new();
+    for c in &ir.constants {
+        if let Some((class, _)) = c.name.split_once('_') {
+            out.entry(class.to_string()).or_default().push(c);
+        }
+    }
+    out
+}
+
+/// `Azul.<Class>.Constants`: the module holding one class's constants.
+fn constants_module_name(class: &str) -> String {
+    format!("{}.Constants", wrappers::class_module_name(class))
+}
+
+/// The Haskell name of one constant: the class name with the constant
+/// CamelCased onto it, lower-cased at the front because a Haskell value
+/// identifier must start lowercase. `GlContextPtr_ACCUM_ALPHA_BITS` ->
+/// `glContextPtrAccumAlphaBits`.
+fn constant_value_name(class: &str, constant: &str) -> String {
+    // Each underscore-separated word lower-cased first: `ACCUM_ALPHA_BITS`
+    // is `AccumAlphaBits`, not `ACCUMALPHABITS`.
+    let camel: String = constant
+        .split('_')
+        .map(|w| upper_camel_first_word(&w.to_ascii_lowercase()))
+        .collect();
+    sanitize_value_identifier(&lower_first(&format!("{}{}", class, camel)))
+}
+
+/// `Azul.<Class>.Constants`: one class's api.json constants as top-level
+/// values of the Haskell type its api.json type maps to.
+///
+/// Its own module rather than a section of the class's function module,
+/// because both namespaces are lowercase on the Haskell side: `GL_CLEAR`
+/// and `GlContextPtr::clear` would be the same identifier.
+fn generate_constants_module(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    class: &str,
+    constants: &[&super::ir::ConstantDef],
+) -> String {
+    let module = constants_module_name(class);
+    let mut b = CodeBuilder::new(&config.indent);
+    generated_header(
+        &mut b,
+        &format!(
+            "The api.json constants of @{}@, as @{}<Name>@ values. Import unqualified: the names already carry the class.",
+            class,
+            lower_first(class)
+        ),
+    );
+    b.line("{-# OPTIONS_GHC -Wno-unused-imports #-}");
+    b.blank();
+    b.line(&format!("module {} where", module));
+    b.blank();
+    b.line("import Data.Int (Int8, Int16, Int32, Int64)");
+    b.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    b.line("import Foreign.C.Types");
+    b.blank();
+    for c in constants {
+        // Every api.json constant is an integer literal in a C integer
+        // type; its value string is already valid Haskell. A constant of
+        // any other type would need a shape of its own, so it is left out
+        // rather than emitted as something that would not compile - the
+        // constants-coverage test names it if that ever happens.
+        if !cshim::is_c_primitive(&c.type_name) {
+            continue;
+        }
+        let Some((_, name)) = c.name.split_once('_') else {
+            continue;
+        };
+        for d in &c.doc {
+            b.line(&format!("-- | {}", sanitize_doc(d)));
+        }
+        let hs = constant_value_name(class, name);
+        b.line(&format!("{} :: {}", hs, types::map_owned_type(&c.type_name, ir)));
+        b.line(&format!("{} = {}", hs, c.value.trim()));
+    }
+    b.finish()
+}
+
 /// A module that only re-exports other modules.
 fn generate_reexport_facade(
     name: &str,
@@ -369,13 +509,19 @@ fn generate_reexport_facade(
 /// guaranteed to be UTF-8; libazul strings always are.
 fn generate_types_common(config: &CodegenConfig) -> String {
     let mut builder = CodeBuilder::new(&config.indent);
-    generated_header(&mut builder, "UTF-8 codec shared by every \"Azul.Types\" chunk.");
+    generated_header(
+        &mut builder,
+        "The UTF-8 codec every \"Azul.Types\" chunk may need, and the callback guard every tier above it uses. This module imports nothing of the binding's own, so it is the one place BOTH the raw FFI layer and the idiomatic layer can reach.",
+    );
     builder.blank();
     builder.line("module Azul.Types.Common where");
     builder.blank();
+    builder.line("import Control.Exception (SomeException(..), catch, displayException, evaluate)");
     builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
     builder.line("import Data.Char (chr, ord)");
+    builder.line("import Data.Typeable (typeOf)");
     builder.line("import Data.Word (Word8)");
+    builder.line("import System.IO (hPutStrLn, stderr)");
     builder.blank();
     builder.line("-- | Encode a Haskell String as UTF-8 bytes (what every AzString holds).");
     builder.line("encodeUtf8 :: String -> [Word8]");
@@ -418,7 +564,98 @@ fn generate_types_common(config: &CodegenConfig) -> String {
     builder.dedent();
     builder.dedent();
     builder.blank();
+    emit_callback_guard(&mut builder);
     builder.finish()
+}
+
+/// The callback guard, in "Azul.Types.Common" so that BOTH tiers that hand
+/// libazul a C function pointer can use the same one: the managed invokers
+/// in `Azul.Internal.Callbacks` and the raw `register<X>Callback` wrappers
+/// in `Azul.Internal.FFI.<Module>`. It cannot live in
+/// `Azul.Internal.Runtime` with the rest of the plumbing, because Runtime
+/// imports the FFI layer (for the `AzString` codec) and the FFI layer would
+/// then import Runtime back.
+///
+/// Why it exists at all: an exception that unwinds out of a `foreign import
+/// ccall "wrapper"` frame into Rust is undefined behaviour - the RTS has no
+/// frame to unwind to and ends the process. Every such frame therefore
+/// catches, reports through the callback's own log sink (so the failure
+/// reaches the app's logger, and Grafana, instead of killing the window)
+/// and answers with the fallback.
+///
+/// Laziness is the second half of the problem: a callback can return a
+/// thunk that only explodes when something forces it, which in an unguarded
+/// design is AFTER the handler returned. `azulGuardValue` therefore forces
+/// the answer inside the protected region, and the marshalling that follows
+/// (`poke`, which walks every field it writes) forces the rest of what the
+/// C ABI can observe. `base` is the only dependency, so there is no
+/// `NFData` to force deeper - and deeper is not observable from C anyway.
+fn emit_callback_guard(b: &mut CodeBuilder) {
+    b.line("-- ---------------------------------------------------------------------------");
+    b.line("-- The callback guard: no exception may reach libazul.");
+    b.line("-- ---------------------------------------------------------------------------");
+    b.blank();
+    b.line("-- | Where a callback failure goes when it has no log sink of its own.");
+    b.line("azulStderr :: String -> IO ()");
+    b.line("azulStderr = hPutStrLn stderr");
+    b.blank();
+    b.line("-- | Force a callback's answer to weak head normal form. Called INSIDE");
+    b.line("-- the guarded region: a thunk that raises would otherwise do so after");
+    b.line("-- the handler returned, with libazul on the stack. The `poke` that");
+    b.line("-- marshals the value afterwards is inside the region too, and walks");
+    b.line("-- every field the C ABI reads, so together they force exactly as deep");
+    b.line("-- as the boundary can observe.");
+    b.line("azulForce :: a -> IO a");
+    b.line("azulForce = evaluate");
+    b.blank();
+    b.line("-- | The message every binding logs for a callback that raised, in the");
+    b.line("-- same shape every other binding uses - it starts with");
+    b.line("-- @azul: Callback raised@ - so one query finds them across languages.");
+    b.line("azulCallbackError :: String -> SomeException -> String");
+    b.line("azulCallbackError kind (SomeException e) =");
+    b.indent();
+    b.line(
+        "\"azul: Callback raised \" ++ show (typeOf e) ++ \" in \" ++ kind ++ \": \" \
+         ++ displayException e",
+    );
+    b.dedent();
+    b.blank();
+    b.line("-- | Last resort when the log sink itself raised: the original message,");
+    b.line("-- on stderr.");
+    b.line("azulReportFailed :: String -> SomeException -> IO ()");
+    b.line("azulReportFailed msg _ = azulStderr msg");
+    b.blank();
+    b.line("azulIgnoreError :: SomeException -> IO ()");
+    b.line("azulIgnoreError _ = pure ()");
+    b.blank();
+    b.line("-- | Report a failed callback of kind @kind@ through @report@, falling");
+    b.line("-- back to stderr, and never raising itself.");
+    b.line("azulReport :: String -> (String -> IO ()) -> SomeException -> IO ()");
+    b.line("azulReport kind report e = do");
+    b.indent();
+    b.line("let msg = azulCallbackError kind e");
+    b.line("(report msg `catch` azulReportFailed msg) `catch` azulIgnoreError");
+    b.dedent();
+    b.blank();
+    b.line("-- | Run a callback that answers with a value so that nothing reaches");
+    b.line("-- libazul: force the answer, and on an exception log it and answer");
+    b.line("-- @fallback@ instead.");
+    b.line("azulGuardValue :: String -> (String -> IO ()) -> a -> IO a -> IO a");
+    b.line("azulGuardValue kind report fallback body =");
+    b.indent();
+    b.line("(body >>= azulForce) `catch` \\e -> do");
+    b.indent();
+    b.line("azulReport kind report e");
+    b.line("pure fallback");
+    b.dedent();
+    b.dedent();
+    b.blank();
+    b.line("-- | 'azulGuardValue' for a callback that answers through an");
+    b.line("-- out-pointer libazul pre-filled with the kind's default: on failure");
+    b.line("-- nothing is written and that default stands.");
+    b.line("azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()");
+    b.line("azulGuard kind report = azulGuardValue kind report ()");
+    b.blank();
 }
 
 /// One `Azul.Types.<Unit>` chunk: the declarations of the plan chunk's
@@ -495,7 +732,10 @@ fn generate_ffi_module(
     builder.blank();
     builder.line("import Azul.Types");
     builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr)");
+    // `nullPtr` / `nullFunPtr`: the answer a guarded `register<X>Callback`
+    // wrapper gives the C caller when the user's function raised and the
+    // callback's return type is a pointer.
+    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr, nullFunPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..), poke)");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
@@ -609,6 +849,125 @@ fn module_scope_declarations(src: &str) -> Vec<(String, usize)> {
     out
 }
 
+/// Every name a module brings into scope for its importers: its
+/// declarations (see [`module_scope_declarations`]) plus data constructors
+/// (`data X = C ..`, `  | C ..`) and record fields (`  { f :: ..`,
+/// `  , f :: ..`).
+fn module_scope_names(src: &str) -> Vec<String> {
+    let mut out: Vec<String> = module_scope_declarations(src)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let first_ident = |s: &str| -> Option<String> {
+        let s = s.trim_start();
+        let len = s.find(|c: char| !is_haskell_ident_char(c)).unwrap_or(s.len());
+        (len > 0).then(|| s[..len].to_string())
+    };
+    for line in src.lines() {
+        if line.starts_with("data ") || line.starts_with("newtype ") {
+            if let Some(rhs) = line.split_once('=').map(|(_, r)| r) {
+                out.extend(first_ident(rhs));
+            }
+            continue;
+        }
+        if !line.starts_with(' ') {
+            continue;
+        }
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix("= ").or_else(|| t.strip_prefix("| ")) {
+            out.extend(first_ident(rest).filter(|n| n.starts_with(|c: char| c.is_ascii_uppercase())));
+        } else if let Some(rest) = t.strip_prefix("{ ").or_else(|| t.strip_prefix(", ")) {
+            if let Some(name) = first_ident(rest) {
+                if rest[name.len()..].trim_start().starts_with("::") {
+                    out.push(name);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Rewrite every import of a facade in `facades` - `import <F>` or
+/// `import qualified <F> as <Q>` - into imports of the facade's member
+/// modules that declare a name the file uses (qualified: `<Q>.<name>`;
+/// unqualified: any identifier token). The facades themselves stay, for
+/// user code.
+fn narrow_facade_imports(files: &mut [HsFile], facades: &[(&str, Vec<String>)]) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let by_module: BTreeMap<String, Vec<String>> = files
+        .iter()
+        .map(|f| (f.module.clone(), module_scope_names(&f.src)))
+        .collect();
+    let facade_names: BTreeSet<&str> = facades.iter().map(|(f, _)| *f).collect();
+    for file in files.iter_mut() {
+        if facade_names.contains(file.module.as_str()) {
+            continue;
+        }
+        let tokens: BTreeSet<&str> = file
+            .src
+            .split(|c: char| !(is_haskell_ident_char(c) || c == '.'))
+            .filter(|t| !t.is_empty())
+            .collect();
+        // A facade a module re-exports (`module Azul.Internal.Handles` in
+        // `Azul`'s export list) must stay imported whole.
+        let reexported = |facade: &str| {
+            file.src.lines().any(|l| {
+                let l = l.trim_start().trim_start_matches(['(', ',']).trim();
+                l == format!("module {facade}")
+            })
+        };
+        let mut out = String::with_capacity(file.src.len());
+        for line in file.src.lines() {
+            let rewritten = facades.iter().find_map(|(facade, members)| {
+                if reexported(facade) {
+                    return None;
+                }
+                let t = line.trim();
+                let qualifier = if t == format!("import {facade}") {
+                    None
+                } else if let Some(q) = t
+                    .strip_prefix(&format!("import qualified {facade} as "))
+                    .filter(|q| !q.contains(' '))
+                {
+                    Some(q)
+                } else {
+                    return None;
+                };
+                let used = |m: &String| {
+                    by_module.get(m).is_some_and(|names| {
+                        names.iter().any(|n| match qualifier {
+                            Some(q) => tokens.contains(format!("{q}.{n}").as_str()),
+                            None => tokens.contains(n.as_str()),
+                        })
+                    })
+                };
+                let lines: Vec<String> = members
+                    .iter()
+                    .filter(|m| **m != file.module && used(m))
+                    .map(|m| match qualifier {
+                        Some(q) => format!("import qualified {m} as {q}"),
+                        None => format!("import {m}"),
+                    })
+                    .collect();
+                Some(lines)
+            });
+            match rewritten {
+                Some(lines) => {
+                    for l in lines {
+                        out.push_str(&l);
+                        out.push('\n');
+                    }
+                }
+                None => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        file.src = out;
+    }
+}
+
 fn is_haskell_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '\''
 }
@@ -664,7 +1023,12 @@ pub fn haskell_ffi_type_name(name: &str) -> String {
 /// carry payloads of these types trip GHC's "Ambiguous occurrence"
 /// check because the local `Azul.Types.<Name>` clashes with `Prelude.<Name>`.
 fn shadows_prelude_type(s: &str) -> bool {
-    matches!(
+    // This is the set of names `base` already binds at the type level: a
+    // property of Haskell, not of api.json. The three entries api.json
+    // happens to reuse are here because Prelude and System.IO export them,
+    // and the list would be word for word the same for a binding of any
+    // other library.
+    matches!( // allow-api-name: the type names base itself binds, see above.
         s,
         "String"
             | "Maybe"
@@ -890,8 +1254,11 @@ mod split_tests {
     use std::collections::BTreeMap;
 
     fn generated() -> BTreeMap<String, String> {
-        let ir = test_fixture_ir();
-        let out = generate(&ir, &CodegenConfig::c_header()).expect("haskell codegen");
+        split_files(&test_fixture_ir())
+    }
+
+    fn split_files(ir: &CodegenIR) -> BTreeMap<String, String> {
+        let out = generate(ir, &CodegenConfig::c_header()).expect("haskell codegen");
         let mut files = BTreeMap::new();
         let mut cur: Option<String> = None;
         for line in out.lines() {
@@ -942,11 +1309,189 @@ mod split_tests {
         for m in ["Azul.Types.Common", "Azul.Types.Css", "Azul.Types.Dom", "Azul.Types.Widgets"] {
             assert!(types.contains(&format!("module {}", m)), "Azul.Types lacks {}", m);
         }
+        // `Azul` re-exports the three tiers of the idiomatic layer and the
+        // `Azul.Types` entities it does not wrap - NOT the class functions,
+        // which each class's own module exports by short name.
         let azul = &files["src/Azul.hs"];
-        for m in ["Azul.Internal.Runtime", "Azul.Internal.Handles", "Azul.Internal.Callbacks", "Azul.Dom", "Azul.Widgets"] {
+        for m in ["Azul.Internal.Runtime", "Azul.Internal.Handles", "Azul.Internal.Callbacks"] {
             assert!(azul.contains(&format!("module {}", m)), "Azul lacks {}:\n{}", m, azul);
         }
         assert!(azul.contains("T.Update(..)"), "unwrapped types are re-exported:\n{}", azul);
+        let dom_class = &files["src/Azul/Dom.hs"];
+        assert!(dom_class.contains("module Azul.Dom"), "{}", dom_class);
+        assert!(dom_class.contains("createBody = I.domCreateBody"), "{}", dom_class);
+    }
+
+    /// The fixture plus a host-invoker callback kind: `RefAny`,
+    /// `CallbackInfo`, `ButtonOnClickCallback` and `Button.with_on_click`.
+    fn callback_fixture() -> CodegenIR {
+        use super::super::ir::{
+            ArgRefKind, CallbackArgInfo, CallbackTypedefDef, CallbackWrapperInfo, FunctionArg,
+            FunctionDef, FunctionKind, StructDef, TypeCategory,
+        };
+        let mut ir = test_fixture_ir();
+        let arg = |name: &str, ty: &str, rk: ArgRefKind| FunctionArg {
+            name: name.into(),
+            type_name: ty.into(),
+            ref_kind: rk,
+            doc: None,
+            callback_info: None,
+        };
+        let func = |class: &str, method: &str, kind, args, ret: Option<&str>| FunctionDef {
+            c_name: format!("Az{}_{}", class, method),
+            class_name: class.into(),
+            method_name: method.into(),
+            kind,
+            args,
+            return_type: ret.map(|s| s.to_string()),
+            fn_body: None,
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        };
+        let mut st = |name: &str, category| {
+            let mut s: StructDef = ir.structs.iter().find(|s| s.name == "Button").unwrap().clone();
+            s.name = name.into();
+            s.module = "callbacks".into();
+            s.fields.truncate(0);
+            s.category = category;
+            ir.type_to_module.insert(name.into(), "callbacks".into());
+            ir.structs.push(s);
+        };
+        st("RefAny", TypeCategory::RefAny);
+        st("CallbackInfo", TypeCategory::Regular);
+        st("ButtonOnClickCallback", TypeCategory::Regular);
+        // The wrapper struct and its typedef know about each other: that
+        // pairing - not the name - is what marks a callback kind
+        // (`managed_host_invoker::is_callback_wrapper`,
+        // `host_invoker_kinds`).
+        if let Some(w) = ir.structs.iter_mut().find(|s| s.name == "ButtonOnClickCallback") {
+            w.callback_wrapper_info = Some(CallbackWrapperInfo {
+                callback_typedef_name: "ButtonOnClickCallbackType".into(),
+                callback_field_name: "cb".into(),
+                context_field_name: "ctx".into(),
+            });
+        }
+        ir.callback_typedefs.push(CallbackTypedefDef {
+            name: "ButtonOnClickCallbackType".into(),
+            args: vec![
+                arg("data", "RefAny", ArgRefKind::Owned),
+                arg("info", "CallbackInfo", ArgRefKind::Owned),
+            ],
+            return_type: Some("Update".into()),
+            doc: vec![],
+            module: "callbacks".into(),
+            external_path: None,
+            wrapper: Some("ButtonOnClickCallback".into()),
+            dependencies: vec![],
+            sort_order: 0,
+        });
+        ir.type_to_module.insert("ButtonOnClickCallbackType".into(), "callbacks".into());
+        for class in ["RefAny", "CallbackInfo", "ButtonOnClickCallback"] {
+            ir.functions.push(func(class, "delete", FunctionKind::Delete, vec![arg("x", class, ArgRefKind::RefMut)], None));
+        }
+        ir.functions.push(func("RefAny", "clone", FunctionKind::DeepCopy, vec![arg("instance", "RefAny", ArgRefKind::Ref)], Some("RefAny")));
+        let mut cb = arg("callback", "ButtonOnClickCallback", ArgRefKind::Owned);
+        cb.callback_info = Some(CallbackArgInfo {
+            callback_typedef_name: "ButtonOnClickCallbackType".into(),
+            callback_wrapper_name: "ButtonOnClickCallback".into(),
+            trampoline_name: String::new(),
+        });
+        ir.functions.push(func(
+            "Button",
+            "with_on_click",
+            FunctionKind::Method,
+            vec![arg("button", "Button", ArgRefKind::Owned), arg("data", "RefAny", ArgRefKind::Owned), cb],
+            Some("Button"),
+        ));
+        ir
+    }
+
+    /// The callback contract: the invoker runs the user's function under the
+    /// guard (an exception must never unwind into libazul) with the RefAny
+    /// as the current model; handlers may be functions of the typed model;
+    /// `with_on_click` gets the model-bound `buttonOnClick`; by-value
+    /// wrappers are moved (use-after-move raises) and a by-value `RefAny`
+    /// that is not a callback's data accepts any Haskell value.
+    #[test]
+    fn callbacks_are_guarded_typed_and_model_bound() {
+        let files = split_files(&callback_fixture());
+        let cbs = &files["src/Azul/Internal/Callbacks.hs"];
+        assert!(
+            cbs.contains("azulInvokeButtonOnClickCallback handle p0 p1 out = azulGuard \"ButtonOnClickCallback\" azulStderr $ do"),
+            "{}",
+            cbs
+        );
+        assert!(cbs.contains("azulWithCurrentData p0 $ do"), "{}", cbs);
+        assert!(!cbs.contains(" try ("), "the old unguarded try: {}", cbs);
+        for head in [
+            "instance {-# OVERLAPPING #-} ButtonOnClickCallbackHandler (RefAny -> CallbackInfo -> IO T.Update)",
+            "instance {-# OVERLAPPABLE #-} Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> IO T.Update)",
+            "instance Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> (a, T.Update))",
+            "instance Typeable a => ButtonOnClickCallbackHandler (a -> CallbackInfo -> IO (a, T.Update))",
+            "class ToRefAny d where",
+        ] {
+            assert!(cbs.contains(head), "missing `{}`:\n{}", head, cbs);
+        }
+        let widgets = &files["src/Azul/Internal/Api/Widgets.hs"];
+        assert!(
+            widgets.contains("buttonWithOnClick :: (ButtonOnClickCallbackHandler h2) => RefAny -> h2 -> Button -> IO Button"),
+            "{}",
+            widgets
+        );
+        assert!(
+            widgets.contains("buttonOnClick :: (ButtonOnClickCallbackHandler h2) => h2 -> Button -> IO Button"),
+            "{}",
+            widgets
+        );
+        assert!(widgets.contains("azulCurrentRefAnyClone \"buttonOnClick\""), "{}", widgets);
+        assert!(widgets.contains("moveButton self $"), "{}", widgets);
+        let dom = &files["src/Azul/Internal/Api/Dom.hs"];
+        assert!(dom.contains("moveDom a1 $"), "{}", dom);
+        let runtime = &files["src/Azul/Internal/Runtime.hs"];
+        assert!(runtime.contains("Moved -> throwIO (AzulUseAfterMove cls)"));
+    }
+
+    /// Nothing a user wrote may unwind into libazul, and nothing may stay a
+    /// thunk past the point where it could: BOTH tiers that hand out a C
+    /// function pointer - the managed invokers and the raw
+    /// `register<X>Callback` wrappers - run the user's function under the
+    /// ONE guard in "Azul.Types.Common" and force its answer inside it.
+    #[test]
+    fn every_callback_boundary_catches_forces_and_falls_back() {
+        let files = split_files(&callback_fixture());
+
+        // One implementation, below the FFI layer so both tiers reach it.
+        let common = &files["src/Azul/Types/Common.hs"];
+        for decl in [
+            "azulGuardValue :: String -> (String -> IO ()) -> a -> IO a -> IO a",
+            "azulGuard :: String -> (String -> IO ()) -> IO () -> IO ()",
+            "azulForce :: a -> IO a",
+            "azulForce = evaluate",
+            "(body >>= azulForce) `catch` \\e -> do",
+            "azul: Callback raised ",
+        ] {
+            assert!(common.contains(decl), "missing `{}`:\n{}", decl, common);
+        }
+        assert!(
+            !files["src/Azul/Internal/Runtime.hs"].contains("azulGuard ::"),
+            "the guard is declared once, in Azul.Types.Common"
+        );
+
+        // The managed invoker: guarded, and the answer forced before the
+        // guard ends rather than left to blow up during the poke.
+        let cbs = &files["src/Azul/Internal/Callbacks.hs"];
+        assert!(cbs.contains("azulGuard \"ButtonOnClickCallback\""), "{}", cbs);
+        assert!(cbs.contains(">>= azulForce"), "{}", cbs);
+
+        // The raw wrapper tier: a `foreign import ccall \"wrapper\"` frame
+        // too, and it has no CallbackInfo, so it reports on stderr.
+        let ffi = &files["src/Azul/Internal/FFI/Callbacks.hs"];
+        assert!(
+            ffi.contains("azulGuard \"ButtonOnClickCallbackType\" azulStderr"),
+            "the raw register helper must be guarded too:\n{}",
+            ffi
+        );
     }
 
     /// The per-class surface is grouped by api.json module: the FFI import,
@@ -960,11 +1505,114 @@ mod split_tests {
         assert!(!files["src/Azul/Internal/FFI/Dom.hs"].contains("AzButton_"));
         assert!(files["src/Azul/Internal/Handles/Widgets.hs"].contains("data Button = Button"));
         assert!(files["src/Azul/Internal/Handles/Dom.hs"].contains("data Dom = Dom"));
-        let widgets = &files["src/Azul/Widgets.hs"];
+        let widgets = &files["src/Azul/Internal/Api/Widgets.hs"];
         assert!(widgets.contains("buttonDom :: Button -> IO Dom"), "{}", widgets);
         assert!(widgets.contains("import Azul.Internal.Handles"));
-        assert!(files["src/Azul/Dom.hs"].contains("domCreateBody :: IO Dom"));
+        assert!(files["src/Azul/Internal/Api/Dom.hs"].contains("domCreateBody :: IO Dom"));
+        // The class module is aliases only, importing the module that
+        // declares them.
+        let button = &files["src/Azul/Button.hs"];
+        assert!(button.contains("import qualified Azul.Internal.Api.Widgets as I"), "{}", button);
+        assert!(button.contains("dom = I.buttonDom"), "{}", button);
         assert!(files["cbits/azul_dom.c"].contains("az_hs_sizeof_Dom"));
         assert!(!files["cbits/azul_widgets.c"].contains("az_hs_sizeof_Dom"));
+    }
+
+    /// The fixture plus a class the layer keeps as a plain `Azul.Types`
+    /// value: an enum with a variant constructor, a derive and a constant.
+    fn value_fixture() -> CodegenIR {
+        use super::super::ir::{
+            ArgRefKind, ConstantDef, FunctionArg, FunctionDef, FunctionKind,
+        };
+        let mut ir = test_fixture_ir();
+        let func = |method: &str, kind, args: Vec<FunctionArg>, ret: Option<&str>| FunctionDef {
+            c_name: format!("AzUpdate_{}", method),
+            class_name: "Update".into(),
+            method_name: method.into(),
+            kind,
+            args,
+            return_type: ret.map(|s| s.to_string()),
+            fn_body: None,
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        };
+        let instance = || FunctionArg {
+            name: "instance".into(),
+            type_name: "Update".into(),
+            ref_kind: ArgRefKind::Ref,
+            doc: None,
+            callback_info: None,
+        };
+        // A unit enum: its variant constructor must NOT be wrapped (the
+        // Haskell data type already has the constructor), its derives must.
+        ir.functions.push(func(
+            "doNothing",
+            FunctionKind::EnumVariantConstructor,
+            vec![],
+            Some("Update"),
+        ));
+        ir.functions.push(func(
+            "createDefault",
+            FunctionKind::Default,
+            vec![],
+            Some("Update"),
+        ));
+        ir.functions
+            .push(func("hash", FunctionKind::Hash, vec![instance()], Some("u64")));
+        ir.constants.push(ConstantDef {
+            name: "Update_MAX_DEPTH".into(),
+            type_name: "u32".into(),
+            value: "0x10".into(),
+            doc: vec![],
+            module: "dom".into(),
+        });
+        ir
+    }
+
+    /// A value class reaches its C surface: the variant constructor and the
+    /// derive are wrapped in a `Values` chunk, the class module aliases
+    /// them by short name, and the class's api.json constants land in
+    /// `Azul.<Class>.Constants` under their class-prefixed lowercase names.
+    #[test]
+    fn value_classes_and_constants_reach_the_idiomatic_api() {
+        let files = split_files(&value_fixture());
+        let values = &files["src/Azul/Internal/Api/Values1.hs"];
+        assert!(values.contains("updateDefault :: IO T.Update"), "{}", values);
+        assert!(
+            values.contains("FFI.c_AzUpdate_createDefault_byref __po"),
+            "{}",
+            values
+        );
+        assert!(values.contains("updateHash :: T.Update -> IO Word64"), "{}", values);
+        // `Update` is a unit enum: `T.Update_DoNothing` is already a
+        // Haskell constructor, so the C variant constructor is not wrapped.
+        assert!(!values.contains("updateDoNothing"), "{}", values);
+        let class = &files["src/Azul/Update.hs"];
+        assert!(
+            class.contains("import qualified Azul.Internal.Api.Values1 as I"),
+            "{}",
+            class
+        );
+        assert!(class.contains("default' = I.updateDefault"), "{}", class);
+        assert!(class.contains("hash = I.updateHash"), "{}", class);
+        let consts = &files["src/Azul/Update/Constants.hs"];
+        assert!(consts.contains("updateMaxDepth :: Word32"), "{}", consts);
+        assert!(consts.contains("updateMaxDepth = 0x10"), "{}", consts);
+        let cabal = &files["azul.cabal"];
+        for m in ["Azul.Internal.Api.Values1", "Azul.Update", "Azul.Update.Constants"] {
+            assert!(cabal.contains(m), "cabal lacks {}", m);
+        }
+    }
+
+    /// No generated file carries a placeholder: a `SKIPPED` marker is an
+    /// item the emitter gave up on, and the binding has none.
+    #[test]
+    fn no_generated_file_has_a_skipped_placeholder() {
+        for fixture in [test_fixture_ir(), value_fixture()] {
+            for (path, src) in split_files(&fixture) {
+                assert!(!src.contains("SKIPPED"), "{} has a placeholder:\n{}", path, src);
+            }
+        }
     }
 }

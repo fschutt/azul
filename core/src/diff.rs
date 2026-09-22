@@ -1275,7 +1275,7 @@ pub fn transfer_states(
 
                 // 3. EXECUTE THE MERGE CALLBACK
                 // The callback receives both datasets and returns the merged result
-                let merged = (merge_callback.cb)(new_data, old_data);
+                let merged = merge_callback.invoke(new_data, old_data);
 
                 // 3b. CARRY THE LIVE IMAGE FORWARD.
                 //
@@ -1397,7 +1397,7 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
     let merge_callback = nd.get_merge_callback();
     let retained = nd.take_dataset();
     let result = match (merge_callback, retained) {
-        (Some(cb), Some(old)) => (cb.cb)(fresh, old),
+        (Some(cb), Some(old)) => cb.invoke(fresh, old),
         _ => fresh,
     };
     nd.set_dataset(OptionRefAny::Some(result.clone()));

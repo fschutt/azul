@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use azul::{
     app::{App, AppConfig},
     callbacks::{
-        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback, TimerCallbackInfo,
+        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo,
         TimerCallbackReturn, Update, WriteBackCallback,
     },
     css::{DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations},
@@ -956,10 +956,7 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
     {
         let timer = Timer::create(
             RefAny::new(()),
-            TimerCallback {
-                cb: startup_focus_tick,
-                ctx: OptionRefAny::None,
-            },
+            startup_focus_tick,
             info.get_system_time_fn(),
         )
         .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
@@ -972,10 +969,7 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
     }) {
         let timer = Timer::create(
             RefAny::new(ShotConfig { path }),
-            TimerCallback {
-                cb: shot_tick,
-                ctx: OptionRefAny::None,
-            },
+            shot_tick,
             info.get_system_time_fn(),
         )
         .with_delay(Duration::System(SystemTimeDiff::from_millis(delay_ms)));

@@ -33,6 +33,7 @@ use super::super::{
         ArgRefKind, CallbackTypedefDef, CallbackWrapperInfo, CodegenIR, EnumVariantKind, FieldDef,
         FieldRefKind, FunctionDef, FunctionKind, MonomorphizedKind, TypeCategory, TypeTraits,
     },
+    ir_builder::variant_constructor_method_name,
 };
 
 /// A primitive, spelled the way the raw layer declares it.
@@ -57,7 +58,10 @@ pub enum Prim {
 
 impl Prim {
     pub fn from_rust(t: &str) -> Option<Prim> {
-        Some(match t.trim() {
+        // The C spellings of the machine primitives; api.json declares the GL
+        // ones as aliases of a Rust primitive, so each is another spelling of
+        // one table entry, not a decision about one API type.
+        Some(match t.trim() { // allow-api-name: a primitive-spelling table
             // `GLboolean` is `uint8_t` in azul.h; D's `bool` has the same size.
             "bool" | "GLboolean" => Prim::Bool,
             "u8" | "c_uchar" => Prim::U8,
@@ -225,6 +229,13 @@ pub struct Model<'a> {
     pub callbacks: BTreeMap<String, &'a CallbackTypedefDef>,
     /// Functions per class, in IR order.
     pub functions: BTreeMap<String, Vec<&'a FunctionDef>>,
+    /// The `Option<RefAny>` of the API, by shape: a callback wrapper's context
+    /// slot. Resolved once, because the emitter asks for it per method.
+    option_refany: Option<String>,
+    /// Every `TypeCategory` exactly one class carries, with that class. The
+    /// IR singles the Rust string and the opaque callback data out that way,
+    /// and the emitter needs their C symbols (`_delete`) by name.
+    sole_of_category: Vec<(TypeCategory, String)>,
     cache: RefCell<BTreeMap<String, Ty>>,
     in_progress: RefCell<BTreeSet<String>>,
     provisional: Cell<usize>,
@@ -435,6 +446,19 @@ impl<'a> Model<'a> {
             .map(|c| (c.name.clone(), c))
             .collect();
 
+        let mut per_category: Vec<(TypeCategory, String, usize)> = Vec::new();
+        for c in classes.values() {
+            match per_category.iter_mut().find(|(k, _, _)| *k == c.category) {
+                Some(seen) => seen.2 += 1,
+                None => per_category.push((c.category, c.name.clone(), 1)),
+            }
+        }
+        let sole_of_category = per_category
+            .into_iter()
+            .filter(|(_, _, n)| *n == 1)
+            .map(|(k, name, _)| (k, name))
+            .collect();
+
         let mut m = Model {
             ir,
             config,
@@ -444,12 +468,26 @@ impl<'a> Model<'a> {
             aliases,
             callbacks,
             functions,
+            option_refany: None,
+            sole_of_category,
             cache: RefCell::new(BTreeMap::new()),
             in_progress: RefCell::new(BTreeSet::new()),
             provisional: Cell::new(0),
         };
         m.classify();
+        // `Kind` decides `Ty`, so nothing cached before `classify` is valid.
         m.cache.borrow_mut().clear();
+        // Resolved once: the emitter asks for the callback context type per
+        // method, and answering it walks every class.
+        let option_refany = m
+            .classes
+            .keys()
+            .find(|n| match m.owned(n.as_str()) {
+                Ty::Option { payload, .. } => matches!(*payload, Ty::RefAny),
+                _ => false,
+            })
+            .cloned();
+        m.option_refany = option_refany;
         m
     }
 
@@ -623,12 +661,13 @@ impl<'a> Model<'a> {
     fn owned_uncached(&self, type_name: &str) -> Ty {
         match self.owned_pre(type_name) {
             Ty::Class(name) => {
-                if name == "String" {
-                    return Ty::Str;
-                }
                 let class = &self.classes[&name];
-                if class.category == TypeCategory::RefAny || name == "RefAny" {
-                    return Ty::RefAny;
+                // The two types the IR itself singles out by category: the
+                // Rust string and the opaque callback data.
+                match class.category {
+                    TypeCategory::String => return Ty::Str,
+                    TypeCategory::RefAny => return Ty::RefAny,
+                    _ => {}
                 }
                 if let Some(t) = self.option_shape(class) {
                     return t;
@@ -647,18 +686,70 @@ impl<'a> Model<'a> {
 
     /// The type's own D declaration (never a native container).
     pub fn declared(&self, name: &str) -> Ty {
-        if name == "String" {
-            return Ty::Str;
-        }
         if self.enums.contains_key(name) {
             return Ty::Enum(name.to_string());
         }
         match self.classes.get(name) {
-            Some(c) if c.category == TypeCategory::RefAny || name == "RefAny" => Ty::RefAny,
+            Some(c) if c.category == TypeCategory::String => Ty::Str,
+            Some(c) if c.category == TypeCategory::RefAny => Ty::RefAny,
             Some(c) if c.kind == Kind::Plain => Ty::Plain(name.to_string()),
             Some(_) => Ty::Class(name.to_string()),
             None => Ty::Unsupported(name.to_string()),
         }
+    }
+
+    /// The api.json class the IR gives `category`, if exactly that one type
+    /// carries it: how the emitter names the `String` and `RefAny` types
+    /// without spelling them out.
+    pub fn class_of_category(&self, category: TypeCategory) -> Option<&str> {
+        self.sole_of_category
+            .iter()
+            .find(|(k, _)| *k == category)
+            .map(|(_, name)| name.as_str())
+    }
+
+    /// The `Option<RefAny>` of the API: the slot a callback wrapper carries
+    /// its context in, and the only Option the callback plumbing needs by
+    /// itself. Found by shape, not by name.
+    pub fn option_of_refany(&self) -> Option<&str> {
+        self.option_refany.as_deref()
+    }
+
+    /// The exported constructor of one variant of a tagged union.
+    ///
+    /// `ir_builder` reserves the C name `Az{class}_{method}` for the variant
+    /// and synthesises the function only when api.json has not already
+    /// declared one under that exact name - in which case THAT function is the
+    /// variant's constructor, and going through it runs whatever the Rust
+    /// associated function does on the way (`HttpError::connection_failed`,
+    /// `PixelValueOrSystem::value`). So match the reserved name and the shape
+    /// the job requires, not the `FunctionKind` the IR ended up giving it.
+    pub fn variant_fn(&self, class: &str, variant: &Variant) -> Option<&'a FunctionDef> {
+        let c_name = format!(
+            "Az{}_{}",
+            class,
+            variant_constructor_method_name(&variant.name)
+        );
+        let f = self
+            .functions_of(class)
+            .iter()
+            .copied()
+            .find(|f| f.c_name == c_name && f.return_type.as_deref() == Some(class))?;
+        // It builds this variant only if it takes exactly its payload:
+        // api.json may declare a differently shaped factory under the reserved
+        // name (`HttpError::http_status(code, message)` for a one-field
+        // variant), and that one is an ordinary static method instead.
+        if f.args.len() != variant.fields.len() {
+            return None;
+        }
+        f.args
+            .iter()
+            .zip(&variant.fields)
+            .all(|(a, field)| {
+                a.type_name.trim() == field.type_name.trim()
+                    && (a.ref_kind == ArgRefKind::Owned) == (field.ref_kind == FieldRefKind::Owned)
+            })
+            .then_some(f)
     }
 
     /// The shape of a field.
@@ -676,8 +767,10 @@ impl<'a> Model<'a> {
         }
     }
 
-    /// Is this class a native D type everywhere (so it gets no struct of its
-    /// own)? A `Result` is native only as a return value.
+    /// Does this class cross every member boundary as a native D type
+    /// (`string`, `Nullable!T`, `T[]`)? A `Result` is native only as a return
+    /// value. The type still gets its own declaration (see `wrappers`), except
+    /// for the string, which D already has.
     pub fn is_native(&self, name: &str) -> bool {
         matches!(
             self.owned(name),
@@ -816,16 +909,50 @@ impl<'a> Model<'a> {
         }
     }
 
-    /// The `get_ctx` of an info type, if it has one: that is where a closure
-    /// stored in a callback's ctx is read back.
+    /// The diagnostic channel of `class`, if it has one: the method that
+    /// takes a level and a message, with the level enum and the value on it
+    /// that means "this went wrong". A callback reports a failure through the
+    /// first of its arguments that has one, so the message reaches the
+    /// application's log sink instead of only stderr.
+    ///
+    /// Returns `(the method, the level enum, the level's variant)`.
+    pub fn log_sink(&self, class: &str) -> Option<(&'a FunctionDef, &str, &str)> {
+        let f = self.functions_of(class).iter().copied().find(|f| {
+            // api.json marks no capability as "the diagnostic channel", and
+            // the shape alone - a level and a message - fits ordinary methods
+            // too, so this one entry point has to be named. Everything around
+            // it, including which callbacks have one, is derived from the IR.
+            // allow-api-name: the diagnostic channel's api.json name.
+            f.method_name == "log"
+                && matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                && f.args.len() == 3
+                && !matches!(f.args[0].ref_kind, ArgRefKind::Owned)
+                && matches!(self.owned(&f.args[2].type_name), Ty::Str)
+                && f.return_type.is_none()
+        })?;
+        let level = self.enums.get(f.args[1].type_name.trim())?;
+        // Rust orders a log level from the most severe; "Error" is what a
+        // failed callback is, and the first variant is the nearest thing to
+        // it in an enum that does not spell it.
+        let variant = level
+            .variants
+            .iter()
+            .find(|v| *v == "Error")
+            .or_else(|| level.variants.first())?;
+        Some((f, level.name.as_str(), variant.as_str()))
+    }
+
+    /// The context accessor of an info type, if it has one: the borrowing
+    /// no-argument method that hands back the callback's `Option<RefAny>`.
+    /// That is where a D function stored in a callback's ctx is read back.
     pub fn ctx_getter(&self, info_type: &str) -> Option<String> {
+        let ctx = self.option_of_refany()?;
         self.functions_of(info_type)
             .iter()
             .find(|f| {
-                f.method_name == "get_ctx"
-                    && f.args.len() == 1
+                f.args.len() == 1
                     && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::Ptr)
-                    && f.return_type.as_deref() == Some("OptionRefAny")
+                    && f.return_type.as_deref() == Some(ctx)
             })
             .map(|f| f.c_name.clone())
     }

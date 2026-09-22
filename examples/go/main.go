@@ -3,52 +3,39 @@ package main
 import (
 	"fmt"
 
-	azul "github.com/azul/azul-go"
+	azul "azul.rs/ui/go"
 )
-
-
 
 type counterModel struct {
 	Counter int
 }
 
-func onClick(data *azul.RefAny, _ *azul.CallbackInfo) azul.AzUpdate {
-	v, ok := azul.RefAnyGet(data)
-	if !ok {
-		return azul.AzUpdate_DoNothing
-	}
-	model, ok := v.(*counterModel)
-	if !ok {
-		return azul.AzUpdate_DoNothing
-	}
+func onClick(model *counterModel, _ *azul.CallbackInfo) azul.Update {
 	model.Counter++
-	return azul.AzUpdate_RefreshDom
+	return azul.Update_RefreshDom
 }
 
-func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
-	body := azul.NewDomCreateBody()
+func layout(model *counterModel, _ *azul.LayoutCallbackInfo) *azul.Dom {
+	body := azul.DomCreateBody()
+	label := azul.DomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
 
-	v, ok := azul.RefAnyGet(data)
-	if !ok {
-		return body
-	}
-	model, ok := v.(*counterModel)
-	if !ok {
-		return body
-	}
-
-	label := azul.NewDomCreatePWithText(azul.Str(fmt.Sprintf("%d", model.Counter)))
-
-	button := azul.NewButtonCreate(azul.Str("Increase counter"))
-	button.OnClick(data, onClick)
+	button := azul.ButtonCreate(azul.Str("Increase counter"))
+	button.OnClick(model, azul.Bind(onClick))
 
 	body.SetCss(azul.Str("p { font-size: 32px; margin: 0; }"))
-	body.AddChild(label.Raw())
-	body.AddChild(button.Dom().Raw())
+	body.AddChild(label)
+	body.AddChild(button.Dom())
+	
 	return body
 }
 
 func main() {
-	app := azul.NewAppWithData(&counterModel{Counter: 5}, nil)
-	app.RunWindow(azul.NewWindowCreateOptions(layout))
+	if err := azul.LoadLibrary(""); err != nil {
+		panic(err)
+	}
+
+	data := &counterModel{Counter: 5}
+	window := azul.WindowCreateOptionsCreate(azul.Bind(layout))
+	app := azul.AppCreate(data, azul.AppConfigCreate())
+	app.Run(window)
 }

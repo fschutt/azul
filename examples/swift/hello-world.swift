@@ -4,16 +4,18 @@ final class Counter {
     var count = 5
 }
 
+func onClick(_ counter: Counter, _ info: CallbackInfo) -> Update {
+    counter.count += 1
+    return .refreshDom
+}
+
 func layout(_ counter: Counter, _ info: LayoutCallbackInfo) -> Dom {
     let label = Dom.pWithText(String(counter.count))
         .withCss("font-size: 32px; margin: 0;")
 
     let button = Button("Increase counter")
         .withButtonType(.primary)
-        .withOnClick(counter) { counter, _ in
-            counter.count += 1
-            return .refreshDom
-        }
+        .withOnClick(counter, onClick: onClick)
 
     return Dom.body()
         .withChild(label)

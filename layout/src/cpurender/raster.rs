@@ -2735,15 +2735,47 @@ pub fn render_single_item(
             mask_rect,
         } => {
             let mr = &scroll_rect(mask_rect.inner());
-            let px_x = (mr.origin.x * dpi_factor) as i32;
-            let px_y = (mr.origin.y * dpi_factor) as i32;
-            let px_w = (mr.size.width * dpi_factor).ceil() as u32;
-            let px_h = (mr.size.height * dpi_factor).ceil() as u32;
+            let mask_x = (mr.origin.x * dpi_factor) as i32;
+            let mask_y = (mr.origin.y * dpi_factor) as i32;
+            let mask_w = (mr.size.width * dpi_factor).ceil() as u32;
+            let mask_h = (mr.size.height * dpi_factor).ceil() as u32;
 
-            if px_w > 0 && px_h > 0 {
+            // THE MASKED REGION IS THE ELEMENT, NOT THE MASK RECT.
+            //
+            // Coverage outside the mask image is zero - that is what a mask
+            // means, and what WebRender's clip-image-mask does. Masking only
+            // the mask rect left everything the mask does not reach fully
+            // painted, so the two backends disagreed about every mask smaller
+            // than its element.
+            let br = &scroll_rect(bounds.inner());
+            let px_x = (br.origin.x * dpi_factor) as i32;
+            let px_y = (br.origin.y * dpi_factor) as i32;
+            let px_w = (br.size.width * dpi_factor).ceil() as u32;
+            let px_h = (br.size.height * dpi_factor).ceil() as u32;
+
+            if px_w > 0 && px_h > 0 && mask_w > 0 && mask_h > 0 {
                 let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
-                let mask_data = extract_mask_data(mask_image, px_w, px_h)
-                    .unwrap_or_else(|| vec![255u8; (px_w * px_h) as usize]);
+                let mask = extract_mask_data(mask_image, mask_w, mask_h)
+                    .unwrap_or_else(|| vec![255u8; (mask_w * mask_h) as usize]);
+
+                // Zero everywhere, then the mask blitted where it sits.
+                let mut mask_data = vec![0u8; (px_w * px_h) as usize];
+                let (off_x, off_y) = (mask_x - px_x, mask_y - px_y);
+                for y in 0..mask_h as i32 {
+                    let dst_y = y + off_y;
+                    if dst_y < 0 || dst_y >= px_h as i32 {
+                        continue;
+                    }
+                    for x in 0..mask_w as i32 {
+                        let dst_x = x + off_x;
+                        if dst_x < 0 || dst_x >= px_w as i32 {
+                            continue;
+                        }
+                        mask_data[(dst_y as u32 * px_w + dst_x as u32) as usize] =
+                            mask[(y as u32 * mask_w + x as u32) as usize];
+                    }
+                }
+
                 mask_stack.push(MaskEntry::ImageMask {
                     snapshot,
                     mask_data,
@@ -8305,6 +8337,39 @@ mod autotest_generated {
             px_at(&p, 3, 0),
             [255, 255, 255, 255],
             "mask=0 restores the background"
+        );
+    }
+
+    /// A mask covers its element, not just its own rect: coverage outside the
+    /// mask image is zero. The CPU renderer used to mask only the mask rect,
+    /// leaving the rest of the element fully painted while WebRender clipped
+    /// it - the same DOM drew differently on the two backends.
+    #[test]
+    fn a_mask_smaller_than_the_element_clips_the_rest_of_it() {
+        let mask = r8_image(1, 1, vec![255]);
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    mask_image: mask,
+                    mask_rect: wrect(0.0, 0.0, 2.0, 2.0),
+                },
+                DisplayListItem::Rect {
+                    bounds: wrect(0.0, 0.0, 4.0, 4.0),
+                    color: BLACK,
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopImageMaskClip,
+            ],
+            ..Default::default()
+        };
+        let mut p = pixmap(4, 4);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        assert_eq!(px_at(&p, 0, 0), [0, 0, 0, 255], "inside the mask: painted");
+        assert_eq!(
+            px_at(&p, 3, 3),
+            [255, 255, 255, 255],
+            "outside the mask: clipped, not left painted"
         );
     }
 

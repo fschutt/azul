@@ -62,6 +62,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_on_audio_frame_callback_thunk,
     setter_fn:      AzApp_setOnAudioFrameCallbackInvoker,
     from_handle_fn: AzOnAudioFrameCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnAudioFrameCallback_createFromHostHandleByref,
     extra_args:     [ frame: AudioFrame ],
 }
 
@@ -73,7 +74,7 @@ fn invoke_on_audio_frame(
     frame: AudioFrame,
 ) -> Update {
     match hook {
-        OptionOnAudioFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame),
+        OptionOnAudioFrame::Some(h) => h.callback.invoke(h.refany.clone(), *info, frame),
         OptionOnAudioFrame::None => Update::DoNothing,
     }
 }
@@ -497,7 +498,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

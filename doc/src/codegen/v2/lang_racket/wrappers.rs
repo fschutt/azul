@@ -29,7 +29,6 @@ use super::{
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{CodegenIR, EnumDef, FunctionDef, FunctionKind, TypeCategory},
-        managed_host_invoker::HOST_INVOKER_KINDS,
     },
     idiomatic_class_name, kebab, sanitize_racket_ident,
 };
@@ -146,7 +145,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, has_
         .iter()
         .zip(params.iter())
         .map(|(a, p)| match a.callback_info.as_ref() {
-            Some(cb) if HOST_INVOKER_KINDS.contains(&cb.callback_wrapper_name.as_str()) => {
+            Some(cb) => {
                 format!("(register-callback \"{}\" {})", cb.callback_wrapper_name, p)
             }
             _ => p.clone(),

@@ -111,6 +111,8 @@ impl CppDialect for Cpp03Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -225,6 +227,8 @@ impl CppDialect for Cpp03Generator {
         if is_result_type(struct_def) {
             self.generate_result_methods(code, struct_def, ir, config);
         }
+        // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+        code.push_str(&generate_class_constants(struct_def, ir, self.standard()));
 
         code.push_str("};\r\n\r\n");
     }
@@ -316,7 +320,7 @@ impl CppDialect for Cpp03Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == *class_name)
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -579,6 +583,7 @@ impl CppDialect for Cpp03Generator {
              }}\r\n",
             c_inner_type, c_inner_type
         ));
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(
@@ -675,7 +680,7 @@ impl Cpp03Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
             .collect();
 
         if !methods.is_empty() {

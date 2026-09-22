@@ -48,7 +48,7 @@ bool create_triangle(OpenGlState* state) {
     
     AzSvgMultiPolygon mp = AzSvgMultiPolygon_create(rings);
     
-    AzSvgFillStyle fill_style = AzSvgFillStyle_default();
+    AzSvgFillStyle fill_style = AzSvgFillStyle_createDefault();
     state->vertices = AzSvgMultiPolygon_tessellateFill(&mp, fill_style);
     state->vertices_ready = true;
     
@@ -174,7 +174,7 @@ AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
     OpenGlStateRefMut_delete(&d);
     
     AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(&info);
-    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallback){ .cb = animate, .ctx = AzOptionRefAny_none() }, time_fn);
+    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), animate, time_fn);
     
     AzSystemTimeDiff interval_diff = AzSystemTimeDiff_fromMillis(16);
     AzDuration interval = { .System = { .tag = AzDuration_Tag_System, .payload = interval_diff } };

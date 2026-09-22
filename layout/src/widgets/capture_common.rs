@@ -70,6 +70,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_on_video_frame_callback_thunk,
     setter_fn:      AzApp_setOnVideoFrameCallbackInvoker,
     from_handle_fn: AzOnVideoFrameCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnVideoFrameCallback_createFromHostHandleByref,
     extra_args:     [ frame: VideoFrame ],
 }
 
@@ -97,6 +98,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_on_consumer_frame_callback_thunk,
     setter_fn:      AzApp_setOnConsumerFrameCallbackInvoker,
     from_handle_fn: AzOnConsumerFrameCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnConsumerFrameCallback_createFromHostHandleByref,
     extra_args:     [ frame: ConsumerFrame ],
 }
 
@@ -108,7 +110,7 @@ pub fn invoke_on_consumer_frame(
     frame: ConsumerFrame,
 ) -> Update {
     match hook {
-        OptionOnConsumerFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame),
+        OptionOnConsumerFrame::Some(h) => h.callback.invoke(h.refany.clone(), *info, frame),
         OptionOnConsumerFrame::None => Update::DoNothing,
     }
 }
@@ -122,7 +124,7 @@ pub fn invoke_on_frame(
     frame: &VideoFrame,
 ) -> Update {
     match hook {
-        OptionOnVideoFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame.clone()),
+        OptionOnVideoFrame::Some(h) => h.callback.invoke(h.refany.clone(), *info, frame.clone()),
         OptionOnVideoFrame::None => Update::DoNothing,
     }
 }
@@ -1138,7 +1140,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

@@ -334,6 +334,13 @@ impl Default for VideoSetup {
     }
 }
 
+impl azul_core::host_invoker::HostOut for VideoSetup {
+    /// Shares nothing: owns no pool, no thread.
+    fn unwritten() -> Self {
+        Self::new()
+    }
+}
+
 impl VideoSetup {
     /// A setup that shares nothing
     #[must_use]
@@ -378,6 +385,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_video_mount_callback_thunk,
     setter_fn:      AzApp_setVideoMountCallbackInvoker,
     from_handle_fn: AzVideoMountCallback_createFromHostHandle,
+    from_handle_byref_fn: AzVideoMountCallback_createFromHostHandleByref,
     extra_args:     [ setup: VideoSetup ],
 }
 
@@ -401,7 +409,7 @@ fn mount_video(data: &mut RefAny, info: &CallbackInfo) {
     };
     // The state is released while the hook runs: it is app code and may reach
     // back into this widget.
-    let setup = (hook.callback.cb)(hook.refany, *info, setup);
+    let setup = hook.callback.invoke(hook.refany, *info, setup);
     if let Some(mut s) = data.downcast_mut::<VideoWidgetState>() {
         s.setup = setup;
     }
@@ -1045,7 +1053,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

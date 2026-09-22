@@ -569,6 +569,15 @@ pub struct OnTextInputReturn {
     pub valid: TextInputValid,
 }
 
+impl azul_core::host_invoker::HostOut for OnTextInputReturn {
+    fn unwritten() -> Self {
+        Self {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        }
+    }
+}
+
 /// Whether the text input accepted or rejected the most recent edit.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -598,6 +607,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_input_on_text_input_callback_thunk,
     setter_fn:      AzApp_setTextInputOnTextInputCallbackInvoker,
     from_handle_fn: AzTextInputOnTextInputCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextInputOnTextInputCallback_createFromHostHandleByref,
     extra_args:     [ state: TextInputState ],
 }
 
@@ -620,6 +630,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_input_on_virtual_key_down_callback_thunk,
     setter_fn:      AzApp_setTextInputOnVirtualKeyDownCallbackInvoker,
     from_handle_fn: AzTextInputOnVirtualKeyDownCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextInputOnVirtualKeyDownCallback_createFromHostHandleByref,
     extra_args:     [ state: TextInputState ],
 }
 
@@ -642,6 +653,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_input_on_focus_lost_callback_thunk,
     setter_fn:      AzApp_setTextInputOnFocusLostCallbackInvoker,
     from_handle_fn: AzTextInputOnFocusLostCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextInputOnFocusLostCallback_createFromHostHandleByref,
     extra_args:     [ state: TextInputState ],
 }
 #[allow(variant_size_differences)]
@@ -1066,7 +1078,7 @@ pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: Callba
 
     match onfocuslost.as_mut() {
         Some(TextInputOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -1110,7 +1122,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
             let inner_clone = text_input.inner.clone();
             match text_input.on_text_input.as_mut() {
                 Some(TextInputOnTextInput { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info, inner_clone)
+                    callback.invoke(refany.clone(), info, inner_clone)
                 }
                 None => OnTextInputReturn {
                     update: Update::DoNothing,
@@ -1178,7 +1190,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner_clone)
+                callback.invoke(refany.clone(), info, inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
@@ -1232,7 +1244,7 @@ fn default_on_virtual_key_down_inner(
         inner_clone.selection = engine_selection(&info, container, len).into();
         match text_input.on_virtual_key_down.as_mut() {
             Some(TextInputOnVirtualKeyDown { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner_clone)
+                callback.invoke(refany.clone(), info, inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
@@ -1620,7 +1632,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

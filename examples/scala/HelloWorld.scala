@@ -1,46 +1,30 @@
 package com.azul
 
-import com.sun.jna.Pointer
+import scala.util.Using
+
+class Counter {
+  var count: Int = 5
+}
 
 object HelloWorld {
-
-  class MyDataModel(var counter: Int)
-  private val MODEL = new MyDataModel(5)
-
-  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =
-    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {
-      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
-        AzulHostInvoker.refanyGet(dataPtr) match {
-          case m: MyDataModel =>
-            m.counter += 1
-            outPtr.setInt(0, Update.RefreshDom.value)
-          case _ =>
-            outPtr.setInt(0, Update.DoNothing.value)
-        }
+  def main(args: Array[String]): Unit =
+    Using.resource(App.create(new Counter, layout(_, _))) { app =>
+      val options = WindowCreateOptions.create()
+      app.run(options)
     }
 
-  private val LAYOUT: AzulHostInvoker.LayoutCallback =
-    new AzulHostInvoker.LayoutCallback {
-      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer): Dom =
-        AzulHostInvoker.refanyGet(dataPtr) match {
-          case m: MyDataModel =>
-            val label = Dom.createPWithText(String.valueOf(m.counter))
-              .withCss("font-size: 32px; margin: 0;")
-            val buttonDom = Button.create("Increase counter")
-              .withButtonType(ButtonType.Primary.value)
-              .onClick(m, ON_CLICK)
-              .dom()
-            Dom.createBody()
-              .withChild(label)
-              .withChild(buttonDom)
-          case _ =>
-            Dom.createBody()
-        }
-    }
+  def layout(data: Counter, info: LayoutCallbackInfo): Dom = {
+    val countStr = data.count.toString
+    val btn = Button.create("Increase counter")
+      .withOnClick(data, onClick(_, _))
 
-  def main(args: Array[String]): Unit = {
-    val app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())
-    try app.run(WindowCreateOptions.create(LAYOUT))
-    finally app.close()
+    Dom.createBody()
+      .withChild(Dom.createPWithText(countStr))
+      .withChild(btn.dom())
+  }
+
+  def onClick(data: Counter, info: CallbackInfo): Update = {
+    data.count += 1
+    Update.RefreshDom
   }
 }

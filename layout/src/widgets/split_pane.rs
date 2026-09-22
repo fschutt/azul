@@ -112,6 +112,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_split_pane_on_resize_callback_thunk,
     setter_fn:      AzApp_setSplitPaneOnResizeCallbackInvoker,
     from_handle_fn: AzSplitPaneOnResizeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzSplitPaneOnResizeCallback_createFromHostHandleByref,
     extra_args:     [ state: SplitPaneState ],
 }
 
@@ -560,7 +561,7 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
 
     let inner = sp.inner;
     match sp.on_resize.as_mut() {
-        Some(SplitPaneOnResize { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(SplitPaneOnResize { callback, refany }) => callback.invoke(refany.clone(), info, inner),
         None => Update::DoNothing,
     }
 }
@@ -935,7 +936,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

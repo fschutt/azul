@@ -43,15 +43,10 @@ impl CppDialect for Cpp11Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro - only emitted for C++03; C++11+ uses the
-        // template-reflection helpers (`azul::upcast`, etc.) instead. The
-        // `az_string_from_literal` helper still has to be emitted because
-        // `azul::upcast` calls it.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros: on C++11+ they are shims over
+        // the RefAny template members (create<T> / downcast_ref<T> / ...).
+        // (Also emits the `az_string_from_literal` helper RefAny::create uses.)
+        code.push_str(&generate_reflect_macro(std));
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
@@ -126,6 +121,8 @@ impl CppDialect for Cpp11Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -230,7 +227,7 @@ impl CppDialect for Cpp11Generator {
             // list is the same in every dialect and libazul exports the same
             // entry points to all of them; there is nothing about C++11 that
             // makes them unavailable.
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -507,6 +504,7 @@ impl CppDialect for Cpp11Generator {
              }}\r\n",
             c_inner_type, c_inner_type
         ));
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(
@@ -604,7 +602,7 @@ impl Cpp11Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
             .collect();
 
         if !methods.is_empty() {
@@ -758,6 +756,8 @@ pub fn emit_class_declaration_cpp11_or_later(
     if matches!(struct_def.category, TypeCategory::RefAny) {
         code.push_str(&generate_refany_template_members(gen.standard()));
     }
+    // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+    code.push_str(&generate_class_constants(struct_def, ir, gen.standard()));
 
     code.push_str("};\r\n\r\n");
 }

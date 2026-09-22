@@ -205,6 +205,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_card_on_click_callback_thunk,
     setter_fn:      AzApp_setCardOnClickCallbackInvoker,
     from_handle_fn: AzCardOnClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCardOnClickCallback_createFromHostHandleByref,
 }
 
 impl Card {

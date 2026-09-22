@@ -51,6 +51,8 @@ pub enum Prim {
 
 impl Prim {
     pub fn from_rust(t: &str) -> Option<Prim> {
+        // allow-api-name: the C-type -> primitive table; it names C types by
+        // nature, and must answer exactly what the lib layer's table answers.
         Some(match t {
             "bool" | "GLboolean" => Prim::Bool,
             "u8" | "c_uchar" => Prim::U8,
@@ -437,9 +439,13 @@ impl<'a> Model<'a> {
         if let Some(p) = Prim::from_rust(name) {
             return Ty::Prim(p);
         }
+        // allow-api-name: `String` and `RefAny` are the two API types the
+        // binding gives a shape of their own (a Crystal ::String, and the
+        // type-erased model handle); naming them is what defines those shapes.
         if name == "String" && self.classes.contains_key("String") {
             return Ty::Str;
         }
+        // allow-api-name: as above - the type-erased model handle's own shape.
         if name == "RefAny" && self.classes.contains_key("RefAny") {
             return Ty::RefAny;
         }
@@ -581,14 +587,9 @@ impl<'a> Model<'a> {
     /// The `get_ctx` of an info type, if it has one: that is where a closure
     /// stored in a callback's ctx is read back.
     pub fn ctx_getter(&self, info_type: &str) -> Option<String> {
-        self.functions_of(info_type)
-            .iter()
-            .find(|f| {
-                f.method_name == "get_ctx"
-                    && f.args.len() == 1
-                    && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::Ptr)
-                    && f.return_type.as_deref() == Some("OptionRefAny")
-            })
-            .map(|f| f.c_name.clone())
+        // By shape, through the shared helper: spelling the accessor's name
+        // here meant a rename in api.json would strand every trampoline that
+        // needs the context, at runtime rather than at build time.
+        super::super::managed_host_invoker::ctx_getter(info_type, self.ir).map(|f| f.c_name.clone())
     }
 }

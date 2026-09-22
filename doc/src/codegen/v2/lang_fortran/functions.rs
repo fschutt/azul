@@ -29,6 +29,7 @@ use super::{
         ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
     },
     map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier,
+    MAX_IDENT_LEN,
 };
 
 /// The interface block of every function whose class `belongs` accepts —
@@ -117,8 +118,9 @@ pub(crate) fn should_emit_function(
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) {
@@ -150,9 +152,50 @@ pub(crate) fn should_emit_function(
 /// Fortran procedure name so user code can call it without worrying
 /// about case-folding; the original symbol survives in `bind(C, name=)`
 /// for the linker.
+///
+/// Fortran caps an identifier at [`MAX_IDENT_LEN`] characters and the
+/// snake_case lowering is LONGER than the symbol it renders — it inserts a
+/// `_` at every case boundary — so a few dozen api.json symbols lower past
+/// the cap. Hashing the tail there ([`truncate_identifier`]) is lossy: the
+/// symbol is no longer recoverable from the Fortran name, which is how
+/// `AzStyleBorderTopRightRadiusParseErrorOwned_toDbgString` and 26 others
+/// ended up declared under a stump nothing else in the binding could name.
+/// So before hashing we give the separators back, in the order that costs
+/// the least readability: the class part collapses to one word first (it is
+/// one word in the C symbol anyway), then the method part, then the `_`
+/// between them. Every step keeps the alias a lossless, case-folded
+/// rendering of the C symbol, and no two symbols of api.json collide under
+/// it (Fortran folds case, so the check is case-insensitive).
 pub(crate) fn fortran_alias_for(c_symbol: &str) -> String {
     let snake = pascal_to_snake_case(c_symbol);
+    if snake.len() <= MAX_IDENT_LEN {
+        return snake;
+    }
+    // `Az{Class}_{method}`: the one `_` the C symbol itself carries.
+    if let Some((class, method)) = c_symbol.split_once('_') {
+        let class = class.to_ascii_lowercase();
+        for candidate in [
+            format!("{}_{}", class, pascal_to_snake_case(method)),
+            format!("{}_{}", class, method.to_ascii_lowercase()),
+            format!("{}{}", class, method.to_ascii_lowercase()),
+        ] {
+            if candidate.len() <= MAX_IDENT_LEN {
+                return candidate;
+            }
+        }
+    }
+    // Longer than 63 characters with every separator gone. Nothing legal
+    // spells it; [`emit_external`] names the symbol in a comment instead.
     truncate_identifier(&snake)
+}
+
+/// Does `alias` still spell `c_symbol`, separators and case aside?
+///
+/// A reader who met the symbol in `azul.h` must be able to find its Fortran
+/// declaration, and vice versa. False means [`fortran_alias_for`] had to
+/// hash, and the symbol survives only in the `bind(C, name=)` label.
+fn alias_spells_symbol(alias: &str, c_symbol: &str) -> bool {
+    alias.replace('_', "").eq_ignore_ascii_case(&c_symbol.replace('_', ""))
 }
 
 fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
@@ -164,6 +207,22 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
     }
 
     let alias = fortran_alias_for(&func.c_name);
+    if !alias_spells_symbol(&alias, &func.c_name) {
+        // The alias had to be hashed (see `fortran_alias_for`): nothing
+        // legal in Fortran spells this symbol. A hashed stump is not
+        // greppable, so name the symbol the declaration binds right here —
+        // it is the only place in the whole binding a reader can recover it
+        // from, and the only thing that ties the two spellings together.
+        builder.line(&format!(
+            "! Binds the C symbol {}; its Fortran alias below is hashed because",
+            func.c_name
+        ));
+        builder.line(&format!(
+            "! every spelling of that name is longer than Fortran's {}-character",
+            MAX_IDENT_LEN
+        ));
+        builder.line("! identifier limit.");
+    }
     let arg_names: Vec<String> = func
         .args
         .iter()

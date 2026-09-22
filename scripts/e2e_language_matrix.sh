@@ -97,7 +97,7 @@ ALL_LANGS=(
 # -----------------------------------------------------------------------------
 # Maturity tiers.
 #
-#   SHIPPED  the 17 bindings we officially ship — a good hello-world and proper
+#   SHIPPED  the 20 bindings we officially ship — a good hello-world and proper
 #            integration (string/vec/option/error wrappers, host-invoker, etc.).
 #            These GATE CI, and they are exactly the set that carries a
 #            `doc/guide/en/hello-world/<lang>.md` page. NOT the same as
@@ -130,11 +130,18 @@ SHIPPED_LANGS=(
   # produces the cross-OS answer; if a runner disagrees, the mechanism for
   # that is WINDOWS_NONGATING_LANGS below, not a second de-gating.
   python
+  # Promoted 2026-09-19 from BETA: idiomatic bindings (D classes/delegates,
+  # Crystal blocks, Swift closures) with a guide each. The last red lanes were
+  # toolchain plumbing, not the bindings: crystal needs an ABSOLUTE -L (it
+  # links from its cache dir), macOS D needs LDC (dmd has no arm64 backend),
+  # and Windows Swift needs 6.x (5.10's ucrt modulemap is cyclic against the
+  # runner's MSVC 14.44 headers).
+  d crystal swift
 )
 # odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
 # counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
 # SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
-BETA_LANGS=( odin nim racket red d crystal v swift julia )
+BETA_LANGS=( odin nim racket red v julia )
 
 # -----------------------------------------------------------------------------
 # Per-OS gating exclusions.
@@ -160,10 +167,13 @@ BETA_LANGS=( odin nim racket red d crystal v swift julia )
 #   * pascal  — there is NO fpc setup step anywhere in the workflow. pascal
 #               relies on the runner preinstalling Free Pascal, which ubuntu and
 #               macOS images do and windows-2022 does not.
-# The DLL + C ABI for all five are validated by the SAME bindings passing on
+#   * crystal — the workflow's "Set up Crystal" step is `if: matrix.os !=
+#               'windows-2022'`: Crystal's Windows (MSVC) port is still a
+#               preview, so it is never installed there. Same shape as ocaml.
+# The DLL + C ABI for all six are validated by the SAME bindings passing on
 # macOS/Linux, where they DO gate — so excluding them on Windows only cannot
 # hide a genuine binding regression (that would also fail on macOS/Linux).
-WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal )
+WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal crystal )
 
 # REQUIRED_LANGS: SHIPPED bindings whose toolchain is provisioned on the runner
 # we are CURRENTLY on, so a SKIP from them means the CI environment broke — not
@@ -203,6 +213,8 @@ WINDOWS_NONGATING_LANGS=( haskell lisp zig ocaml pascal )
 REQUIRED_LANGS=(
   c cpp rust csharp java ruby node ocaml
   zig go pascal scala fortran haskell
+  # Each recipe's only skip is "compiler not installed".
+  d crystal swift
 )
 
 # requires_works <lang> -> 0 (true) iff a SKIP of <lang> should fail the gate on
@@ -876,7 +888,7 @@ lang_deps_cleanup() {
       ;;
     zig)
       rm -f "$REPO_ROOT/examples/zig/hello-world-e2e" "$REPO_ROOT/examples/zig/hello-world-e2e.exe"
-      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig" "$REPO_ROOT/examples/zig/azul_c.zig"
+      rm -f "$REPO_ROOT/examples/zig/azul.h" "$REPO_ROOT/examples/zig/azul.zig"
       rm -f "$REPO_ROOT/examples/zig/$(basename "$LIB_PATH")"
       ;;
     odin)
@@ -1004,7 +1016,8 @@ lang_deps_cleanup() {
       rm -f "$REPO_ROOT/examples/v/$(basename "$LIB_PATH")"
       ;;
     crystal)
-      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe"
+      rm -f "$REPO_ROOT/examples/crystal/hello-world-e2e" "$REPO_ROOT/examples/crystal/hello-world-e2e.exe" \
+        "$REPO_ROOT/examples/crystal/hello-world-e2e.dwarf"
       rm -rf "$REPO_ROOT/examples/crystal/lib"
       rm -f "$REPO_ROOT/examples/crystal/$(basename "$LIB_PATH")"
       ;;
@@ -1184,66 +1197,27 @@ lang_go() {
   local f; f="$(log_path go)"
   (
     set -x
-    rm -rf "$REPO_ROOT/examples/azul-go"
-    mkdir -p "$REPO_ROOT/examples/azul-go"
-    if ! cp -r "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/azul-go/"; then
+    # purego: no C compiler, no CGO_*, no azul.h. The example's go.mod says
+    # `replace azul.rs/ui/go => ./azul-go`, so stage the generated package there
+    # and put the shared library next to the binary (LoadLibrary("") looks in
+    # the executable's directory, then the cwd, then the loader path).
+    rm -rf "$REPO_ROOT/examples/go/azul-go"
+    mkdir -p "$REPO_ROOT/examples/go/azul-go"
+    if ! cp "$CODEGEN_DIR/go/"* "$REPO_ROOT/examples/go/azul-go/"; then
       echo "go: no generated bindings at $CODEGEN_DIR/go — run the codegen step first" >&2
       exit 1
     fi
-    [ -f "$REPO_ROOT/examples/azul-go/azul.go" ] || {
-      echo "go: $CODEGEN_DIR/go staged no azul.go into examples/azul-go" >&2
-      exit 1
-    }
-    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
-    cp "$LIB_PATH"           "$REPO_ROOT/examples/azul-go/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul.h" "$REPO_ROOT/examples/go/" 2>/dev/null || true
-    cp "$LIB_PATH"           "$REPO_ROOT/examples/go/" 2>/dev/null || true
+    cp "$LIB_PATH" "$REPO_ROOT/examples/go/"
     cd "$REPO_ROOT/examples/go" || exit 1
-    export CGO_ENABLED=1
-    export CGO_CFLAGS="-I."
-    # cgo with gcc does not finish on the runner. Its first probe is a
-    # generated C file of ~94k lines — five deliberately failing functions for
-    # each of the ~9,400 C names the binding references, all under the 5.6 MB
-    # azul.h — and gcc's error-recovery path crawls through it: one cc1 ran
-    # 150 s+ on a fast arm64 box and 900 s+ on the 2-core ubuntu runner, twice
-    # (2026-09-12/14). clang takes the same probe in 16 s and the whole build
-    # in 35 s (measured in golang:1.22, Debian clang 14). The e2e runner
-    # installs clang; use it wherever it exists.
-    # NOT on Windows: the clang there is the MSVC-flavoured one, and it hands
-    # Go's GNU-style linker flags (`--start-group`, `-tsaware`) to link.exe,
-    # which rejects them (exit 1181). Windows cgo wants its MinGW gcc, whose
-    # probe finishes anyway now that the package references ~1.5k C names.
-    if [ "$IS_WINDOWS" != 1 ] && command -v clang >/dev/null 2>&1; then
-      export CC=clang
-    fi
     local OUT="hello-world-go-e2e"
-    if [ "$IS_MACOS" = 1 ]; then
-      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation"
-    elif [ "$IS_WINDOWS" = 1 ]; then
-      # The binding itself asks for `-lazul` (`#cgo LDFLAGS` in azul.go), so the
-      # MinGW linker needs the directory to search: without `-L` it failed with
-      # "cannot find -lazul" even though the import lib was named in full. ld
-      # resolves `-lazul` to azul.dll there; the dll resolves from PATH at run
-      # time. Windows-style path, because gcc is a native Windows program.
-      local win_release_dir; win_release_dir="$(cygpath -m "$RELEASE_DIR" 2>/dev/null || echo "$RELEASE_DIR")"
-      export CGO_LDFLAGS="-L$win_release_dir $win_release_dir/azul.dll.lib"
-      OUT="hello-world-go-e2e.exe"
-    else
-      export CGO_LDFLAGS="-L$RELEASE_DIR -lazul -lpthread -lm -ldl"
-    fi
-    # -x with a timestamp on every toolchain step: the runner ran past 900 s
-    # twice with the last lines still compiling the standard library, so the
-    # log has to say where the minutes go before the budget is judged again.
-    go build -x -o "$OUT" . 2>&1 | while IFS= read -r l; do printf '%s %s\n' "$(date +%H:%M:%S)" "$l"; done
-    [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
+    [ "$IS_WINDOWS" = 1 ] && OUT="hello-world-go-e2e.exe"
+    go vet ./... || exit 1
+    go build -o "$OUT" . || exit 1
     "./$OUT"
   ) >"$f" 2>&1
-  finish go "go build/run failed (cgo + libazul link)"
+  finish go "go build/run failed (purego + libazul)"
 }
 
-# ---- Lua / LuaJIT ------------------------------------------------------------
-# Toolchain: luajit (preferred; vanilla lua has no ffi) (CI: apt `luajit` /
-# brew `luajit`). Recipe lifted from rust.yml e2e_native "E2E - Lua".
 lang_lua() {
   local BIN; BIN="$(command -v luajit || command -v lua || true)"
   [ -n "$BIN" ] || { skip lua "luajit not installed (apt/brew: luajit)"; return; }
@@ -1255,19 +1229,11 @@ lang_lua() {
     cd "$REPO_ROOT/examples/lua" || exit 1
     "$BIN" hello-world.lua
   ) >"$f" 2>&1
-  # LuaJIT's FFI cannot make a C call that passes an aggregate BY VALUE on some
-  # ABIs (notably x86-64 SysV): `App_create(RefAny, AppConfig)` takes AppConfig
-  # by value -> "NYI: cannot call this C function (yet)". This is a LuaJIT
-  # toolchain limitation (no version fixes it -- a current 2.1 build still NYIs),
-  # NOT a binding bug: the identical azul.lua runs fine on arm64/macOS where the
-  # ABI passes the struct differently. Report SKIP (a real toolchain limit) so it
-  # does not gate; fixing it would need a by-pointer C-ABI variant for every
-  # by-value-struct function.
-  if grep -q "NYI: cannot call this C function" "$f" 2>/dev/null; then
-    skip lua "LuaJIT FFI NYI: cannot call by-value-aggregate C fns (App_create) on this ABI (works on arm64/macOS)"
-    return
-  fi
-  finish lua "lua build/run failed (LuaJIT ffi required)"
+  # Every call that passes or returns a struct by value goes through its
+  # `<fn>Byref` twin (azul.lua routes them from the IR), so LuaJIT's x86-64
+  # stack-argument limit ("NYI: cannot call this C function") no longer
+  # applies; an NYI in the log is now a real binding bug, not a toolchain skip.
+  finish lua "lua build/run failed (LuaJIT ffi, or cffi-lua for PUC Lua, required)"
 }
 
 # ---- Node.js -----------------------------------------------------------------
@@ -1546,9 +1512,9 @@ lang_scala() {
 
 # ---- Zig ---------------------------------------------------------------------
 # Toolchain: zig (CI: goto-bus-stop/setup-zig or mlugg/setup-zig). The example
-# imports azul.zig, which @imports azul_c.zig — the C ABI pre-translated from
-# the IR (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB
-# header took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
+# imports azul.zig — one file carrying the C ABI pre-translated from the IR
+# (no @cImport, so no azul.h and no -I: the @cImport of the 5.6 MB header
+# took 91-123 s cold, this takes ~7 s) — and links libazul. We use the
 # explicit build-exe form for stability (build.zig targets 0.16).
 lang_zig() {
   have zig || { skip zig "zig not installed (mlugg/setup-zig)"; return; }
@@ -1556,10 +1522,9 @@ lang_zig() {
   (
     set -x
     cp "$CODEGEN_DIR/azul.zig"   "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    cp "$CODEGEN_DIR/azul_c.zig" "$REPO_ROOT/examples/zig/" 2>/dev/null || true
     cp "$LIB_PATH"               "$REPO_ROOT/examples/zig/" 2>/dev/null || true
-    [ -f "$REPO_ROOT/examples/zig/azul_c.zig" ] || {
-      echo "zig: $CODEGEN_DIR/azul_c.zig missing — run the codegen step first" >&2
+    [ -f "$REPO_ROOT/examples/zig/azul.zig" ] || {
+      echo "zig: $CODEGEN_DIR/azul.zig missing — run the codegen step first" >&2
       exit 1
     }
     cd "$REPO_ROOT/examples/zig" || exit 1
@@ -1579,7 +1544,7 @@ lang_zig() {
     fi
     "$BIN"
   ) >"$f" 2>&1
-  finish zig "zig build/run failed (azul.zig + azul_c.zig)"
+  finish zig "zig build/run failed (azul.zig)"
 }
 
 # ---- Odin --------------------------------------------------------------------
@@ -1629,7 +1594,17 @@ lang_odin() {
 }
 
 lang_d() {
-  have dmd || { skip d "dmd not installed (D compiler)"; return; }
+  # dmd has no arm64 backend: on an Apple Silicon runner it emits x86_64
+  # objects that cannot link against the arm64 libazul ("symbol(s) not found
+  # for architecture x86_64"). macOS uses LDC (same front end, LLVM backend,
+  # same flags); everywhere else dmd, with LDC as the fallback.
+  local DC=dmd
+  [ "$IS_MACOS" = 1 ] && DC=ldc2
+  if ! have "$DC"; then
+    if have ldc2; then DC=ldc2; elif have dmd; then DC=dmd; else
+      skip d "neither dmd nor ldc2 installed (D compiler)"; return
+    fi
+  fi
   local f; f="$(log_path d)"
   (
     set -x
@@ -1642,17 +1617,17 @@ lang_d() {
     cp "$CODEGEN_DIR/azul.d" "$REPO_ROOT/examples/d/" || exit 1
     cp "$LIB_PATH"           "$REPO_ROOT/examples/d/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/d" || exit 1
-    dmd -o- hello-world.d azul.d || exit 1
+    "$DC" -o- hello-world.d azul.d || exit 1
     local SRC=(-Iazul-d/source hello-world.d azul-d/source/azul/*.d)
     local BIN=./hello-world-e2e
     if [ "$IS_MACOS" = 1 ]; then
-      dmd "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
+      "$DC" "${SRC[@]}" -L-L. -L-lazul -L-framework -LFoundation -L-framework -LAppKit -L-framework -LOpenGL -L-framework -LCoreGraphics -L-framework -LCoreText -of=hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
-      dmd "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
+      "$DC" "${SRC[@]}" "$RELEASE_DIR/azul.dll.lib" -of=hello-world-e2e.exe || exit 1
     else
-      dmd "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
+      "$DC" "${SRC[@]}" -L-L. -L-lazul -of=hello-world-e2e || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
@@ -1672,14 +1647,16 @@ lang_crystal() {
     cp "$LIB_PATH"            "$REPO_ROOT/examples/crystal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/crystal" || exit 1
     local BIN=./hello-world-e2e
+    # -L must be ABSOLUTE: crystal runs the linker from its cache directory,
+    # so a relative `-L.` never finds libazul ("unable to find library -lazul").
     if [ "$IS_MACOS" = 1 ]; then
-      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L$PWD -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
       # Link the MSVC import lib directly; the dll resolves from PATH.
       BIN=./hello-world-e2e.exe
       crystal build hello-world.cr -o hello-world-e2e --link-flags "$RELEASE_DIR/azul.dll.lib" || exit 1
     else
-      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L." || exit 1
+      crystal build hello-world.cr -o hello-world-e2e --link-flags "-L$PWD" || exit 1
     fi
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. "$BIN"
   ) >"$f" 2>&1
@@ -1706,11 +1683,11 @@ lang_swift() {
   local f; f="$(log_path swift)"
   (
     set -x
-    # The example does `import Azul`, so that module is built first: the
-    # generated package sources (one file per api.json module, so swiftc
-    # compiles them in parallel; the one-file azul.swift the website ships is
-    # the same code and takes 2.5x longer) against azul.h through the module
-    # map that exposes it as CAzul. Its library is AzulSwift: `Azul.dll` /
+    # The example does `import Azul`, so that module is built first: its
+    # sources, one file per API area (what the release ships as Azul/, and
+    # what `swiftc -j` compiles in parallel), against azul.h through the module
+    # map that exposes it as CAzul (the tracked examples/swift/module.modulemap
+    # is the generated one). Its library is AzulSwift: `Azul.dll` /
     # `libAzul.dylib` would be libazul's file on a case-insensitive file system.
     rm -rf "$REPO_ROOT/examples/swift/Azul"
     cp -R "$CODEGEN_DIR/swift/Sources/Azul" "$REPO_ROOT/examples/swift/Azul" || exit 1
@@ -1834,9 +1811,9 @@ lang_ocaml() {
     set -x
     # Only copy the generated sources (globbed: the split is one unit per
     # api.json module, and the unit list is the generator's business). The
-    # example's own dune/dune-project already define BOTH the azul library
-    # and the hello_world executable — overwriting them with the codegen's
-    # library-only dune breaks the build.
+    # example's own dune/dune-project are byte-identical to the generated ones
+    # (lang_ocaml/dune.rs: library + hello_world executable), so they are
+    # left in place.
     rm -f "$REPO_ROOT/examples/ocaml/"azul*.ml "$REPO_ROOT/examples/ocaml/"azul*.mli
     cp "$CODEGEN_DIR"/ocaml/*.ml  "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true
     cp "$CODEGEN_DIR"/ocaml/*.mli "$REPO_ROOT/examples/ocaml/" 2>/dev/null || true

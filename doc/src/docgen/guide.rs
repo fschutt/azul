@@ -365,6 +365,11 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
         },
     );
 
+    let mut content = content;
+    if guide.file_name.starts_with("hello-world/") {
+        content = inject_hello_world_fallback_image(&content);
+    }
+
     // Prev/next chapter links follow the linear teaching order of the
     // full guide list (same ordering as the index page).
     let all = get_guide_list();
@@ -655,7 +660,7 @@ fn render_sub_li(g: &Guide, _children: &std::collections::BTreeMap<String, Vec<&
 
 /// The label a sub-article carries INSIDE its card.
 ///
-/// One case, `hello-world/*`: 17 buttons that each repeat "Hello World" fill
+/// One case, `hello-world/*`: 20 buttons that each repeat "Hello World" fill
 /// the widest card on the page with the two words the card heading already
 /// says. Under that heading the language alone is the whole label. The page's
 /// own title is untouched - this is the index view only.
@@ -793,4 +798,39 @@ mod guide_contract {
             "guide pages with no sub-articles (each would be a card with one link): {lonely:?}"
         );
     }
+}
+
+fn inject_hello_world_fallback_image(content: &str) -> String {
+    let script = r#"
+<div id="hw-fallback-image"></div>
+<script>
+(function() {
+  var os = navigator.userAgent.indexOf("Mac") !== -1 ? "mac" : navigator.userAgent.indexOf("Win") !== -1 ? "win" : "linux";
+  function getTheme() {
+    var c = document.documentElement.getAttribute('data-theme');
+    return (c === 'dark' || c === 'light') ? c : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }
+  var img = document.createElement("img");
+  var updateImage = function() {
+    img.src = window.location.origin + "/ui/images/hello-world." + os + "." + getTheme() + ".png";
+  };
+  updateImage();
+  img.alt = "Hello World Window";
+  img.style.display = "block";
+  img.style.margin = "20px auto";
+  img.style.maxWidth = "100%";
+  img.style.borderRadius = "6px";
+  img.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  
+  var container = document.getElementById("hw-fallback-image");
+  if (container) container.appendChild(img);
+
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateImage);
+  if (window.MutationObserver) new MutationObserver(updateImage).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
+"#;
+
+    let target = ">hello-world landing page</a>.";
+    content.replacen(target, &format!("{}{}", target, script), 1)
 }

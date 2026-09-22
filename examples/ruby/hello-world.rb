@@ -8,15 +8,13 @@ end
 model = MyDataModel.new(5)
 data  = Azul::RefAny.wrap(model)
 
-on_click = lambda do |data_ptr, _info|
-  m = Azul::RefAny.unwrap(data_ptr)
+on_click = lambda do |m, _info|
   next Azul::Update::DoNothing if m.nil?
   m.counter += 1
   Azul::Update::RefreshDom
 end
 
-layout = lambda do |data_ptr, _info|
-  m = Azul::RefAny.unwrap(data_ptr)
+layout = lambda do |m, _info|
   next Azul::Dom.create_body if m.nil?
 
   label = Azul::Dom.create_p_with_text(m.counter.to_s)
@@ -35,8 +33,6 @@ window = Azul::WindowCreateOptions.create_with_layout(layout).with(
   window_state: {
     title: 'Hello World',
     size: { dimensions: { width: 400.0, height: 300.0 } },
-    flags: {
-    },
   },
 )
 

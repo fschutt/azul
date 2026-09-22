@@ -2467,6 +2467,39 @@ pub struct RegisterComponentLibraryFn {
 
 impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
 
+// Host-invoker plumbing (see crate::host_invoker): the callback takes no
+// arguments at all, so the thunk reads the context from the invocation slot.
+// Without a host to ask, the library is empty.
+crate::impl_managed_callback! {
+    wrapper:        RegisterComponentLibraryFn,
+    ctx_field:      ctx,
+    args:           [],
+    return_ty:      ComponentLibrary,
+    default_ret:    <ComponentLibrary as crate::host_invoker::HostOut>::unwritten(),
+    invoker_static: REGISTER_COMPONENT_LIBRARY_FN_INVOKER,
+    invoker_ty:     AzRegisterComponentLibraryFnInvoker,
+    thunk_fn:       az_register_component_library_fn_thunk,
+    setter_fn:      AzApp_setRegisterComponentLibraryFnInvoker,
+    from_handle_fn: AzRegisterComponentLibraryFn_createFromHostHandle,
+    from_handle_byref_fn: AzRegisterComponentLibraryFn_createFromHostHandleByref,
+}
+
+impl crate::host_invoker::HostOut for ComponentLibrary {
+    /// An empty library: `const` empty strings and vectors own no memory.
+    fn unwritten() -> Self {
+        Self {
+            name: AzString::from_const_str(""),
+            version: AzString::from_const_str(""),
+            description: AzString::from_const_str(""),
+            components: ComponentDefVec::from_const_slice(&[]),
+            exportable: false,
+            modifiable: false,
+            data_models: ComponentDataModelVec::from_const_slice(&[]),
+            enum_models: ComponentEnumModelVec::from_const_slice(&[]),
+        }
+    }
+}
+
 /// A component definition — the "class" / "template" of a component.
 /// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
 #[derive(Clone)]
@@ -8546,7 +8579,7 @@ pub fn str_to_cpp_code<'a>(
          {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
          RefAny::create(Data{{}});\n    WindowCreateOptions window = \
          WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
-         AppConfig::default_());\n    app.run(std::move(window));\n    return 0;\n}}\n"
+         AppConfig::create());\n    app.run(std::move(window));\n    return 0;\n}}\n"
     ))
 }
 

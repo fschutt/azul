@@ -5,7 +5,7 @@
 //! - C-ABI function definitions or declarations
 //! - Trait implementations using transmute
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
@@ -679,6 +679,8 @@ impl RustGenerator {
         builder.indent();
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            // allow-api-name: building an AzString from Rust bytes IS the
+            // String constructor; there is no other symbol that can do it.
             abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
@@ -697,6 +699,8 @@ impl RustGenerator {
         builder.indent();
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            // allow-api-name: building an AzString from Rust bytes IS the
+            // String constructor; there is no other symbol that can do it.
             abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
@@ -905,7 +909,49 @@ impl RustGenerator {
         // Generate serde support for RefAny (optional, requires "serde" feature)
         self.generate_serde_support(&mut builder, config);
 
+        // The api.json constants, as associated consts on the class that owns
+        // them (`GlContextPtr::ACCUM_ALPHA_BITS`).
+        self.generate_constants(&mut builder, ir, config);
+
         Ok(builder.finish())
+    }
+
+    /// The api.json constants, grouped into one `impl` per owning class.
+    ///
+    /// All 1436 of them are the OpenGL enum values on `GlContextPtr`. The C
+    /// header has always had them (`#define AzGlContextPtr_ACCUM 0x0100`);
+    /// the Rust binding had none, so a caller could not name a single
+    /// argument of the GL surface without writing the hex value out.
+    fn generate_constants(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let mut by_class: BTreeMap<&str, Vec<(String, &ConstantDef)>> = BTreeMap::new();
+        for c in &ir.constants {
+            if let Some((class, _)) = c.name.split_once('_') {
+                by_class.entry(class).or_default().push((c.member_name(), c));
+            }
+        }
+        for (class, constants) in by_class {
+            if !config.should_include_type(class) {
+                continue;
+            }
+            builder.line(&format!("impl {} {{", config.apply_prefix(class)));
+            builder.indent();
+            for (bare, c) in constants {
+                builder.line(&format!(
+                    "pub const {}: {} = {};",
+                    bare,
+                    c.type_name.trim(),
+                    c.value
+                ));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
 
     /// Generate serde-json support for RefAny.
@@ -1864,48 +1910,32 @@ impl RustGenerator {
                 continue;
             }
 
-            // Derive the inner type from the VecRef name
-            // e.g., "TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"
+            // The name prefix ("TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"),
+            // which is how the owning Vec is spelled further down.
             let inner_type = match struct_def.name.strip_suffix("VecRef") {
                 Some(inner) => inner.to_string(),
                 None => continue,
             };
 
-            // Check if the inner type actually exists in the IR
-            let inner_type_exists = ir.structs.iter().any(|s| s.name == inner_type)
-                || ir.enums.iter().any(|e| e.name == inner_type);
-
-            // Map primitive VecRef names to Rust primitive types
-            let rust_inner_type = match inner_type.as_str() {
-                "U8" => Some("u8"),
-                "U16" => Some("u16"),
-                "U32" => Some("u32"),
-                "U64" => Some("u64"),
-                "I8" => Some("i8"),
-                "I16" => Some("i16"),
-                "I32" => Some("i32"),
-                "I64" => Some("i64"),
-                "F32" => Some("f32"),
-                "F64" => Some("f64"),
-                "Usize" => Some("usize"),
-                "Isize" => Some("isize"),
-                "GLuint" => Some("GLuint"),
-                "GLint" => Some("GLint"),
-                "GLfloat" => Some("GLfloat"),
-                _ => None,
-            };
-
-            if !inner_type_exists && rust_inner_type.is_none() {
+            // The ELEMENT type is the IR's answer, not a second derivation
+            // from the name: `vecref_element` is the one predicate for it
+            // (`GLuintVecRef` -> `GLuint`, `U8VecRef` -> `u8`, `RefstrVecRef`
+            // -> nothing, because `Refstr` is a Rust `&str`). The scalar map
+            // this replaced knew three GL typedefs of the eleven api.json has,
+            // so `GLenumVecRef` silently got no `as_slice` at all.
+            let Some(element) = ir.vecref_element(&struct_def.name) else {
                 continue;
-            }
-
-            // Use the Rust primitive type if available, otherwise use the prefixed inner type
-            let prefixed_name = config.apply_prefix(&struct_def.name);
-            let prefixed_inner = if let Some(primitive) = rust_inner_type {
-                primitive.to_string()
-            } else {
-                config.apply_prefix(&inner_type)
             };
+
+            // A named API type takes the type prefix; a scalar (`u8`) and a
+            // typedef (`GLuint`, in scope as itself) are spelled as they are.
+            let prefixed_name = config.apply_prefix(&struct_def.name);
+            let prefixed_inner =
+                if ir.find_struct(&element).is_some() || ir.find_enum(&element).is_some() {
+                    config.apply_prefix(&element)
+                } else {
+                    element
+                };
 
             // Derive the corresponding Vec type name (remove "Ref" suffix)
             let vec_type_name = format!("{}Vec", inner_type);
@@ -2038,9 +2068,23 @@ impl RustGenerator {
             .map(|f| f.class_name.as_str())
             .collect();
 
+        // Two aliases of one monomorph (`LayoutGridAutoColumnsValue` and
+        // `LayoutGridAutoRowsValue` are both `CssPropertyValue<GridAutoTracks>`)
+        // are ONE Rust type: the first gets the inherent methods, a second
+        // `impl` block would define `clone` / `create_default` twice. Every
+        // alias still reaches them (same type), and every alias keeps its own
+        // C exports.
+        let mut monomorphs: BTreeSet<String> = BTreeSet::new();
         for class_name in class_names {
             if !config.should_include_type(class_name) {
                 continue;
+            }
+            if let Some(a) = ir.find_type_alias(class_name) {
+                if !a.generic_args.is_empty()
+                    && !monomorphs.insert(format!("{}<{}>", a.target, a.generic_args.join(",")))
+                {
+                    continue;
+                }
             }
 
             let prefixed_name = config.apply_prefix(class_name);
@@ -2167,19 +2211,13 @@ impl RustGenerator {
                 // so the body passes it through unchanged (no wrapping,
                 // no `Into`, no WithCtx dispatch).
                 //
-                // ONLY for callback wrappers that the C-ABI emits as a
-                // raw-fn-ptr pair (per `HOST_INVOKER_KINDS` /
-                // `is_callback_wrapper`) and ONLY for owned args — those are
-                // the exact cases where `<c_name>(.., fn_ptr)` takes the raw
-                // fn-ptr. Other callback wrappers (e.g. OnVideoFrameCallback,
-                // DatasetMergeCallback) have no raw variant; their C-ABI fn
-                // still takes the wrapper struct, so they keep the struct.
-                if rewrite_cb_to_fnptr
-                    && matches!(arg.ref_kind, ArgRefKind::Owned)
-                    && super::managed_host_invoker::is_callback_wrapper(&arg.type_name)
-                {
-                    if let Some((cb_typedef, _cb_field, _ctx_field)) =
-                        callback_wrappers.get(arg.type_name.as_str()).copied()
+                // ONLY for the callback arguments the C-ABI emits a raw
+                // fn-ptr variant for (`shadow_callback_typedef`), and ONLY
+                // owned ones - exactly where `<c_name>(.., fn_ptr)` takes the
+                // raw fn-ptr.
+                if rewrite_cb_to_fnptr && matches!(arg.ref_kind, ArgRefKind::Owned) {
+                    if let Some(cb_typedef) =
+                        super::managed_host_invoker::shadow_callback_typedef(func, arg)
                     {
                         let raw_ty = config.apply_prefix(cb_typedef);
                         args.push(format!("{}: {}", arg.name, raw_ty));
@@ -2265,124 +2303,6 @@ impl RustGenerator {
         } else {
             format!("<{}>", generic_params.join(", "))
         };
-
-        // M2.5 pair-pattern dispatch: when any arg is a callback-wrapper
-        // (per `HOST_INVOKER_KINDS`), the underlying C-ABI export is
-        // emitted as a pair — `<c_name>(.., cb_fn_ptr)` and
-        // `<c_name>WithCtx(.., cb_fn_ptr, ctx_refany)`. The Rust wrapper
-        // keeps its struct-taking signature (so Rust users can still
-        // pass either a bare fn-ptr via `Callback::from(fn)` or a host-
-        // handle struct via `Callback::create_from_host_handle`), and
-        // dispatches at runtime based on `ctx`-presence.
-        //
-        // Only applies to API functions (Constructor/StaticMethod/
-        // Method/MethodMut). Trait functions (`Delete`, `DeepCopy`,
-        // `PartialEq`, `Cmp`, `Hash`, `DebugToString`) on a callback-
-        // wrapper class take the wrapper itself by reference and are
-        // not subject to the pair-pattern emit on the C-ABI side.
-        let is_api_function = matches!(
-            func.kind,
-            FunctionKind::Constructor
-                | FunctionKind::StaticMethod
-                | FunctionKind::Method
-                | FunctionKind::MethodMut
-        );
-        // In the ergonomic Rust path the callback-wrapper args were already
-        // rewritten to raw fn-ptrs above (`rewrite_cb_to_fnptr`) and the
-        // body calls the raw C-ABI export directly, so the WithCtx
-        // struct-destructuring dispatch must NOT run here (it would try to
-        // `ptr::read` a fn-ptr as a wrapper struct). Since the rewrite now
-        // covers every API function this is effectively always empty, but
-        // the gate is kept explicit for clarity.
-        let cb_dispatch: Vec<(String, String, String)> = if is_api_function && !rewrite_cb_to_fnptr
-        {
-            func.args
-                .iter()
-                .filter_map(|arg| {
-                    let wrapper_name = arg.type_name.trim();
-                    if !super::managed_host_invoker::is_callback_wrapper(wrapper_name) {
-                        return None;
-                    }
-                    // Don't dispatch when the wrapper IS the receiver
-                    // (e.g. an instance method on `Callback` itself like
-                    // `Callback::to_core(self)`). Receiver detection
-                    // mirrors the `is_self` logic above: name == "self",
-                    // or name == snake-case(class) AND type matches class,
-                    // or name == "object" AND type matches class. Also
-                    // catch &/&mut shaped receivers regardless of name.
-                    let is_self_arg = arg.name == "self"
-                        || (arg.name == self_param_name && arg.type_name == func.class_name)
-                        || (arg.name == "object" && arg.type_name == func.class_name);
-                    if is_self_arg {
-                        return None;
-                    }
-                    if matches!(arg.ref_kind, ArgRefKind::Ref | ArgRefKind::RefMut) {
-                        return None;
-                    }
-                    let ctx_field =
-                        super::managed_host_invoker::callback_ctx_field(wrapper_name, ir)?;
-                    Some((arg.name.clone(), wrapper_name.to_string(), ctx_field))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-
-        if !cb_dispatch.is_empty() {
-            // Only the single-callback case is handled here; functions
-            // with multiple callback-wrapper args are rare/exotic and
-            // would need a richer dispatch tree. Fall back to a
-            // single struct-shaped call for that edge case.
-            if cb_dispatch.len() == 1 {
-                let (cb_arg, _wrapper, ctx_field) = &cb_dispatch[0];
-                let opt_refany = config.apply_prefix("OptionRefAny");
-                // Always route through the WithCtx variant — the ctx
-                // arg is typed as `OptionRefAny` so a None-ctx callback
-                // is just `OptionRefAny::None` (equivalent to calling
-                // the raw variant). The Rust wrapper destructures the
-                // input `AzCallback` via `ManuallyDrop` + `ptr::read` to
-                // peel off the fn-ptr and ctx fields without tripping
-                // the wrapper's `Drop` impl; the ctx field is moved
-                // through as the WithCtx ctx arg, which the C-ABI fn
-                // consumes.
-                //
-                // C users don't go through this Rust wrapper — they
-                // call the raw `<c_name>(.., fn_ptr)` export directly,
-                // which builds `OptionRefAny::None` internally.
-                let mut ctx_call_args: Vec<String> = Vec::with_capacity(call_args.len() + 1);
-                for s in &call_args {
-                    if s == cb_arg {
-                        ctx_call_args.push("__cb_fn".to_string());
-                        ctx_call_args.push("__cb_ctx".to_string());
-                    } else {
-                        ctx_call_args.push(s.clone());
-                    }
-                }
-                builder.line(&format!(
-                    "pub fn {}{}({}){} {{ unsafe {{",
-                    method_name,
-                    generics,
-                    args.join(", "),
-                    return_type,
-                ));
-                builder.line(&format!(
-                    "    let __cb_md = core::mem::ManuallyDrop::new({});",
-                    cb_arg
-                ));
-                builder.line("    let __cb_fn = __cb_md.cb;");
-                builder.line(&format!(
-                    "    let __cb_ctx: {} = core::ptr::read(&__cb_md.{});",
-                    opt_refany, ctx_field
-                ));
-                builder.line(&format!(
-                    "    {}WithCtx({})",
-                    c_func_name,
-                    ctx_call_args.join(", ")
-                ));
-                builder.line("} }");
-                return;
-            }
-        }
 
         // Generate the method
         builder.line(&format!(
@@ -3833,7 +3753,7 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
-            builder.line(&format!("unsafe {{ {}() }}", sym("default")));
+            builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -4143,7 +4063,7 @@ impl RustGenerator {
                 "pub unsafe extern \"C\" fn {}({}){} {}",
                 func.c_name, args, return_str, body
             ));
-            Self::emit_byref_twin(builder, func, config, export_feature, is_export_only);
+            Self::emit_byref_twin(builder, func, ir, config, export_feature, is_export_only);
             return;
         }
 
@@ -4228,26 +4148,22 @@ impl RustGenerator {
         // cannot call this C function" — and no twin existed to route to,
         // because the pair emit never reached `emit_byref_twin` (75 of the
         // 2,845 aggregate-taking exports, all of them these variants).
-        let self_snake = to_snake_case(&func.class_name);
         let is_cb = |a: &FunctionArg| {
-            let is_self = a.name == "self" || a.name == self_snake;
-            !is_self && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
+            super::managed_host_invoker::shadow_callback_typedef(func, a).is_some()
         };
         let mut raw_def = func.clone();
         raw_def.args = func
             .args
             .iter()
             .map(|a| {
-                let mut a = a.clone();
-                if is_cb(&a) {
-                    a.type_name =
-                        super::managed_host_invoker::callback_typedef_for(a.type_name.trim())
-                            .to_string();
+                let mut raw = a.clone();
+                if let Some(td) = super::managed_host_invoker::shadow_callback_typedef(func, a) {
+                    raw.type_name = td.to_string();
                 }
-                a
+                raw
             })
             .collect();
-        Self::emit_byref_twin(builder, &raw_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &raw_def, ir, config, export_feature, is_export_only);
         let mut ctx_def = raw_def.clone();
         ctx_def.c_name = format!("{}WithCtx", func.c_name);
         ctx_def.args = Vec::with_capacity(func.args.len() + 1);
@@ -4256,15 +4172,17 @@ impl RustGenerator {
             if is_cb(orig) {
                 let mut c = a.clone();
                 c.name = format!("{}_ctx", a.name);
+                // allow-api-name: the WithCtx twin's extra slot is the
+                // callback context, which is an OptionRefAny by definition.
                 c.type_name = "OptionRefAny".to_string();
                 c.ref_kind = ArgRefKind::Owned;
                 ctx_def.args.push(c);
             }
         }
-        Self::emit_byref_twin(builder, &ctx_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &ctx_def, ir, config, export_feature, is_export_only);
         let mut struct_def = func.clone();
         struct_def.c_name = format!("{}Struct", func.c_name);
-        Self::emit_byref_twin(builder, &struct_def, config, export_feature, is_export_only);
+        Self::emit_byref_twin(builder, &struct_def, ir, config, export_feature, is_export_only);
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside
@@ -4647,21 +4565,32 @@ impl RustGenerator {
     fn emit_byref_twin(
         builder: &mut CodeBuilder,
         func: &FunctionDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
         export_feature: &str,
         is_export_only: bool,
     ) {
+        // "Aggregate" = `CodegenIR::is_value_aggregate` (struct or tagged
+        // union; NOT a C enum / alias / fn-pointer typedef). Must match
+        // lang_c.rs `emit_c_byref_twin` exactly: the header declares what
+        // this exports. A twin is emitted when an owned aggregate arg is
+        // present OR the return is an aggregate (purego cannot return
+        // structs by value, so every struct-returning API needs one).
         let is_aggregate = |arg: &FunctionArg| {
-            matches!(arg.ref_kind, ArgRefKind::Owned)
-                && arg
-                    .type_name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_uppercase())
-                && !arg.type_name.ends_with("CallbackType")
-                && !arg.type_name.ends_with("FnType")
+            matches!(arg.ref_kind, ArgRefKind::Owned) && ir.is_value_aggregate(&arg.type_name)
         };
-        if !func.args.iter().any(is_aggregate) || func.fn_body.is_none() {
+        let ret_is_aggregate = func
+            .return_type
+            .as_deref()
+            .is_some_and(|r| ir.is_value_aggregate(r));
+        // NB: no `fn_body.is_none()` gate. The derived trait entry points
+        // (`_clone`, `_createDefault`, `_toDbgString`, ...) have no api.json
+        // body but DO return aggregates, and their base symbols are always
+        // emitted (`generate_function_body` has dedicated branches for
+        // them); the C header declares their twins, so the dll must export
+        // them — purego and cffi-lua need `AzDom_cloneByref` /
+        // `AzWindowCreateOptions_createDefaultByref` to get a struct back.
+        if !func.args.iter().any(is_aggregate) && !ret_is_aggregate {
             return;
         }
         if is_export_only {
@@ -4791,20 +4720,13 @@ impl RustGenerator {
         func: &FunctionDef,
         config: &CodegenConfig,
     ) -> String {
-        let self_snake = to_snake_case(&func.class_name);
         func.args
             .iter()
             .map(|arg| {
-                let is_self = arg.name == "self" || arg.name == self_snake;
-                let type_name = if !is_self
-                    && super::managed_host_invoker::is_callback_wrapper(&arg.type_name)
-                {
-                    config.apply_prefix(&super::managed_host_invoker::callback_typedef_for(
-                        arg.type_name.trim(),
-                    ))
-                } else {
-                    config.apply_prefix(&arg.type_name)
-                };
+                let type_name = config.apply_prefix(
+                    super::managed_host_invoker::shadow_callback_typedef(func, arg)
+                        .unwrap_or(&arg.type_name),
+                );
                 let formatted = match arg.ref_kind {
                     ArgRefKind::Owned => type_name,
                     ArgRefKind::Ref => format!("&{}", type_name),
@@ -4834,20 +4756,13 @@ impl RustGenerator {
         func: &FunctionDef,
         config: &CodegenConfig,
     ) -> String {
+        // allow-api-name: the context a WithCtx twin carries is an OptionRefAny.
         let opt_refany_type = config.apply_prefix("OptionRefAny");
-        let self_snake = to_snake_case(&func.class_name);
         let mut out = Vec::with_capacity(func.args.len());
         for arg in &func.args {
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb =
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
-            let type_name = if is_cb {
-                config.apply_prefix(&super::managed_host_invoker::callback_typedef_for(
-                    arg.type_name.trim(),
-                ))
-            } else {
-                config.apply_prefix(&arg.type_name)
-            };
+            let cb_typedef = super::managed_host_invoker::shadow_callback_typedef(func, arg);
+            let is_cb = cb_typedef.is_some();
+            let type_name = config.apply_prefix(cb_typedef.unwrap_or(&arg.type_name));
             let formatted = match arg.ref_kind {
                 ArgRefKind::Owned => type_name,
                 ArgRefKind::Ref => format!("&{}", type_name),
@@ -4880,14 +4795,13 @@ impl RustGenerator {
         with_ctx: bool,
     ) -> String {
         let mut prologue = String::new();
-        let self_snake = to_snake_case(&func.class_name);
         for arg in &func.args {
-            let wrapper_name = arg.type_name.trim();
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            if is_self || !super::managed_host_invoker::is_callback_wrapper(wrapper_name) {
+            if super::managed_host_invoker::shadow_callback_typedef(func, arg).is_none() {
                 continue;
             }
+            let wrapper_name = arg.type_name.trim();
             let wrapper_ty = config.apply_prefix(wrapper_name);
+            // allow-api-name: as above - the callback context's type.
             let opt_refany = config.apply_prefix("OptionRefAny");
             let ctx_expr = if with_ctx {
                 // The WithCtx variant takes the ctx as a pre-built
@@ -4917,22 +4831,10 @@ impl RustGenerator {
         prologue
     }
 
-    /// Does this function have at least one callback-wrapper arg eligible
-    /// for the pair-pattern emit (see [`format_function_args_for_cabi_pair_raw`])?
-    ///
-    /// Skips:
-    ///   - args named `self` (the receiver — never the callback being registered, even on methods
-    ///     of `Callback` itself).
-    ///   - args matching the function's own class name in snake_case (legacy convention; the IR
-    ///     sometimes surfaces the self-arg under the class's snake name rather than `self`).
+    /// Does this function have a callback argument eligible for the
+    /// pair-pattern emit (see [`format_function_args_for_cabi_pair_raw`])?
     fn has_callback_wrapper_arg(func: &FunctionDef) -> bool {
-        let self_snake = to_snake_case(&func.class_name);
-        func.args.iter().any(|a| {
-            if a.name == "self" || a.name == self_snake {
-                return false;
-            }
-            super::managed_host_invoker::is_callback_wrapper(&a.type_name)
-        })
+        super::managed_host_invoker::has_callback_wrapper_arg(func)
     }
 
     /// Generate test module with size/alignment verification tests

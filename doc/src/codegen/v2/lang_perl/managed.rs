@@ -169,7 +169,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Per-kind invoker closures.
     for cb in host_invoker_kinds(ir) {
-        emit_invoker(builder, cb);
+        emit_invoker(builder, cb, ir);
     }
 
     // Public surface.
@@ -228,7 +228,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 }
 
-fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypedefDef) {
+fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
     let n_args = cb.args.len();
     let has_ret = has_return(cb);
@@ -260,7 +260,7 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
         // the return type's REAL C size — the user sub just returns a value
         // (a record for aggregate returns, an integer for AzUpdate enums).
         let out_arg = format!("$_[{}]", n_args + 1);
-        let ret_size = super::super::managed_host_invoker::return_c_size(cb).unwrap_or(4);
+        let ret_size = super::super::managed_host_invoker::return_c_size(cb, ir).unwrap_or(4);
         builder.line(&format!(
             "my $ret = eval {{ $sub->({}) }};",
             user_args_list.join(", ")

@@ -16,11 +16,11 @@
 //!
 //! What *is* identical, and therefore lives here:
 //!
-//! * **The kind allowlist** — which callback wrappers actually have `impl_managed_callback!`
-//!   applied on the Rust side. Adding a kind bumps one constant rather than one entry per language
-//!   adapter.
-//! * **IR filtering** — given the IR, return only the callback typedefs that map to a kind in the
-//!   allowlist.
+//! * **The kinds** — every callback wrapper struct (by structure: one callback-typedef field and
+//!   one `OptionRefAny` context, see `ir_builder::link_callback_wrappers`). The engine applies
+//!   `impl_managed_callback!` to each of them (`bug_classes::every_callback_wrapper_is_host_invokable`
+//!   holds the two sets equal), so no list is kept by hand.
+//! * **IR filtering** — given the IR, return the callback typedefs that have a wrapper.
 //! * **Type-name mapping** — Rust IR primitive → cdef C name (`u32` → `uint32_t`, `f64` → `double`,
 //!   …). Every adapter needs this for the per-kind invoker signature.
 //! * **Arg-name normalisation** — the IR sometimes carries empty arg names; emitters must fall back
@@ -33,106 +33,51 @@
 
 use super::ir::{CallbackTypedefDef, CodegenIR};
 
-/// Wrapper names that have `impl_managed_callback!` applied on the Rust
-/// side, and therefore export
-/// `Az<Wrapper>_createFromHostHandle` + `AzApp_set<Wrapper>Invoker` from
-/// libazul.
+/// The callback typedefs that have a wrapper struct: the kinds libazul has a
+/// host-invoker thunk for (`Az<Wrapper>_createFromHostHandle`,
+/// `AzApp_set<Wrapper>Invoker`), and every managed binding registers.
 ///
-/// **Adding a kind:** apply `impl_managed_callback!` in
-/// `azul-core` (or in the widget file that owns the wrapper), recompile
-/// `libazul`, then append the wrapper name here. The codegen for every
-/// managed-FFI adapter automatically picks it up via [`host_invoker_kinds`].
-///
-/// Entries here that aren't in `ir.callback_typedefs` are silently ignored
-/// (this is the path that handles api.json renames). Entries in the IR
-/// that aren't in this list get the legacy `pin_callback` path on the
-/// wrapper-emitter side, which compiles fine but won't fire on
-/// libffi-style hosts.
-pub const HOST_INVOKER_KINDS: &[&str] = &[
-    // Core framework callbacks (core/src/callbacks.rs, layout/src/callbacks.rs).
-    "Callback",
-    "LayoutCallback",
-    "VirtualViewCallback",
-    // The one callback every resumable API function resumes into
-    // (layout/src/callbacks.rs). Managed hosts pass a closure as `on_result`
-    // to FileDialog::open_file, FilePath::read_bytes, HttpRequestConfig::http_get, ...
-    "ResumeCallback",
-    // Widget callbacks (layout/src/widgets/*).
-    "ButtonOnClickCallback",
-    "TabOnClickCallback",
-    "CheckBoxOnToggleCallback",
-    "TreeViewOnNodeClickCallback",
-    "DropDownOnChoiceChangeCallback",
-    "ColorInputOnValueChangeCallback",
-    "FileInputOnPathChangeCallback",
-    "NumberInputOnValueChangeCallback",
-    "NumberInputOnFocusLostCallback",
-    "TextInputOnTextInputCallback",
-    "TextInputOnVirtualKeyDownCallback",
-    "TextInputOnFocusLostCallback",
-    "ListViewOnLazyLoadScrollCallback",
-    "ListViewOnColumnClickCallback",
-    "ListViewOnRowClickCallback",
-    "RibbonOnTabClickCallback",
-    // ThreadCallback fires on a worker thread (spawned by
-    // Thread::create). Per-language host-invoker thunks for this kind
-    // MUST acquire the host VM lock before dispatching
-    // (PyGILState_Ensure, rb_thread_call_with_gvl, AttachCurrentThread,
-    // etc.). Single-threaded interpreters (Lua, Perl, PHP, Pharo)
-    // can't safely receive this callback; users should use the
-    // writeback-only pattern (Rust extern "C" worker fn + host
-    // WriteBackCallback on main).
-    "ThreadCallback",
-];
-
-/// Filter `ir.callback_typedefs` down to the entries whose wrapper name is
-/// in [`HOST_INVOKER_KINDS`].
+/// A kind whose callback runs on a worker thread (`ThreadCallback`) must take
+/// the host VM lock in its invoker before dispatching (`PyGILState_Ensure`,
+/// `rb_thread_call_with_gvl`, `AttachCurrentThread`, ...); single-threaded
+/// interpreters (Lua, Perl, PHP) cannot receive it and use the writeback
+/// pattern instead.
 pub fn host_invoker_kinds(ir: &CodegenIR) -> impl Iterator<Item = &CallbackTypedefDef> {
-    ir.callback_typedefs.iter().filter(|cb| {
-        let wrapper = wrapper_name(cb);
-        HOST_INVOKER_KINDS.contains(&wrapper)
-    })
+    ir.callback_typedefs.iter().filter(|cb| cb.wrapper.is_some())
 }
 
-/// `CallbackTypedefDef.name` is e.g. `"CallbackType"`. Strip the trailing
-/// `"Type"` to recover the wrapper struct name (`"Callback"`), which is
-/// the identifier used in C-ABI exports (`AzCallback_createFromHostHandle`,
-/// `AzApp_setCallbackInvoker`) and in language-side dispatch tables.
+/// The wrapper struct of a callback typedef (`"CallbackType"` ->
+/// `"Callback"`): the identifier of the kind in C-ABI exports
+/// (`AzCallback_createFromHostHandle`, `AzApp_setCallbackInvoker`) and in
+/// language-side dispatch tables. A typedef without a wrapper keeps its name
+/// minus `Type`, which only names its trampolines.
 pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
-    cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
+    cb.wrapper
+        .as_deref()
+        .unwrap_or_else(|| cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str()))
 }
 
-/// Predicate: is `type_name` a callback-wrapper struct from the
-/// host-invoker allowlist? Used by the dll_internal codegen to decide
-/// whether to emit the `_setOnX` / `_setOnXWithCtx` pair pattern for
-/// a function whose arg type is this wrapper.
-///
-/// The pair pattern: for every function `Foo::set_on_x(self, data,
-/// callback: Callback)` in api.json, emit both
-///   - `AzFoo_setOnX(self, data, callback: AzCallbackType)` — raw fn-ptr form; body wraps as
-///     `Callback { cb, ctx: None }`.
-///   - `AzFoo_setOnXWithCtx(self, data, callback: AzCallbackType, callback_ctx: AzRefAny)` — for
-///     managed-FFI hosts whose callback-handle ctx lives in a GC'd refany. Body wraps as `Callback
-///     { cb, ctx: Some(ctx) }`.
-pub fn is_callback_wrapper(type_name: &str) -> bool {
-    HOST_INVOKER_KINDS.contains(&type_name.trim())
+/// Is `type_name` a callback wrapper struct (one callback-typedef field, one
+/// `OptionRefAny` context)? Decided by the struct's shape, never its name.
+pub fn is_callback_wrapper(ir: &CodegenIR, type_name: &str) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| s.callback_wrapper_info.is_some())
 }
 
-/// Convert a callback-wrapper type name (`"Callback"`,
-/// `"ButtonOnClickCallback"`, …) into its raw-fn-ptr typedef
-/// counterpart (`"CallbackType"`, `"ButtonOnClickCallbackType"`, …).
-/// The typedef is what the pair-pattern `_setOnX(...)` form takes as
-/// its fn-ptr arg; the typedef name follows the convention
-/// `<WrapperName>Type`.
-pub fn callback_typedef_for(wrapper: &str) -> String {
-    format!("{}Type", wrapper)
+/// The function-pointer typedef a callback wrapper holds (`"Callback"` ->
+/// `"CallbackType"`): what the raw `<fn>(..)` and `<fn>WithCtx(..)` shadow
+/// exports take in place of the wrapper. `None` for a type that is not a
+/// callback wrapper.
+pub fn callback_typedef_for(ir: &CodegenIR, wrapper: &str) -> Option<String> {
+    ir.find_struct(wrapper.trim())?
+        .callback_wrapper_info
+        .as_ref()
+        .map(|info| info.callback_typedef_name.clone())
 }
 
-/// Does `func` have at least one callback-wrapper arg (per
-/// [`HOST_INVOKER_KINDS`]) that is NOT the receiver? Mirrors the
-/// dll-internal emitter's pair-pattern detection exactly: args named
-/// `self` or matching the class name in snake_case are the receiver
-/// and never the callback being registered.
+/// Does `func` (an API function) have a callback argument - see
+/// [`is_callback_wrapper_arg`]? Mirrors the dll-internal emitter's
+/// pair-pattern detection exactly.
 ///
 /// Functions matching this predicate are exported from libazul as a
 /// TRIPLE, not with the literal api.json signature:
@@ -153,27 +98,40 @@ pub fn callback_typedef_for(wrapper: &str) -> String {
 /// clicking executed heap memory → EXC_BAD_ACCESS in every managed
 /// language. See `managed_c_symbol`.
 pub fn has_callback_wrapper_arg(func: &super::ir::FunctionDef) -> bool {
-    use super::ir::FunctionKind;
-    // Mirror the dll emitter's `should_substitute_callbacks` gate: only
-    // API functions get the pair/triple emit. Trait functions (Delete,
-    // DeepCopy, …) on the wrapper type itself and enum-variant
-    // constructors (OptionCallback::Some) keep their literal signature.
-    if !matches!(
-        func.kind,
-        FunctionKind::Constructor
-            | FunctionKind::StaticMethod
-            | FunctionKind::Method
-            | FunctionKind::MethodMut
-    ) {
-        return false;
+    // Only API functions get the pair/triple emit. Trait functions (Delete,
+    // DeepCopy, …) on the wrapper type itself and enum-variant constructors
+    // (OptionCallback::Some) keep their literal signature.
+    func.kind.is_api_function() && func.args.iter().any(|a| is_callback_wrapper_arg(func, a))
+}
+
+/// For an argument the shadow C API covers (see [`is_callback_wrapper_arg`]):
+/// the function-pointer typedef the raw `<fn>` and `<fn>WithCtx` variants take
+/// in place of the wrapper. `None` for any other argument.
+pub fn shadow_callback_typedef<'a>(
+    func: &super::ir::FunctionDef,
+    arg: &'a super::ir::FunctionArg,
+) -> Option<&'a str> {
+    if is_callback_wrapper_arg(func, arg) {
+        arg.callback_info
+            .as_ref()
+            .map(|ci| ci.callback_typedef_name.as_str())
+    } else {
+        None
     }
-    let self_snake = to_snake_case(&func.class_name);
-    func.args.iter().any(|a| {
-        if a.name == "self" || a.name == self_snake {
-            return false;
-        }
-        is_callback_wrapper(&a.type_name)
-    })
+}
+
+/// Is `arg` of `func` a callback argument the shadow C API covers: not the
+/// receiver, and presented as its callback wrapper? The IR presents every
+/// callback argument of an API function as its wrapper
+/// (`ir_builder::build_function_def`), except in the wrapper's own
+/// constructors, which take the bare function pointer to BUILD the wrapper.
+pub fn is_callback_wrapper_arg(func: &super::ir::FunctionDef, arg: &super::ir::FunctionArg) -> bool {
+    func.kind.is_api_function()
+        && !func.is_receiver_arg(arg)
+        && arg
+            .callback_info
+            .as_ref()
+            .is_some_and(|ci| ci.callback_wrapper_name == arg.type_name.trim())
 }
 
 /// The C symbol a managed-FFI binding must bind for `func`.
@@ -193,7 +151,7 @@ pub fn managed_c_symbol(func: &super::ir::FunctionDef) -> String {
 }
 
 /// Look up the ctx-equivalent field name for a callback wrapper struct.
-/// All wrappers in `HOST_INVOKER_KINDS` are `{ cb, <ctx_field> }`
+/// Every callback wrapper is `{ cb, <ctx_field> }`
 /// where the `<ctx_field>` has type `OptionRefAny` but its name is
 /// either `ctx` (core/layout callbacks: `Callback`, `LayoutCallback`,
 /// `VirtualViewCallback`, `ThreadCallback`) or `callable` (every
@@ -201,10 +159,37 @@ pub fn managed_c_symbol(func: &super::ir::FunctionDef) -> String {
 ///
 /// Returns `None` if the wrapper isn't a known callback wrapper or if
 /// no field of type `OptionRefAny` is found.
+/// The accessor that hands a firing callback its context: the method on a
+/// callback INFO type (`CallbackInfo`, `LayoutCallbackInfo`,
+/// `RenderImageCallbackInfo`, `VirtualViewCallbackInfo`) that borrows `self`
+/// and returns the `OptionRefAny` the wrapper stored.
+///
+/// Found by SHAPE, not by name. Four bindings each spelled the method's name
+/// out, so renaming it in api.json would have silently stranded every
+/// trampoline that needs the context - the failure would be a callback whose
+/// model is suddenly `None` at runtime, not a build error. Across the whole
+/// API exactly four functions have this shape, and they are exactly those
+/// accessors.
+pub fn ctx_getter<'a>(
+    info_type: &str,
+    ir: &'a super::ir::CodegenIR,
+) -> Option<&'a super::ir::FunctionDef> {
+    use super::ir::ArgRefKind;
+    ir.functions.iter().find(|f| {
+        f.class_name == info_type
+            && f.args.len() == 1
+            && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::Ptr)
+            // allow-api-name: the context a callback carries IS an OptionRefAny.
+            && f.return_type.as_deref() == Some("OptionRefAny")
+    })
+}
+
 pub fn callback_ctx_field(wrapper: &str, ir: &super::ir::CodegenIR) -> Option<String> {
     let s = ir.structs.iter().find(|s| s.name == wrapper)?;
     s.fields
         .iter()
+        // allow-api-name: a callback wrapper's context slot IS an OptionRefAny;
+        // that is the structural definition this whole module is built on.
         .find(|f| f.type_name.trim() == "OptionRefAny")
         .map(|f| f.name.clone())
 }
@@ -288,9 +273,6 @@ pub fn layout_callback_factory_info(
         .as_ref()?
         .callback_wrapper_name
         .clone();
-    if !HOST_INVOKER_KINDS.contains(&callback_wrapper.as_str()) {
-        return None;
-    }
     // Find the field in `s` (recursively) whose type matches the
     // callback wrapper struct. The C ABI splices the registered
     // callback bytes into this field; the path tells the emitter
@@ -357,16 +339,17 @@ fn find_field_of_type(
 
 /// Phase J.1 detector: shared across every language binding. If `func`
 /// is a `with_on_*(self, data: RefAny, callback: <Wrapper>)` method
-/// whose `Wrapper` is in [`HOST_INVOKER_KINDS`], return `Some((smart,
+/// whose `Wrapper` is a callback wrapper, return `Some((smart,
 /// wrapper))` where `smart` is the snake-case sibling method name
 /// (`"on_click"` etc.) and `wrapper` is the callback wrapper kind
 /// (`"Callback"`, `"ButtonOnClickCallback"`, ...).
 ///
 /// Requires args[2].type_name to match the wrapper struct name (NOT
-/// the fn-pointer typedef form). When the API exposes the typedef
-/// form (`CheckBoxOnToggleCallbackType` etc.) the smart factory would
-/// need an extra `.cb` field extract bridge; today only Button matches
-/// the wrapper-struct shape.
+/// the fn-pointer typedef form). Every `with_*` / `set_*` that takes a
+/// callback wrapper struct matches (58 methods on 43 classes as of
+/// 2026-09-19); an API entry that exposes only the typedef form
+/// (`CheckBoxOnToggleCallbackType` etc.) would need an extra `.cb` field
+/// extract bridge and does not match.
 pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(String, String)> {
     use super::ir::FunctionKind;
     if !matches!(
@@ -378,13 +361,12 @@ pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(Stri
     if func.args.len() != 3 {
         return None;
     }
+    // allow-api-name: the host-invoker shape is defined as (self, RefAny data,
+    // callback wrapper); the data slot is a RefAny by definition.
     if func.args[1].type_name != "RefAny" {
         return None;
     }
     let cb_info = func.args[2].callback_info.as_ref()?;
-    if !HOST_INVOKER_KINDS.contains(&cb_info.callback_wrapper_name.as_str()) {
-        return None;
-    }
     if func.args[2].type_name != cb_info.callback_wrapper_name {
         return None;
     }
@@ -446,25 +428,18 @@ pub fn return_c_typename(cb: &CallbackTypedefDef) -> Option<String> {
 /// tagged-union payload fields), and copying `sizeof(host_record)` bytes
 /// overflows the out-pointer and smashes the callback frame.
 ///
-/// Returns `None` for `void`-returning kinds (no writeback). Every return type
-/// used by [`HOST_INVOKER_KINDS`] is covered; a new callback kind whose typedef
-/// returns an aggregate must add its size here. Sizes are the repr(C) LP64
-/// layout of the wrapper struct (computed from `api.json`/the C header).
-pub fn return_c_size(cb: &CallbackTypedefDef) -> Option<usize> {
-    let rt = return_c_typename(cb)?;
-    Some(match rt.as_str() {
-        "AzDom" => 240,
-        "AzVirtualViewReturn" => 280,
-        "AzOnTextInputReturn" => 8,
-        // AzUpdate and every other repr(C) fieldless enum return -> C int.
-        "AzUpdate" => 4,
-        // Fallback for any not-yet-catalogued aggregate return: a fieldless
-        // enum is 4 bytes; anything larger MUST be added above (an under-copy
-        // truncates the return, an over-copy would overflow). We choose the
-        // conservative enum size so a mistake fails loudly (wrong value) rather
-        // than corrupting memory.
-        _ => 4,
-    })
+/// Returns `None` for `void`-returning kinds (no writeback). The size is the
+/// repr(C) 64-bit layout `azul.h` declares, computed from the IR by
+/// [`super::c_layout::type_layout`] - a size table kept by hand drifted
+/// (2026-09-19: AzDom 240 -> 280, AzVirtualViewReturn 280 -> 320, truncating
+/// every Dom a Perl layout callback returned) and silently fell back to 4
+/// bytes for any return type it did not list.
+pub fn return_c_size(cb: &CallbackTypedefDef, ir: &super::ir::CodegenIR) -> Option<usize> {
+    let rt = cb.return_type.as_deref()?.trim();
+    if rt == "void" {
+        return None;
+    }
+    super::c_layout::type_layout(rt, ir).map(|l| l.size)
 }
 
 /// A stable name for the i-th positional arg of a callback. Falls back to
@@ -517,6 +492,7 @@ pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
     out.push_str("    /* User-data RefAny on top of the host-handle path: one shared\n");
     out.push_str("       lifetime story for both callback registration and refany_create. */\n");
     out.push_str("    AzRefAny AzRefAny_newHostHandle(uint64_t);\n");
+    out.push_str("    void AzRefAny_newHostHandleByref(uint64_t, AzRefAny*);\n");
     out.push_str("    uint64_t AzRefAny_getHostHandle(const AzRefAny*);\n\n");
     out.push_str("    /* Generic invoker fallback — fires when no per-kind invoker is\n");
     out.push_str("       registered. Useful for hosts that want one dispatch site for\n");
@@ -546,6 +522,12 @@ pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
         ));
         out.push_str(&format!(
             "    Az{w} Az{w}_createFromHostHandle(uint64_t);\n",
+            w = wrapper
+        ));
+        // Out-pointer twin for FFIs that cannot receive a struct by value
+        // (purego, cffi-lua); exported by every `impl_managed_callback!` site.
+        out.push_str(&format!(
+            "    void Az{w}_createFromHostHandleByref(uint64_t, Az{w}*);\n",
             w = wrapper
         ));
     }
@@ -631,4 +613,115 @@ mod tests {
         assert_eq!(c_typename("Update"), "AzUpdate");
         assert_eq!(c_typename("RefAny"), "AzRefAny");
     }
+}
+
+// ============================================================================
+// Application-object factory (`App.create(model, layoutFn)` + `app.run(opts)`)
+// ============================================================================
+
+/// IR-derived description of the "application object" pattern that the
+/// managed guides expose as `App.create(model, layoutFn)` followed by
+/// `app.run(windowOptions)`:
+///
+/// * a class `S` with a constructor taking exactly `[Owned RefAny, Owned C]`
+///   (in either order) where `C` has a `_default` factory
+///   (`AzApp_create(AzRefAny, AzAppConfig)`);
+/// * at least one method of `S` taking, by value, a struct `W` that matches
+///   [`layout_callback_factory_info`] (`AzApp_run(&App, WindowCreateOptions)`,
+///   `AzApp_addWindow(...)`).
+///
+/// A binding uses it to emit a typed `create<T>(data, fn)` that registers
+/// the layout callback once, keeps its bytes in the wrapper, and splices them
+/// into `W.<field_path>` inside every window-taking method (only when the
+/// caller's options still carry the default/no-op callback, so an explicit
+/// `W.create(fn)` keeps winning). Nothing here names `App`, `AppConfig` or
+/// `WindowCreateOptions`: the shape is matched structurally, so a second
+/// class of the same shape would get the same treatment.
+#[derive(Clone, Debug)]
+pub struct AppFactoryInfo {
+    /// The application class (e.g. `"App"`).
+    pub class_name: String,
+    /// Its 2-arg constructor's C name (e.g. `"AzApp_create"`).
+    pub create_c_name: String,
+    /// Index (0-based, in `create`'s arg list) of the `RefAny` model arg.
+    pub data_arg_index: usize,
+    /// Index of the config arg and its IR type name (e.g. `"AppConfig"`).
+    pub config_arg_index: usize,
+    pub config_type: String,
+    /// The config type's `_default` factory (e.g. `"AzAppConfig_default"`).
+    pub config_default_c_name: String,
+    /// Every method of `class_name` that takes a window-options struct by
+    /// value: `(method c_name, index of that arg, factory info of its type)`.
+    /// Non-empty by construction.
+    pub window_methods: Vec<(String, usize, LayoutCallbackFactoryInfo)>,
+}
+
+/// See [`AppFactoryInfo`]. `None` when the IR has no class of that shape.
+pub fn app_factory_info(ir: &CodegenIR) -> Option<AppFactoryInfo> {
+    use super::ir::{ArgRefKind, FunctionKind, TypeCategory};
+    let is_refany = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::RefAny))
+    };
+    let default_of = |t: &str| {
+        ir.functions
+            .iter()
+            .find(|f| f.class_name == t.trim() && matches!(f.kind, FunctionKind::Default))
+            .map(|f| f.c_name.clone())
+    };
+    ir.functions
+        .iter()
+        .filter(|f| {
+            matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+                && f.args.len() == 2
+                && f.args.iter().all(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+                && f.return_type.as_deref().map(str::trim) == Some(f.class_name.as_str())
+        })
+        .find_map(|create| {
+            let data_arg_index = create.args.iter().position(|a| is_refany(&a.type_name))?;
+            let config_arg_index = 1 - data_arg_index;
+            let config_type = create.args[config_arg_index].type_name.trim().to_string();
+            if is_refany(&config_type) {
+                return None;
+            }
+            let config_default_c_name = default_of(&config_type)?;
+            let window_methods: Vec<(String, usize, LayoutCallbackFactoryInfo)> = ir
+                .functions
+                .iter()
+                .filter(|m| {
+                    m.class_name == create.class_name
+                        && matches!(m.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                })
+                .filter_map(|m| {
+                    let hits: Vec<(usize, LayoutCallbackFactoryInfo)> = m
+                        .args
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, a)| {
+                            if !matches!(a.ref_kind, ArgRefKind::Owned) {
+                                return None;
+                            }
+                            let s = ir.find_struct(a.type_name.trim())?;
+                            layout_callback_factory_info(s, ir).map(|info| (i, info))
+                        })
+                        .collect();
+                    match hits.as_slice() {
+                        [(i, info)] => Some((m.c_name.clone(), *i, info.clone())),
+                        _ => None,
+                    }
+                })
+                .collect();
+            if window_methods.is_empty() {
+                return None;
+            }
+            Some(AppFactoryInfo {
+                class_name: create.class_name.clone(),
+                create_c_name: create.c_name.clone(),
+                data_arg_index,
+                config_arg_index,
+                config_type,
+                config_default_c_name,
+                window_methods,
+            })
+        })
 }

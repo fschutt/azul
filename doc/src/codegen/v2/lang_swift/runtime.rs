@@ -197,15 +197,16 @@ internal enum _Handles {
         return Unmanaged<_Held>.fromOpaque(box).takeUnretainedValue()
     }
 
-    /// The Swift object a callback's data RefAny names, as `T`.
-    static func object<T: AnyObject>(_ refany: UnsafeMutablePointer<AzRefAny>, _ type: T.Type) -> T {
+    /// The Swift object a callback's data RefAny names, as `T`, or nil when
+    /// it names something else: the application registered a model of a
+    /// different type, or the callback was registered from another binding.
+    /// The trampoline reports that through libazul's log and hands back the
+    /// callback's fallback, rather than stopping the process.
+    static func object<T: AnyObject>(_ refany: UnsafeMutablePointer<AzRefAny>, _ type: T.Type) -> T? {
         if let h = held(refany), let o = h.object as? T {
             return o
         }
-        if let r = RefAny(_own: AzRefAny_clone(refany)) as? T {
-            return r
-        }
-        preconditionFailure("azul: the callback data is not a \(T.self) (pass the object itself as the data argument)")
+        return RefAny(_own: AzRefAny_clone(refany)) as? T
     }
 
     /// The closure of type `F` a RefAny names, if any.

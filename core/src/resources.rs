@@ -1089,6 +1089,8 @@ impl AppConfig {
         register_fn: R,
     ) {
         let register_fn = register_fn.into();
+        // direct-cb-call: a registration function runs right here, inside this
+        // call, and carries no context.
         let component = (register_fn.cb)();
         let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
         let mut libs =
@@ -1143,7 +1145,7 @@ impl AppConfig {
         register_fn: R,
     ) {
         let register_fn = register_fn.into();
-        let mut library = (register_fn.cb)();
+        let mut library = register_fn.invoke();
         library.name = name;
 
         let empty_libs = ComponentLibraryVec::from_const_slice(&[]);

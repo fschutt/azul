@@ -709,6 +709,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_list_view_on_lazy_load_scroll_callback_thunk,
     setter_fn:      AzApp_setListViewOnLazyLoadScrollCallbackInvoker,
     from_handle_fn: AzListViewOnLazyLoadScrollCallback_createFromHostHandle,
+    from_handle_byref_fn: AzListViewOnLazyLoadScrollCallback_createFromHostHandleByref,
     extra_args:     [ state: ListViewState ],
 }
 
@@ -731,6 +732,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_list_view_on_column_click_callback_thunk,
     setter_fn:      AzApp_setListViewOnColumnClickCallbackInvoker,
     from_handle_fn: AzListViewOnColumnClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzListViewOnColumnClickCallback_createFromHostHandleByref,
     extra_args:     [ state: ListViewState, column_clicked: usize ],
 }
 
@@ -753,6 +755,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_list_view_on_row_click_callback_thunk,
     setter_fn:      AzApp_setListViewOnRowClickCallbackInvoker,
     from_handle_fn: AzListViewOnRowClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzListViewOnRowClickCallback_createFromHostHandleByref,
     extra_args:     [ state: ListViewState, row_clicked: usize ],
 }
 
@@ -1150,7 +1153,7 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
         Some(ListViewOnRowClick {
             refany: user_data,
             callback,
-        }) => (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index),
+        }) => callback.invoke(user_data.clone(), info, data.state.clone(), data.row_index),
         None => Update::DoNothing,
     }
 }
@@ -1164,7 +1167,7 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
         Some(ListViewOnColumnClick {
             refany: user_data,
             callback,
-        }) => (callback.cb)(user_data.clone(), info, data.state.clone(), data.col_index),
+        }) => callback.invoke(user_data.clone(), info, data.state.clone(), data.col_index),
         None => Update::DoNothing,
     }
 }

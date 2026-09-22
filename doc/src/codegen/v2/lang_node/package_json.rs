@@ -21,6 +21,12 @@
 //!
 //! koffi minimum: `^2.7` (the version that introduced the
 //! `koffi.proto(...)` API used by our callback wrappers).
+//!
+//! `exports` is declared alongside `main` so that `require('azul')`
+//! also resolves by *self-reference* from a script sitting next to
+//! this manifest (the download-and-run flow: `azul.js` + `package.json`
+//! + the shared library in one directory). Node only self-references a
+//! package name when `exports` is present; `main` alone is ignored.
 
 /// Generate the `package.json` body as a String.
 pub fn generate_package_json(version: &str) -> String {
@@ -30,6 +36,10 @@ pub fn generate_package_json(version: &str) -> String {
     "version": "{version}",
     "description": "JavaScript bindings for the Azul GUI framework (Node.js / Bun / Deno).",
     "main": "azul.js",
+    "exports": {{
+        ".": "./azul.js",
+        "./package.json": "./package.json"
+    }},
     "type": "commonjs",
     "engines": {{
         "node": ">=16"

@@ -93,8 +93,8 @@ bool parse_and_tessellate(OpenGlState* state, AzU8Vec bytes) {
         return false;
     }
 
-    AzSvgFillStyle fill_style = AzSvgFillStyle_default();
-    AzSvgStrokeStyle stroke_style = AzSvgStrokeStyle_default();
+    AzSvgFillStyle fill_style = AzSvgFillStyle_createDefault();
+    AzSvgStrokeStyle stroke_style = AzSvgStrokeStyle_createDefault();
     stroke_style.line_width = 4.0f;
 
     TessNodeArray fill_nodes = {0};

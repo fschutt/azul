@@ -932,6 +932,11 @@ e2e-scripting = ["json", "azul-layout/e2e-server"]
 # These are mutually exclusive; enabling both is a compile error.
 allocator_mimalloc = ["dep:mimalloc"]
 allocator_jemalloc = ["dep:tikv-jemallocator"]
+# Test builds only: a system allocator that counts libazul's live bytes and
+# exports `AzDebug_liveBytes` / `AzDebug_liveAllocations`, so the generated
+# conformance programs (scripts/conformance.sh) can check that every case
+# frees everything it allocates. Not combinable with the two above.
+alloc-stats = []
 
 # Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
 # Phase 0: no external dependencies (uses std::net::TcpListener).

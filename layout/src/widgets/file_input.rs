@@ -160,6 +160,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_file_input_on_path_change_callback_thunk,
     setter_fn:      AzApp_setFileInputOnPathChangeCallbackInvoker,
     from_handle_fn: AzFileInputOnPathChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzFileInputOnPathChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: FileInputState ],
 }
 
@@ -304,7 +305,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
         let inner = fileinputstatewrapper.inner.clone();
         let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
             Some(FileInputOnPathChange { refany, callback }) => {
-                (callback.cb)(refany.clone(), info, inner)
+                callback.invoke(refany.clone(), info, inner)
             }
             None => Update::RefreshDom,
         };
@@ -338,7 +339,7 @@ extern "C" fn fileinput_on_file_picked(
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
         Some(FileInputOnPathChange { refany, callback }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::RefreshDom,
     };
@@ -716,7 +717,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

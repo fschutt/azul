@@ -301,7 +301,7 @@ impl LanguageGenerator for CGenerator {
             if !config.should_include_type(&func.class_name) {
                 continue;
             }
-            self.generate_function_declaration(&mut builder, func, config, &callback_wrappers);
+            self.generate_function_declaration(&mut builder, func, ir, config, &callback_wrappers);
         }
 
         Ok(builder.finish())
@@ -870,6 +870,7 @@ impl CGenerator {
         &self,
         builder: &mut CodeBuilder,
         func: &FunctionDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
         callback_wrappers: &std::collections::HashMap<&str, &str>,
     ) {
@@ -899,18 +900,7 @@ impl CGenerator {
                 }
             })
             .collect();
-        let is_api_function = matches!(
-            func.kind,
-            FunctionKind::Constructor
-                | FunctionKind::StaticMethod
-                | FunctionKind::Method
-                | FunctionKind::MethodMut
-        );
-        let has_cb_wrapper_arg = is_api_function
-            && func.args.iter().any(|a| {
-                let is_self = a.name == "self" || a.name == self_snake;
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
-            });
+        let has_cb_wrapper_arg = super::managed_host_invoker::has_callback_wrapper_arg(func);
 
         let return_type = func
             .return_type
@@ -949,8 +939,9 @@ impl CGenerator {
                 builder,
                 &func.c_name,
                 &return_type,
-                func.return_type.is_some(),
+                func.return_type.as_deref(),
                 &func.args,
+                ir,
                 config,
             );
             return;
@@ -960,19 +951,16 @@ impl CGenerator {
         // callback-wrapper replaced by its fn-pointer typedef (raw
         // form), once with the fn-pointer typedef plus a trailing
         // `<arg>_ctx: AzOptionRefAny` per callback-wrapper arg.
+        // allow-api-name: the context a `WithCtx` twin carries IS an
+        // OptionRefAny - that is the shadow API's definition.
         let opt_refany_c = self.rust_type_to_c_with_prefix("OptionRefAny", config);
 
         let mut args_raw: Vec<String> = Vec::with_capacity(func.args.len());
         let mut args_ctx: Vec<String> = Vec::with_capacity(func.args.len() + 1);
         for arg in &func.args {
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb_wrapper =
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
-            let effective_type = if is_cb_wrapper {
-                super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
-            } else {
-                arg.type_name.clone()
-            };
+            let cb_typedef = super::managed_host_invoker::shadow_callback_typedef(func, arg);
+            let is_cb_wrapper = cb_typedef.is_some();
+            let effective_type = cb_typedef.map_or_else(|| arg.type_name.clone(), str::to_string);
             let c_type = self.rust_type_to_c_with_prefix(&effective_type, config);
             let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
                 ArgRefKind::Owned => ("", ""),
@@ -1040,80 +1028,82 @@ impl CGenerator {
         let mut raw_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len());
         let mut ctx_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len() + 1);
         for arg in &func.args {
-            let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb_wrapper =
-                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let cb_typedef = super::managed_host_invoker::shadow_callback_typedef(func, arg);
+            let is_cb_wrapper = cb_typedef.is_some();
             let mut a = arg.clone();
-            if is_cb_wrapper {
-                a.type_name =
-                    super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
-                        .to_string();
+            if let Some(td) = cb_typedef {
+                a.type_name = td.to_string();
             }
             raw_args.push(a.clone());
             ctx_args.push(a.clone());
             if is_cb_wrapper {
                 let mut c = a;
                 c.name = format!("{}_ctx", arg.name);
+                // allow-api-name: as above - the shadow API's context slot.
                 c.type_name = "OptionRefAny".to_string();
                 c.ref_kind = ArgRefKind::Owned;
                 ctx_args.push(c);
             }
         }
-        let has_ret = func.return_type.is_some();
+        let ret_ir_type = func.return_type.as_deref();
         self.emit_c_byref_twin(
             builder,
             &func.c_name,
             &return_type,
-            has_ret,
+            ret_ir_type,
             &raw_args,
+            ir,
             config,
         );
         self.emit_c_byref_twin(
             builder,
             &format!("{}WithCtx", func.c_name),
             &return_type,
-            has_ret,
+            ret_ir_type,
             &ctx_args,
+            ir,
             config,
         );
         self.emit_c_byref_twin(
             builder,
             &format!("{}Struct", func.c_name),
             &return_type,
-            has_ret,
+            ret_ir_type,
             &func.args,
+            ir,
             config,
         );
     }
 
     /// `<c_name>Byref`: owned aggregates by pointer (CONSUMED, like the
     /// by-value call), return via out-pointer — for FFIs whose call frames
-    /// cannot pass large aggregates by value (LuaJIT caps stack-passed
-    /// argument bytes at 256). Emitted only when an owned aggregate is
-    /// present. The predicate matches lang_rust.rs's `emit_byref_twin`
-    /// EXACTLY — it used to pointerize `AzXxxCallbackType` fn-pointer
+    /// cannot pass or return aggregates by value (LuaJIT caps stack-passed
+    /// argument bytes at 256; purego cannot return structs at all).
+    /// Emitted when an owned aggregate ARG is present OR the RETURN is an
+    /// aggregate; "aggregate" is [`CodegenIR::is_value_aggregate`] (struct
+    /// or tagged union — NOT a C enum, alias or fn-pointer typedef, which
+    /// stay by value). The predicate matches lang_rust.rs's
+    /// `emit_byref_twin` EXACTLY because both must agree on the twin's
+    /// signature — it used to pointerize `AzXxxCallbackType` fn-pointer
     /// typedefs here while the Rust export took them by value (13 twins
-    /// declared with a signature the DLL never had).
+    /// declared with a signature the DLL never had), and later pointerized
+    /// every `enum` (breaking every Lua/Go call that passed an int).
     fn emit_c_byref_twin(
         &self,
         builder: &mut CodeBuilder,
         c_name: &str,
         return_type: &str,
-        has_return: bool,
+        ret_ir_type: Option<&str>,
         args: &[FunctionArg],
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
+        let has_return = ret_ir_type.is_some();
         let is_aggregate = |arg: &FunctionArg| {
-            matches!(arg.ref_kind, ArgRefKind::Owned)
-                && arg
-                    .type_name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_uppercase())
-                && !arg.type_name.ends_with("CallbackType")
-                && !arg.type_name.ends_with("FnType")
+            matches!(arg.ref_kind, ArgRefKind::Owned) && ir.is_value_aggregate(&arg.type_name)
         };
-        if !args.iter().any(is_aggregate) {
+        let ret_is_aggregate = ret_ir_type.is_some_and(|r| ir.is_value_aggregate(r));
+        if !args.iter().any(is_aggregate) && !ret_is_aggregate {
             return;
         }
         let mut byref_args: Vec<String> = Vec::with_capacity(args.len() + 1);

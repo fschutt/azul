@@ -88,6 +88,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_backstage_on_nav_select_callback_thunk,
     setter_fn:      AzApp_setBackstageOnNavSelectCallbackInvoker,
     from_handle_fn: AzBackstageOnNavSelectCallback_createFromHostHandle,
+    from_handle_byref_fn: AzBackstageOnNavSelectCallback_createFromHostHandleByref,
     extra_args:     [ item_index: usize ],
 }
 

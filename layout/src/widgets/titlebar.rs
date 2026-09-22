@@ -916,7 +916,7 @@ pub(crate) fn glyph_drawn_by_view(
         LogicalRect::new(LogicalPosition::zero(), size),
         LogicalPosition::zero(),
     );
-    let OptionDom::Some(dom) = (node.callback.cb)(node.refany.clone(), info).dom else {
+    let OptionDom::Some(dom) = node.callback.invoke(node.refany.clone(), info).dom else {
         return None;
     };
     // The view renders the control's INTERIOR - the glyph under the control's
@@ -1491,7 +1491,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

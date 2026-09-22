@@ -16,13 +16,11 @@ let () =
   in
 
   (* 1. The consume-by-value DROP path: App.create moves the AppConfig bytes
-        (nested SystemStyle) into libazul. azul_consume marks the OCaml wrapper
-        consumed so its finaliser won't double-free the moved memory; then
-        dispose_app calls AzApp_delete once. *)
-  let data = Azul.azul_refany_create model in
+        (nested SystemStyle) into libazul; the typed wrapper marks the consumed
+        record disposed so its finaliser won't double-free the moved memory;
+        then dispose_app calls AzApp_delete once. *)
   let cfg = Azul.AppConfig.create () in
-  let app = Azul.App.create data (Azul.raw_app_config cfg) in
-  Azul.azul_consume cfg;
+  let app = Azul.App.create ~model ~app_config:cfg () in
   Azul.dispose_app app;
 
   (* 2. Leak loop: create/destroy a droppable AppConfig N times.

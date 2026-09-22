@@ -11060,6 +11060,7 @@ pub trait PlatformWindow {
             // returns.
             let info_ptr =
                 &info as *const InputInterpreterInfo as *const InputInterpreterInfo<'static>;
+            // direct-cb-call: the interpreter's context is its first argument.
             (interpreter.cb)(ctx, info_ptr)
         } else {
             PreCallbackFilterResult {
@@ -11385,6 +11386,7 @@ pub trait PlatformWindow {
                 .as_ref()
                 .map(|r| r.clone())
                 .unwrap_or_else(|| RefAny::new(EmptyRefAnyData(0)));
+            // direct-cb-call: the policy's context is its first argument.
             let result_vec: azul_core::events::SystemChangeVec =
                 (pf.cb)(ctx, prevent_default, slice, old_dn, new_dn);
             result_vec.into_library_owned_vec()

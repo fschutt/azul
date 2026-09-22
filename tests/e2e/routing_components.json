@@ -1,0 +1,26 @@
+[
+  {
+    "name": "routing_switch_route_and_params",
+    "description": "Drives examples/c/routing-components.c, the doc-drift guard for doc/guide/en/architecture/routing.md and components.md. Asserts the home route renders, clicks the button whose callback calls set_route_param + switch_route(\"/user/:id\", id=42), and asserts the user route rendered - which only happens if the pattern matched and the callback's own assertions on get_route_pattern / get_route_param passed.",
+    "steps": [
+      {
+        "op": "assert_text",
+        "selector": "body > p",
+        "expected": "home"
+      },
+      {
+        "op": "click",
+        "text": "Open user"
+      },
+      {
+        "op": "wait",
+        "ms": 300
+      },
+      {
+        "op": "assert_text",
+        "selector": "body > p",
+        "expected": "user"
+      }
+    ]
+  }
+]
