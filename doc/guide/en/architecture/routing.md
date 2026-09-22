@@ -37,9 +37,9 @@ Register routes on the `AppConfig` before passing it to
 ```rust,no_run
 use azul::prelude::*;
 
-extern "C" fn layout_home(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
-extern "C" fn layout_user(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
-extern "C" fn layout_settings(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
+extern "C" fn layout_home(_: RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
+extern "C" fn layout_user(_: RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
+extern "C" fn layout_settings(_: RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
 
 fn main() {
     let mut config = AppConfig::create();
@@ -80,7 +80,7 @@ Patterns are matched in registration order; the first match wins.
 The `LayoutCallbackInfo` knows which route the callback is rendering:
 
 ```rust,ignore
-extern "C" fn layout_user(_: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_user(_: RefAny, info: LayoutCallbackInfo) -> Dom {
     let id = info.get_route_param("id".into());
     Dom::create_h1_with_text(format!("User #{}", id.as_str()).into())
 }
@@ -152,14 +152,14 @@ struct AppModel {
     current_filter: String,
 }
 
-extern "C" fn layout_home(data: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_home(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
     Dom::create_body()
         .with_child(navbar(info.get_route_pattern()))
         .with_child(home_content(&model))
 }
 
-extern "C" fn layout_user(data: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_user(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
     let id = info.get_route_param("id".into());
     let user = model.users.iter().find(|u| u.id == id.as_str());
@@ -173,7 +173,7 @@ extern "C" fn layout_user(data: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(body)
 }
 
-extern "C" fn layout_settings(data: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_settings(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
     Dom::create_body()
         .with_child(navbar(info.get_route_pattern()))
