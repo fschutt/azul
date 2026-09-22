@@ -270,6 +270,8 @@ mod mock_font_metrics;
 mod multi_range_selection;
 #[path = "drag_into_an_empty_line.rs"]
 mod drag_into_an_empty_line;
+#[path = "an_svg_without_a_viewbox.rs"]
+mod an_svg_without_a_viewbox;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
 #[path = "patched_opacity_reaches_the_paint.rs"]
