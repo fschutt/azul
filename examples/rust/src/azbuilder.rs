@@ -2,7 +2,7 @@ use azul::prelude::*;
 use std::env;
 
 extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-    Dom::create_body().with_css(AzString::from("body { background: #1e1e1e; }"))
+    Dom::create_body()
 }
 
 fn open_browser(url: &str) {
@@ -22,7 +22,7 @@ fn main() {
     // Start a thread to open the browser after a short delay
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        open_browser("http://localhost:8080/debugger.html");
+        open_browser("http://localhost:8080/");
     });
 
     let config = AppConfig::create();
