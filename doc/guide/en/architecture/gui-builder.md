@@ -17,16 +17,13 @@ default-search-keys:
 
 # GUI Builder
 
-Azul ships with a built-in GUI Builder—a visual drag-and-drop tool similar to GTK's Glade 
-or Qt Creator. Instead of a standalone heavy desktop application, the builder is hosted 
-natively by your application and accessed through your web browser. 
+`AzBuilder` is a visual drag-and-drop GUI builder tool, similar to GTK's Glade or Qt Creator. 
+It mainly runs in a browser tab and renders a native "preview" window, which then reacts to the 
+changes you make in the browser and communicates with the native window over HTTP (via JSON).
+It allows you to export the GUI that you built to code, as well as design end-to-end tests for
+your application and inspect your application state.
 
 ![AzBuilder GUI Builder Interface](../../images/debugger-initial.png)
-
-This is the ultimate payoff for building your app using [Components](./components.md) 
-and their explicit `ComponentDataModel` structures. Because every component explicitly 
-declares its properties (strings, colors, toggles), the builder can automatically 
-generate a UI to tweak them in real-time.
 
 ## Starting the Builder
 
