@@ -8143,6 +8143,10 @@ impl MacOSWindow {
                     // across frames.
                     self.cpu_backend.native_target = None;
 
+                    let paint = self.cpu_backend.last_frame_damage.clone();
+                    let present = self.cpu_backend.last_present_damage.clone();
+                    layout_window.record_frame(paint, present);
+
                     if self.cpu_backend.rendered_native {
                         // Pixels are already in the view framebuffer —
                         // present = invalidate-only.
@@ -8378,6 +8382,17 @@ impl MacOSWindow {
                 "[render_and_present] No renderer available!"
             );
             return Ok(());
+        }
+
+        // Update frame report for E2E tests
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            use crate::desktop::shell2::headless::FrameDamage;
+            let paint = if self.gpu_damage_rects.is_empty() {
+                FrameDamage::None
+            } else {
+                FrameDamage::Full
+            };
+            layout_window.record_frame(paint.clone(), paint);
         }
 
         // Step 3: Swap buffers to show the rendered frame
