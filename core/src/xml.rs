@@ -5849,6 +5849,26 @@ fn apply_xml_node_attributes(
         }
     }
 
+    if let Some(contenteditable) = xml_node
+        .attributes
+        .get_key("contenteditable")
+        .and_then(|f| parse_bool(f.as_str()))
+    {
+        node.set_contenteditable(contenteditable);
+    }
+
+    if xml_node.attributes.get_key("autofocus").is_some() {
+        let mut attrs = node.attributes().clone().into_library_owned_vec();
+        attrs.push(crate::dom::AttributeType::Autofocus);
+        node.set_attributes(attrs.into());
+    }
+
+    if let Some(placeholder) = xml_node.attributes.get_key("placeholder") {
+        let mut attrs = node.attributes().clone().into_library_owned_vec();
+        attrs.push(crate::dom::AttributeType::Placeholder(placeholder.as_str().into()));
+        node.set_attributes(attrs.into());
+    }
+
     // Handle tabindex attribute
     if let Some(tab_index) = xml_node
         .attributes
