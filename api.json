@@ -8156,9 +8156,6 @@
                                 "keyboard_state": {
                                     "type": "KeyboardState"
                                 },
-                                "locale": {
-                                    "type": "String"
-                                },
                                 "is_rtl": {
                                     "type": "bool"
                                 },
@@ -117004,6 +117001,11 @@
                     },
                     "FluentArgKVVec": {
                         "external": "azul_core::dom::FluentArgKVVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -117024,6 +117026,156 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `FluentArgKVVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "FluentArgKVVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `FluentArgKVVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FluentArgKVVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `FluentArgKVVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "FluentArgKV"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FluentArgKVVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `FluentArgKVVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const FluentArgKV"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FluentArgKVVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFluentArgKV"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `FluentArgKVVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FluentArgKVVecSlice"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FluentArgKVVecSlice"
+                                },
+                                "fn_body": "fluent_arg_k_v_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -124330,6 +124482,30 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionFluentArgKV": {
+                        "external": "azul_core::dom::OptionFluentArgKV",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "FluentArgKV",
+                                    "doc": [
+                                        "Some value of type FluentArgKV"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -129030,6 +129206,32 @@
                                 },
                                 "value": {
                                     "type": "FluentArg"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FluentArgKVVecSlice": {
+                        "external": "azul_core::dom::FluentArgKVVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FluentArgKV",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
