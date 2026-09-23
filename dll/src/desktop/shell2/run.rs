@@ -572,6 +572,7 @@ fn setup_debug_and_e2e(
                 std::process::exit(1);
             }
             needs_debug = true;
+            debug_port = None; // AZ_E2E overrides starting a localhost server
         }
 
         let (debug_request_rx, component_map) = if needs_debug {
