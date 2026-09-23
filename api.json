@@ -25759,6 +25759,9 @@
                                         "args": "FluentArgKVVec"
                                     }
                                 ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
                                 "fn_body": "object.with_fluent_args(args)"
                             }
                         },
@@ -88649,6 +88652,9 @@
                                 },
                                 "destructor": {
                                     "type": "ListViewRowVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -88853,6 +88859,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleFilterVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -89057,6 +89066,9 @@
                                 },
                                 "destructor": {
                                     "type": "AccessibilityStateVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -89261,6 +89273,9 @@
                                 },
                                 "destructor": {
                                     "type": "MenuItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -89465,6 +89480,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleFontFamilyVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -89669,6 +89687,9 @@
                                 },
                                 "destructor": {
                                     "type": "DomVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -89873,6 +89894,9 @@
                                 },
                                 "destructor": {
                                     "type": "IdOrClassVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -90073,6 +90097,9 @@
                                 },
                                 "destructor": {
                                     "type": "DynamicSelectorVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -90277,6 +90304,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssPropertyWithConditionsVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -90481,6 +90511,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundContentVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -90685,6 +90718,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundPositionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -90889,6 +90925,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundRepeatVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -91093,6 +91132,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleBackgroundSizeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -91297,6 +91339,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleTransformVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -91498,6 +91543,9 @@
                                 },
                                 "destructor": {
                                     "type": "SvgVertexVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -91698,6 +91746,9 @@
                                 },
                                 "destructor": {
                                     "type": "VideoFrameVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -91902,6 +91953,9 @@
                                 },
                                 "destructor": {
                                     "type": "U32VecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -92106,6 +92160,9 @@
                                 },
                                 "destructor": {
                                     "type": "VirtualKeyCodeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -92307,6 +92364,9 @@
                                 },
                                 "destructor": {
                                     "type": "CascadeInfoVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -92511,6 +92571,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssDeclarationVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -92715,6 +92778,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssPathSelectorVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -92916,6 +92982,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -93117,6 +93186,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssRuleBlockVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -93321,6 +93393,9 @@
                                 },
                                 "destructor": {
                                     "type": "U16VecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -93522,6 +93597,9 @@
                                 },
                                 "destructor": {
                                     "type": "F32VecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -93726,6 +93804,9 @@
                                 },
                                 "destructor": {
                                     "type": "U8VecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -93963,6 +94044,9 @@
                                 },
                                 "destructor": {
                                     "type": "GLuintVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -94167,6 +94251,9 @@
                                 },
                                 "destructor": {
                                     "type": "GLintVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -94372,6 +94459,9 @@
                                 },
                                 "destructor": {
                                     "type": "StringVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -94576,6 +94666,9 @@
                                 },
                                 "destructor": {
                                     "type": "MimeTypeDataVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -94780,6 +94873,9 @@
                                 },
                                 "destructor": {
                                     "type": "StringPairVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -94984,6 +95080,9 @@
                                 },
                                 "destructor": {
                                     "type": "NormalizedLinearColorStopVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -95188,6 +95287,9 @@
                                 },
                                 "destructor": {
                                     "type": "NormalizedRadialColorStopVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -95389,6 +95491,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeHierarchyItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -95590,6 +95695,9 @@
                                 },
                                 "destructor": {
                                     "type": "TagIdToNodeIdMappingVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -95791,6 +95899,9 @@
                                 },
                                 "destructor": {
                                     "type": "ParentWithNodeDepthVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -95995,6 +96106,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeDataVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -96199,6 +96313,9 @@
                                 },
                                 "destructor": {
                                     "type": "AttributeTypeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -96403,6 +96520,9 @@
                                 },
                                 "destructor": {
                                     "type": "CoreCallbackDataVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -96607,6 +96727,9 @@
                                 },
                                 "destructor": {
                                     "type": "AccessibilityActionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -96811,6 +96934,9 @@
                                 },
                                 "destructor": {
                                     "type": "XmlNodeChildVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -97015,6 +97141,9 @@
                                 },
                                 "destructor": {
                                     "type": "GridTrackSizingVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -98729,6 +98858,9 @@
                                 },
                                 "destructor": {
                                     "type": "VertexAttributeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -98959,6 +99091,9 @@
                                 },
                                 "destructor": {
                                     "type": "DebugMessageVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -99190,6 +99325,9 @@
                                 },
                                 "destructor": {
                                     "type": "ShapePointVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -99387,6 +99525,9 @@
                                 },
                                 "destructor": {
                                     "type": "MonitorVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -99612,6 +99753,9 @@
                                 },
                                 "destructor": {
                                     "type": "VideoModeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -99812,6 +99956,9 @@
                                 },
                                 "destructor": {
                                     "type": "XWindowTypeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -100108,6 +100255,9 @@
                                 },
                                 "destructor": {
                                     "type": "ScanCodeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -100322,6 +100472,9 @@
                                 },
                                 "destructor": {
                                     "type": "ContentGroupVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -100519,6 +100672,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyledNodeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -100775,6 +100931,9 @@
                                 },
                                 "destructor": {
                                     "type": "DocumentSelectionSpanVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -100986,6 +101145,9 @@
                                 },
                                 "destructor": {
                                     "type": "DocumentTextEditVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -101214,6 +101376,9 @@
                                 },
                                 "destructor": {
                                     "type": "DomIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -101469,6 +101634,9 @@
                                 },
                                 "destructor": {
                                     "type": "TimerIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -101666,6 +101834,9 @@
                                 },
                                 "destructor": {
                                     "type": "SelectionRangeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -101897,6 +102068,9 @@
                                 },
                                 "destructor": {
                                     "type": "ThreadIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -102187,6 +102361,9 @@
                                 },
                                 "destructor": {
                                     "type": "HidReportVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -102396,6 +102573,9 @@
                                 },
                                 "destructor": {
                                     "type": "PageSetupOverrideVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -102575,6 +102755,9 @@
                                 },
                                 "destructor": {
                                     "type": "MarginBoxContentVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -102771,6 +102954,9 @@
                                 },
                                 "destructor": {
                                     "type": "PageBreakPositionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -103026,6 +103212,9 @@
                                 },
                                 "destructor": {
                                     "type": "TabletDeviceInfoVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -103236,6 +103425,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyledTextRunVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -103447,6 +103639,9 @@
                                 },
                                 "destructor": {
                                     "type": "SelectionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -103660,6 +103855,9 @@
                                 },
                                 "destructor": {
                                     "type": "HttpHeaderVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -103883,6 +104081,9 @@
                                 },
                                 "destructor": {
                                     "type": "FmtArgVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -104113,6 +104314,9 @@
                                 },
                                 "destructor": {
                                     "type": "JsonVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -104355,6 +104559,9 @@
                                 },
                                 "destructor": {
                                     "type": "DirEntryVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -104581,6 +104788,9 @@
                                 },
                                 "destructor": {
                                     "type": "JsonKeyValueVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -104859,6 +105069,9 @@
                                 },
                                 "destructor": {
                                     "type": "NamedFontVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -105059,6 +105272,9 @@
                                 },
                                 "destructor": {
                                     "type": "ExternalResourceVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -105321,6 +105537,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeHierarchyItemIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -105504,6 +105723,9 @@
                                 },
                                 "destructor": {
                                     "type": "CalcAstItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -105718,6 +105940,9 @@
                                 },
                                 "destructor": {
                                     "type": "GridAreaDefinitionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -105928,6 +106153,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDataFieldVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -106166,6 +106394,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDefVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -106344,6 +106575,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentLibraryVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -106583,6 +106817,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentDataModelVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -106793,6 +107030,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentEnumModelVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107003,6 +107243,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentEnumVariantVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107214,6 +107457,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentCallbackArgVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107410,6 +107656,9 @@
                                 },
                                 "destructor": {
                                     "type": "ComponentFieldOverrideVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107637,6 +107886,9 @@
                                 },
                                 "destructor": {
                                     "type": "SvgPathElementVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107847,6 +108099,9 @@
                                 },
                                 "destructor": {
                                     "type": "SvgPathVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -108042,6 +108297,9 @@
                                 },
                                 "destructor": {
                                     "type": "RibbonTabVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -108234,6 +108492,9 @@
                                 },
                                 "destructor": {
                                     "type": "TreeViewNodeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -108461,6 +108722,9 @@
                                 },
                                 "destructor": {
                                     "type": "RouteVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -108688,6 +108952,9 @@
                                 },
                                 "destructor": {
                                     "type": "TouchPointVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -108906,6 +109173,9 @@
                                 },
                                 "destructor": {
                                     "type": "LogicalRectVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -109121,6 +109391,9 @@
                                 },
                                 "destructor": {
                                     "type": "LayoutRectVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -109338,6 +109611,9 @@
                                 },
                                 "destructor": {
                                     "type": "DbValueVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -109521,6 +109797,9 @@
                                 },
                                 "destructor": {
                                     "type": "LoadedFontVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -109742,6 +110021,9 @@
                                 },
                                 "destructor": {
                                     "type": "FluentLoadErrorVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -109938,6 +110220,9 @@
                                 },
                                 "destructor": {
                                     "type": "AccordionSectionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -110168,6 +110453,9 @@
                                 },
                                 "destructor": {
                                     "type": "CssPropertyVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -110359,6 +110647,9 @@
                                 },
                                 "destructor": {
                                     "type": "IcuStringVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -110568,6 +110859,9 @@
                                 },
                                 "destructor": {
                                     "type": "IdentifiedSelectionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -110807,6 +111101,9 @@
                                 },
                                 "destructor": {
                                     "type": "FullWindowStateVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -111002,6 +111299,9 @@
                                 },
                                 "destructor": {
                                     "type": "RibbonItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -111180,6 +111480,9 @@
                                 },
                                 "destructor": {
                                     "type": "RibbonGalleryCellVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -111401,6 +111704,9 @@
                                 },
                                 "destructor": {
                                     "type": "RibbonGroupVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -111616,6 +111922,9 @@
                                 },
                                 "destructor": {
                                     "type": "KeyframeStopVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -111830,6 +112139,9 @@
                                 },
                                 "destructor": {
                                     "type": "KeyframesVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -112047,6 +112359,9 @@
                                 },
                                 "destructor": {
                                     "type": "StyleAnimationVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -112260,6 +112575,9 @@
                                 },
                                 "destructor": {
                                     "type": "FrameConsumerVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -112500,6 +112818,9 @@
                                 },
                                 "destructor": {
                                     "type": "TrayIconImageVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -112691,6 +113012,9 @@
                                 },
                                 "destructor": {
                                     "type": "QuickAccessActionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -112869,6 +113193,9 @@
                                 },
                                 "destructor": {
                                     "type": "BackstageNavItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -113090,6 +113417,9 @@
                                 },
                                 "destructor": {
                                     "type": "StatusBarViewVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -113285,6 +113615,9 @@
                                 },
                                 "destructor": {
                                     "type": "StatusBarSegmentVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -113529,6 +113862,9 @@
                                 },
                                 "destructor": {
                                     "type": "DomNodeIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -113753,6 +114089,9 @@
                                 },
                                 "destructor": {
                                     "type": "PointerSeatVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -113963,6 +114302,9 @@
                                 },
                                 "destructor": {
                                     "type": "KeyboardSeatVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -114142,6 +114484,9 @@
                                 },
                                 "destructor": {
                                     "type": "HidDeviceVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -114338,6 +114683,9 @@
                                 },
                                 "destructor": {
                                     "type": "FilePathVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -114551,6 +114899,9 @@
                                 },
                                 "destructor": {
                                     "type": "DbIndexSchemaVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -114764,6 +115115,9 @@
                                 },
                                 "destructor": {
                                     "type": "DbStoreSchemaVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -114977,6 +115331,9 @@
                                 },
                                 "destructor": {
                                     "type": "DbCollectionScopeVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -115259,6 +115616,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeIdNodeMapVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -115437,6 +115797,9 @@
                                 },
                                 "destructor": {
                                     "type": "InputOutputTypeIdVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -115649,6 +116012,9 @@
                                 },
                                 "destructor": {
                                     "type": "InputOutputTypeIdInfoMapVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -115827,6 +116193,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeTypeIdInfoMapVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116061,6 +116430,9 @@
                                 },
                                 "destructor": {
                                     "type": "OutputNodeAndIndexVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116239,6 +116611,9 @@
                                 },
                                 "destructor": {
                                     "type": "OutputConnectionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116417,6 +116792,9 @@
                                 },
                                 "destructor": {
                                     "type": "InputNodeAndIndexVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116685,6 +117063,9 @@
                                 },
                                 "destructor": {
                                     "type": "NodeTypeFieldVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116880,6 +117261,9 @@
                                 },
                                 "destructor": {
                                     "type": "InputConnectionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -117090,6 +117474,9 @@
                                 },
                                 "destructor": {
                                     "type": "FluentArgKVVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -117287,6 +117674,9 @@
                                 },
                                 "destructor": {
                                     "type": "SystemLanguageVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -129191,10 +129581,10 @@
                                         "default_locale": "String"
                                     },
                                     {
-                                        "known_languages": "*const [SystemLanguage]"
+                                        "known_languages": "SystemLanguageVecSlice"
                                     }
                                 ],
-                                "fn_body": "azul_layout::fluent::FluentLocalizerHandle::create(default_locale.as_str(), unsafe { &*known_languages })"
+                                "fn_body": "azul_layout::fluent::FluentLocalizerHandle::create(default_locale.as_str(), unsafe { core::slice::from_raw_parts(known_languages.ptr as *const azul_css::system::SystemLanguage, known_languages.len) })"
                             }
                         },
                         "functions": {

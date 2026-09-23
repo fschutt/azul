@@ -1879,6 +1879,8 @@ impl RustGenerator {
                     builder.line("ptr,");
                     builder.line("len,");
                     builder.line("cap,");
+                    builder.line("flags: 0,");
+
                     builder.line(&format!(
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type

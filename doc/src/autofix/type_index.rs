@@ -255,6 +255,15 @@ impl TypeDefinition {
                                 doc: Vec::new(),
                             },
                         );
+                        fields.insert(
+                            "flags".to_string(),
+                            FieldDef {
+                                name: "flags".to_string(),
+                                ty: "u8".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
