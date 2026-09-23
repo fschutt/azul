@@ -5,7 +5,7 @@ language: en
 canonical_slug: architecture/gui-builder
 audience: external
 maturity: experimental
-guide_order: 43
+guide_order: 44
 topic_only: false
 short_desc: Using the visual drag-and-drop builder
 prerequisites: [architecture/components]
@@ -18,8 +18,10 @@ default-search-keys:
 # GUI Builder
 
 Azul ships with a built-in GUI Builder—a visual drag-and-drop tool similar to GTK's Glade 
-or QtBuilder. Instead of a standalone heavy desktop application, the builder is hosted 
+or Qt Creator. Instead of a standalone heavy desktop application, the builder is hosted 
 natively by your application and accessed through your web browser. 
+
+![AzBuilder GUI Builder Interface](../../images/debugger-initial.png)
 
 This is the ultimate payoff for building your app using [Components](./components.md) 
 and their explicit `ComponentDataModel` structures. Because every component explicitly 
@@ -42,8 +44,6 @@ open `http://localhost:8080` in your default browser.
 The browser interface acts as a "remote control" for your native application window. If 
 you click on any node (such as "body"), this then activates the node in the debugger and
 shows the properties. If there is a text field, then you can edit the property.
-
-![AzBuilder GUI Builder Interface](../../images/debugger-initial.png)
 
 If your applications `RefAny` has the JSON serialization and deserialization set up 
 (e.g. in C via the `AZ_REFLECT_JSON` macro), then the top-left panel will also show you
