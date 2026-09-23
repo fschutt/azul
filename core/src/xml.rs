@@ -6266,7 +6266,7 @@ fn apply_xml_node_attributes(
         let l10n_key = l10n_key.as_str();
         if !l10n_key.is_empty() {
             use azul_css::css::BoxOrStatic;
-            let localizable_text = azul_css::corety::AzString::tr(l10n_key);
+            let localizable_text = AzString::tr(l10n_key);
             node.set_node_type(NodeType::Text(BoxOrStatic::heap(localizable_text)));
 
             // Collect data-l10n-* arguments.

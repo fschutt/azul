@@ -1715,7 +1715,7 @@ azul_css::impl_vec!(
     FluentArgKVVec,
     FluentArgKVVecDestructor,
     FluentArgKVVecDestructorType,
-    FluentArgKVSlice,
+    FluentArgKVVecSlice,
     OptionFluentArgKV
 );
 azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);

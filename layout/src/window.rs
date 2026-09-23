@@ -14823,7 +14823,8 @@ impl LayoutWindow {
     pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
         #[cfg(feature = "fluent")]
         if let Some(localizer) = self.fluent_localizer.as_ref() {
-            translate_texts_in_dom(&mut dom, localizer, system_style.language.id.as_str());
+            let lang = self.system_style.as_ref().map(|s| s.language.id.as_str()).unwrap_or("en-US");
+            translate_texts_in_dom(&mut dom, localizer, lang);
         }
         let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {

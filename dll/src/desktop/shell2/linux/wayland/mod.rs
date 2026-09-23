@@ -2061,7 +2061,6 @@ impl WaylandWindow {
                 window_id: options.window_state.window_id.clone(),
                 window_focused: false,
                 active_route: azul_core::resources::OptionRouteMatch::None,
-                is_rtl: false,
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
@@ -9468,7 +9467,6 @@ impl WaylandPopup {
             // the engine's focus-loss dismiss sees a true→false edge later.
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
-            is_rtl: false,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };

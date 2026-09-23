@@ -256,7 +256,7 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
 ///
 /// Falls back to the hardcoded `defaults::macos_modern_light()` if the
 /// Objective-C runtime cannot be loaded or if any query panics.
-pub(crate) fn discover() -> SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
     let lib = match ObjcLib::load() {
         Some(l) => l,
         None => return defaults::macos_modern_light(),
@@ -487,8 +487,9 @@ pub(crate) fn discover() -> SystemStyle {
                 lib.send_id(cur_locale, lib.sel(b"localeIdentifier\0")),
             ) {
                 // Convert "en_US" → "en-US"
+                
                 let bcp47 = ident.replace('_', "-");
-                style.language = AzString::from(bcp47);
+                style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
             }
         }
     }
@@ -651,7 +652,10 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
 
     // ── Locale / language ───────────────────────────────────────────────
     if style.language.as_str().is_empty() {
-        style.language = detect_language_macos();
+        
+        let bcp47 = detect_language_macos().as_str().to_string();
+        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
+        
     }
 }
 

@@ -243,18 +243,42 @@ pub enum Theme {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemLanguage {
-    pub id: crate::corety::AzString,
+    pub id: AzString,
     pub is_rtl: bool,
 }
 
 impl SystemLanguage {
     pub fn new(id: &str, is_rtl: bool) -> Self {
         Self {
-            id: crate::corety::AzString::from(id),
+            id: AzString::from(id),
             is_rtl,
         }
     }
 }
+
+
+crate::impl_option!(
+    SystemLanguage,
+    OptionSystemLanguage,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+crate::impl_vec!(
+    SystemLanguage,
+    SystemLanguageVec,
+    SystemLanguageVecDestructor,
+    SystemLanguageVecDestructorType,
+    SystemLanguageVecSlice,
+    OptionSystemLanguage
+);
+crate::impl_vec_mut!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_debug!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_clone!(SystemLanguage, SystemLanguageVec, SystemLanguageVecDestructor);
+crate::impl_vec_partialeq!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_eq!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_partialord!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_ord!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_hash!(SystemLanguage, SystemLanguageVec);
 
 impl Default for SystemLanguage {
     fn default() -> Self {

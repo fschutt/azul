@@ -132,7 +132,7 @@ impl App {
         crate::desktop::logging::init_default_logger();
 
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
-        app_config.system_style = discover_system_style();
+        app_config.system_style = discover_system_style(&app_config.localization.known_languages);
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
@@ -708,7 +708,7 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 /// - macOS: `shell2/macos/system_style.rs` (dlopen + AppKit)
 /// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
 /// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
-pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
+pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
     // Under Miri the platform `discover()` paths spawn external tools
     // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
     // ("can't call foreign function ..."). Fall back to the pure-Rust default
@@ -719,11 +719,11 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
     }
     #[cfg(all(not(miri), target_os = "macos"))]
     {
-        crate::desktop::shell2::macos::system_style::discover()
+        crate::desktop::shell2::macos::system_style::discover(known_languages)
     }
     #[cfg(all(not(miri), target_os = "windows"))]
     {
-        crate::desktop::shell2::windows::system_style::discover()
+        crate::desktop::shell2::windows::system_style::discover(known_languages)
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
@@ -738,7 +738,7 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
                 crate::desktop::shell2::linux::system_style::dump_discovered_style()
             );
         }
-        crate::desktop::shell2::linux::system_style::discover()
+        crate::desktop::shell2::linux::system_style::discover(known_languages)
     }
     #[cfg(all(
         not(miri),

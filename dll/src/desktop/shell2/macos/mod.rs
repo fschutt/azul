@@ -5586,7 +5586,6 @@ impl MacOSWindow {
             monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
-            is_rtl: false,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
