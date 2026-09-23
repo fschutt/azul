@@ -3285,6 +3285,17 @@ impl NodeData {
         self
     }
 
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.fluent_args = Some(Box::new(args.into()));
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
+        self
+    }
+
     pub fn set_dataset(&mut self, data: OptionRefAny) {
         match data {
             OptionRefAny::None => {
@@ -7099,6 +7110,18 @@ impl Dom {
         self.root.add_id(id);
         self
     }
+    
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.root.set_fluent_args(args);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
+        self
+    }
+    
     #[inline]
     #[must_use]
     pub fn with_class(mut self, class: AzString) -> Self {

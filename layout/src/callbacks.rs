@@ -305,6 +305,11 @@ pub enum CallbackChange {
     },
     /// Close the current window (via `Update::CloseWindow` return value, tracked here for logging)
     CloseWindow,
+    
+    /// Change the active locale for localization
+    SetLocale {
+        locale: AzString,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -1737,6 +1742,11 @@ impl CallbackInfo {
     /// Clear the focus of seat `seat_id` (9b-ii-a-i-d).
     pub fn clear_focus_for_seat(&mut self, seat_id: u64) {
         self.set_focus_for_seat(seat_id, FocusTarget::NoFocus);
+    }
+
+    /// Change the active locale for UI translations
+    pub fn set_locale(&mut self, locale: AzString) {
+        self.push_change(CallbackChange::SetLocale { locale });
     }
 
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for

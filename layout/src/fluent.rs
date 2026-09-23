@@ -992,25 +992,28 @@ pub fn translate_texts_in_dom(dom: &mut azul_core::dom::Dom, localizer: &FluentL
 
 #[inline(always)]
 fn translate_node(node: &mut azul_core::dom::NodeData, localizer: &FluentLocalizerHandle, locale: &str) {
-    let text_box = match &mut node.node_type {
-        azul_core::dom::NodeType::Text(tb) => tb,
-        _ => return,
+    let (key, fmt_args) = {
+        let text_box = match &node.node_type {
+            azul_core::dom::NodeType::Text(tb) => tb,
+            _ => return,
+        };
+        
+        if !text_box.as_ref().is_localizable() {
+            return;
+        }
+        
+        (text_box.as_ref().as_str().to_owned(), extract_fluent_args(node))
     };
-    
-    if !text_box.as_ref().is_localizable() {
-        return;
-    }
-    
-    let key = text_box.as_ref().as_str();
-    let fmt_args = extract_fluent_args(node);
     
     let translated = localizer.translate(
         azul_css::corety::AzString::from(locale),
-        azul_css::corety::AzString::from(key),
+        azul_css::corety::AzString::from(key.as_str()),
         fmt_args,
     );
     
-    *text_box = azul_css::css::BoxOrStatic::heap(translated);
+    if let azul_core::dom::NodeType::Text(text_box) = &mut node.node_type {
+        *text_box = azul_css::css::BoxOrStatic::heap(translated);
+    }
 }
 
 #[inline(always)]

@@ -7186,6 +7186,12 @@ pub trait PlatformWindow {
                     ProcessEventResult::DoNothing
                 }
             }
+            CallbackChange::SetLocale { locale } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.set_icu_locale(locale.as_str());
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
         }
     }
 
