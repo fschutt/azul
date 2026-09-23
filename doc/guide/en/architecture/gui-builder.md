@@ -129,13 +129,8 @@ test anim-dom-transition ... FAILED
 test bug-caret-off-after-focus ... ok
 test bug-font-never-removed ... ok
 test anim-slow-move-frames ... ok
-test bug-author-media-unconditional ... ok
-test bug-dom-mutation-no-damage ... ok
-test bug-font-not-resolved-on-mount ... ok
-test bug-inserted-node-no-author-css ... ok
-test bug-unresolved-family-drops-text ... ok
-test bug-slider-thumb-trail ... FAILED
-test bug-transform-offsets-hit-test ... ok
+...
+
 ```
 
 So, instead of running end-to-end tests against `AzBuilder` (here we are running the "self-tests",
