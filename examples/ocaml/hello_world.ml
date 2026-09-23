@@ -1,6 +1,6 @@
 type my_data_model = { mutable counter : int }
 
-(* Converts between my_data_model and Azul.RefAny.t in both directions *)
+(* Convert between my_data_model and Azul.RefAny.t in both directions *)
 let model : my_data_model Azul.RefAny.key = Azul.RefAny.key "my_data_model"
 
 let on_click (m : my_data_model) (_info : Azul.CallbackInfo.t) : Azul.Update.t =
