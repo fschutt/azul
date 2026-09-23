@@ -107,6 +107,18 @@ fn amalgamate(p: &Parts, version: &str) -> String {
         out.push_str(src);
     }
     out.push_str(&p.trampolines);
+    
+    out.push_str("\n/// Creates a localizable string without allocating memory.\n");
+    out.push_str("AzString TR(string key)() {\n");
+    out.push_str("    AzString s;\n");
+    out.push_str("    s.vec.ptr = cast(const(ubyte)*)key.ptr;\n");
+    out.push_str("    s.vec.len = key.length;\n");
+    out.push_str("    s.vec.cap = 0;\n");
+    out.push_str("    s.vec.destructor.NoDestructor.tag = AzU8VecDestructor_Tag.NoDestructor;\n");
+    out.push_str("    s.vec.flags = 1;\n");
+    out.push_str("    return s;\n");
+    out.push_str("}\n");
+
     out
 }
 
