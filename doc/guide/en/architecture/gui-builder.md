@@ -163,5 +163,5 @@ You can paste this code directly back into your project.
 This completes the workflow: 
 
 1. Define your component model.
-2. visually assemble your layout using the browser interface.
+2. Visually assemble your layout using the browser interface.
 3. Export the finished code back into your application.
