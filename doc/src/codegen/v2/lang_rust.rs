@@ -1883,7 +1883,6 @@ impl RustGenerator {
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type
                     ));
-                    builder.line("flags: 0,");
                     builder.dedent();
                     builder.line("}");
                     builder.dedent();

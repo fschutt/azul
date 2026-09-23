@@ -8156,9 +8156,6 @@
                                 "keyboard_state": {
                                     "type": "KeyboardState"
                                 },
-                                "is_rtl": {
-                                    "type": "bool"
-                                },
                                 "window_id": {
                                     "type": "String"
                                 },
@@ -47750,7 +47747,7 @@
                                     "type": "FocusVisuals"
                                 },
                                 "language": {
-                                    "type": "String"
+                                    "type": "SystemLanguage"
                                 },
                                 "app_specific_stylesheet": {
                                     "type": "c_void",
@@ -54591,6 +54588,32 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemLanguage": {
+                        "external": "azul_css::system::SystemLanguage",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "String"
+                                },
+                                "is_rtl": {
+                                    "type": "bool"
                                 }
                             }
                         ],

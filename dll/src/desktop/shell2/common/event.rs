@@ -1413,9 +1413,6 @@ pub fn validation_enabled() -> bool {
 /// panic for every shell-owned write.
 fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Option<&'static str> {
     let FullWindowState {
-        locale: _,
-        is_rtl: _, // Event-bearing: `determine_all_events` turns a change in one of these
-        // into a callback, so an unconsumed delta here IS a lost event.
         size,
         position,
         flags,
@@ -4955,9 +4952,7 @@ pub trait PlatformWindow {
                 // headless E2E port of this handler had the same hole, which is
                 // what made every touch op inert.
                 let touch_state_changed = old_state.touch_state != state.touch_state;
-                let locale_changed = old_state.locale != state.locale;
-                let rtl_changed = old_state.is_rtl != state.is_rtl;
-
+                
                 let anything_changed = mouse_state_changed
                     || seats_changed
                     || keyboard_state_changed
@@ -4965,9 +4960,7 @@ pub trait PlatformWindow {
                     || position_changed
                     || size_changed
                     || dpi_changed
-                    || touch_state_changed
-                    || locale_changed
-                    || rtl_changed;
+                    || touch_state_changed;
 
                 // Save previous state BEFORE modifying (for synthetic event detection)
                 if anything_changed {
@@ -4988,9 +4981,7 @@ pub trait PlatformWindow {
                         current.keyboard_seats = state.keyboard_seats.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
-                        current.locale = state.locale.clone();
-                        current.is_rtl = state.is_rtl;
-                    });
+                                            });
 
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;

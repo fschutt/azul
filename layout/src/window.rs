@@ -14771,7 +14771,7 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
         }
         self.system_style = Some(system_style);
     }
@@ -14823,7 +14823,7 @@ impl LayoutWindow {
     pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
         #[cfg(feature = "fluent")]
         if let Some(localizer) = self.fluent_localizer.as_ref() {
-            translate_texts_in_dom(&mut dom, localizer, window_state.locale.as_str());
+            translate_texts_in_dom(&mut dom, localizer, system_style.language.id.as_str());
         }
         let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {
@@ -14869,7 +14869,7 @@ impl LayoutWindow {
     ///
     /// This is a convenience method that extracts the language from the system style.
     pub fn init_icu_from_system_style(&mut self, system_style: &azul_css::system::SystemStyle) {
-        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
     }
 
     /// Get a clone of the ICU localizer handle.

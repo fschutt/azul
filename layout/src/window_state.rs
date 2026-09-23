@@ -116,8 +116,6 @@ pub struct FullWindowState {
     pub platform_specific_options: PlatformSpecificOptions,
     /// Current keyboard state (pressed keys, modifiers)
     pub keyboard_state: KeyboardState,
-    pub locale: azul_css::corety::AzString,
-    pub is_rtl: bool,
     /// Semantic window identifier for multi-window debugging.
     /// Can be set by the user to identify specific windows (e.g., "main", "settings", "popup-1")
     pub window_id: AzString,
@@ -363,8 +361,6 @@ impl Default for FullWindowState {
         Self {
             platform_specific_options: PlatformSpecificOptions::default(),
             keyboard_state: KeyboardState::default(),
-            locale: azul_css::corety::AzString::from("en-US"),
-            is_rtl: false,
             window_id: AzString::from_const_str("azul-window"),
             title: AzString::from_const_str("Azul Window"),
             close_callback: OptionCallback::None,

@@ -1132,7 +1132,7 @@ impl DynamicSelectorContext {
             prefers_high_contrast: system_style.prefers_high_contrast,
             orientation: OrientationType::Landscape,
             pseudo_state: PseudoStateFlags::default(),
-            language: system_style.language.clone(),
+            language: system_style.language.id.clone(),
             window_focused: true,
             // The insets are NOT read off `SystemStyle::metrics.titlebar.safe_area`:
             // those are the platform's static guesses (`TitlebarMetrics::ios()`),

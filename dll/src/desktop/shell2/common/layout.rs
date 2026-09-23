@@ -460,10 +460,10 @@ pub fn regenerate_layout(
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
-        locale: &current_window_state.locale,
+        locale: &system_style.language.id,
         accessed_locale: core::cell::Cell::new(false),
         accessed_text_direction: core::cell::Cell::new(false),
-        text_direction: if current_window_state.is_rtl {
+        text_direction: if system_style.language.is_rtl {
             azul_core::callbacks::TextDirection::RightToLeft
         } else {
             azul_core::callbacks::TextDirection::LeftToRight

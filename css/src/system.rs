@@ -239,6 +239,30 @@ pub enum Theme {
 }
 
 /// A unified collection of discovered system style properties.
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct SystemLanguage {
+    pub id: crate::corety::AzString,
+    pub is_rtl: bool,
+}
+
+impl SystemLanguage {
+    pub fn new(id: &str, is_rtl: bool) -> Self {
+        Self {
+            id: crate::corety::AzString::from(id),
+            is_rtl,
+        }
+    }
+}
+
+impl Default for SystemLanguage {
+    fn default() -> Self {
+        Self::new("en-US", false)
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemStyle {
@@ -251,7 +275,7 @@ pub struct SystemStyle {
     pub focus_visuals: FocusVisuals,
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
-    pub language: AzString,
+    pub language: SystemLanguage,
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". Only loaded when the "io" feature
@@ -319,7 +343,7 @@ impl Default for SystemStyle {
             platform: Platform::default(),
             focus_visuals: FocusVisuals::default(),
             handedness: Handedness::default(),
-            language: AzString::default(),
+            language: SystemLanguage::default(),
             app_specific_stylesheet: None,
             scrollbar: None,
             scroll_physics: ScrollPhysics::default(),
@@ -1633,7 +1657,7 @@ impl SystemStyle {
             self.platform,
             self.os_version.os,
             self.os_version.version_id,
-            self.language.as_str(),
+            self.language.id.as_str(),
             self.prefers_reduced_motion,
             self.prefers_high_contrast,
             // colors
@@ -2039,7 +2063,7 @@ pub mod defaults {
     //! fallback when the "io" feature is disabled, ensuring deterministic styles
     //! for testing and environments where system calls are not desired.
 
-    use super::{
+    use super::{SystemLanguage, 
         AccessibilitySettings, AnimationMetrics, AudioMetrics, FocusVisuals, Handedness,
         InputMetrics, LinuxCustomization, ScrollbarPreferences, TextRenderingHints, VisualHints,
     };
@@ -2242,7 +2266,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2294,7 +2318,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2346,7 +2370,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_7,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2398,7 +2422,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_XP,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2451,7 +2475,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2509,7 +2533,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2558,7 +2582,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_TIGER,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2610,7 +2634,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2660,7 +2684,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2709,7 +2733,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_2_6,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2787,7 +2811,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2865,7 +2889,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2916,7 +2940,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::ANDROID_14,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2965,7 +2989,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -3012,7 +3036,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::IOS_17,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
