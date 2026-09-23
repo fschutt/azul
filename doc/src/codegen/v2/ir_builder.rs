@@ -969,12 +969,26 @@ impl<'a> IRBuilder<'a> {
             "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64"
             | "i128" | "isize" | "bool" | "char" => {
                 return all(&[
-                    "Debug", "Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+                    "Debug",
+                    "Clone",
+                    "Copy",
+                    "PartialEq",
+                    "Eq",
+                    "PartialOrd",
+                    "Ord",
+                    "Hash",
                     "Default",
                 ])
             }
             "f32" | "f64" => {
-                return all(&["Debug", "Clone", "Copy", "PartialEq", "PartialOrd", "Default"])
+                return all(&[
+                    "Debug",
+                    "Clone",
+                    "Copy",
+                    "PartialEq",
+                    "PartialOrd",
+                    "Default",
+                ])
             }
             _ => {}
         }
@@ -1022,7 +1036,13 @@ impl<'a> IRBuilder<'a> {
         let keep = |trait_name: &String| {
             trait_name == "Drop" || arg_traits.iter().all(|at| at.contains(trait_name))
         };
-        let derive: Vec<String> = t.derive.iter().flatten().filter(|d| keep(d)).cloned().collect();
+        let derive: Vec<String> = t
+            .derive
+            .iter()
+            .flatten()
+            .filter(|d| keep(d))
+            .cloned()
+            .collect();
         let custom: Vec<String> = t
             .custom_impls
             .iter()
@@ -2218,7 +2238,11 @@ impl<'a> IRBuilder<'a> {
         {
             Some(info) => (info.callback_typedef_name.clone(), type_name.to_string()),
             None => {
-                let cb = self.ir.callback_typedefs.iter().find(|c| c.name == type_name)?;
+                let cb = self
+                    .ir
+                    .callback_typedefs
+                    .iter()
+                    .find(|c| c.name == type_name)?;
                 (cb.name.clone(), cb.wrapper.clone()?)
             }
         };
@@ -2337,10 +2361,15 @@ fn struct_field_list(class_data: &ClassData) -> Vec<(&String, &crate::api::Field
 /// struct a Vec: no name list, no api.json marker.
 pub fn vec_layout_element(class_data: &ClassData) -> Option<String> {
     let fields = struct_field_list(class_data);
-    if fields.len() != 4 {
+    if fields.len() != 4 && fields.len() != 5 {
         return None;
     }
-    let get = |n: &str| fields.iter().find(|(k, _)| k.as_str() == n).map(|(_, v)| *v);
+    let get = |n: &str| {
+        fields
+            .iter()
+            .find(|(k, _)| k.as_str() == n)
+            .map(|(_, v)| *v)
+    };
     let ptr = get("ptr")?;
     get("len")?;
     get("cap")?;
@@ -2379,19 +2408,24 @@ pub fn vecref_layout_element(
     if !is_slice {
         return None;
     }
-    let known = |n: &str| {
-        version_data
-            .api
-            .values()
-            .any(|m| m.classes.contains_key(n))
-    };
+    let known = |n: &str| version_data.api.values().any(|m| m.classes.contains_key(n));
     let lower = prefix.to_ascii_lowercase();
     let element = if known(prefix) {
         Some(prefix.to_string())
     } else if matches!(
         lower.as_str(),
-        "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize" | "f32"
-            | "f64" | "bool"
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "bool"
     ) {
         Some(lower)
     } else {

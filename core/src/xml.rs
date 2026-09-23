@@ -6257,6 +6257,47 @@ fn apply_xml_node_attributes(
             node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
     }
+
+    // ---- Fluent / l10n: `data-l10n="key"` ----
+    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` becomes a localizable
+    // Text node. The key is stored in a flagged AzString so `translate_texts_in_dom`
+    // can identify and replace it before the first render.
+    if let Some(l10n_key) = xml_node.attributes.get_key("data-l10n") {
+        let l10n_key = l10n_key.as_str();
+        if !l10n_key.is_empty() {
+            use azul_css::css::BoxOrStatic;
+            let localizable_text = azul_css::corety::AzString::tr(l10n_key);
+            node.set_node_type(NodeType::Text(BoxOrStatic::heap(localizable_text)));
+
+            // Collect data-l10n-* arguments.
+            let mut fluent_args: Vec<crate::dom::FluentArgKV> = Vec::new();
+            for pair in xml_node.attributes.as_slice() {
+                let k = pair.key.as_str();
+                let v = pair.value.as_str();
+                if k == "data-l10n" {
+                    continue;
+                }
+                let arg_name = match k.strip_prefix("data-l10n-") {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let value = if let Ok(i) = v.parse::<i32>() {
+                    crate::dom::FluentArg::I32(i)
+                } else if let Ok(f) = v.parse::<f32>() {
+                    crate::dom::FluentArg::F32(f)
+                } else {
+                    crate::dom::FluentArg::String(v.into())
+                };
+                fluent_args.push(crate::dom::FluentArgKV {
+                    key: arg_name.into(),
+                    value,
+                });
+            }
+            if !fluent_args.is_empty() {
+                node.fluent_args = Some(Box::new(crate::dom::FluentArgKVVec::from_vec(fluent_args)));
+            }
+        }
+    }
 }
 
 /// Parse the HTML `colspan` / `rowspan` presentational attributes into

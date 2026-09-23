@@ -631,8 +631,11 @@ impl RustGenerator {
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds a shared borrow; drop it when done.");
-            builder.line(&"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
-                 T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
+                 T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -650,8 +653,11 @@ impl RustGenerator {
                 .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
-            builder.line(&"pub fn downcast_mut<T: 'static>(&mut self) -> \
-                 Option<azul_core::refany::RefMut<'_, T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_mut<T: 'static>(&mut self) -> \
+                 Option<azul_core::refany::RefMut<'_, T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -931,7 +937,10 @@ impl RustGenerator {
         let mut by_class: BTreeMap<&str, Vec<(String, &ConstantDef)>> = BTreeMap::new();
         for c in &ir.constants {
             if let Some((class, _)) = c.name.split_once('_') {
-                by_class.entry(class).or_default().push((c.member_name(), c));
+                by_class
+                    .entry(class)
+                    .or_default()
+                    .push((c.member_name(), c));
             }
         }
         for (class, constants) in by_class {
@@ -1648,8 +1657,11 @@ impl RustGenerator {
             // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
-            builder.line(&"/// Returns a mutable reference to an element at the given index, or `None` if \
-                 out of bounds.".to_string());
+            builder.line(
+                &"/// Returns a mutable reference to an element at the given index, or `None` if \
+                 out of bounds."
+                    .to_string(),
+            );
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
@@ -1871,6 +1883,7 @@ impl RustGenerator {
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type
                     ));
+                    builder.line("flags: 0,");
                     builder.dedent();
                     builder.line("}");
                     builder.dedent();
@@ -4163,7 +4176,14 @@ impl RustGenerator {
                 raw
             })
             .collect();
-        Self::emit_byref_twin(builder, &raw_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &raw_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut ctx_def = raw_def.clone();
         ctx_def.c_name = format!("{}WithCtx", func.c_name);
         ctx_def.args = Vec::with_capacity(func.args.len() + 1);
@@ -4179,10 +4199,24 @@ impl RustGenerator {
                 ctx_def.args.push(c);
             }
         }
-        Self::emit_byref_twin(builder, &ctx_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &ctx_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut struct_def = func.clone();
         struct_def.c_name = format!("{}Struct", func.c_name);
-        Self::emit_byref_twin(builder, &struct_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &struct_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside

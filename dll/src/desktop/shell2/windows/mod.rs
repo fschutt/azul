@@ -31,9 +31,9 @@ mod gl;
 pub mod menu;
 pub mod radial_controller;
 pub mod registry;
-pub(crate) mod system_style;
 #[cfg(feature = "cpurender")]
 mod subpixel;
+pub(crate) mod system_style;
 mod tooltip;
 mod wcreate;
 pub mod win_event;
@@ -633,6 +633,8 @@ impl Win32Window {
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
+            locale: azul_css::corety::AzString::from("en-US"),
+            is_rtl: false,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
@@ -1371,9 +1373,7 @@ impl Win32Window {
                                             .to_present_rects_physical(
                                                 dpi, d.w as u32, d.h as u32, false,
                                             )
-                                            .unwrap_or_else(|| {
-                                                vec![(0, 0, d.w as u32, d.h as u32)]
-                                            })
+                                            .unwrap_or_else(|| vec![(0, 0, d.w as u32, d.h as u32)])
                                     } else {
                                         vec![(0, 0, d.w as u32, d.h as u32)]
                                     };
@@ -2665,7 +2665,12 @@ impl Win32Window {
                 };
                 let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
                 // Last statement: window_proc re-borrows this window.
-                (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+                (self.win32.user32.SendMessageW)(
+                    self.hwnd,
+                    WM_SIZE,
+                    kind as dlopen::WPARAM,
+                    lparam,
+                );
             }
         }
     }
@@ -6824,7 +6829,9 @@ unsafe extern "system" fn window_proc(
                 const SPI_SETFONTSMOOTHINGORIENTATION: usize = 0x2013;
                 if matches!(
                     wparam as usize,
-                    SPI_SETFONTSMOOTHING | SPI_SETFONTSMOOTHINGTYPE | SPI_SETFONTSMOOTHINGORIENTATION
+                    SPI_SETFONTSMOOTHING
+                        | SPI_SETFONTSMOOTHINGTYPE
+                        | SPI_SETFONTSMOOTHINGORIENTATION
                 ) {
                     window.sync_panel_subpixel_order(true);
                 }

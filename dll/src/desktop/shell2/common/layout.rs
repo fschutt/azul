@@ -460,6 +460,14 @@ pub fn regenerate_layout(
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
+        locale: &current_window_state.locale,
+        accessed_locale: core::cell::Cell::new(false),
+        accessed_text_direction: core::cell::Cell::new(false),
+        text_direction: if current_window_state.is_rtl {
+            azul_core::callbacks::TextDirection::RightToLeft
+        } else {
+            azul_core::callbacks::TextDirection::LeftToRight
+        },
         // #28 (d): monitor snapshot for content-bounding in layout() — the
         // platforms write the live list into layout_window.monitors; a
         // poisoned/contended lock degrades to "no info" rather than blocking
@@ -491,6 +499,8 @@ pub fn regenerate_layout(
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
     let _ = azul_core::callbacks::take_recorded_style_dependencies();
+    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
+    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
@@ -520,6 +530,8 @@ pub fn regenerate_layout(
     // LayoutWindow::system_style_change_needs_full_regeneration.
     layout_window.recorded_style_dependencies =
         azul_core::callbacks::take_recorded_style_dependencies();
+    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
+    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
     azul_layout::probe::emit_phase_heap("after_callback");
     phases.mark("after_callback");
 
@@ -1153,7 +1165,10 @@ pub fn regenerate_layout(
         .get(&azul_core::dom::DomId::ROOT_ID)
     {
         if relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
-            && azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom)
+            && azul_core::styled_dom::is_layout_equivalent(
+                &old_layout_result.styled_dom,
+                &styled_dom,
+            )
         {
             log_debug!(
                 LogCategory::Layout,
@@ -1559,7 +1574,6 @@ pub fn regenerate_layout(
     // capability_pump::pump(), gated on the listener flags computed above —
     // no listeners, no native subscription, no polling.)
 
-
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
     phases.mark("end");
@@ -1695,10 +1709,7 @@ pub(super) fn incremental_relayout(
     // resize path's cost — solver3 re-flow + display list on the EXISTING
     // StyledDom — is the number the <8ms interactivity target is measured
     // against. Without this span the fast path was invisible in the log.
-    let _span = crate::log_span!(
-        LogCategory::Window,
-        "incremental_relayout",
-    );
+    let _span = crate::log_span!(LogCategory::Window, "incremental_relayout",);
 
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
@@ -2254,9 +2265,7 @@ pub fn layout_window_sharing_fonts(
     fc_cache: &FcFontCache,
 ) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
     match app_font_manager {
-        Some(fm) => Ok(LayoutWindow::from_font_manager(
-            fm.clone_shared(),
-        )),
+        Some(fm) => Ok(LayoutWindow::from_font_manager(fm.clone_shared())),
         None => LayoutWindow::new(fc_cache.clone()),
     }
 }

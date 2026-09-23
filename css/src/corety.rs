@@ -290,6 +290,26 @@ impl AzString {
 
     #[inline]
     #[must_use]
+    
+    
+    pub fn tr(key: &str) -> Self {
+        let mut s = Self::from(key);
+        s.set_localizable(true);
+        s
+    }
+
+    pub fn is_localizable(&self) -> bool {
+        (self.vec.flags & 1) != 0
+    }
+
+    pub fn set_localizable(&mut self, localizable: bool) {
+        if localizable {
+            self.vec.flags |= 1;
+        } else {
+            self.vec.flags &= !1;
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(self.vec.as_ref()) }
     }
@@ -333,6 +353,7 @@ impl AzString {
             len: m.vec.len,
             cap: m.vec.cap,
             destructor: m.vec.destructor,
+            flags: m.vec.flags,
         }
     }
 
@@ -879,6 +900,7 @@ impl StringArena {
                 // does that.
                 cap: arc_raw as usize,
                 destructor: U8VecDestructor::External(arena_string_destructor),
+                flags: 0,
             },
         }
     }
@@ -2255,6 +2277,7 @@ mod autotest_generated {
             len: 0,
             cap: raw as usize,
             destructor: U8VecDestructor::External(arena_string_destructor),
+                flags: 0,
         };
 
         arena_string_destructor(&mut v);
@@ -2287,6 +2310,7 @@ mod autotest_generated {
             len: 0,
             cap: 0,
             destructor: U8VecDestructor::NoDestructor,
+            flags: 0,
         };
         arena_string_destructor(&mut v);
         assert_eq!(v.cap, 0);

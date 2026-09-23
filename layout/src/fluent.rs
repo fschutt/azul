@@ -64,6 +64,19 @@ use fluent_syntax::parser;
 use unic_langid::LanguageIdentifier;
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
+/// Report of missing translations across multiple locales.
+#[derive(Debug, Default, Clone)]
+pub struct TranslationCompletenessReport {
+    /// Map of `locale -> missing message IDs`.
+    pub missing_keys: BTreeMap<String, Vec<String>>,
+}
+
+impl core::fmt::Display for TranslationCompletenessReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#?}", self.missing_keys)
+    }
+}
+
 /// Error type for Fluent operations
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -767,6 +780,66 @@ impl FluentLocalizerHandle {
             })
     }
 
+    /// Check translation completeness for the given locale codes.
+    ///
+    /// Iterates all localizable strings known to the localizer and returns a
+    /// `TranslationCompletenessReport` for each requested locale. Missing
+    /// entries are printed to `stderr`.
+    ///
+    /// Returns `Ok(())` when every requested locale has 100 % coverage for all
+    /// known keys, and `Err(report)` when any key is missing in any locale.
+    pub fn check_translations(&self, locales: &[&str]) -> Result<(), TranslationCompletenessReport> {
+        let mut report = TranslationCompletenessReport::default();
+        let mut all_keys = std::collections::BTreeSet::new();
+        
+        let inner = self.inner();
+        let bundles = inner.bundles.lock().unwrap();
+        
+        // Collect all keys from all bundles
+        for bundle in bundles.values() {
+            for source in &bundle.sources {
+                if let Ok(res) = FluentResource::try_new(source.clone()) {
+                    for entry in res.entries() {
+                        if let fluent_syntax::ast::Entry::Message(msg) = entry {
+                            all_keys.insert(msg.id.name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check each requested locale
+        for locale in locales {
+            let mut missing = Vec::new();
+            if let Some(bundle) = bundles.get(*locale) {
+                for key in &all_keys {
+                    if !bundle.has_message(key) {
+                        missing.push(key.clone());
+                    }
+                }
+            } else {
+                missing.extend(all_keys.iter().cloned());
+            }
+            if !missing.is_empty() {
+                report.missing_keys.insert(locale.to_string(), missing);
+            }
+        }
+        
+        if report.missing_keys.is_empty() {
+            Ok(())
+        } else {
+            for (locale, keys) in &report.missing_keys {
+                for key in keys {
+                    #[cfg(feature = "logging")]
+                    log::warn!("warning: untranslated string '{}' for requested language {}", key, locale);
+                    #[cfg(not(feature = "logging"))]
+                    eprintln!("warning: untranslated string '{}' for requested language {}", key, locale);
+                }
+            }
+            Err(report)
+        }
+    }
+
     /// Get the list of all loaded locales.
     #[must_use] 
     pub fn get_loaded_locales(&self) -> Vec<AzString> {
@@ -906,6 +979,40 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
 }
 
 /// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
+
+
+
+pub fn translate_texts_in_dom(dom: &mut azul_core::dom::Dom, localizer: &FluentLocalizerHandle, locale: &str) {
+    if let azul_core::dom::NodeType::Text(text_box) = &mut dom.root.node_type {
+        if text_box.as_ref().is_localizable() {
+            let key = text_box.as_ref().as_str();
+            
+            let mut fmt_args_vec = std::vec::Vec::new();
+            if let Some(args) = dom.root.fluent_args.as_ref() {
+                for arg in args.as_slice() {
+                    let value = match &arg.value {
+                        azul_core::dom::FluentArg::String(s) => crate::fmt::FmtValue::Str(s.clone()),
+                        azul_core::dom::FluentArg::I32(i) => crate::fmt::FmtValue::Sint(*i),
+                        azul_core::dom::FluentArg::F32(f) => crate::fmt::FmtValue::Float(*f),
+                    };
+                    fmt_args_vec.push(crate::fmt::FmtArg {
+                        key: arg.key.clone(),
+                        value,
+                    });
+                }
+            }
+            
+            let translated = localizer.translate(azul_css::corety::AzString::from(locale), azul_css::corety::AzString::from(key), crate::fmt::FmtArgVec::from_vec(fmt_args_vec));
+            *text_box = azul_css::css::BoxOrStatic::heap(translated);
+        }
+    }
+    for child in dom.children.as_mut() {
+        translate_texts_in_dom(child, localizer, locale);
+    }
+}
+
+
+
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
     
     let bundles = localizer

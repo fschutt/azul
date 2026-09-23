@@ -1684,6 +1684,44 @@ impl AttributeType {
 
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
+
+/// A strongly-typed argument for Fluent localization strings.
+/// Supports standard pluralization and interpolation formatting.
+#[repr(C, u8)]
+#[derive(Debug, Clone, PartialEq)]
+#[allow(variant_size_differences)]
+pub enum FluentArg {
+    String(AzString),
+    I32(i32),
+    F32(f32),
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct FluentArgKV {
+    pub key: AzString,
+    pub value: FluentArg,
+}
+
+azul_css::impl_option!(
+    FluentArgKV,
+    OptionFluentArgKV,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+azul_css::impl_vec!(
+    FluentArgKV,
+    FluentArgKVVec,
+    FluentArgKVVecDestructor,
+    FluentArgKVVecDestructorType,
+    FluentArgKVSlice,
+    OptionFluentArgKV
+);
+azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);
+azul_css::impl_vec_clone!(FluentArgKV, FluentArgKVVec, FluentArgKVVecDestructor);
+azul_css::impl_vec_partialeq!(FluentArgKV, FluentArgKVVec);
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct NodeData {
@@ -1710,6 +1748,8 @@ pub struct NodeData {
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
+    /// Fluent arguments for localizable text nodes.
+    pub fluent_args: Option<Box<FluentArgKVVec>>,
 }
 
 impl_option!(
@@ -1743,6 +1783,7 @@ impl Drop for NodeData {
     fn drop(&mut self) {
         drop(self.accessibility.take());
         drop(self.extra.take());
+        drop(self.fluent_args.take());
     }
 }
 
@@ -2499,6 +2540,7 @@ impl Clone for NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 }
@@ -2760,6 +2802,7 @@ impl NodeData {
             },
             flags: NodeFlags::new(),
             accessibility: None,
+            fluent_args: None,
             extra: None,
         }
     }
@@ -3824,6 +3867,7 @@ impl NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 

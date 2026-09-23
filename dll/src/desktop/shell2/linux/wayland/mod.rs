@@ -2061,6 +2061,8 @@ impl WaylandWindow {
                 window_id: options.window_state.window_id.clone(),
                 window_focused: false,
                 active_route: azul_core::resources::OptionRouteMatch::None,
+                locale: azul_css::corety::AzString::from("en-US"),
+                is_rtl: false,
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
@@ -9467,6 +9469,8 @@ impl WaylandPopup {
             // the engine's focus-loss dismiss sees a true→false edge later.
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
+            locale: azul_css::corety::AzString::from("en-US"),
+            is_rtl: false,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
@@ -11201,7 +11205,10 @@ mod display_error_event_tests {
         let mut bad_size = full.clone();
         bad_size[6] = bad_size[6].wrapping_add(4); // header size no longer matches
         assert_eq!(find_display_error_event(&bad_size), None);
-        assert_eq!(find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())), None);
+        assert_eq!(
+            find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())),
+            None
+        );
         assert_eq!(find_display_error_event(&[]), None);
     }
 }

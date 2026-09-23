@@ -24,6 +24,9 @@ use std::{
     },
 };
 
+#[cfg(feature = "fluent")]
+use crate::fluent::{translate_texts_in_dom, FluentLocalizerHandle};
+
 use azul_core::{
     callbacks::{FocusTarget, HidpiAdjustedBounds, Update, VirtualViewCallbackReason},
     dom::{
@@ -918,6 +921,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
         recorded_style_dependencies: _,
+            depends_on_locale: _,
+            depends_on_text_direction: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -1022,6 +1027,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // shares. Its bytes belong to the app's report, once, not to each
         // window that can reach it.
         icon_provider: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
         last_laid_out_frame: _,
         system_animations_override: _,
         monitors: _,
@@ -1239,6 +1246,8 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    pub depends_on_locale: bool,
+    pub depends_on_text_direction: bool,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -1669,6 +1678,8 @@ pub struct LayoutWindow {
     /// `None` in a window whose app registered no icons at all, and in the
     /// headless windows the tests build directly; both then cascade unchanged.
     pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
+    #[cfg(feature = "fluent")]
+    pub fluent_localizer: Option<FluentLocalizerHandle>,
     /// The window frame the last layout pass ran under.
     ///
     /// A `VirtualView` callback can READ the live frame
@@ -2017,6 +2028,8 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
+            depends_on_locale: false,
+            depends_on_text_direction: false,
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -2140,6 +2153,8 @@ impl LayoutWindow {
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             icon_provider: None,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: None,
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -14764,6 +14779,10 @@ impl LayoutWindow {
     /// Hand this window the app's icon storage. Called by the shell next to
     /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
     /// needs.
+    #[cfg(feature = "fluent")]
+    pub fn set_fluent_localizer(&mut self, localizer: FluentLocalizerHandle) {
+        self.fluent_localizer = Some(localizer);
+    }
     pub fn set_icon_provider(&mut self, provider: azul_core::icon::SharedIconProvider) {
         self.icon_provider = Some(provider);
     }
@@ -14801,7 +14820,11 @@ impl LayoutWindow {
     /// its FIRST cascade — a DOM born in a dark window is dark, not light and
     /// re-cascaded a moment later (theme-chain analysis 2026-09-12, R2).
     #[must_use]
-    pub fn style_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+    pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        #[cfg(feature = "fluent")]
+        if let Some(localizer) = self.fluent_localizer.as_ref() {
+            translate_texts_in_dom(&mut dom, localizer, window_state.locale.as_str());
+        }
         let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {
             return StyledDom::create_from_dom_with_context(dom, context);
@@ -20953,6 +20976,8 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            depends_on_locale: _,
+            depends_on_text_direction: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
@@ -21041,6 +21066,8 @@ impl LayoutWindow {
             system_style: _,
             // App-level icon storage keyed by NAME, not by node id.
             icon_provider: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
             last_laid_out_frame: _,
             monitors: _,
             font_stacks_hash: _,

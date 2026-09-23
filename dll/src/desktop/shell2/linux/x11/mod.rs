@@ -3904,6 +3904,8 @@ impl X11Window {
                 window_id: options.window_state.window_id.clone(),
                 window_focused: true,
                 active_route: azul_core::resources::OptionRouteMatch::None,
+                locale: azul_css::corety::AzString::from("en-US"),
+                is_rtl: false,
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
@@ -5475,8 +5477,8 @@ impl X11Window {
                         // stays at exactly 96 DPI, and an ordinary-density
                         // monitor (a 27" 1080p panel estimates 0.84) must not
                         // shrink the window when it is dragged onto it.
-                        let new_dpi = ((((display.scale_factor * 4.0).round() / 4.0).max(1.0))
-                            * 96.0) as u32;
+                        let new_dpi =
+                            ((((display.scale_factor * 4.0).round() / 4.0).max(1.0)) * 96.0) as u32;
                         let old_dpi = self.common.current_window_state().size.dpi;
                         if !has_xft_dpi
                             && new_dpi > 0
