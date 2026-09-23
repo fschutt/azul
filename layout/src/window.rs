@@ -1964,6 +1964,13 @@ impl LayoutWindow {
         if old.theme != new.theme {
             return true;
         }
+        
+        let locale_changed = old.language.id != new.language.id;
+        let rtl_changed = old.language.is_rtl != new.language.is_rtl;
+        if (locale_changed && self.depends_on_locale) || (rtl_changed && self.depends_on_text_direction) {
+            return true;
+        }
+
         self.recorded_style_dependencies
             .dom_depends_on_change(old, new)
     }

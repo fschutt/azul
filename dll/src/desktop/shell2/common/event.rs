@@ -4992,19 +4992,6 @@ pub trait PlatformWindow {
                 // A size OR scale change invalidates every rasterised pixel:
                 // same thing WM_DPICHANGED / the X11 DPI path do
                 // (a regeneration request tagged RelayoutReason::Resize).
-                if locale_changed || rtl_changed {
-                    if let Some(lw) = self.get_layout_window() {
-                        if (locale_changed && lw.depends_on_locale)
-                            || (rtl_changed && lw.depends_on_text_direction)
-                        {
-                            self.request_regeneration(
-                                azul_core::callbacks::RelayoutReason::RefreshDom,
-                            );
-                            result =
-                                result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                        }
-                    }
-                }
 
                 if size_changed || dpi_changed {
                     // The engine relayouts because of the line below; the

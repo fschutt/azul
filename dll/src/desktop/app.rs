@@ -132,7 +132,7 @@ impl App {
         crate::desktop::logging::init_default_logger();
 
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
-        app_config.system_style = discover_system_style(&app_config.localization.known_languages);
+        app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
