@@ -1,6 +1,6 @@
 ---
 slug: architecture/gui-builder
-title: GUI Builder (AzBuilder)
+title: GUI Builder
 language: en
 canonical_slug: architecture/gui-builder
 audience: external
@@ -165,4 +165,3 @@ This completes the workflow:
 1. Define your component model.
 2. visually assemble your layout using the browser interface.
 3. Export the finished code back into your application.
-
