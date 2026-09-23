@@ -653,6 +653,7 @@ default = [
     "link-static",
     "logging",
     "a11y",
+    "debug-server",
     "all_img_formats",
     "web-e2e-runner",
 ]
@@ -699,10 +700,12 @@ build-dll = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    "debug-server",
     # Full functional surface for a complete libazul dylib — P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
     # (db-sqlite, biometric, …) MUST be added here as they land.
     "a11y",
+    "debug-server",
     "icons",
     "svg",
     "xml",
@@ -726,6 +729,7 @@ build-dll = [
     # reporter dialog's Send when a deployment has no OTLP endpoint; armed by
     # `AppConfig.report_problem`. Pulls rustls for STARTTLS.
     "crash-mail",
+    "debug-server",
     # Probe spans feed the app_phase_seconds{phase} + RSS-checkpoint panels.
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.

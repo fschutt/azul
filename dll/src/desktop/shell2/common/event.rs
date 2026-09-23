@@ -5359,6 +5359,46 @@ pub trait PlatformWindow {
             | CallbackChange::StopImmediatePropagation
             | CallbackChange::PreventDefault => ProcessEventResult::DoNothing,
 
+            // === Debug Server Management ===
+            #[cfg(feature = "debug-server")]
+            CallbackChange::StartHttpServer { port } => {
+                let component_map = std::sync::Arc::new(std::sync::Mutex::new(
+                    azul_core::xml::ComponentMap::default(),
+                ));
+                let (_handle, rx) = crate::desktop::shell2::common::debug_server::start_debug_server(*port);
+                let app_data = self.get_app_data().borrow().clone();
+                let window_id = self.get_current_window_state().window_id.as_str().to_string();
+                let get_system_time_fn = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
+                
+                let debug_timer = azul_layout::e2e::create_debug_timer(
+                    app_data,
+                    get_system_time_fn,
+                    rx,
+                    component_map,
+                    window_id,
+                );
+                
+                const DEBUG_TIMER_ID: usize = 0xDEBE;
+                self.start_timer(DEBUG_TIMER_ID, debug_timer);
+                ProcessEventResult::DoNothing
+            }
+            #[cfg(not(feature = "debug-server"))]
+            CallbackChange::StartHttpServer { .. } => ProcessEventResult::DoNothing,
+
+            #[cfg(feature = "debug-server")]
+            CallbackChange::StopHttpServer => {
+                const DEBUG_TIMER_ID: usize = 0xDEBE;
+                self.stop_timer(DEBUG_TIMER_ID);
+                azul_layout::e2e::take_logs(); // Clear logs if necessary
+                if let Some(server) = azul_layout::e2e::get_debug_server() {
+                    server.shutdown();
+                    azul_layout::e2e::clear_debug_server();
+                }
+                ProcessEventResult::DoNothing
+            }
+            #[cfg(not(feature = "debug-server"))]
+            CallbackChange::StopHttpServer => ProcessEventResult::DoNothing,
+
             // === Timer Management ===
             CallbackChange::AddTimer { timer_id, timer } => {
                 if let Some(lw) = self.get_layout_window_mut() {

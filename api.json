@@ -12062,6 +12062,14 @@
                             }
                         ],
                         "functions": {
+                            "start_http_server": {
+                                "fn_args": [{ "self": "refmut" }, { "port": "u16" }],
+                                "fn_body": "object.start_http_server(port)"
+                            },
+                            "stop_http_server": {
+                                "fn_args": [{ "self": "refmut" }],
+                                "fn_body": "object.stop_http_server()"
+                            },
                             "get_ctx": {
                                 "doc": [
                                     "Get the callable for FFI language bindings (Python, etc.)",
@@ -126832,6 +126840,16 @@
                 ],
                 "priority": 96.0,
                 "classes": {
+                    "RemoteControlConfig": {
+                        "priority": 95.0,
+                        "external": "azul_core::resources::RemoteControlConfig",
+                        "custom_impls": ["Default"],
+                        "derive": ["Debug", "Copy", "Clone"],
+                        "struct_fields": [
+                            { "debug_port": { "type": "OptionU16" }, "allow_remote_control": { "type": "bool" }, "allow_e2e_tests": { "type": "bool" }, "allow_introspection": { "type": "bool" } }
+                        ]
+                    },
+
                     "AppConfig": {
                         "priority": 95.0,
                         "external": "azul_core::resources::AppConfig",
@@ -126859,6 +126877,10 @@
                                 "synthesize_pinch_from_ctrl_wheel": {
                                     "type": "bool"
                                 },
+                                "remote_control": {
+                                    "type": "RemoteControlConfig"
+                                },
+
                                 "expose_system_media_controls": {
                                     "type": "bool"
                                 },

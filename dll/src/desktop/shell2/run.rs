@@ -556,9 +556,23 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
-        let debug_port = debug_server::get_debug_port();
+        let mut debug_port = config.remote_control.debug_port.into_option();
+        if debug_port.is_none() {
+            debug_port = debug_server::get_debug_port();
+        }
         let e2e_file = e2e_test_file();
-        let needs_debug = debug_port.is_some() || e2e_file.is_some();
+        
+        let mut needs_debug = false;
+        if debug_port.is_some() && config.remote_control.allow_remote_control {
+            needs_debug = true;
+        }
+        if e2e_file.is_some() {
+            if !config.remote_control.allow_e2e_tests {
+                eprintln!("error: AZ_E2E is disabled in AppConfig::remote_control.allow_e2e_tests");
+                std::process::exit(1);
+            }
+            needs_debug = true;
+        }
 
         let (debug_request_rx, component_map) = if needs_debug {
             let cm = Arc::new(Mutex::new(azul_core::xml::ComponentMap::from_libraries(

@@ -912,6 +912,8 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// Configuration for the debug server and remote control capabilities.
+    pub remote_control: RemoteControlConfig,
     /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.
     ///
@@ -1035,6 +1037,7 @@ impl AppConfig {
             natural_scroll: NaturalScroll::Disabled,
             // OFF: publishing a media player is visible in the desktop UI.
             expose_system_media_controls: false,
+            remote_control: RemoteControlConfig::default(),
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,
@@ -3997,3 +4000,28 @@ pub fn add_resources(
 #[cfg(test)]
 #[path = "resources_test.rs"]
 mod resources_test;
+
+/// Configuration for the debug server and remote control capabilities.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct RemoteControlConfig {
+    /// Port for the debug server. If None, it will try to parse AZ_DEBUG.
+    pub debug_port: azul_css::OptionU16,
+    /// Whether the debug server is allowed to remotely control the application (default: true).
+    pub allow_remote_control: bool,
+    /// Whether the debug server is allowed to run end-to-end tests via AZ_E2E (default: true).
+    pub allow_e2e_tests: bool,
+    /// Whether the debug server is allowed to serialize/deserialize RefAny state (default: true).
+    pub allow_introspection: bool,
+}
+
+impl Default for RemoteControlConfig {
+    fn default() -> Self {
+        Self {
+            debug_port: azul_css::OptionU16::None,
+            allow_remote_control: true,
+            allow_e2e_tests: true,
+            allow_introspection: true,
+        }
+    }
+}

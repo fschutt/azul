@@ -230,6 +230,10 @@ impl Default for E2eScriptHandle {
 /// - Future extensibility for new change types
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
+    /// Start the remote-control HTTP debug server on the specified port.
+    StartHttpServer { port: u16 },
+    /// Stop the remote-control HTTP debug server (has no effect if not running).
+    StopHttpServer,
     /// Run an E2E script in this session, as JSON.
     ///
     /// The plugin / macro path: a user opens an `.json` scenario and it drives
@@ -1518,6 +1522,14 @@ impl CallbackInfo {
     }
 
     // Modern Api (using CallbackChange transactions)
+
+    pub fn start_http_server(&mut self, port: u16) {
+        self.push_change(CallbackChange::StartHttpServer { port });
+    }
+
+    pub fn stop_http_server(&mut self) {
+        self.push_change(CallbackChange::StopHttpServer);
+    }
 
     /// Add a timer to this window (applied after callback returns)
     pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {

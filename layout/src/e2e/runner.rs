@@ -1784,6 +1784,9 @@ impl Runner {
     #[allow(clippy::too_many_lines)]
     fn apply_user_change(&mut self, change: &CallbackChange) -> ProcessEventResult {
         match change {
+            CallbackChange::StartHttpServer { .. } | CallbackChange::StopHttpServer => {
+                ProcessEventResult::DoNothing
+            }
             // A script asking to run a script. The headless runner is ALREADY
             // executing a scenario when it gets here, and `E2eSession` has one
             // continuation slot per window — accepting this would overwrite

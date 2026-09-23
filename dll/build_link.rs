@@ -315,6 +315,32 @@ fn link_shared(target: &str, src: &Path, is_system: bool, out_dir: &str, bin_dir
     };
     println!("cargo:warning=Linking against {} [{}]", src.display(), kind);
 
+    if !is_system {
+        // Verify the local dylib is not older than the FFI API definition.
+        // If it is, the struct layouts or exported symbols have changed and
+        // linking against it will cause undefined symbol errors or memory corruption.
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            let api_json = Path::new(&manifest_dir).join("../doc/api.json");
+            if let (Ok(dylib_meta), Ok(api_meta)) = (fs::metadata(&src), fs::metadata(&api_json)) {
+                if let (Ok(dylib_time), Ok(api_time)) = (dylib_meta.modified(), api_meta.modified()) {
+                    if api_time > dylib_time {
+                        panic!(
+                            "\n\n================================================================================\n\
+                            FATAL: Your pre-compiled dynamic library is out of date!\n\
+                            ================================================================================\n\n\
+                            The API definition (doc/api.json) was modified more recently than the library:\n  {}\n\n\
+                            This causes ABI mismatches, leading to linker errors or memory corruption.\n\
+                            Please rebuild the dynamic library before building the client app:\n\n    \
+                            cargo build --release -p azul-dll --features build-dll\n\n\
+                            ================================================================================\n\n",
+                            src.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     if dir_str.contains("/debug") && !dir_str.contains("/release") {
         println!(
             "cargo:warning=Note: linking against debug build of libazul — \
