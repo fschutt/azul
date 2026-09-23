@@ -15,6 +15,7 @@ pub fn run_app() {
     let config = AppConfig::create();
     let app = App::create(RefAny::new(()), config);
     let mut options = WindowCreateOptions::create(layout);
+    options.window_state.flags.is_always_on_top = true;
     options.create_callback = azul::dll::AzOptionCallback::Some(azul::dll::AzCallback::create(on_start));
     app.run(options);
 }
