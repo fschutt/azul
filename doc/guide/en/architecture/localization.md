@@ -103,16 +103,14 @@ key, or an empty string) if the key is missing entirely.
 ## Changing Locale
 
 You can change the active locale dynamically during runtime via `CallbackInfo::set_locale` in any 
-event callback. Because switching the locale might change text direction (from LTR to RTL) or cause 
-layout shifts due to string length variations, the framework tracks this call 
-and automatically issues an `Update::RefreshDom`.
+event callback. Under normal circumstances this does not cause a full refresh, only the strings are
+re-localized. However, the `LayoutCallbackInfo::is_rtl` functions can be used to mark a dependence
+of the `Dom` structure on the RTL-ness, for example to adjust for different layouts.
 
 ```rust
-fn on_click(mut info: CallbackInfo) -> Update {
-    // Change the active locale to German
-    // The UI will automatically update with German strings on the next frame
-    info.set_locale("de".into());
-    Update::DoNothing
+fn on_click(data: RefAny, info: CallbackInfo) -> Update {
+    info.set_locale("de".into()); // triggers re-localization, but not relayout
+    Update::DoNothing // set to RefreshDom to force re-layout
 }
 ```
 
@@ -132,7 +130,5 @@ if !report.missing_keys.is_empty() {
 }
 ```
 
-## Conclusion
-
-These APIs together should make it easy to make your application feel completely native
-in whatever language it's running in.
+You can then create a test to assert the complete translation of all strings
+in your CI pipeline.
