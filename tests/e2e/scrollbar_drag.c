@@ -1,6 +1,6 @@
 /**
  * Scrollbar Drag E2E Test
- * 
+ *
  * Tests scrollbar thumb dragging:
  * 1. Get scrollbar geometry via get_scrollbar_info
  * 2. MouseDown on scrollbar thumb
@@ -8,13 +8,13 @@
  * 4. MouseUp to release
  * 5. Click on track for page-scroll
  * 6. Click on up/down buttons for line-scroll
- * 
+ *
  * Creates a container with many items to ensure scrollbar is visible.
- * 
+ *
  * Compile:
  *   cd tests/e2e && cc scrollbar_drag.c -I../../target/codegen/ -L../../target/release/ -lazul -o scrollbar_drag -Wl,-rpath,../../target/release
- * 
- * Run with: AZUL_DEBUG=8765 ./scrollbar_drag
+ *
+ * Run with: AZ_DEBUG=8765 ./scrollbar_drag
  * Test with: ./test_scrollbar_drag.sh
  */
 
@@ -45,14 +45,14 @@ AzJson ScrollbarDragData_toJson(AzRefAny refany) {
     if (!ScrollbarDragData_downcastRef(&refany, &ref)) {
         return AzJson_null();
     }
-    
+
     AzJsonKeyValue entries[4] = {
         AzJsonKeyValue_create(AZ_STR("scroll_event_count"), AzJson_int(ref.ptr->scroll_event_count)),
         AzJsonKeyValue_create(AZ_STR("last_scroll_y"), AzJson_float((double)ref.ptr->last_scroll_y)),
         AzJsonKeyValue_create(AZ_STR("mouse_down_count"), AzJson_int(ref.ptr->mouse_down_count)),
         AzJsonKeyValue_create(AZ_STR("mouse_up_count"), AzJson_int(ref.ptr->mouse_up_count))
     };
-    
+
     ScrollbarDragDataRef_delete(&ref);
     AzJsonKeyValueVec vec = AzJsonKeyValueVec_copyFromArray(entries, 4);
     return AzJson_object(vec);
@@ -66,11 +66,11 @@ AzResultRefAnyString ScrollbarDragData_fromJson(AzJson json) {
 AzDom create_item(int index) {
     char buffer[64];
     int len = snprintf(buffer, sizeof(buffer), "Item %d - Scroll or drag to see more", index);
-    
+
     AzString text = AzString_copyFromBytes((uint8_t*)buffer, 0, len);
     AzDom item = AzDom_createDiv();
     AzDom_addChild(&item, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
-    
+
     // Alternate colors
     const char* bg_color = (index % 2 == 0) ? "#3498db" : "#2980b9";
     char style[128];
@@ -78,10 +78,10 @@ AzDom create_item(int index) {
         "padding: 15px; margin: 4px 8px; background-color: %s; "
         "border-radius: 4px; color: white; font-size: 16px;",
         bg_color);
-    
+
     AzString style_str = AzString_copyFromBytes((uint8_t*)style, 0, style_len);
     AzDom_setCss(&item, style_str);
-    
+
     return item;
 }
 
@@ -90,30 +90,30 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!ScrollbarDragData_downcastRef(&data, &ref)) {
         return AzDom_createBody();
     }
-    
+
     // Status bar
     char status[128];
     snprintf(status, sizeof(status),
              "Scroll Events: %d | Scroll Y: %.1f | Down: %d | Up: %d",
              ref.ptr->scroll_event_count, ref.ptr->last_scroll_y,
              ref.ptr->mouse_down_count, ref.ptr->mouse_up_count);
-    
+
     ScrollbarDragDataRef_delete(&ref);
-    
+
     // Create scroll container with items
     AzDom scroll_container = AzDom_createDiv();
     AzDom_addClass(&scroll_container, AZ_STR("scroll-container"));
-    
+
     for (int i = 1; i <= NUM_ITEMS; i++) {
         AzDom item = create_item(i);
         AzDom_addChild(&scroll_container, item);
     }
-    
+
     // Status bar
     AzDom status_bar = AzDom_createDiv();
     AzDom_addChild(&status_bar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_bar, AZ_STR("status"));
-    
+
     // Instructions
     AzDom instructions = AzDom_createDiv();
     AzDom_addChild(&instructions, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(
@@ -124,21 +124,21 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "4. Click arrows for line scroll"
     )));
     AzDom_addClass(&instructions, AZ_STR("instructions"));
-    
+
     // Build body
     AzDom body = AzDom_createBody();
-    
+
     AzDom label = AzDom_createDiv();
     AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Scrollbar Drag Test:")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
-    
+
     AzDom_addChild(&body, scroll_container);
     AzDom_addChild(&body, status_bar);
     AzDom_addChild(&body, instructions);
-    
+
     // CSS
-    const char* css_str = 
+    const char* css_str =
         "body { "
         "  background-color: #2c3e50; "
         "  display: flex; "
@@ -176,7 +176,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "  white-space: pre-wrap; "
         "  line-height: 1.6; "
         "} ";
-    
+
     // The layout callback returns AzDom now: the Css rides along as a field
     // and the framework builds the StyledDom itself, because constructing it
     // here got in the way of cascading and re-cascading.
@@ -192,28 +192,28 @@ int main() {
     printf("  3. mouse_move to drag\n");
     printf("  4. mouse_up to release\n");
     printf("\n");
-    printf("Debug API: AZUL_DEBUG=8765 ./scrollbar_drag\n");
+    printf("Debug API: AZ_DEBUG=8765 ./scrollbar_drag\n");
     printf("Test: ./test_scrollbar_drag.sh\n");
     printf("\n");
-    
+
     ScrollbarDragData initial_data = {
         .scroll_event_count = 0,
         .last_scroll_y = 0.0f,
         .mouse_down_count = 0,
         .mouse_up_count = 0
     };
-    
+
     AzRefAny app_data = ScrollbarDragData_upcast(initial_data);
-    
+
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AZ_STR("Scrollbar Drag Test");
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 500.0;
-    
+
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(app_data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }
