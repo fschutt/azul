@@ -43,7 +43,7 @@ The browser interface acts as a "remote control" for your native application win
 you click on any node (such as "body"), this then activates the node in the debugger and
 shows the properties. If there is a text field, then you can edit the property.
 
-![AzBuilder GUI Builder Interface](../../images/debugger-inital.jpg)
+![AzBuilder GUI Builder Interface](../../images/debugger-initial.png)
 
 If your applications `RefAny` has the JSON serialization and deserialization set up 
 (e.g. in C via the `AZ_REFLECT_JSON` macro), then the top-left panel will also show you
@@ -76,7 +76,7 @@ The various "op" operations are documented in the [Debugging Guide](../debugging
 in the Browser UI you can fire off the commands from your browser by pressing "/" in the 
 "Terminal" command line - which also shows you examples and arguments:
 
-![CURL commands in the browser](../../images/slash-commands.jpg)
+![CURL commands in the browser](../../images/slash-commands.png)
 
 Important are the `"op": "take_screenshot"` and `"op": "take_native_screenshot"`, which return
 Base64 PNG data - the browser UI can natively show this. The difference is that the `take_screenshot`
@@ -99,7 +99,7 @@ in parallel and headlessly and, using the screenshot API mentioned above, create
 The HTML UI in the second panel allows you to simply add your steps together and run them in 
 succession, while "guiding" you through the arguments of each "op" call:
 
-![End to End Test Builder](../../images/debugger-e2e.jpg)
+![End to End Test Builder](../../images/debugger-e2e.png)
 
 You can click the green triangle button to run your test, which merely runs the various `op` 
 commands against the window in succession. If you click the "cloud" button, this runs all 
@@ -140,7 +140,7 @@ As you construct your component tree in the browser, the native window instantly
 
 ### 3. Properties Panel (Right Sidebar)
 
-![GUI Builder Properties](../../images/component-library.jpg)
+![GUI Builder Properties](../../images/component-library.png)
 
 When you select a component, the right sidebar populates with all the fields defined in its `ComponentDataModel`. For example, if your custom component has a `ComponentFieldType::String` called "title", you will see a text input here. When you change the value, the new data model is pushed to the native app, which re-runs your `render_fn` and instantly updates the native window.
 
