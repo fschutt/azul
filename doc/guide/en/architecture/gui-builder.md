@@ -117,13 +117,25 @@ git clone https://github.com/fschutt/azul
 cargo run --release -p azul-doc -- codegen all
 CARGO_TARGET_DIR=target/demo cargo build --release -p azul-dll --features build-dll
 CARGO_TARGET_DIR=target/demo cargo build --release -p AzBuilder
-AZ_BACKEND=headless AZ_E2E=e2e ./target/release/AzBuilder
+AZ_BACKEND=headless AZ_E2E=e2e ./target/demo/release/AzBuilder
 ```
 
 shows:
 
 ```
-
+[E2E] Dispatching 62 tests in parallel processes...
+test bug-css-only-remount ... FAILED
+test anim-dom-transition ... FAILED
+test bug-caret-off-after-focus ... ok
+test bug-font-never-removed ... ok
+test anim-slow-move-frames ... ok
+test bug-author-media-unconditional ... ok
+test bug-dom-mutation-no-damage ... ok
+test bug-font-not-resolved-on-mount ... ok
+test bug-inserted-node-no-author-css ... ok
+test bug-unresolved-family-drops-text ... ok
+test bug-slider-thumb-trail ... FAILED
+test bug-transform-offsets-hit-test ... ok
 ```
 
 So, instead of running end-to-end tests against `AzBuilder` (here we are running the "self-tests",
