@@ -1878,20 +1878,35 @@ impl CssPropertyCache {
                     picked
                 };
 
-                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
+                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state.
+                //
+                // `css_props` is still in its BUILD phase here (it is sorted and
+                // deduplicated only after this walk), so the parent's slice lists
+                // every matching declaration in cascade order - `color: #101828`
+                // AND the `@media (prefers-color-scheme: dark) { color: .. }`
+                // twin after it. The child must inherit the one that WON on the
+                // parent, the LAST per property (what `sort_each_and_flatten`
+                // keeps for the parent itself); the `or_insert` below takes the
+                // first it is offered, so the list is deduplicated last-wins
+                // first. Taking the first one painted the text inside every
+                // light/dark pair in its light value (the demo's headings, dark
+                // on a dark page) while the element itself resolved right.
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
                     Vec::new()
                 } else {
-                    self.css_props
-                        .get_slice(parent_id.index())
-                        .iter()
-                        .filter(|p| {
-                            p.state == state
-                                && p.prop_type.is_inheritable()
-                                && !is_resolved_parent_inherited(p.prop_type)
-                        })
-                        .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
-                        .collect()
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for p in self.css_props.get_slice(parent_id.index()).iter().filter(|p| {
+                        p.state == state
+                            && p.prop_type.is_inheritable()
+                            && !is_resolved_parent_inherited(p.prop_type)
+                    }) {
+                        let value = clone_inheritable_property(&p.property);
+                        match picked.iter_mut().find(|(t, _)| *t == p.prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((p.prop_type, value)),
+                        }
+                    }
+                    picked
                 };
 
                 // 3. Inherit cascaded properties from parent for this pseudo-state
