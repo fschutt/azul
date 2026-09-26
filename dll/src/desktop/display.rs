@@ -652,7 +652,11 @@ mod linux {
 
         fn try_xrandr_displays() -> Result<Vec<DisplayInfo>, ()> {
             use crate::desktop::shell2::{
-                common::{dlopen::load_first_available, DynamicLibrary},
+                common::{
+                    dlopen::load_first_available,
+                    x11_host::{candidates, X11Lib},
+                    DynamicLibrary,
+                },
                 linux::x11::dlopen::Library,
             };
 
@@ -666,8 +670,7 @@ mod linux {
 
                 // Try to load XRandR library
                 let xrandr_lib =
-                    load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"])
-                        .map_err(|_| ())?;
+                    load_first_available::<Library>(candidates(X11Lib::Xrandr)).map_err(|_| ())?;
 
                 // Load XRandR functions
                 let get_screen_resources: XRRGetScreenResourcesCurrentFn = xrandr_lib

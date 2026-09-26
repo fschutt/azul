@@ -32,6 +32,8 @@ pub mod layout;
 pub mod log_gate;
 pub mod seats;
 pub mod transient;
+/// The X11 backend on a non-Linux host (`x11-macos`): library names per host.
+pub mod x11_host;
 
 // Re-exports for convenience
 /// Re-exported from `azul_core::window` — the list moved there so the

@@ -194,7 +194,11 @@ enum RenderMode {
 /// Returns the XRandR event base if successful (screen change events = event_base + 0).
 fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
     use crate::desktop::shell2::{
-        common::{dlopen::load_first_available, DynamicLibrary},
+        common::{
+            dlopen::load_first_available,
+            x11_host::{candidates, X11Lib},
+            DynamicLibrary,
+        },
         linux::x11::dlopen::Library,
     };
 
@@ -208,8 +212,7 @@ fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
     const RR_SCREEN_CHANGE_NOTIFY_MASK: std::ffi::c_int = 1 << 0;
 
     unsafe {
-        let xrandr_lib =
-            load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"]).ok()?;
+        let xrandr_lib = load_first_available::<Library>(candidates(X11Lib::Xrandr)).ok()?;
 
         let query_extension: XRRQueryExtensionFn =
             xrandr_lib.get_symbol("XRRQueryExtension").ok()?;

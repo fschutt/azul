@@ -13,7 +13,9 @@ use super::defines::*;
 pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, GC};
 use crate::{
     desktop::shell2::common::{
-        dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+        dlopen::load_first_available,
+        x11_host::{candidates, X11Lib},
+        DlError, DynamicLibrary as DynamicLibraryTrait,
     },
     load_symbol,
 };
@@ -203,7 +205,7 @@ pub struct Xlib {
 
 impl Xlib {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libX11.so.6", "libX11.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::X11))?;
         Ok(Rc::new(Self {
             XOpenDisplay: load_symbol!(lib, _, "XOpenDisplay"),
             XCloseDisplay: load_symbol!(lib, _, "XCloseDisplay"),
@@ -333,7 +335,7 @@ pub struct Xi {
 
 impl Xi {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libXi.so.6", "libXi.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::Xi))?;
         Ok(Rc::new(Self {
             XIQueryVersion: load_symbol!(lib, _, "XIQueryVersion"),
             XISelectEvents: load_symbol!(lib, _, "XISelectEvents"),
@@ -368,7 +370,7 @@ pub struct Egl {
 
 impl Egl {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libEGL.so.1", "libEGL.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::Egl))?;
         Ok(Rc::new(Self {
             eglGetDisplay: load_symbol!(lib, _, "eglGetDisplay"),
             eglInitialize: load_symbol!(lib, _, "eglInitialize"),
@@ -465,8 +467,8 @@ pub struct XkbX11 {
 
 impl XkbX11 {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libxkbcommon-x11.so.0"])?;
-        let xcb = load_first_available::<Library>(&["libX11-xcb.so.1"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::XkbCommonX11))?;
+        let xcb = load_first_available::<Library>(candidates(X11Lib::X11Xcb))?;
         Ok(Rc::new(Self {
             xkb_x11_keymap_new_from_device: load_symbol!(lib, _, "xkb_x11_keymap_new_from_device"),
             xkb_x11_state_new_from_device: load_symbol!(lib, _, "xkb_x11_state_new_from_device"),
@@ -479,7 +481,7 @@ impl XkbX11 {
 
 impl Xkb {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libxkbcommon.so.0"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::XkbCommon))?;
         Ok(Rc::new(Self {
             xkb_context_new: load_symbol!(lib, _, "xkb_context_new"),
             xkb_context_unref: load_symbol!(lib, _, "xkb_context_unref"),
@@ -562,7 +564,7 @@ pub struct GdkRectangle {
 
 impl Gtk3Im {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libgtk-3.so.0", "libgtk-3.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::Gtk3))?;
         Ok(Rc::new(Self {
             gtk_im_context_simple_new: load_symbol!(lib, _, "gtk_im_context_simple_new"),
             gtk_im_context_set_cursor_location: load_symbol!(
@@ -589,7 +591,7 @@ pub struct Xext {
 
 impl Xext {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libXext.so.6", "libXext.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::Xext))?;
         Ok(Rc::new(Self {
             XShapeQueryExtension: load_symbol!(lib, _, "XShapeQueryExtension"),
             XShapeCombineRectangles: load_symbol!(lib, _, "XShapeCombineRectangles"),
@@ -607,7 +609,7 @@ pub struct Xrender {
 
 impl Xrender {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&["libXrender.so.1", "libXrender.so"])?;
+        let lib = load_first_available::<Library>(candidates(X11Lib::Xrender))?;
         Ok(Rc::new(Self {
             XRenderFindVisualFormat: load_symbol!(lib, _, "XRenderFindVisualFormat"),
             _lib: lib,
