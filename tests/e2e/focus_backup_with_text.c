@@ -1,14 +1,14 @@
 /**
  * Focus & Tab Navigation E2E Test
- * 
+ *
  * This example creates focusable buttons to test:
  * 1. Tab key navigation between focusable elements
  * 2. Shift+Tab for reverse navigation
  * 3. Enter/Space key activation (triggers click callback)
  * 4. Escape key to clear focus
  * 5. :focus CSS pseudo-class styling
- * 
- * Run with: AZUL_DEBUG=8765 ./focus
+ *
+ * Run with: AZ_DEBUG=8765 ./focus
  * Test with: curl -X POST http://localhost:8765/ -d '{"op": "key_down", "key": "Tab"}'
  */
 
@@ -82,28 +82,28 @@ AzDom create_button(const char* label, int button_num, AzCallbackType click_call
     AzString text = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
     AzDom button = AzDom_createDiv();
     AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
-    
+
     // Add click callback - use leftMouseUp for click
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_leftMouseUp());
     AzDom_addCallback(&button, event, AzRefAny_clone(&data), click_callback);
-    
+
     // Make focusable with tabindex=0 (Auto)
     AzDom_setTabIndex(&button, AzTabIndex_auto());
-    
+
     // Style the button with :focus pseudo-class support
     // We use a CSS class to apply :focus styles
     char class_name[32];
     snprintf(class_name, sizeof(class_name), "btn btn-%d", button_num);
     AzString class_str = AzString_copyFromBytes((const uint8_t*)class_name, 0, strlen(class_name));
     AzDom_addClass(&button, class_str);
-    
+
     // Base button style
     AzString style = AzString_copyFromBytes((const uint8_t*)
         "padding: 15px 30px; margin: 10px; background-color: #4a90d9; color: white; "
         "font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; "
         "border: 3px solid transparent; transition: all 0.2s;", 0, 203);
     AzDom_setCss(&button, style);
-    
+
     return button;
 }
 
@@ -112,13 +112,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!FocusTestData_downcastRef(&data, &d)) {
         return AzDom_createBody();
     }
-    
+
     int click1 = d.ptr->click_count_button1;
     int click2 = d.ptr->click_count_button2;
     int click3 = d.ptr->click_count_button3;
     int last_clicked = d.ptr->last_clicked_button;
     FocusTestDataRef_delete(&d);
-    
+
     // Create header
     AzString header_text = AzString_copyFromBytes((const uint8_t*)"Focus & Tab Navigation Test", 0, 28);
     AzDom header = AzDom_createDiv();
@@ -127,7 +127,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "padding: 20px; background-color: #2c3e50; color: white; "
         "font-size: 28px; font-weight: bold; text-align: center;", 0, 111);
     AzDom_setCss(&header, header_style);
-    
+
     // Create instructions
     AzString instructions_text = AzString_copyFromBytes((const uint8_t*)
         "Press Tab to navigate between buttons. Press Enter or Space to activate. Press Escape to clear focus.", 0, 102);
@@ -137,23 +137,23 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "padding: 15px; background-color: #ecf0f1; color: #2c3e50; "
         "font-size: 16px; text-align: center; border-bottom: 1px solid #bdc3c7;", 0, 126);
     AzDom_setCss(&instructions, instructions_style);
-    
+
     // Create button container
     AzDom button_container = AzDom_createDiv();
     AzString container_style = AzString_copyFromBytes((const uint8_t*)
         "display: flex; flex-direction: row; justify-content: center; "
         "align-items: center; padding: 40px; gap: 20px;", 0, 109);
     AzDom_setCss(&button_container, container_style);
-    
+
     // Create three buttons
     AzDom btn1 = create_button("Button 1", 1, on_button1_click, data);
     AzDom btn2 = create_button("Button 2", 2, on_button2_click, data);
     AzDom btn3 = create_button("Button 3", 3, on_button3_click, data);
-    
+
     AzDom_addChild(&button_container, btn1);
     AzDom_addChild(&button_container, btn2);
     AzDom_addChild(&button_container, btn3);
-    
+
     // Create status display
     char status_buf[256];
     int status_len = snprintf(status_buf, sizeof(status_buf),
@@ -162,7 +162,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         last_clicked == 0 ? "None" :
         last_clicked == 1 ? "Button 1" :
         last_clicked == 2 ? "Button 2" : "Button 3");
-    
+
     AzString status_text = AzString_copyFromBytes((const uint8_t*)status_buf, 0, status_len);
     AzDom status = AzDom_createDiv();
     AzDom_addChild(&status, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(status_text));
@@ -172,26 +172,26 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "padding: 20px; background-color: #34495e; color: #ecf0f1; "
         "font-size: 16px; text-align: center; font-family: monospace;", 0, 120);
     AzDom_setCss(&status, status_style);
-    
+
     // Build body
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, header);
     AzDom_addChild(&body, instructions);
     AzDom_addChild(&body, button_container);
     AzDom_addChild(&body, status);
-    
+
     // Body style
     AzString body_style = AzString_copyFromBytes((const uint8_t*)
         "display: flex; flex-direction: column; height: 100%; "
         "font-family: 'Segoe UI', sans-serif;", 0, 90);
     AzDom_setCss(&body, body_style);
-    
+
     // CSS for :focus pseudo-class
     // When an element is focused, it gets a bright yellow border
-    const char* focus_css = 
+    const char* focus_css =
         ".btn:focus { border: 3px solid #f1c40f !important; "
         "box-shadow: 0 0 10px #f1c40f; background-color: #3498db !important; }";
-    
+
     AzString css_str = AzString_copyFromBytes((const uint8_t*)focus_css, 0, strlen(focus_css));
     // The layout callback returns AzDom now: the Css rides along as a field
     // and the framework builds the StyledDom itself, because constructing it
@@ -207,14 +207,14 @@ int main(int argc, char** argv) {
     printf("Enter/Space: Activate focused button\n");
     printf("Escape: Clear focus\n");
     printf("\n");
-    
+
     // Check for debug mode
-    char* debug_port = getenv("AZUL_DEBUG");
+    char* debug_port = getenv("AZ_DEBUG");
     if (debug_port) {
         printf("Debug API enabled on port %s\n", debug_port);
         printf("Test with: curl -X POST http://localhost:%s/ -d '{\"op\": \"key_down\", \"key\": \"Tab\"}'\n\n", debug_port);
     }
-    
+
     // Initialize data
     FocusTestData initial_data = {
         .click_count_button1 = 0,
@@ -222,20 +222,20 @@ int main(int argc, char** argv) {
         .click_count_button3 = 0,
         .last_clicked_button = 0
     };
-    
+
     AzRefAny data = FocusTestData_upcast(initial_data);
-    
+
     // Create window with layout callback
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AzString_copyFromBytes((const uint8_t*)"Focus Test", 0, 10);
     window.window_state.size.dimensions.width = 800.0;
     window.window_state.size.dimensions.height = 400.0;
-    
+
     // Create and run app
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }

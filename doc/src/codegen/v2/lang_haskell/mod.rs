@@ -910,23 +910,29 @@ fn narrow_facade_imports(files: &mut [HsFile], facades: &[(&str, Vec<String>)]) 
             .collect();
         // A facade a module re-exports (`module Azul.Internal.Handles` in
         // `Azul`'s export list) must stay imported whole.
-        let reexported = |facade: &str| {
-            file.src.lines().any(|l| {
-                let l = l.trim_start().trim_start_matches(['(', ',']).trim();
-                l == format!("module {facade}")
-            })
-        };
+        let mut facade_reexported = Vec::with_capacity(facades.len());
+        let mut facade_import_strs = Vec::with_capacity(facades.len());
+        let mut facade_import_qualified_strs = Vec::with_capacity(facades.len());
+        for (facade, _) in facades.iter() {
+            let mod_facade = format!("module {facade}");
+            let is_reexported = file.src.lines().any(|l| {
+                l.trim_start().trim_start_matches(['(', ',']).trim() == mod_facade
+            });
+            facade_reexported.push(is_reexported);
+            facade_import_strs.push(format!("import {facade}"));
+            facade_import_qualified_strs.push(format!("import qualified {facade} as "));
+        }
         let mut out = String::with_capacity(file.src.len());
         for line in file.src.lines() {
-            let rewritten = facades.iter().find_map(|(facade, members)| {
-                if reexported(facade) {
+            let rewritten = facades.iter().enumerate().find_map(|(i, (_facade, members))| {
+                if facade_reexported[i] {
                     return None;
                 }
                 let t = line.trim();
-                let qualifier = if t == format!("import {facade}") {
+                let qualifier = if t == facade_import_strs[i] {
                     None
                 } else if let Some(q) = t
-                    .strip_prefix(&format!("import qualified {facade} as "))
+                    .strip_prefix(&facade_import_qualified_strs[i])
                     .filter(|q| !q.contains(' '))
                 {
                     Some(q)

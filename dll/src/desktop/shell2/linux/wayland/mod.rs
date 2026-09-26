@@ -11201,7 +11201,10 @@ mod display_error_event_tests {
         let mut bad_size = full.clone();
         bad_size[6] = bad_size[6].wrapping_add(4); // header size no longer matches
         assert_eq!(find_display_error_event(&bad_size), None);
-        assert_eq!(find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())), None);
+        assert_eq!(
+            find_display_error_event(&message(1, 1, &7u32.to_ne_bytes())),
+            None
+        );
         assert_eq!(find_display_error_event(&[]), None);
     }
 }

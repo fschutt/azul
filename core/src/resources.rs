@@ -867,6 +867,49 @@ impl Default for SystemAnimations {
     }
 }
 
+
+/// Configuration for application localization, including known languages and their settings.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct LocalizationConfig {
+    /// A list of known languages and their properties (such as whether they are RTL).
+    /// Used to validate translations and provide a fallback list of languages.
+    pub known_languages: azul_css::system::SystemLanguageVec,
+}
+
+impl Default for LocalizationConfig {
+    fn default() -> Self {
+        let mut languages = azul_css::system::SystemLanguageVec::new();
+        // LTR defaults
+        languages.push(azul_css::system::SystemLanguage::new("en-US", false));
+        languages.push(azul_css::system::SystemLanguage::new("en-GB", false));
+        languages.push(azul_css::system::SystemLanguage::new("de-DE", false));
+        languages.push(azul_css::system::SystemLanguage::new("fr-FR", false));
+        languages.push(azul_css::system::SystemLanguage::new("it-IT", false));
+        languages.push(azul_css::system::SystemLanguage::new("es-ES", false));
+        languages.push(azul_css::system::SystemLanguage::new("zh-CN", false));
+        languages.push(azul_css::system::SystemLanguage::new("zh-TW", false));
+        languages.push(azul_css::system::SystemLanguage::new("ja-JP", false));
+        languages.push(azul_css::system::SystemLanguage::new("ko-KR", false));
+        languages.push(azul_css::system::SystemLanguage::new("ru-RU", false));
+        languages.push(azul_css::system::SystemLanguage::new("pt-BR", false));
+        languages.push(azul_css::system::SystemLanguage::new("pt-PT", false));
+        
+        // RTL defaults
+        languages.push(azul_css::system::SystemLanguage::new("ar-SA", true));
+        languages.push(azul_css::system::SystemLanguage::new("ar-AE", true));
+        languages.push(azul_css::system::SystemLanguage::new("ar-EG", true));
+        languages.push(azul_css::system::SystemLanguage::new("he-IL", true));
+        languages.push(azul_css::system::SystemLanguage::new("fa-IR", true));
+        languages.push(azul_css::system::SystemLanguage::new("ur-PK", true));
+        languages.push(azul_css::system::SystemLanguage::new("ug-CN", true));
+        
+        Self {
+            known_languages: languages,
+        }
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -912,6 +955,8 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// Configuration for the debug server and remote control capabilities.
+    pub remote_control: RemoteControlConfig,
     /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.
     ///
@@ -1005,6 +1050,8 @@ pub struct AppConfig {
     /// and manual crash reports go to. None = the `ReportProblem` dialog saves
     /// reports to disk instead of mailing them.
     pub report_problem: OptionEmailAddress,
+    /// Configuration for localization, tracking known languages.
+    pub localization: LocalizationConfig,
 }
 
 impl AppConfig {
@@ -1035,10 +1082,12 @@ impl AppConfig {
             natural_scroll: NaturalScroll::Disabled,
             // OFF: publishing a media player is visible in the desktop UI.
             expose_system_media_controls: false,
+            remote_control: RemoteControlConfig::default(),
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
+            localization: LocalizationConfig::default(),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
@@ -1201,12 +1250,30 @@ impl AppConfig {
     /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
     #[must_use]
     pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
+        let mut best_match: Option<(&Route, RouteMatch, usize)> = None;
+
         for route in self.routes.as_ref() {
             if let Some(m) = match_route(route.pattern.as_str(), path) {
-                return Some((route, m));
+                // Specificity: number of exact static segments
+                let specificity = route
+                    .pattern
+                    .as_str()
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .filter(|s| !s.starts_with(':'))
+                    .count();
+
+                if let Some((_, _, best_spec)) = best_match {
+                    if specificity > best_spec {
+                        best_match = Some((route, m, specificity));
+                    }
+                } else {
+                    best_match = Some((route, m, specificity));
+                }
             }
         }
-        None
+
+        best_match.map(|(r, m, _)| (r, m))
     }
 }
 
@@ -3979,3 +4046,28 @@ pub fn add_resources(
 #[cfg(test)]
 #[path = "resources_test.rs"]
 mod resources_test;
+
+/// Configuration for the debug server and remote control capabilities.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct RemoteControlConfig {
+    /// Port for the debug server. If None, it will try to parse AZ_DEBUG.
+    pub debug_port: azul_css::OptionU16,
+    /// Whether the debug server is allowed to remotely control the application (default: true).
+    pub allow_remote_control: bool,
+    /// Whether the debug server is allowed to run end-to-end tests via AZ_E2E (default: true).
+    pub allow_e2e_tests: bool,
+    /// Whether the debug server is allowed to serialize/deserialize RefAny state (default: true).
+    pub allow_introspection: bool,
+}
+
+impl Default for RemoteControlConfig {
+    fn default() -> Self {
+        Self {
+            debug_port: azul_css::OptionU16::None,
+            allow_remote_control: true,
+            allow_e2e_tests: true,
+            allow_introspection: true,
+        }
+    }
+}

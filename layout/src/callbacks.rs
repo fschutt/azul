@@ -230,6 +230,10 @@ impl Default for E2eScriptHandle {
 /// - Future extensibility for new change types
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
+    /// Start the remote-control HTTP debug server on the specified port.
+    StartHttpServer { port: u16 },
+    /// Stop the remote-control HTTP debug server (has no effect if not running).
+    StopHttpServer,
     /// Run an E2E script in this session, as JSON.
     ///
     /// The plugin / macro path: a user opens an `.json` scenario and it drives
@@ -301,6 +305,11 @@ pub enum CallbackChange {
     },
     /// Close the current window (via `Update::CloseWindow` return value, tracked here for logging)
     CloseWindow,
+    
+    /// Change the active locale for localization
+    SetLocale {
+        locale: AzString,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -1519,6 +1528,14 @@ impl CallbackInfo {
 
     // Modern Api (using CallbackChange transactions)
 
+    pub fn start_http_server(&mut self, port: u16) {
+        self.push_change(CallbackChange::StartHttpServer { port });
+    }
+
+    pub fn stop_http_server(&mut self) {
+        self.push_change(CallbackChange::StopHttpServer);
+    }
+
     /// Add a timer to this window (applied after callback returns)
     pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
         self.push_change(CallbackChange::AddTimer { timer_id, timer });
@@ -1725,6 +1742,11 @@ impl CallbackInfo {
     /// Clear the focus of seat `seat_id` (9b-ii-a-i-d).
     pub fn clear_focus_for_seat(&mut self, seat_id: u64) {
         self.set_focus_for_seat(seat_id, FocusTarget::NoFocus);
+    }
+
+    /// Change the active locale for UI translations
+    pub fn set_locale(&mut self, locale: AzString) {
+        self.push_change(CallbackChange::SetLocale { locale });
     }
 
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for
