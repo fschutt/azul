@@ -468,3 +468,5 @@ mod xml_dom_embed;
 mod xml_no_text_duplication;
 #[path = "xml_self_closing.rs"]
 mod xml_self_closing;
+#[path = "zero_width_selection.rs"]
+mod zero_width_selection;
