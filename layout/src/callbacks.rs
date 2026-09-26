@@ -8971,6 +8971,160 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
+    // The caret-move previews answer what the key would do
+    // ------------------------------------------------------------------
+    //
+    // `inspect_move_cursor_*` read the node's OWN stored inline layout: under
+    // the default dense text path that is the empty retirement sentinel, and a
+    // field's host has none at all - and Ctrl+End was a hard-coded
+    // `(run 0, byte = text length)`, whatever the runs were.
+
+    fn caret_test_node(n: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        }
+    }
+
+    fn caret_test_text(s: &str) -> azul_core::dom::Dom {
+        azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `dom` laid out, with an editing session opened at the start of the
+    /// block `session_node` names.
+    fn laid_out_with_a_session(mut dom: azul_core::dom::Dom, session_node: usize) -> LayoutWindow {
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } \
+             .p { display: block; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new failed");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = Some(Vec::new());
+        lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        let start = TextCursor {
+            cluster_id: azul_core::selection::GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: azul_core::selection::CursorAffinity::Leading,
+        };
+        assert!(
+            lw.start_editing_at(start, DomId::ROOT_ID, NodeId::new(session_node), 0),
+            "premise: a session opens in node {session_node}'s block"
+        );
+        lw
+    }
+
+    /// `body(0) > div[contenteditable](1) > "hello"(2)`, caret at the start.
+    fn a_field_with_a_caret() -> LayoutWindow {
+        laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(caret_test_text("hello")),
+            ),
+            1,
+        )
+    }
+
+    #[test]
+    fn inspect_move_cursor_right_previews_the_arrow_key() {
+        let lw = a_field_with_a_caret();
+        let target = lw.session_text_target().expect("the session's block is laid out");
+        let caret = lw.text_edit_manager.get_primary_cursor().expect("a caret");
+        let expected = target.layout.move_cursor_right(caret, &mut None);
+        assert_ne!(expected, caret, "premise: the arrow key moves the caret");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_right(caret_test_node(1))
+        });
+
+        assert_eq!(previewed, Some(expected));
+    }
+
+    #[test]
+    fn inspect_move_cursor_to_document_end_is_the_last_caret() {
+        // `body(0) > div[contenteditable](1) > ["Hello "(2), b(3) > "world"(4)]`
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(caret_test_text("Hello "))
+                    .with_child(azul_core::dom::Dom::create_b().with_child(caret_test_text("world"))),
+            ),
+            1,
+        );
+        let expected = lw
+            .session_text_target()
+            .and_then(|t| t.last_cluster_caret())
+            .expect("premise: the paragraph has a last cluster");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_to_document_end(caret_test_node(1))
+        });
+
+        assert_eq!(
+            previewed,
+            Some(expected),
+            "Ctrl+End lands after \"world\", in ITS run, not at byte 11 of the first"
+        );
+    }
+
+    #[test]
+    fn inspect_naming_a_fields_host_previews_the_caret_inside_it() {
+        // `body(0) > div[contenteditable](1) > div.p(2) > "hello"(3)`
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(
+                        azul_core::dom::Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                            .with_child(caret_test_text("hello")),
+                    ),
+            ),
+            2,
+        );
+        let target = lw.session_text_target().expect("the session's block is laid out");
+        let caret = lw.text_edit_manager.get_primary_cursor().expect("a caret");
+        let expected = target.layout.move_cursor_to_line_end(caret, &mut None);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_to_line_end(caret_test_node(1))
+        });
+
+        assert_eq!(previewed, Some(expected));
+    }
+
+    #[test]
+    fn inspect_naming_another_paragraph_previews_nothing() {
+        // `body(0) > [div.p(1) > "one"(2), div.p(3) > "two"(4)]`
+        let p = |s: &str| {
+            azul_core::dom::Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(caret_test_text(s))
+        };
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body()
+                .with_child(p("one"))
+                .with_child(p("two")),
+            1,
+        );
+
+        let previewed = with_info_on(lw, caret_test_node(3), |info| {
+            info.inspect_move_cursor_right(caret_test_node(3))
+        });
+
+        assert_eq!(previewed, None, "there is no caret in \"two\" to move");
+    }
+
+    // ------------------------------------------------------------------
     // CallbackChange payload smoke test
     // ------------------------------------------------------------------
 
