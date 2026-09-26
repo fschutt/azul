@@ -136,6 +136,50 @@ impl TransientPlacement {
     }
 }
 
+/// Does the popup hanging off `source_node` TAKE the keyboard focus when it
+/// opens, or leave it on its invoker?
+///
+/// Two WAI-ARIA models, one per kind of popup:
+/// - a panel you work IN (the colour picker, a date picker, anything
+///   dialog-like) takes focus: it autofocuses its first control, holds its
+///   parent's keyboard, and hands focus back on close;
+/// - a LIST you pick from (a combobox's options, a menu, a tree, a tooltip)
+///   leaves DOM focus on the invoker - typing keeps editing a combobox field
+///   while its list is open - and only takes focus once the user navigates
+///   into it.
+///
+/// Derived from the role of the popup's content root (the node's first
+/// child): `List`, `MenuPopup`, `DropList`, `Outline` and `Tooltip` keep the
+/// focus, anything else takes it. A node with no content takes it (there is
+/// nothing to keep focus away from).
+#[must_use]
+pub fn transient_takes_focus(styled_dom: &StyledDom, source_node: NodeId) -> bool {
+    use azul_core::a11y::AccessibilityRole;
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let nodes = styled_dom.node_data.as_container();
+    let Some(content) = hierarchy
+        .get(source_node)
+        .and_then(|h| h.first_child_id(source_node))
+    else {
+        return true;
+    };
+    let role = nodes
+        .get(content)
+        .and_then(|nd| nd.get_accessibility_info())
+        .map(|a| a.role);
+    !matches!(
+        role,
+        Some(
+            AccessibilityRole::List
+                | AccessibilityRole::MenuPopup
+                | AccessibilityRole::DropList
+                | AccessibilityRole::Outline
+                | AccessibilityRole::Tooltip
+        )
+    )
+}
+
 /// Every `<transient-window>` in `styled_dom` whose config says `open`, with
 /// the anchor rect of its parent element taken from `positions` (the
 /// parent-window layout result, indexed by `NodeId`).

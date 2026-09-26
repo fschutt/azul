@@ -10049,7 +10049,12 @@ pub trait PlatformWindow {
         // is inert. Deferred through the focus manager, so a popup whose
         // first layout has not landed yet is handled by the same
         // park-and-retry path programmatic focus already uses.
-        if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
+        //
+        // Only a popup that TAKES focus: a combobox's list leaves it on the
+        // field (WAI-ARIA combobox), so typing keeps editing the field.
+        if super::transient::mailbox_of(self.get_current_window_state()).is_some()
+            && super::transient::popup_takes_focus(self.get_current_window_state())
+        {
             let needs_autofocus = self
                 .get_layout_window()
                 .is_some_and(|lw| lw.focus_manager.get_focused_node().is_none());

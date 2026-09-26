@@ -808,9 +808,16 @@ impl ComboBox {
             );
         }
 
+        // A LIST, not a panel: that role is what tells the engine this popup
+        // leaves focus on the field (`transient_takes_focus`), the WAI-ARIA
+        // combobox model - typing keeps editing the field while it is open.
         let list = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_LIST_CLASS))
             .with_css_props(list_style)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::List,
+                ..Default::default()
+            })
             .with_children(DomVec::from_vec(option_doms));
 
         // The list is a REAL OS popup anchored under the field, not an

@@ -5462,13 +5462,27 @@ impl LayoutWindow {
     /// a key this window receives belongs to the popup: X11 never gives an
     /// override-redirect popup the input focus, so its keys land here and
     /// the shell forwards them (`common::transient` in the dll).
+    ///
+    /// Only a popup that TAKES focus holds the keyboard
+    /// ([`crate::transient::transient_takes_focus`]): a combobox's list
+    /// leaves it with the field.
     #[must_use]
     pub fn transient_keyboard_owner(&self) -> Option<&crate::transient::OpenTransientWindow> {
+        let root = self
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .map(|r| &r.styled_dom);
         self.transient_windows
             .open_windows()
             .iter()
             .rev()
-            .find(|w| !w.is_inline() && w.torn.is_none())
+            .find(|w| {
+                !w.is_inline()
+                    && w.torn.is_none()
+                    && root.is_none_or(|s| {
+                        crate::transient::transient_takes_focus(s, w.source_node)
+                    })
+            })
     }
 
     /// Rebuild the display list that carries (or should carry) the focus

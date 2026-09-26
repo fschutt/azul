@@ -126,6 +126,11 @@ pub struct TransientWindowData {
     /// popup held the keyboard, oldest first, for the popup to replay through
     /// its own pipeline (see [`forward_key`]).
     pub forwarded_keys: Vec<ForwardedKey>,
+    /// Parent → popup: does this popup TAKE focus when it opens (a picker,
+    /// anything you work in), or leave it on its invoker (a combobox's list)?
+    /// See `azul_layout::transient::transient_takes_focus`. A popup that
+    /// leaves it does not autofocus its first control.
+    pub takes_focus: bool,
 }
 
 /// One keyboard transition a parent received while its popup held the
@@ -214,6 +219,15 @@ pub fn opened_with_visible_focus(state: &FullWindowState) -> bool {
     mailbox_of(state)
         .and_then(|m| read(&m, |d| d.focus_visible))
         .unwrap_or(false)
+}
+
+/// Does this popup take focus when it opens? `true` for a window that is not
+/// a transient at all. See [`TransientWindowData::takes_focus`].
+#[must_use]
+pub fn popup_takes_focus(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.takes_focus))
+        .unwrap_or(true)
 }
 
 /// The mailbox of the popup that holds `lw`'s keyboard (see
@@ -313,6 +327,7 @@ pub fn popup_create_options(
         drop: None,
         following: false,
         forwarded_keys: Vec::new(),
+        takes_focus: true,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -381,6 +396,7 @@ pub fn toplevel_create_options(
         // inline tear, so the proxy follows the cursor from drag start.
         following: false,
         forwarded_keys: Vec::new(),
+        takes_focus: true,
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
@@ -657,6 +673,11 @@ pub fn sync_parent(
                 if lw.inline_tear.map(|t| t.node) == Some(w.source_node) {
                     write(&mailbox, |d| d.following = true);
                 }
+                // The popup's focus model, decided where the content's roles
+                // are visible: a combobox's list leaves focus on the field.
+                let takes_focus =
+                    azul_layout::transient::transient_takes_focus(styled, w.source_node);
+                write(&mailbox, |d| d.takes_focus = takes_focus);
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
                 }
