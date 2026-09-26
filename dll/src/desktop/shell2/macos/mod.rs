@@ -1765,6 +1765,53 @@ fn dirty_rows_to_copy(
     (x0.min(x1), x1, y0.min(y1), y1)
 }
 
+/// The safe-area insets (`top, left, bottom, right`, points) the ROOT is laid
+/// out inside, from the ones the content view reports.
+///
+/// `titlebar_band` is how much of the content view the titlebar covers.
+fn layout_safe_area_insets(
+    view: (f64, f64, f64, f64),
+    titlebar_band: f64,
+) -> (f64, f64, f64, f64) {
+    let _ = titlebar_band;
+    view
+}
+
+#[cfg(test)]
+mod safe_area_tests {
+    use super::layout_safe_area_insets;
+
+    /// `NoTitle` and `NoTitleAutoInject` run the content under a transparent
+    /// titlebar so the app can draw its own title row there; the content
+    /// view reports that 28pt band as its top safe-area inset.
+    #[test]
+    fn a_window_drawn_under_its_titlebar_is_not_inset_by_it() {
+        assert_eq!(
+            layout_safe_area_insets((28.0, 0.0, 0.0, 0.0), 28.0),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+    }
+
+    /// Fullscreen on a MacBook with a camera housing: the titlebar is hidden,
+    /// so nothing of the reported inset is titlebar - it is the notch.
+    #[test]
+    fn the_camera_housing_still_insets_a_fullscreen_window() {
+        assert_eq!(
+            layout_safe_area_insets((32.0, 0.0, 0.0, 0.0), 0.0),
+            (32.0, 0.0, 0.0, 0.0)
+        );
+    }
+
+    /// A band can never make an inset negative.
+    #[test]
+    fn a_band_larger_than_the_inset_leaves_zero() {
+        assert_eq!(
+            layout_safe_area_insets((10.0, 0.0, 0.0, 0.0), 28.0),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+    }
+}
+
 #[cfg(test)]
 mod dirty_rows_tests {
     use super::dirty_rows_to_copy;
@@ -5981,7 +6028,13 @@ impl MacOSWindow {
         // reflect the display. NSView is main-thread-only, so the read is safe.
         let safe_area = self.window.contentView().map(|cv| {
             let i = cv.safeAreaInsets();
-            (i.top, i.left, i.bottom, i.right)
+            // How much of the content view the titlebar covers: the whole
+            // band in a window whose content runs under it
+            // (`FullSizeContentView`), nothing in a plain window, nothing in
+            // fullscreen (the titlebar is hidden there).
+            let titlebar_band =
+                (cv.frame().size.height - self.window.contentLayoutRect().size.height).max(0.0);
+            layout_safe_area_insets((i.top, i.left, i.bottom, i.right), titlebar_band)
         });
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
