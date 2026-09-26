@@ -4197,6 +4197,46 @@ mod autotest_generated {
         );
     }
 
+    /// The shape a theme-aware inline style takes: plain declarations with a
+    /// nested `@media` block among them. The block's declarations belong to
+    /// the SAME selector under the block's condition; the ones around it stay
+    /// unconditional.
+    #[test]
+    fn an_at_rule_nested_in_a_rule_keeps_the_declarations_around_it_unconditional() {
+        let css = crate::css::Css::parse_inline(
+            "color: red; @media (prefers-color-scheme: dark) { color: blue; } width: 5px;",
+        );
+        let describe = |r: &crate::css::CssRuleBlock| {
+            (
+                r.conditions.as_slice().to_vec(),
+                r.declarations
+                    .as_slice()
+                    .iter()
+                    .map(|d| alloc::format!("{d:?}"))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let rules: Vec<_> = css.rules.as_slice().iter().map(describe).collect();
+
+        let plain: Vec<_> = rules.iter().filter(|(c, _)| c.is_empty()).collect();
+        let dark: Vec<_> = rules
+            .iter()
+            .filter(|(c, _)| c.contains(&DynamicSelector::Theme(ThemeCondition::Dark)))
+            .collect();
+        assert_eq!(
+            plain.len(),
+            1,
+            "one unconditional rule for `color: red; width: 5px`, got {rules:#?}"
+        );
+        assert_eq!(
+            plain[0].1.len(),
+            2,
+            "both plain declarations survive, got {rules:#?}"
+        );
+        assert_eq!(dark.len(), 1, "one dark rule for `color: blue`, got {rules:#?}");
+        assert_eq!(dark[0].1.len(), 1, "only the block's own declaration, got {rules:#?}");
+    }
+
     #[test]
     fn new_from_str_comma_separated_selectors_emit_one_rule_each() {
         let (css, _warnings) = new_from_str("div, p { width: 1px; }");
