@@ -847,12 +847,12 @@ pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
 /// by the colour the keyword stands for under `ctx`; any other colour comes
 /// back unchanged.
 ///
-/// THE resolution point for the colour properties whose value is a bare
-/// `ColorU` (`color`, `border-*-color`): the layout getters call it with the
-/// cascade's own context, so a keyword follows the theme the cascade
-/// evaluated. Without a context (no window yet) the keyword takes its light
-/// default, which is what the no-context cascade assumes for everything
-/// else.
+/// THE resolution primitive for the colour properties whose value is a bare
+/// `ColorU` (`color`, `border-*-color`, `caret-color`, ...); readers reach it
+/// through [`ResolveSystemColors`], called with the cascade's own context, so
+/// a keyword follows the theme the cascade evaluated. Without a context (no
+/// window yet) the keyword takes its light default, which is what the
+/// no-context cascade assumes for everything else.
 #[must_use]
 pub fn resolve_system_color_token(
     color: crate::props::basic::color::ColorU,
@@ -863,10 +863,284 @@ pub fn resolve_system_color_token(
     let Some(r) = SystemColorRef::from_color_token(color) else {
         return color;
     };
+    resolve_system_color_ref(r, ctx)
+}
+
+/// The colour the `system:` keyword `r` names under `ctx`. Without a
+/// context (no window yet) the keyword takes its light default, exactly as
+/// in [`resolve_system_color_token`].
+#[must_use]
+pub fn resolve_system_color_ref(
+    r: crate::props::basic::color::SystemColorRef,
+    ctx: Option<&DynamicSelectorContext>,
+) -> crate::props::basic::color::ColorU {
     ctx.map_or_else(
         || r.resolve_for_theme(&crate::system::SystemColors::default(), false),
         |c| c.system_color(r),
     )
+}
+
+/// A computed value whose `system:` colour keywords can be resolved against
+/// the context a cascade evaluated.
+///
+/// A keyword reaches a computed value in one of two shapes: as the
+/// [`crate::props::basic::color::SystemColorRef::to_color_token`] of a
+/// property whose value is a bare `ColorU` (`color`, `border-*-color`,
+/// `caret-color`, the selection colours, `scrollbar-color`, the shadows,
+/// `flood()`, `column-rule-color`), or as an unresolved reference where the
+/// type can carry one (`ColorOrSystem` in a gradient stop,
+/// `StyleBackgroundContent::SystemColor` in a background or a
+/// `-azul-scrollbar-*` part). Either way the value is not a colour yet: a
+/// reader that paints it unresolved paints the transparent token, or
+/// nothing.
+///
+/// The value type of EVERY colour-valued property implements this, so a
+/// reader resolves any of them with the same one call - the layout getters
+/// call it with the cascade's own `dynamic_context`, which is what keeps a
+/// keyword in the theme the rest of the cascade evaluated.
+pub trait ResolveSystemColors: Sized {
+    /// `self` with every `system:` keyword replaced by the colour it names
+    /// under `ctx` (see [`resolve_system_color_ref`] for `ctx == None`).
+    /// Every other colour comes back unchanged.
+    #[must_use]
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self;
+}
+
+impl ResolveSystemColors for crate::props::basic::color::ColorU {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        resolve_system_color_token(self, ctx)
+    }
+}
+
+impl ResolveSystemColors for crate::props::basic::color::ColorOrSystem {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::System(r) => Self::Color(resolve_system_color_ref(r, ctx)),
+            Self::Color(c) => Self::Color(resolve_system_color_token(c, ctx)),
+        }
+    }
+}
+
+impl<T: ResolveSystemColors> ResolveSystemColors for Option<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.map(|v| v.resolve_system_colors(ctx))
+    }
+}
+
+impl<T: ResolveSystemColors> ResolveSystemColors for crate::css::CssPropertyValue<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Exact(v) => Self::Exact(v.resolve_system_colors(ctx)),
+            other => other,
+        }
+    }
+}
+
+/// The colour properties whose value is a `{ inner: ColorU }` newtype.
+macro_rules! impl_resolve_system_colors_for_color_newtype {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl ResolveSystemColors for $ty {
+                fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+                    Self {
+                        inner: resolve_system_color_token(self.inner, ctx),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+impl_resolve_system_colors_for_color_newtype!(
+    crate::props::style::text::StyleTextColor,
+    crate::props::style::text::CaretColor,
+    crate::props::style::selection::SelectionBackgroundColor,
+    crate::props::style::selection::SelectionColor,
+    crate::props::style::border::StyleBorderTopColor,
+    crate::props::style::border::StyleBorderRightColor,
+    crate::props::style::border::StyleBorderBottomColor,
+    crate::props::style::border::StyleBorderLeftColor,
+    crate::props::layout::column::ColumnRuleColor,
+);
+
+/// `box-shadow`, `text-shadow` and `drop-shadow()`.
+impl ResolveSystemColors for crate::props::style::box_shadow::StyleBoxShadow {
+    fn resolve_system_colors(mut self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.color = resolve_system_color_token(self.color, ctx);
+        self
+    }
+}
+
+/// `flood()` and `drop-shadow()`; no other filter function carries a colour.
+impl ResolveSystemColors for crate::props::style::filter::StyleFilter {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Flood(c) => Self::Flood(resolve_system_color_token(c, ctx)),
+            Self::DropShadow(s) => Self::DropShadow(s.resolve_system_colors(ctx)),
+            other => other,
+        }
+    }
+}
+
+/// `filter` and `backdrop-filter`.
+impl ResolveSystemColors for crate::props::style::filter::StyleFilterVec {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        use crate::props::style::filter::StyleFilter;
+        let has_color = |f: &StyleFilter| {
+            matches!(f, StyleFilter::Flood(_) | StyleFilter::DropShadow(_))
+        };
+        if !self.as_ref().iter().any(has_color) {
+            return self;
+        }
+        self.as_ref()
+            .iter()
+            .map(|f| f.resolve_system_colors(ctx))
+            .collect::<Vec<_>>()
+            .into()
+    }
+}
+
+/// `scrollbar-color`.
+impl ResolveSystemColors for crate::props::style::scrollbar::StyleScrollbarColor {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Custom(c) => {
+                Self::Custom(crate::props::style::scrollbar::ScrollbarColorCustom {
+                    thumb: resolve_system_color_token(c.thumb, ctx),
+                    track: resolve_system_color_token(c.track, ctx),
+                })
+            }
+            Self::Auto => Self::Auto,
+        }
+    }
+}
+
+/// A background layer (`background`, `background-color`, `background-image`,
+/// SVG `fill`) and a `-azul-scrollbar-*` part: a `SystemColor` layer becomes
+/// the colour it names, a colour token its colour, and a gradient's
+/// `system:` stops concrete stops.
+impl ResolveSystemColors for crate::props::style::background::StyleBackgroundContent {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        use crate::props::{
+            basic::color::{ColorOrSystem, SystemColorRef},
+            style::background::{NormalizedLinearColorStop, NormalizedRadialColorStop},
+        };
+
+        let unresolved = |c: &ColorOrSystem| match c {
+            ColorOrSystem::System(_) => true,
+            ColorOrSystem::Color(c) => SystemColorRef::from_color_token(*c).is_some(),
+        };
+
+        match self {
+            Self::SystemColor(r) => Self::Color(resolve_system_color_ref(r, ctx)),
+            Self::Color(c) => Self::Color(resolve_system_color_token(c, ctx)),
+            Self::LinearGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedLinearColorStop {
+                            offset: s.offset,
+                            color: s.color.resolve_system_colors(ctx),
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::LinearGradient(g)
+            }
+            Self::RadialGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedLinearColorStop {
+                            offset: s.offset,
+                            color: s.color.resolve_system_colors(ctx),
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::RadialGradient(g)
+            }
+            Self::ConicGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedRadialColorStop {
+                            angle: s.angle,
+                            color: s.color.resolve_system_colors(ctx),
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::ConicGradient(g)
+            }
+            other @ Self::Image(_) => other,
+        }
+    }
+}
+
+/// A whole `background` / `background-image` layer list.
+impl ResolveSystemColors for crate::props::style::background::StyleBackgroundContentVec {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.as_ref()
+            .iter()
+            .map(|layer| layer.clone().resolve_system_colors(ctx))
+            .collect::<Vec<_>>()
+            .into()
+    }
+}
+
+/// The boxed shadows (`box-shadow`, `text-shadow`) as a `CssProperty` holds
+/// them.
+impl<T: ResolveSystemColors + Clone> ResolveSystemColors for crate::css::BoxOrStatic<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        Self::heap(self.into_inner().resolve_system_colors(ctx))
+    }
+}
+
+/// A whole declaration: the colour-valued properties resolve their value,
+/// every other property comes back unchanged.
+///
+/// For the readers that walk declarations rather than asking a typed
+/// getter (the HTML export writes each declaration back out as CSS, where a
+/// token would be a transparent colour and `system:` no colour at all).
+impl ResolveSystemColors for crate::props::property::CssProperty {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        let r = ctx;
+        match self {
+            Self::TextColor(v) => Self::TextColor(v.resolve_system_colors(r)),
+            Self::CaretColor(v) => Self::CaretColor(v.resolve_system_colors(r)),
+            Self::SelectionBackgroundColor(v) => {
+                Self::SelectionBackgroundColor(v.resolve_system_colors(r))
+            }
+            Self::SelectionColor(v) => Self::SelectionColor(v.resolve_system_colors(r)),
+            Self::BorderTopColor(v) => Self::BorderTopColor(v.resolve_system_colors(r)),
+            Self::BorderRightColor(v) => Self::BorderRightColor(v.resolve_system_colors(r)),
+            Self::BorderBottomColor(v) => Self::BorderBottomColor(v.resolve_system_colors(r)),
+            Self::BorderLeftColor(v) => Self::BorderLeftColor(v.resolve_system_colors(r)),
+            Self::ColumnRuleColor(v) => Self::ColumnRuleColor(v.resolve_system_colors(r)),
+            Self::ScrollbarColor(v) => Self::ScrollbarColor(v.resolve_system_colors(r)),
+            Self::BackgroundContent(v) => Self::BackgroundContent(v.resolve_system_colors(r)),
+            Self::ScrollbarTrack(v) => Self::ScrollbarTrack(v.resolve_system_colors(r)),
+            Self::ScrollbarThumb(v) => Self::ScrollbarThumb(v.resolve_system_colors(r)),
+            Self::ScrollbarButton(v) => Self::ScrollbarButton(v.resolve_system_colors(r)),
+            Self::ScrollbarCorner(v) => Self::ScrollbarCorner(v.resolve_system_colors(r)),
+            Self::ScrollbarResizer(v) => Self::ScrollbarResizer(v.resolve_system_colors(r)),
+            Self::BoxShadowLeft(v) => Self::BoxShadowLeft(v.resolve_system_colors(r)),
+            Self::BoxShadowRight(v) => Self::BoxShadowRight(v.resolve_system_colors(r)),
+            Self::BoxShadowTop(v) => Self::BoxShadowTop(v.resolve_system_colors(r)),
+            Self::BoxShadowBottom(v) => Self::BoxShadowBottom(v.resolve_system_colors(r)),
+            Self::TextShadow(v) => Self::TextShadow(v.resolve_system_colors(r)),
+            Self::Filter(v) => Self::Filter(v.resolve_system_colors(r)),
+            Self::BackdropFilter(v) => Self::BackdropFilter(v.resolve_system_colors(r)),
+            other => other,
+        }
+    }
 }
 
 #[must_use]
