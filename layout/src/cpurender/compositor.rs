@@ -3231,6 +3231,35 @@ fn compute_display_list_damage_impl(
             if refine && matches!(new_item, DisplayListItem::PushStackingContext { .. }) {
                 continue;
             }
+            // A scroll frame is an OFFSET, not a paint: the rasteriser does
+            // not clip at it (the `PushClip` in front of an ordinary frame
+            // does, and damages its own size change as strips above), and the
+            // items inside carry their own damage. So the same frame, anchored
+            // where it was, whose clip only changed size paints nothing by
+            // itself - the page's frame (the viewport's, no `PushClip`, as
+            // large as the window) damaged the whole window on every resize,
+            // where the exposed strip is the resize damage.
+            if refine {
+                if let (
+                    DisplayListItem::PushScrollFrame {
+                        clip_bounds: ob,
+                        scroll_id: os,
+                        ..
+                    },
+                    DisplayListItem::PushScrollFrame {
+                        clip_bounds: nb,
+                        scroll_id: ns,
+                        ..
+                    },
+                ) = (old_item, new_item)
+                {
+                    let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
+                        && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
+                    if os == ns && same_origin {
+                        continue;
+                    }
+                }
+            }
             let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
             // A SOLID rect that only changed SIZE (same origin, color,
             // radius) — the width:100% root background on every resize —
