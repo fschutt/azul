@@ -25,7 +25,10 @@ use crate::{
                 parse_angle_value, AngleValue, CssAngleValueParseError,
                 CssAngleValueParseErrorOwned,
             },
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{
+                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+                CssColorParseErrorOwned,
+            },
             length::{FloatValue, PercentageParseError, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
@@ -731,7 +734,11 @@ pub mod parser {
             "blend" => Ok(StyleFilter::Blend(parse_style_mix_blend_mode(
                 filter_values,
             )?)),
-            "flood" => Ok(StyleFilter::Flood(parse_css_color(filter_values)?)),
+            // A `system:` keyword floods with the theme's colour (a token
+            // here, resolved where the filter is read).
+            "flood" => Ok(StyleFilter::Flood(parse_color_or_system_token(
+                filter_values,
+            )?)),
             "blur" => Ok(StyleFilter::Blur(parse_style_blur(filter_values)?)),
             "opacity" => {
                 let val = parse_percentage_value(filter_values)?;

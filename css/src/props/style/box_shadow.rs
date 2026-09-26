@@ -7,7 +7,10 @@ use crate::{
     corety::AzString,
     props::{
         basic::{
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{
+                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+                CssColorParseErrorOwned,
+            },
             pixel::{
                 parse_pixel_value_no_percent, CssPixelValueParseError,
                 CssPixelValueParseErrorOwned, PixelValueNoPercent,
@@ -208,12 +211,14 @@ pub fn parse_style_box_shadow(input: &str) -> Result<StyleBoxShadow, CssShadowPa
 
     // The color can also be anywhere. Find it, set the color, and remove it.
     // It's the only part that isn't a length. We iterate from the back because
-    // it's slightly more common for the color to be last.
+    // it's slightly more common for the color to be last. A `system:` colour
+    // keyword is a colour too (its token, resolved where the shadow is read) -
+    // `box-shadow`, `text-shadow` and `drop-shadow()` all come through here.
     if let Some((pos, color)) = parts
         .iter()
         .enumerate()
         .rev()
-        .find_map(|(i, p)| parse_css_color(p).ok().map(|c| (i, c)))
+        .find_map(|(i, p)| parse_color_or_system_token(p).ok().map(|c| (i, c)))
     {
         shadow.color = color;
         parts.remove(pos);

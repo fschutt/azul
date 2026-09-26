@@ -9,7 +9,10 @@
 use alloc::string::String;
 
 use crate::props::{
-    basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+    basic::color::{
+        parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+        CssColorParseErrorOwned,
+    },
     formatter::PrintAsCssValue,
 };
 
@@ -53,10 +56,12 @@ impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `selection-background-color` value.
+///
+/// Accepts the `system:` colour keywords; see [`parse_color_or_system_token`].
 pub fn parse_selection_background_color(
     input: &str,
 ) -> Result<SelectionBackgroundColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| SelectionBackgroundColor { inner })
+    parse_color_or_system_token(input).map(|inner| SelectionBackgroundColor { inner })
 }
 
 // --- -azul-selection-color ---
@@ -96,8 +101,10 @@ impl crate::codegen::format::FormatAsRustCode for SelectionColor {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `selection-color` value.
+///
+/// Accepts the `system:` colour keywords; see [`parse_color_or_system_token`].
 pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| SelectionColor { inner })
+    parse_color_or_system_token(input).map(|inner| SelectionColor { inner })
 }
 
 // --- -azul-selection-radius ---
@@ -846,7 +853,8 @@ mod autotest_generated {
 
     #[test]
     fn the_two_color_properties_agree_on_every_input() {
-        // Both delegate to `parse_css_color`; the only difference is the wrapper.
+        // Both delegate to `parse_color_or_system_token`; the only difference is
+        // the wrapper.
         // A divergence would mean one of them grew its own (wrong) grammar.
         for input in hostile_corpus() {
             let bg = parse_selection_background_color(&input);

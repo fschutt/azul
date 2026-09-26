@@ -5,7 +5,10 @@ use alloc::string::{String, ToString};
 use crate::{
     corety::AzString,
     props::{
-        basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        basic::color::{
+            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+            CssColorParseErrorOwned,
+        },
         formatter::PrintAsCssValue,
         layout::{
             dimensions::LayoutWidth,
@@ -1080,6 +1083,10 @@ impl StyleScrollbarColorParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `scrollbar-color` value.
+///
+/// Both colours accept the `system:` colour keywords
+/// (`scrollbar-color: system:secondary-text system:control-background`);
+/// see [`parse_color_or_system_token`].
 pub fn parse_style_scrollbar_color(
     input: &str,
 ) -> Result<StyleScrollbarColor, StyleScrollbarColorParseError<'_>> {
@@ -1100,8 +1107,8 @@ pub fn parse_style_scrollbar_color(
         return Err(StyleScrollbarColorParseError::InvalidValue(input));
     }
 
-    let thumb = parse_css_color(thumb_str)?;
-    let track = parse_css_color(track_str)?;
+    let thumb = parse_color_or_system_token(thumb_str)?;
+    let track = parse_color_or_system_token(track_str)?;
 
     Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
         thumb,

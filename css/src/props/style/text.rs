@@ -2505,8 +2505,10 @@ impl FormatAsRustCode for CaretColor {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `caret-color` value.
+///
+/// Accepts the `system:` colour keywords; see [`parse_color_or_system_token`].
 pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| CaretColor { inner })
+    parse_color_or_system_token(input).map(|inner| CaretColor { inner })
 }
 
 // --- CaretAnimationDuration ---

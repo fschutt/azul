@@ -9,7 +9,10 @@ use core::num::ParseIntError;
 
 use crate::props::{
     basic::{
-        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        color::{
+            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+            CssColorParseErrorOwned,
+        },
         pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
@@ -568,11 +571,14 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `column-rule-color` value.
+    ///
+    /// Accepts the `system:` colour keywords, like the `column-rule`
+    /// shorthand (which parses through the border grammar) always did.
     pub fn parse_column_rule_color(
         input: &str,
     ) -> Result<ColumnRuleColor, ColumnRuleColorParseError<'_>> {
         Ok(ColumnRuleColor {
-            inner: parse_css_color(input)?,
+            inner: parse_color_or_system_token(input)?,
         })
     }
 }

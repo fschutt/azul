@@ -1698,14 +1698,18 @@ impl SystemColorRef {
     }
 
     /// This reference packed into a [`ColorU`], for the colour properties
-    /// whose value type is a bare `ColorU`: `color` and `border-*-color`.
+    /// whose value type holds a bare `ColorU`: `color`, `border-*-color`,
+    /// `caret-color`, the `-azul-selection-*` colours, `scrollbar-color`,
+    /// `box-shadow` / `text-shadow` / `drop-shadow()`, `flood()` and
+    /// `column-rule-color`.
     ///
-    /// Those value types are `repr(C)` newtypes around `ColorU` that the
+    /// Those value types are `repr(C)` types around `ColorU` that the
     /// whole engine and the C API read, so they cannot hold a
     /// `SystemColorRef`. A `system:` keyword therefore travels through the
     /// cascade (and inheritance) as this reserved colour and is resolved
-    /// where the COMPUTED colour is read - the layout getters call
-    /// [`crate::dynamic_selector::resolve_system_color_token`] against the
+    /// where the COMPUTED colour is read - the layout getters resolve every
+    /// colour-valued property through
+    /// [`crate::dynamic_selector::ResolveSystemColors`] against the
     /// cascade's own context, so the keyword follows the theme the cascade
     /// evaluated.
     ///
@@ -1979,10 +1983,11 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
     parse_css_color(input).map(ColorOrSystem::Color)
 }
 
-/// [`parse_color_or_system`] for a property whose value is a bare
-/// [`ColorU`] (`color`, `border-*-color`): a `system:` keyword comes back as
-/// its [`SystemColorRef::to_color_token`], which the layout getters resolve
-/// against the theme the cascade evaluated.
+/// [`parse_color_or_system`] for a property whose value holds a bare
+/// [`ColorU`] (`color`, `border-*-color`, `caret-color`, the shadows, ...;
+/// see [`SystemColorRef::to_color_token`]): a `system:` keyword comes back as
+/// its token, which the layout getters resolve against the theme the cascade
+/// evaluated. EVERY colour parser of such a property goes through here.
 #[cfg(feature = "parser")]
 /// # Errors
 ///
