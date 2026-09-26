@@ -33,7 +33,7 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
-        getters::{get_overflow_x, get_overflow_y},
+        getters::{apply_viewport_overflow_rule, get_overflow_x, get_overflow_y},
         layout_tree::LayoutNodeId,
     },
     window::DomLayoutResult,
@@ -362,16 +362,28 @@ fn check_if_scrollable(
     let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
     let styled_node = styled_nodes.get(node_id)?;
 
-    let overflow_x = get_overflow_x(
+    // THE VIEWPORT (CSS Overflow 3 §3.3): the root element's own `visible`
+    // is the viewport's `auto`, so a node below the window scrolls the
+    // viewport like any other scroll container. Read through the root's own
+    // overflow, the page was never an ancestor worth scrolling.
+    let is_viewport = crate::solver3::scrollbar::is_viewport_scroller(dom_id, node_id);
+    let scrollport_overflow = |v| {
+        if is_viewport {
+            apply_viewport_overflow_rule(node_id, v)
+        } else {
+            v
+        }
+    };
+    let overflow_x = scrollport_overflow(get_overflow_x(
         &layout_result.styled_dom,
         node_id,
         &styled_node.styled_node_state,
-    );
-    let overflow_y = get_overflow_y(
+    ));
+    let overflow_y = scrollport_overflow(get_overflow_y(
         &layout_result.styled_dom,
         node_id,
         &styled_node.styled_node_state,
-    );
+    ));
 
     // Programmatic scrolling reaches EVERY scroll container - including
     // overflow:hidden, whose user scrolling is disabled but which css

@@ -5648,7 +5648,20 @@ where
         // portion of border box; default is not clipped
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
+        // THE VIEWPORT'S FRAME, when this is the root element and the viewport
+        // scrolls it - see `viewport_scroll_frame`. Pushed LAST, innermost,
+        // after whatever the root's own overflow pushes.
+        let viewport_frame = self.viewport_scroll_frame(
+            node_index,
+            dom_id,
+            overflow_x.is_scroll_container() || overflow_y.is_scroll_container(),
+        );
+
         if !needs_clip {
+            if let Some((clip, content_size, scroll_id)) = viewport_frame {
+                builder.push_scroll_frame(clip, content_size, scroll_id);
+                return true;
+            }
             return has_clip_path;
         }
 
@@ -5748,8 +5761,59 @@ where
             );
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
+        // A root that clips an axis of its own (`overflow: clip`) still
+        // scrolls the viewport, inside that clip.
+        if let Some((clip, content_size, scroll_id)) = viewport_frame {
+            builder.push_scroll_frame(clip, content_size, scroll_id);
+        }
 
         true
+    }
+
+    /// The VIEWPORT's scroll frame `(clip, content size, scroll id)`, when
+    /// `node_index` is the root element and the viewport scrolls it: the root
+    /// got a scroll id for it (`LayoutWindow::compute_scroll_ids`, through
+    /// [`crate::solver3::scrollbar::is_viewport_scroll_frame`]), and its own
+    /// overflow is no scroll container that brings a frame of its own.
+    ///
+    /// It wraps the root's content like any scroll container's frame - after
+    /// the root's own background and border, which stay put the way every
+    /// scroll container's do - so both renderers move the page by the offset
+    /// they move every frame by: the CPU raster subtracts it, WebRender
+    /// scrolls the frame's spatial node (`wr_translate2::scroll_all_nodes`),
+    /// and the hit tester adds it back along the same chain. The viewport's
+    /// bar is painted after the frame closes, so it stays where it is.
+    ///
+    /// The clip is the whole WINDOW (`LayoutContext::canvas_rect`), not the
+    /// root's box, and no `PushClip` goes with it: a `visible` root clips
+    /// nothing, so its viewport must not either. The content size is the
+    /// extent registration publishes (`LayoutTree::scroll_extent`).
+    fn viewport_scroll_frame(
+        &self,
+        node_index: usize,
+        dom_id: NodeId,
+        own_scroll_container: bool,
+    ) -> Option<(LogicalRect, LogicalSize, LocalScrollId)> {
+        let index = LayoutNodeId::new(node_index);
+        let scroll_id = *self.scroll_ids.get(&index)?;
+        let reqs = self
+            .positioned_tree
+            .tree
+            .warm(index)
+            .and_then(|w| w.scrollbar_info);
+        crate::solver3::scrollbar::is_viewport_scroll_frame(
+            self.ctx.styled_dom.dom_id,
+            dom_id,
+            own_scroll_container,
+            reqs,
+        )
+        .then(|| {
+            (
+                self.ctx.canvas_rect,
+                self.positioned_tree.tree.scroll_extent(index, true),
+                scroll_id,
+            )
+        })
     }
 
     /// Pops any clip/scroll commands associated with a node.
@@ -5771,16 +5835,14 @@ where
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        let paint_rect = self
-            .get_paint_rect(
-                self.positioned_tree
-                    .tree
-                    .nodes
-                    .iter()
-                    .position(|n| n.dom_node_id == Some(dom_id))
-                    .unwrap_or(0),
-            )
-            .unwrap_or_default();
+        let node_index = self
+            .positioned_tree
+            .tree
+            .nodes
+            .iter()
+            .position(|n| n.dom_node_id == Some(dom_id))
+            .unwrap_or(0);
+        let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let element_size = PhysicalSizeImport {
             width: paint_rect.size.width,
@@ -5797,6 +5859,18 @@ where
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
         let is_virtual_view = self.is_virtual_view_node(dom_id);
+
+        // The viewport's frame was pushed last, innermost: it closes first.
+        if self
+            .viewport_scroll_frame(
+                node_index,
+                dom_id,
+                overflow_x.is_scroll_container() || overflow_y.is_scroll_container(),
+            )
+            .is_some()
+        {
+            builder.pop_scroll_frame();
+        }
 
         if needs_clip {
             // Regular (non-VirtualView) scroll/auto also pushed a scroll frame;

@@ -143,6 +143,17 @@ pub struct Layer {
     pub scroll_id: Option<LocalScrollId>,
     /// Whether this layer needs re-compositing onto its parent.
     pub composite_dirty: bool,
+    /// Scroll frames between this layer and its parent layer that were NOT
+    /// promoted to layers of their own - in practice the page's frame, which
+    /// covers the whole window (see `allocate_layers_from_display_list`).
+    /// Their content is painted into the parent by the rasteriser, which
+    /// applies their offsets itself, so this layer has to be moved by them
+    /// too: `inherited_offset` is their summed offset this frame.
+    pub inherited_scroll: Vec<LocalScrollId>,
+    /// The summed current offset of `inherited_scroll`, resolved by
+    /// `render_layers` and applied wherever the layer is placed in its parent
+    /// (the backdrop seed, the composite position, the static clip).
+    pub inherited_offset: (f32, f32),
 }
 
 /// Widest or tallest a compositor layer may be, in device pixels.
@@ -402,9 +413,18 @@ impl CompositorState {
         // pop remove the parent from the stack.
         let mut scroll_promoted: Vec<bool> = Vec::new();
         let mut filter_promoted: Vec<bool> = Vec::new();
+        // The scroll frames painted IN PLACE rather than promoted (see the
+        // `PushScrollFrame` arm), each with the `layer_stack` depth it was
+        // opened at. The rasteriser moves their content inside the parent
+        // layer by their offsets; a layer opened directly inside one has to
+        // move by the same offset, which it inherits (`Layer::inherited_scroll`).
+        let mut in_place_frames: Vec<(LocalScrollId, usize)> = Vec::new();
+        // The root layer's extent, in device pixels (`CompositorState::new`).
+        let root_size = self.layers.get(&root_id).map(|root| root.bounds.size);
         let mut i = 0;
 
         while i < display_list.items.len() {
+            let depth_before = layer_stack.len();
             match &display_list.items[i] {
                 DisplayListItem::PushScrollFrame {
                     clip_bounds,
@@ -424,8 +444,29 @@ impl CompositorState {
                     // text under it on every fully-layered draw (the first
                     // frame; damage repaints are flat, which healed it).
                     let end = find_matching_pop(&display_list.items, i, MatchKind::ScrollFrame);
-                    let created = pw > 0 && ph > 0 && end > i + 1;
+                    // A frame that covers the WHOLE ROOT - the PAGE's, whose
+                    // scrollport is the window (CSS Overflow 3 §3.3) - is
+                    // painted in place, not promoted. A layer is composited
+                    // OVER everything its parent paints, and what the root
+                    // paints after the page's frame is the viewport's
+                    // scrollbar: promoted, the page buried its own bar
+                    // wherever it is opaque. In place, the rasteriser applies
+                    // the frame's offset itself (`render_single_item`) and
+                    // the bar stays on top, in display-list order; a window-
+                    // sized frame has nothing to window anyway.
+                    let covers_root = root_size.is_some_and(|root| {
+                        bounds.origin.x <= 0.0
+                            && bounds.origin.y <= 0.0
+                            && (bounds.origin.x + bounds.size.width) * dpi_factor
+                                >= root.width - 1.0
+                            && (bounds.origin.y + bounds.size.height) * dpi_factor
+                                >= root.height - 1.0
+                    });
+                    let created = !covers_root && pw > 0 && ph > 0 && end > i + 1;
                     scroll_promoted.push(created);
+                    if !created {
+                        in_place_frames.push((*scroll_id, layer_stack.len()));
+                    }
                     if created {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
@@ -445,8 +486,16 @@ impl CompositorState {
                 DisplayListItem::PopScrollFrame => {
                     // Pair by recorded decision (see PopOpacity): a frame that
                     // allocated no layer must not pop its parent.
-                    if scroll_promoted.pop() == Some(true) && layer_stack.len() > 1 {
-                        layer_stack.pop();
+                    match scroll_promoted.pop() {
+                        Some(true) => {
+                            if layer_stack.len() > 1 {
+                                layer_stack.pop();
+                            }
+                        }
+                        Some(false) => {
+                            in_place_frames.pop();
+                        }
+                        None => {}
                     }
                 }
                 DisplayListItem::PushOpacity {
@@ -649,6 +698,24 @@ impl CompositorState {
                 }
                 _ => {}
             }
+            // A layer this item opened sits inside every frame painted in
+            // place since its parent layer was entered: it moves with them.
+            if layer_stack.len() > depth_before {
+                let inherited: Vec<LocalScrollId> = in_place_frames
+                    .iter()
+                    .filter(|(_, depth)| *depth == depth_before)
+                    .map(|(id, _)| *id)
+                    .collect();
+                if !inherited.is_empty() {
+                    if let Some(layer) = layer_stack
+                        .last()
+                        .copied()
+                        .and_then(|id| self.layers.get_mut(&id))
+                    {
+                        layer.inherited_scroll = inherited;
+                    }
+                }
+            }
             i += 1;
         }
     }
@@ -805,6 +872,16 @@ impl CompositorState {
                 .and_then(|id| scroll_offsets.get(&id).copied())
                 .unwrap_or((0.0, 0.0));
 
+            // The offset of the frames painted IN PLACE around this layer (the
+            // page's): the rasteriser moved the parent's content by it, so the
+            // layer is placed by it too - see `Layer::inherited_scroll`.
+            let inherited = self.layers.get(layer_id).map_or((0.0, 0.0), |l| {
+                l.inherited_scroll
+                    .iter()
+                    .filter_map(|id| scroll_offsets.get(id))
+                    .fold((0.0_f32, 0.0_f32), |(x, y), (ox, oy)| (x + ox, y + oy))
+            });
+
             // THE BACKDROP A LAYER'S CONTENT IS DRAWN OVER.
             //
             // A plain layer — opacity 1, no filter, identity transform; in
@@ -852,10 +929,16 @@ impl CompositorState {
                             .scroll_id
                             .and_then(|id| scroll_offsets.get(&id).copied())
                             .unwrap_or((0.0, 0.0));
-                        let ox = ((layer_bounds.origin.x - parent.bounds.origin.x - psoff.0)
+                        let ox = ((layer_bounds.origin.x
+                            - inherited.0
+                            - parent.bounds.origin.x
+                            - psoff.0)
                             * dpi_factor)
                             .round() as i32;
-                        let oy = ((layer_bounds.origin.y - parent.bounds.origin.y - psoff.1)
+                        let oy = ((layer_bounds.origin.y
+                            - inherited.1
+                            - parent.bounds.origin.y
+                            - psoff.1)
                             * dpi_factor)
                             .round() as i32;
                         backdrop_under(&parent.pixbuf, ox, oy, w, h)
@@ -866,6 +949,7 @@ impl CompositorState {
 
             let layer = self.layers.get_mut(layer_id).unwrap();
             layer.scroll_offset = soff;
+            layer.inherited_offset = inherited;
 
             // Clear the layer pixbuf: the clear colour (white; transparent
             // for a transparent window) for the root, the parent's backdrop
@@ -972,11 +1056,13 @@ impl CompositorState {
                 f64::from(layer.perspective_row[1]) / dpi,
                 f64::from(layer.perspective_row[2]),
             ];
-            // ...then placed at bounds.origin, then through the parent chain
-            // (column-vector matrices: the rightmost factor applies first).
+            // ...then placed at bounds.origin - moved by the frames painted in
+            // place around it (`Layer::inherited_offset`: the page's scroll) -
+            // then through the parent chain (column-vector matrices: the
+            // rightmost factor applies first).
             let place = mat3_translation(
-                layout_offset_device_px(layer.bounds.origin.x, dpi),
-                layout_offset_device_px(layer.bounds.origin.y, dpi),
+                layout_offset_device_px(layer.bounds.origin.x - layer.inherited_offset.0, dpi),
+                layout_offset_device_px(layer.bounds.origin.y - layer.inherited_offset.1, dpi),
             );
             mat3_mul(&parent_h, &mat3_mul(&place, &layer_h))
         };
@@ -998,11 +1084,17 @@ impl CompositorState {
                     && (pm.sy - 1.0).abs() < IDENTITY_EPSILON_F64;
                 if translation_only {
                     let dpi = f64::from(dpi_factor);
+                    // The wrapping clips were opened inside the same frames
+                    // painted in place as the layer, so they move with it.
+                    let (sx, sy) = (
+                        sc.origin.x - layer.inherited_offset.0,
+                        sc.origin.y - layer.inherited_offset.1,
+                    );
                     let r = (
-                        (f64::from(sc.origin.x) * dpi + pm.tx).round() as i32,
-                        (f64::from(sc.origin.y) * dpi + pm.ty).round() as i32,
-                        (f64::from(sc.origin.x + sc.size.width) * dpi + pm.tx).round() as i32,
-                        (f64::from(sc.origin.y + sc.size.height) * dpi + pm.ty).round() as i32,
+                        (f64::from(sx) * dpi + pm.tx).round() as i32,
+                        (f64::from(sy) * dpi + pm.ty).round() as i32,
+                        (f64::from(sx + sc.size.width) * dpi + pm.tx).round() as i32,
+                        (f64::from(sy + sc.size.height) * dpi + pm.ty).round() as i32,
                     );
                     Some(clip.map_or(r, |c| {
                         (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))
@@ -1238,6 +1330,8 @@ impl Layer {
             display_list_range: (0, 0),
             scroll_id: None,
             composite_dirty: true,
+            inherited_scroll: Vec::new(),
+            inherited_offset: (0.0, 0.0),
         }
     }
 }

@@ -863,30 +863,52 @@ impl CpuHitTester {
                 else {
                     continue;
                 };
+                // THE VIEWPORT (CSS Overflow 3 §3.3): the root element's own
+                // `visible` is the viewport's `auto`, and its scrollport is
+                // the WINDOW - the rect `register_scroll_nodes` publishes -
+                // not the root's box inside the page margins. Read through
+                // its own overflow, the page's scroller was never a wheel
+                // target and the wheel over the page was dropped.
+                let is_viewport =
+                    crate::solver3::scrollbar::is_viewport_scroller(*dom_id, node_id);
+                let scrollport_overflow = |v| {
+                    if is_viewport {
+                        crate::solver3::getters::apply_viewport_overflow_rule(node_id, v)
+                    } else {
+                        v
+                    }
+                };
                 let user_scrollable = styled_dom
                     .styled_nodes
                     .as_container()
                     .get(node_id)
                     .is_some_and(|sn| {
                         let st = &sn.styled_node_state;
-                        get_overflow_x(styled_dom, node_id, st).allows_user_scrolling()
-                            || get_overflow_y(styled_dom, node_id, st).allows_user_scrolling()
+                        scrollport_overflow(get_overflow_x(styled_dom, node_id, st))
+                            .allows_user_scrolling()
+                            || scrollport_overflow(get_overflow_y(styled_dom, node_id, st))
+                                .allows_user_scrolling()
                     });
                 if !user_scrollable {
                     continue;
                 }
-                self.scroll_containers.push(ScrollContainerEntry {
-                    dom_id: *dom_id,
-                    node_id,
-                    layout_idx,
-                    scroll_id,
-                    rect: LogicalRect {
+                let rect = if is_viewport {
+                    LogicalRect::new(LogicalPosition::zero(), layout_result.viewport.size)
+                } else {
+                    LogicalRect {
                         origin: LogicalPosition {
                             x: pos.x + offset.x,
                             y: pos.y + offset.y,
                         },
                         size,
-                    },
+                    }
+                };
+                self.scroll_containers.push(ScrollContainerEntry {
+                    dom_id: *dom_id,
+                    node_id,
+                    layout_idx,
+                    scroll_id,
+                    rect,
                     chain: chain_of[layout_idx.index()],
                 });
             }

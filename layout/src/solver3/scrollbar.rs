@@ -37,6 +37,33 @@ pub fn is_viewport_scroller(dom: DomId, node: NodeId) -> bool {
     dom == DomId::ROOT_ID && node.index() == 0
 }
 
+/// Does the VIEWPORT scroll `node`'s content as a scroll FRAME of its own?
+///
+/// [`is_viewport_scroller`] names the node; this asks whether its viewport
+/// scrolls in THIS layout. `reqs` is the node's scrollport decision
+/// (`cache::compute_scrollbar_info`: the root's margin box against the
+/// window), and `own_scroll_container` whether the root's OWN computed
+/// overflow already makes it a scroll container - `hidden | scroll | auto`
+/// get an ordinary frame, clipped to the root's box, from that value
+/// instead, and must not get a second one.
+///
+/// A `visible` root made nothing scroll: it had no scroll id
+/// (`LayoutWindow::compute_scroll_ids`) and no `PushScrollFrame`
+/// (`push_node_clips`), so a thumb drag moved the offset and the thumb while
+/// both renderers painted the page where it was and the hit tester tested it
+/// there. Every one of them asks THIS, through the scroll id it gets.
+#[must_use]
+pub fn is_viewport_scroll_frame(
+    dom: DomId,
+    node: NodeId,
+    own_scroll_container: bool,
+    reqs: Option<ScrollbarRequirements>,
+) -> bool {
+    is_viewport_scroller(dom, node)
+        && !own_scroll_container
+        && reqs.is_some_and(|r| r.needs_vertical || r.needs_horizontal)
+}
+
 /// How far the VIEWPORT has to scroll: the root element's `content`, and its
 /// MARGIN box - the root's margins and borders scroll with it, so a
 /// full-height `body` with the UA's 8px margins is 16px taller than the

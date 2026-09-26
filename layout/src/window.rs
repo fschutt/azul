@@ -12278,6 +12278,12 @@ impl LayoutWindow {
     /// display-list item references. Harmless for the offset map (an
     /// unreferenced id never matches a frame), but "an id exists" does NOT
     /// imply "a scroll frame exists".
+    ///
+    /// The ROOT element also gets one when the VIEWPORT scrolls it
+    /// ([`crate::solver3::scrollbar::is_viewport_scroll_frame`]): its own
+    /// `visible` is the viewport's `auto` (CSS Overflow 3 §3.3), and that id
+    /// is the one scroll frame, offset map entry and hit-test chain link the
+    /// whole page moves by.
     #[must_use]
     pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
@@ -12316,7 +12322,22 @@ impl LayoutWindow {
             let is_scrollable =
                 overflow_x.is_scroll_container() || overflow_y.is_scroll_container();
 
-            if !is_scrollable {
+            // THE VIEWPORT'S FRAME. The root element's overflow belongs to
+            // the viewport (CSS Overflow 3 §3.3): its own `visible` never
+            // made it a scroll container, yet a page taller than the window
+            // scrolls. Without an id the page had no frame to move in - the
+            // wheel and the thumb moved the offset and the bar, and nothing
+            // else.
+            let is_viewport_frame = crate::solver3::scrollbar::is_viewport_scroll_frame(
+                styled_dom.dom_id,
+                dom_node_id,
+                is_scrollable,
+                layout_tree
+                    .warm(LayoutNodeId::new(layout_idx))
+                    .and_then(|w| w.scrollbar_info),
+            );
+
+            if !is_scrollable && !is_viewport_frame {
                 continue;
             }
 
@@ -13906,7 +13927,7 @@ impl LayoutWindow {
             origin: container_pos,
             size: scrollable_layout_node.used_size.unwrap_or_default(),
         });
-        let container_rect = border_box
+        let padding_box = border_box
             .to_padding_box(&scrollable_layout_node.box_props.unpack().border)
             .rect();
 
@@ -13916,6 +13937,20 @@ impl LayoutWindow {
             .get_scroll_state(scroll_container.dom, scrollable_node_internal)
         else {
             return false;
+        };
+
+        // THE VIEWPORT's scrollport is the WINDOW (CSS Overflow 3 §3.3) - the
+        // rect `register_scroll_nodes` publishes for it - never the root's
+        // box, which is as tall as the page: measured against that, a caret
+        // anywhere on the page was already "visible", and typing past the
+        // bottom of the window never scrolled it into view.
+        let container_rect = if crate::solver3::scrollbar::is_viewport_scroller(
+            scroll_container.dom,
+            scrollable_node_internal,
+        ) {
+            scroll_state.container_rect
+        } else {
+            padding_box
         };
 
         // Calculate visible area (container rect adjusted by scroll offset)
