@@ -4,7 +4,7 @@ use alloc::string::{String, ToString};
 use core::fmt;
 
 #[cfg(feature = "parser")]
-use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
+use crate::props::basic::{color::parse_color_or_system_token, pixel::parse_pixel_value};
 use crate::{
     corety::AzString,
     css::PrintAsCssValue,
@@ -409,9 +409,9 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
             }
         }
 
-        // Try to parse as a color.
+        // Try to parse as a color (a `system:` keyword included).
         if color.is_none() {
-            if let Ok(c) = parse_css_color(part) {
+            if let Ok(c) = parse_color_or_system_token(part) {
                 color = Some(c);
                 continue;
             }
@@ -522,7 +522,7 @@ pub fn parse_border_left_style(
 ///
 /// Returns an error if `input` is not a valid CSS `border-top-color` value.
 pub fn parse_border_top_color(input: &str) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderTopColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderTopColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -531,7 +531,7 @@ pub fn parse_border_top_color(input: &str) -> Result<StyleBorderTopColor, CssCol
 pub fn parse_border_right_color(
     input: &str,
 ) -> Result<StyleBorderRightColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderRightColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderRightColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -540,7 +540,7 @@ pub fn parse_border_right_color(
 pub fn parse_border_bottom_color(
     input: &str,
 ) -> Result<StyleBorderBottomColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderBottomColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderBottomColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -549,7 +549,7 @@ pub fn parse_border_bottom_color(
 pub fn parse_border_left_color(
     input: &str,
 ) -> Result<StyleBorderLeftColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderLeftColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderLeftColor { inner })
 }
 
 // --- Border Color Shorthand ---
@@ -579,7 +579,7 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
 
     match parts.len() {
         1 => {
-            let color = parse_css_color(parts[0])?;
+            let color = parse_color_or_system_token(parts[0])?;
             Ok(StyleBorderColors {
                 top: color,
                 right: color,
@@ -588,8 +588,8 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         2 => {
-            let top_bottom = parse_css_color(parts[0])?;
-            let left_right = parse_css_color(parts[1])?;
+            let top_bottom = parse_color_or_system_token(parts[0])?;
+            let left_right = parse_color_or_system_token(parts[1])?;
             Ok(StyleBorderColors {
                 top: top_bottom,
                 right: left_right,
@@ -598,9 +598,9 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         3 => {
-            let top = parse_css_color(parts[0])?;
-            let left_right = parse_css_color(parts[1])?;
-            let bottom = parse_css_color(parts[2])?;
+            let top = parse_color_or_system_token(parts[0])?;
+            let left_right = parse_color_or_system_token(parts[1])?;
+            let bottom = parse_color_or_system_token(parts[2])?;
             Ok(StyleBorderColors {
                 top,
                 right: left_right,
@@ -609,10 +609,10 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         4 => {
-            let top = parse_css_color(parts[0])?;
-            let right = parse_css_color(parts[1])?;
-            let bottom = parse_css_color(parts[2])?;
-            let left = parse_css_color(parts[3])?;
+            let top = parse_color_or_system_token(parts[0])?;
+            let right = parse_color_or_system_token(parts[1])?;
+            let bottom = parse_color_or_system_token(parts[2])?;
+            let left = parse_color_or_system_token(parts[3])?;
             Ok(StyleBorderColors {
                 top,
                 right,
@@ -1513,7 +1513,7 @@ mod autotest_generated {
             "rgba(10, 20, 30, 0.5)",
             "hsl(0, 100%, 50%)",
         ] {
-            let expected = parse_css_color(input)
+            let expected = crate::props::basic::color::parse_css_color(input)
                 .unwrap_or_else(|e| panic!("{input:?} failed to parse: {e:?}"));
             assert_eq!(parse_border_top_color(input).unwrap().inner, expected);
             assert_eq!(parse_border_right_color(input).unwrap().inner, expected);

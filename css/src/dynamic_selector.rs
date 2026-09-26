@@ -842,6 +842,33 @@ pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
     option_env_theme()
 }
 
+/// `color` with a `system:` keyword token
+/// ([`crate::props::basic::color::SystemColorRef::to_color_token`]) replaced
+/// by the colour the keyword stands for under `ctx`; any other colour comes
+/// back unchanged.
+///
+/// THE resolution point for the colour properties whose value is a bare
+/// `ColorU` (`color`, `border-*-color`): the layout getters call it with the
+/// cascade's own context, so a keyword follows the theme the cascade
+/// evaluated. Without a context (no window yet) the keyword takes its light
+/// default, which is what the no-context cascade assumes for everything
+/// else.
+#[must_use]
+pub fn resolve_system_color_token(
+    color: crate::props::basic::color::ColorU,
+    ctx: Option<&DynamicSelectorContext>,
+) -> crate::props::basic::color::ColorU {
+    use crate::props::basic::color::SystemColorRef;
+
+    let Some(r) = SystemColorRef::from_color_token(color) else {
+        return color;
+    };
+    ctx.map_or_else(
+        || r.resolve_for_theme(&crate::system::SystemColors::default(), false),
+        |c| c.system_color(r),
+    )
+}
+
 #[must_use]
 fn option_env_theme() -> Option<ThemeCondition> {
     match std::env::var("AZ_THEME")
@@ -1036,6 +1063,16 @@ pub struct DynamicSelectorContext {
     /// keyboard covers from the bottom (`SafeAreaInsets::keyboard`). `NaN`
     /// when no keyboard is up.
     pub keyboard_inset_height: f32,
+    /// The palette the `system:` colour keywords resolve against: the
+    /// desktop's colours for THIS context's `theme`
+    /// ([`crate::system::SystemStyle::colors_for_theme`]), so a keyword can
+    /// never paint the other theme's colour than the rest of the cascade.
+    ///
+    /// Part of the context - and of its equality - on purpose: a new palette
+    /// (an accent change, a light/dark switch) is a new context, which bumps
+    /// the cascade epoch every style memo and the display-list cache key on,
+    /// exactly like a theme flip does. APPENDED for ABI stability.
+    pub system_colors: crate::system::SystemColors,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1065,6 +1102,7 @@ impl PartialEq for DynamicSelectorContext {
             && self.safe_area_bottom.to_bits() == other.safe_area_bottom.to_bits()
             && self.safe_area_left.to_bits() == other.safe_area_left.to_bits()
             && self.keyboard_inset_height.to_bits() == other.keyboard_inset_height.to_bits()
+            && self.system_colors == other.system_colors
     }
 }
 
@@ -1093,6 +1131,9 @@ impl Default for DynamicSelectorContext {
             safe_area_bottom: f32::NAN,
             safe_area_left: f32::NAN,
             keyboard_inset_height: f32::NAN,
+            // No palette: every `system:` keyword answers its own light
+            // default (`SystemColorRef::fallback`).
+            system_colors: crate::system::SystemColors::default(),
         }
     }
 }
@@ -1115,6 +1156,13 @@ impl DynamicSelectorContext {
         // the OS theme.
         let theme = option_env_theme()
             .unwrap_or_else(|| ThemeCondition::from_system_theme(system_style.theme));
+        // The palette of the theme this context EVALUATES, which the pin can
+        // make differ from the desktop's.
+        let system_colors = system_style.colors_for_theme(if theme == ThemeCondition::Dark {
+            crate::system::Theme::Dark
+        } else {
+            crate::system::Theme::Light
+        });
 
         Self {
             os,
@@ -1142,7 +1190,19 @@ impl DynamicSelectorContext {
             safe_area_bottom: f32::NAN,
             safe_area_left: f32::NAN,
             keyboard_inset_height: f32::NAN,
+            system_colors,
         }
+    }
+
+    /// The colour the `system:` keyword `r` stands for under this context:
+    /// the palette's slot, or the keyword's own default for this context's
+    /// theme when the desktop left the slot empty.
+    #[must_use]
+    pub fn system_color(
+        &self,
+        r: crate::props::basic::color::SystemColorRef,
+    ) -> crate::props::basic::color::ColorU {
+        r.resolve_for_theme(&self.system_colors, self.theme == ThemeCondition::Dark)
     }
 
     /// Carry the window's live safe-area insets, so `env(safe-area-inset-*)`
@@ -1188,11 +1248,16 @@ impl DynamicSelectorContext {
     /// carries), so this component is redundant. Kept: it is one hash of one
     /// enum, and it keys the list on the theme even for a path that forgets
     /// to bump the epoch.
+    ///
+    /// The `system:` palette is folded in for the same reason: a keyword is
+    /// resolved against it when the list is BUILT, so two palettes must
+    /// never share one cached list.
     #[must_use]
     pub fn paint_defaults_fingerprint(&self) -> u64 {
         use core::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.theme.hash(&mut h);
+        self.system_colors.hash(&mut h);
         h.finish()
     }
 

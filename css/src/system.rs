@@ -536,7 +536,11 @@ pub struct AccessibilitySettings {
 /// On macOS, these correspond to `NSColor` semantic colors.
 /// On Windows, these come from `UISettings`.
 /// On Linux/GTK, these come from the GTK theme.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+///
+/// Stylesheets reach every slot as a `system:` colour keyword (the slot name
+/// in kebab-case, see `SystemColorRef`), resolved against the palette of the
+/// theme the cascade evaluates ([`SystemStyle::colors_for_theme`]).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct SystemColors {
     // === Primary semantic colors ===
@@ -1723,6 +1727,32 @@ impl SystemStyle {
         );
 
         AzString::from(json)
+    }
+
+    /// The colour palette for `theme`: this style's own (detected) colours
+    /// when it IS that theme; otherwise an empty palette that keeps only the
+    /// user's accent, so every other slot takes the keyword's own default
+    /// for `theme` (`SystemColorRef::fallback`).
+    ///
+    /// The cascade can run in a theme the desktop is not in - an app that
+    /// pins its window light on a dark desktop, `AZ_THEME`, the frames
+    /// between a switch and the re-discovery - and a `system:` colour has to
+    /// follow the CASCADE's theme: resolved against the desktop's palette
+    /// instead, a light window would get the dark field background under its
+    /// light-theme text. What the desktop would show in the other theme is
+    /// only known to the platform probe; nothing platform-specific is
+    /// guessed here.
+    #[must_use]
+    pub fn colors_for_theme(&self, theme: Theme) -> SystemColors {
+        if self.theme == theme {
+            return self.colors;
+        }
+        // The accent is the one colour the user picked, and it is a hue,
+        // not a polarity - the same rule `adopt_theme_palette` follows.
+        SystemColors {
+            accent: self.colors.accent,
+            ..SystemColors::default()
+        }
     }
 
     /// Returns a platform-appropriate default system style.

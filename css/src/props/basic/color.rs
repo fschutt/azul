@@ -1446,6 +1446,15 @@ impl ColorOrSystem {
 
 /// Reference to a specific system color.
 /// These are resolved at runtime based on the user's system preferences.
+///
+/// Every variant names one slot of [`crate::system::SystemColors`]; the CSS
+/// spelling is `system:` plus the slot's name in kebab-case
+/// (`window_background` -> `system:window-background`).
+///
+/// A reference always resolves to SOME colour: a slot the platform did not
+/// fill answers the reference's own per-theme default
+/// ([`SystemColorRef::fallback`]), so `system:` colours stay coherent with
+/// the theme even on a desktop whose detection reported nothing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum SystemColorRef {
@@ -1469,32 +1478,90 @@ pub enum SystemColorRef {
     SelectionText,
 }
 
+/// Red channel of a system-colour token (`'S'`), see [`SystemColorRef::to_color_token`].
+const SYSTEM_COLOR_TOKEN_R: u8 = 0x53;
+/// Green channel of a system-colour token (`'Y'`), see [`SystemColorRef::to_color_token`].
+const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
+
 impl SystemColorRef {
+    /// Every reference, in declaration (= discriminant) order.
+    pub const ALL: [Self; 9] = [
+        Self::Text,
+        Self::Background,
+        Self::Accent,
+        Self::AccentText,
+        Self::ButtonFace,
+        Self::ButtonText,
+        Self::WindowBackground,
+        Self::SelectionBackground,
+        Self::SelectionText,
+    ];
+
+    /// The slot of `colors` this reference names - `None` when the platform
+    /// did not fill it.
+    #[must_use]
+    pub const fn get(&self, colors: &crate::system::SystemColors) -> OptionColorU {
+        match self {
+            Self::Text => colors.text,
+            Self::Background => colors.background,
+            Self::Accent => colors.accent,
+            Self::AccentText => colors.accent_text,
+            Self::ButtonFace => colors.button_face,
+            Self::ButtonText => colors.button_text,
+            Self::WindowBackground => colors.window_background,
+            Self::SelectionBackground => colors.selection_background,
+            Self::SelectionText => colors.selection_text,
+        }
+    }
+
     /// Resolve this system color reference against actual system colors.
     #[must_use]
     pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
-        match self {
-            Self::Text => colors.text.as_option().copied().unwrap_or(fallback),
-            Self::Background => colors.background.as_option().copied().unwrap_or(fallback),
-            Self::Accent => colors.accent.as_option().copied().unwrap_or(fallback),
-            Self::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
-            Self::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
-            Self::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
-            Self::WindowBackground => colors
-                .window_background
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
-            Self::SelectionBackground => colors
-                .selection_background
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
-            Self::SelectionText => colors
-                .selection_text
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
+        self.get(colors).into_option().unwrap_or(fallback)
+    }
+
+    /// Resolve against `colors`, falling back to this reference's own default
+    /// for the theme (`dark`) when the platform left the slot empty.
+    ///
+    /// THE resolution the engine paints with: the cascade's context carries
+    /// the palette of the theme it evaluates (`DynamicSelectorContext::
+    /// system_colors`), and this is how a `system:` keyword turns into the
+    /// colour that theme wants.
+    #[must_use]
+    pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
+        self.get(colors)
+            .into_option()
+            .unwrap_or_else(|| self.fallback(dark))
+    }
+
+    /// The colour this reference stands for when no platform palette says
+    /// otherwise, for a light (`dark == false`) or a dark window.
+    ///
+    /// The ONLY hard-coded colours of the `system:` machinery, and
+    /// deliberately platform-neutral: what a desktop really uses is read by
+    /// its probe (`SystemStyle` discovery in the shell). These exist so a
+    /// palette with holes - a desktop that reports three colours, a test
+    /// with none - still reads as one coherent theme: label colours are
+    /// translucent black / white, surfaces are neutral greys.
+    #[must_use]
+    pub const fn fallback(&self, dark: bool) -> ColorU {
+        const fn c(r: u8, g: u8, b: u8, a: u8) -> ColorU {
+            ColorU { r, g, b, a }
+        }
+        match (self, dark) {
+            (Self::Text | Self::ButtonText, false) => c(0, 0, 0, 217),
+            (Self::Text | Self::ButtonText, true) => c(255, 255, 255, 217),
+            (Self::Background, false) => c(255, 255, 255, 255),
+            (Self::Background, true) => c(30, 30, 30, 255),
+            (Self::Accent, false) => c(0, 122, 255, 255),
+            (Self::Accent, true) => c(10, 132, 255, 255),
+            (Self::AccentText | Self::SelectionText, _) => c(255, 255, 255, 255),
+            (Self::ButtonFace, false) => c(255, 255, 255, 255),
+            (Self::ButtonFace, true) => c(72, 72, 74, 255),
+            (Self::WindowBackground, false) => c(236, 236, 236, 255),
+            (Self::WindowBackground, true) => c(50, 50, 50, 255),
+            (Self::SelectionBackground, false) => c(0, 100, 225, 255),
+            (Self::SelectionBackground, true) => c(0, 88, 208, 255),
         }
     }
 
@@ -1511,6 +1578,68 @@ impl SystemColorRef {
             Self::WindowBackground => "system:window-background",
             Self::SelectionBackground => "system:selection-background",
             Self::SelectionText => "system:selection-text",
+        }
+    }
+
+    /// The reference a `system:` keyword names, given the part AFTER
+    /// `system:` (`"window-background"`). Case-sensitive, like the rest of
+    /// the `system:` syntax.
+    #[must_use]
+    pub fn from_css_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|r| r.as_css_str().strip_prefix("system:") == Some(name))
+    }
+
+    /// This reference packed into a [`ColorU`], for the colour properties
+    /// whose value type is a bare `ColorU`: `color` and `border-*-color`.
+    ///
+    /// Those value types are `repr(C)` newtypes around `ColorU` that the
+    /// whole engine and the C API read, so they cannot hold a
+    /// `SystemColorRef`. A `system:` keyword therefore travels through the
+    /// cascade (and inheritance) as this reserved colour and is resolved
+    /// where the COMPUTED colour is read - the layout getters call
+    /// [`crate::dynamic_selector::resolve_system_color_token`] against the
+    /// cascade's own context, so the keyword follows the theme the cascade
+    /// evaluated.
+    ///
+    /// The token is fully transparent: a reader that never resolves it
+    /// paints nothing rather than a wrong colour, and no VISIBLE colour a
+    /// stylesheet can name is ever mistaken for a keyword.
+    #[must_use]
+    pub const fn to_color_token(self) -> ColorU {
+        ColorU {
+            r: SYSTEM_COLOR_TOKEN_R,
+            g: SYSTEM_COLOR_TOKEN_G,
+            b: self as u8,
+            a: 0,
+        }
+    }
+
+    /// The reference a colour token stands for, or `None` for an ordinary
+    /// colour. The inverse of [`Self::to_color_token`].
+    #[must_use]
+    pub const fn from_color_token(color: ColorU) -> Option<Self> {
+        if color.a != 0 || color.r != SYSTEM_COLOR_TOKEN_R || color.g != SYSTEM_COLOR_TOKEN_G {
+            return None;
+        }
+        Self::from_index(color.b)
+    }
+
+    /// The reference with discriminant `index`.
+    const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Text),
+            1 => Some(Self::Background),
+            2 => Some(Self::Accent),
+            3 => Some(Self::AccentText),
+            4 => Some(Self::ButtonFace),
+            5 => Some(Self::ButtonText),
+            6 => Some(Self::WindowBackground),
+            7 => Some(Self::SelectionBackground),
+            8 => Some(Self::SelectionText),
+            _ => None,
         }
     }
 }
@@ -1707,16 +1836,11 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 
 /// Parse a color that can be either a concrete color or a system color reference.
 ///
-/// Supports all standard CSS color formats plus:
-/// - `system:accent` - System accent/highlight color
-/// - `system:text` - System text color
-/// - `system:background` - System background color
-/// - `system:selection-background` - Selection/highlight background
-/// - `system:selection-text` - Text color when selected
-/// - `system:button-face` - Button background color
-/// - `system:button-text` - Button text color
-/// - `system:window-background` - Window background color
-/// - `system:accent-text` - Text color on accent background
+/// Supports all standard CSS color formats plus one `system:<slot>` keyword
+/// per [`SystemColorRef`] - the slot names of
+/// [`crate::system::SystemColors`] in kebab-case (`system:accent`,
+/// `system:text`, `system:window-background`, ...; see
+/// [`SystemColorRef::as_css_str`]).
 #[cfg(feature = "parser")]
 /// # Errors
 ///
@@ -1726,23 +1850,28 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
 
     // Check for system color syntax: "system:name"
     if let Some(system_name) = input.strip_prefix("system:") {
-        let system_ref = match system_name.trim() {
-            "text" => SystemColorRef::Text,
-            "background" => SystemColorRef::Background,
-            "accent" => SystemColorRef::Accent,
-            "accent-text" => SystemColorRef::AccentText,
-            "button-face" => SystemColorRef::ButtonFace,
-            "button-text" => SystemColorRef::ButtonText,
-            "window-background" => SystemColorRef::WindowBackground,
-            "selection-background" => SystemColorRef::SelectionBackground,
-            "selection-text" => SystemColorRef::SelectionText,
-            _ => return Err(CssColorParseError::InvalidColor(input)),
-        };
-        return Ok(ColorOrSystem::System(system_ref));
+        return SystemColorRef::from_css_name(system_name.trim())
+            .map(ColorOrSystem::System)
+            .ok_or(CssColorParseError::InvalidColor(input));
     }
 
     // Otherwise parse as regular color
     parse_css_color(input).map(ColorOrSystem::Color)
+}
+
+/// [`parse_color_or_system`] for a property whose value is a bare
+/// [`ColorU`] (`color`, `border-*-color`): a `system:` keyword comes back as
+/// its [`SystemColorRef::to_color_token`], which the layout getters resolve
+/// against the theme the cascade evaluated.
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is neither a CSS color nor a `system:` color keyword.
+pub fn parse_color_or_system_token(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
+    Ok(match parse_color_or_system(input)? {
+        ColorOrSystem::Color(c) => c,
+        ColorOrSystem::System(r) => r.to_color_token(),
+    })
 }
 
 #[cfg(feature = "parser")]

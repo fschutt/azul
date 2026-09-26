@@ -18,7 +18,10 @@ use crate::{
     codegen::format::FormatAsRustCode,
     props::{
         basic::{
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{
+                parse_color_or_system, ColorOrSystem, ColorU, CssColorParseError,
+                CssColorParseErrorOwned,
+            },
             font::{
                 parse_style_font_family, CssStyleFontFamilyParseError,
                 CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
@@ -4221,8 +4224,14 @@ pub fn parse_combined_css_property(
             ])
         }
         BackgroundColor => {
-            let color = parse_css_color(value)?;
-            let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            // A `system:` keyword stays a reference here, exactly like the
+            // `background:` shorthand's: the getters resolve it against the
+            // theme the cascade evaluated.
+            let layer = match parse_color_or_system(value)? {
+                ColorOrSystem::Color(color) => StyleBackgroundContent::Color(color),
+                ColorOrSystem::System(system) => StyleBackgroundContent::SystemColor(system),
+            };
+            let vec: StyleBackgroundContentVec = vec![layer].into();
             Ok(vec![CssProperty::BackgroundContent(
                 CssPropertyValue::Exact(vec),
             )])

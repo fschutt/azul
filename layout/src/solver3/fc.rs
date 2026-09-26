@@ -5915,7 +5915,7 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
             BorderInfo::new(blw, bls, blc, source)
         };
 
-        return (top, right, bottom, left);
+        return resolve_system_border_colors((top, right, bottom, left), cache);
     }
 
     // SLOW PATH: full cascade resolution
@@ -6058,7 +6058,28 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
             },
         );
 
-    (top, right, bottom, left)
+    resolve_system_border_colors((top, right, bottom, left), cache)
+}
+
+/// The four edges with a `border-*-color: system:<slot>` token resolved
+/// against the cascade's own context - the compact cache and the slow
+/// cascade both hand back the colour as declared, and for a `system:`
+/// keyword that is a token, not a colour.
+fn resolve_system_border_colors(
+    edges: (BorderInfo, BorderInfo, BorderInfo, BorderInfo),
+    cache: &azul_core::prop_cache::CssPropertyCache,
+) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
+    let ctx = cache.dynamic_context.as_deref();
+    let resolve = |mut edge: BorderInfo| {
+        edge.color = azul_css::dynamic_selector::resolve_system_color_token(edge.color, ctx);
+        edge
+    };
+    (
+        resolve(edges.0),
+        resolve(edges.1),
+        resolve(edges.2),
+        resolve(edges.3),
+    )
 }
 
 // +spec:table-layout:c5e446 - table-layout property (auto|fixed) controls layout algorithm

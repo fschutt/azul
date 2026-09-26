@@ -650,7 +650,10 @@ impl FormatAsRustCode for StyleVerticalAlign {
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
-    color::{parse_css_color, CssColorParseError, CssColorParseErrorOwned},
+    color::{
+        parse_color_or_system_token, parse_css_color, CssColorParseError,
+        CssColorParseErrorOwned,
+    },
     DurationParseError,
 };
 
@@ -704,8 +707,11 @@ impl StyleTextColorParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-color` value.
+///
+/// Accepts the `system:` colour keywords (`color: system:text`); see
+/// [`parse_color_or_system_token`].
 pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError<'_>> {
-    parse_css_color(input)
+    parse_color_or_system_token(input)
         .map(|inner| StyleTextColor { inner })
         .map_err(StyleTextColorParseError::ColorParseError)
 }

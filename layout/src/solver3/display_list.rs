@@ -2894,10 +2894,10 @@ impl DisplayListBuilder {
                     }
                 }
                 StyleBackgroundContent::SystemColor(_s) => {
-                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
-                    // fallback) and push_rect. SystemColors is not threaded into the
-                    // display-list builder yet, so `background: system:<name>` currently
-                    // parses but paints nothing (graceful no-op rather than a wrong color).
+                    // Never reached from the generator: `get_background_contents`
+                    // resolves every `system:` colour against the cascade's context
+                    // before a layer gets here. A caller that bypasses the getter
+                    // gets nothing painted rather than a colour of the wrong theme.
                 }
             }
         }
@@ -2954,10 +2954,10 @@ impl DisplayListBuilder {
                     }
                 }
                 StyleBackgroundContent::SystemColor(_s) => {
-                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
-                    // fallback) and push_rect. SystemColors is not threaded into the
-                    // display-list builder yet, so `background: system:<name>` currently
-                    // parses but paints nothing (graceful no-op rather than a wrong color).
+                    // Never reached from the generator: `get_background_contents`
+                    // resolves every `system:` colour against the cascade's context
+                    // before a layer gets here. A caller that bypasses the getter
+                    // gets nothing painted rather than a colour of the wrong theme.
                 }
             }
         }
@@ -8111,6 +8111,18 @@ where
                     )
                 })
                 .unwrap_or(glyph_run.color);
+            // `color: system:<slot>` is a token until here: resolve it
+            // against the context the cascade evaluated, the same way the
+            // baked run colour was.
+            let live_color = azul_css::dynamic_selector::resolve_system_color_token(
+                live_color,
+                self.ctx
+                    .styled_dom
+                    .css_property_cache
+                    .ptr
+                    .dynamic_context
+                    .as_deref(),
+            );
             match &selection_recolour {
                 Some((rects, selected_color)) => {
                     // A glyph's `point` is its pen position ON THE BASELINE at

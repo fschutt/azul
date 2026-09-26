@@ -2093,6 +2093,7 @@ pub fn get_background_color(
 ) -> ColorU {
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let cache = &styled_dom.css_property_cache.ptr;
+    let ctx = cache.dynamic_context.as_deref();
 
     // Fast path: Get this node's background.
     // Negative fast path: if compact cache says `has_background == 0` on a
@@ -2110,6 +2111,9 @@ pub fn get_background_color(
             .get_background_content(ndata, &nid, state)
             .and_then(|bg| bg.get_property())
             .and_then(|bg_vec| bg_vec.get(0).cloned())
+            // A `system:` colour is a solid colour too, once resolved against
+            // the theme the cascade evaluated.
+            .map(|first_bg| resolve_system_background(first_bg, ctx))
             .and_then(|first_bg| match &first_bg {
                 azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
                 azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
@@ -2170,14 +2174,122 @@ pub fn get_background_color(
     })
 }
 
+/// Every `system:` colour in a background layer, resolved against the
+/// cascade's own context `ctx`: a `SystemColor` layer becomes the colour it
+/// names, a colour token becomes its colour, and a gradient's `system:`
+/// stops become concrete stops.
+///
+/// Backgrounds meet the palette HERE, in the two getters every reader goes
+/// through (the display list, the opaque-cover checks, the probes), so no
+/// renderer is ever handed an unresolved keyword - a `SystemColor` layer used
+/// to paint nothing at all, and a `system:` gradient stop painted grey on the
+/// GPU path. Resolving against the CASCADE's context (not the desktop's
+/// style) is what keeps a keyword in the same theme as the text on it.
+fn resolve_system_background(
+    layer: azul_css::props::style::StyleBackgroundContent,
+    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
+) -> azul_css::props::style::StyleBackgroundContent {
+    use azul_css::{
+        dynamic_selector::resolve_system_color_token,
+        props::{
+            basic::color::{ColorOrSystem, SystemColorRef},
+            style::{
+                NormalizedLinearColorStop, NormalizedRadialColorStop, StyleBackgroundContent as B,
+            },
+        },
+        system::SystemColors,
+    };
+
+    let named = |r: SystemColorRef| -> ColorU {
+        ctx.map_or_else(
+            || r.resolve_for_theme(&SystemColors::default(), false),
+            |c| c.system_color(r),
+        )
+    };
+    let stop_color = |c: ColorOrSystem| -> ColorOrSystem {
+        match c {
+            ColorOrSystem::System(r) => ColorOrSystem::Color(named(r)),
+            ColorOrSystem::Color(c) => ColorOrSystem::Color(c),
+        }
+    };
+    let is_system = |c: &ColorOrSystem| matches!(c, ColorOrSystem::System(_));
+
+    match layer {
+        B::SystemColor(r) => B::Color(named(r)),
+        B::Color(c) => B::Color(resolve_system_color_token(c, ctx)),
+        B::LinearGradient(mut g) => {
+            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
+                g.stops = g
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|s| NormalizedLinearColorStop {
+                        offset: s.offset,
+                        color: stop_color(s.color),
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+            }
+            B::LinearGradient(g)
+        }
+        B::RadialGradient(mut g) => {
+            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
+                g.stops = g
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|s| NormalizedLinearColorStop {
+                        offset: s.offset,
+                        color: stop_color(s.color),
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+            }
+            B::RadialGradient(g)
+        }
+        B::ConicGradient(mut g) => {
+            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
+                g.stops = g
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|s| NormalizedRadialColorStop {
+                        angle: s.angle,
+                        color: stop_color(s.color),
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+            }
+            B::ConicGradient(g)
+        }
+        other @ B::Image(_) => other,
+    }
+}
+
 /// Returns all background content layers for a node (colors, gradients, images).
 /// This is used for rendering backgrounds that may include linear/radial/conic gradients.
+///
+/// Every `system:` colour is already resolved against the cascade's context
+/// (see `resolve_system_background`): the layers handed back are concrete.
 ///
 /// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
 /// For HTML documents, if the root `<html>` element has no background (transparent with no image),
 /// propagate the background from the first `<body>` child element.
 #[must_use]
 pub fn get_background_contents(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    let ctx = styled_dom.css_property_cache.ptr.dynamic_context.as_deref();
+    background_contents_as_declared(styled_dom, node_id, node_state)
+        .into_iter()
+        .map(|layer| resolve_system_background(layer, ctx))
+        .collect()
+}
+
+/// [`get_background_contents`] before its `system:` colours are resolved.
+fn background_contents_as_declared(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2355,7 +2467,7 @@ pub fn get_border_info(
 
             return BorderInfo {
                 widths,
-                colors,
+                colors: resolve_system_border_colors(colors, styled_dom),
                 styles,
             };
         }
@@ -2438,8 +2550,55 @@ pub fn get_border_info(
 
     BorderInfo {
         widths,
-        colors,
+        colors: resolve_system_border_colors(colors, styled_dom),
         styles,
+    }
+}
+
+/// The four border colours with a `system:` keyword's token resolved against
+/// the cascade's own context: `border-*-color: system:<slot>` travels
+/// through the cascade (and the compact cache) as a token, and every reader
+/// of a border - the display list, SVG strokes, the inline-box borders -
+/// takes it from [`get_border_info`].
+fn resolve_system_border_colors(
+    colors: crate::solver3::display_list::StyleBorderColors,
+    styled_dom: &StyledDom,
+) -> crate::solver3::display_list::StyleBorderColors {
+    use azul_css::{
+        dynamic_selector::resolve_system_color_token,
+        props::style::border::{
+            StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+            StyleBorderTopColor,
+        },
+    };
+
+    let ctx = styled_dom.css_property_cache.ptr.dynamic_context.as_deref();
+    let r = |c: ColorU| resolve_system_color_token(c, ctx);
+    crate::solver3::display_list::StyleBorderColors {
+        top: colors.top.map(|v| match v {
+            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderTopColor {
+                inner: r(c.inner),
+            }),
+            other => other,
+        }),
+        right: colors.right.map(|v| match v {
+            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderRightColor {
+                inner: r(c.inner),
+            }),
+            other => other,
+        }),
+        bottom: colors.bottom.map(|v| match v {
+            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderBottomColor {
+                inner: r(c.inner),
+            }),
+            other => other,
+        }),
+        left: colors.left.map(|v| match v {
+            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderLeftColor {
+                inner: r(c.inner),
+            }),
+            other => other,
+        }),
     }
 }
 
@@ -2743,6 +2902,12 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
                 .get_text_color_or_default(node_data, &node_id, node_state)
                 .inner
         }, |c| c.inner);
+    // `currentColor` may be a `system:` keyword's token: the caret takes the
+    // colour the text itself is painted in.
+    let color = azul_css::dynamic_selector::resolve_system_color_token(
+        color,
+        styled_dom.css_property_cache.ptr.dynamic_context.as_deref(),
+    );
 
     let width = styled_dom
         .css_property_cache
@@ -3238,6 +3403,12 @@ pub fn get_style_properties_for_state(
         );
         ColorU::BLACK
     });
+    // `color: system:<slot>` arrives as a token (inherited like any colour);
+    // this is where it becomes the colour of the theme the cascade evaluated.
+    let color = azul_css::dynamic_selector::resolve_system_color_token(
+        color,
+        cache.dynamic_context.as_deref(),
+    );
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {

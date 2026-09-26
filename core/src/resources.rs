@@ -449,6 +449,12 @@ impl CssMockEnvironment {
             ctx.desktop_env = azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de);
         }
         if let azul_css::dynamic_selector::OptionThemeCondition::Some(ref theme) = self.theme {
+            if ctx.theme != *theme {
+                // The palette belongs to the theme being replaced: drop it,
+                // so a `system:` keyword takes the mocked theme's defaults
+                // instead of the other theme's colours.
+                ctx.system_colors = azul_css::system::SystemColors::default();
+            }
             ctx.theme = theme.clone();
         }
         if let azul_css::OptionString::Some(ref lang) = self.language {

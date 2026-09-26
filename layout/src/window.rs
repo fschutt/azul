@@ -5496,6 +5496,16 @@ impl LayoutWindow {
                 azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
                 azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
             });
+        // The `system:` palette follows the theme just chosen, not the
+        // desktop's: a window the app pins light on a dark desktop must not
+        // resolve `system:window-background` to the dark desktop's colour.
+        if let Some(style) = self.system_style.as_deref() {
+            ctx.system_colors = style.colors_for_theme(if ctx.theme == ThemeCondition::Dark {
+                azul_css::system::Theme::Dark
+            } else {
+                azul_css::system::Theme::Light
+            });
+        }
         ctx
     }
 
