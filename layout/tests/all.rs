@@ -248,6 +248,8 @@ mod inline_block_text;
 mod inline_gradient_border;
 #[path = "integration_test_registry_is_exhaustive.rs"]
 mod integration_test_registry_is_exhaustive;
+#[path = "keyboard_selection_is_painted.rs"]
+mod keyboard_selection_is_painted;
 #[path = "keycode_table_manifest_is_exhaustive.rs"]
 mod keycode_table_manifest_is_exhaustive;
 #[path = "list_item_editing.rs"]
