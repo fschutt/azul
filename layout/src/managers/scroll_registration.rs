@@ -267,6 +267,38 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 scrollbar_info.needs_horizontal,
                 scrollbar_info.needs_vertical,
             );
+
+            // The scroll frames this box - and its bar - are painted in: every
+            // scroll container above it (`scroll_ids`, the set the display list
+            // and the hit tester's chains are built from). With them the scroll
+            // manager hit-tests the bar where it is drawn, not where it was
+            // laid out; the page's own frame puts the root above every box on
+            // a page taller than its window.
+            let ancestors: Vec<NodeId> = {
+                let nodes = &layout_result.layout_tree.nodes;
+                let mut found = Vec::new();
+                let mut cur = nodes.get(node_idx).and_then(|n| n.parent);
+                let mut guard = 0usize;
+                while let Some(p) = cur {
+                    guard += 1;
+                    if guard > nodes.len() {
+                        break;
+                    }
+                    let Some(ancestor) = nodes.get(p) else {
+                        break;
+                    };
+                    if layout_result.scroll_ids.contains_key(&LayoutNodeId::new(p)) {
+                        if let Some(ancestor_dom_node) = ancestor.dom_node_id {
+                            found.push(ancestor_dom_node);
+                        }
+                    }
+                    cur = ancestor.parent;
+                }
+                found
+            };
+            layout_window
+                .scroll_manager
+                .set_scroll_ancestors(*dom_id, dom_node_id, ancestors);
         }
     }
     layout_window.scroll_manager.calculate_scrollbar_states();

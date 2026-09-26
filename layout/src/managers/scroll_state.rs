@@ -442,6 +442,13 @@ pub struct ScrollManager {
     states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
     /// Scrollbar geometry states (calculated per frame)
     scrollbar_states: BTreeMap<(DomId, NodeId, ScrollbarOrientation), ScrollbarState>,
+    /// Per registered scroll node: the scroll containers ABOVE it in its own
+    /// dom, published by `register_scroll_nodes`. A box - and its scrollbar -
+    /// is painted inside their scroll frames, so it appears on screen moved
+    /// by their summed offset ([`Self::ancestor_scroll_offset`]); the page's
+    /// own frame (the viewport's) puts the root above every box on a page
+    /// taller than its window.
+    scroll_ancestors: BTreeMap<(DomId, NodeId), Vec<NodeId>>,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
@@ -1581,11 +1588,47 @@ impl ScrollManager {
         }
     }
 
+    /// Record the scroll containers above `node_id` in its own dom - the
+    /// scroll frames it is painted in. Replaces what was recorded before; an
+    /// empty list forgets the node. Published by `register_scroll_nodes`.
+    pub fn set_scroll_ancestors(&mut self, dom_id: DomId, node_id: NodeId, ancestors: Vec<NodeId>) {
+        if ancestors.is_empty() {
+            self.scroll_ancestors.remove(&(dom_id, node_id));
+        } else {
+            self.scroll_ancestors.insert((dom_id, node_id), ancestors);
+        }
+    }
+
+    /// How far the scroll containers above `node_id` (see
+    /// [`Self::set_scroll_ancestors`]) have moved it: its box - and its
+    /// scrollbar - is painted this much up and to the left of where it was
+    /// laid out.
+    #[must_use]
+    pub fn ancestor_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> LogicalPosition {
+        self.scroll_ancestors
+            .get(&(dom_id, node_id))
+            .map_or_else(LogicalPosition::zero, |ancestors| {
+                ancestors
+                    .iter()
+                    .filter_map(|ancestor| self.get_current_offset(dom_id, *ancestor))
+                    .fold(LogicalPosition::zero(), |sum, offset| {
+                        LogicalPosition::new(sum.x + offset.x, sum.y + offset.y)
+                    })
+            })
+    }
+
     // Scrollbar State Management
 
     /// Calculate scrollbar states for all visible scrollbars.
     /// This should be called once per frame after layout is complete.
     /// Uses the shared `compute_scrollbar_geometry()` for consistent geometry.
+    ///
+    /// The tracks are in WINDOW space - where the bars are painted, which is
+    /// what the pointer is hit-tested with: a bar is painted inside every
+    /// scroll frame above its box, so its layout-space track is moved by
+    /// [`Self::ancestor_scroll_offset`]. Built from the layout-space
+    /// scrollport alone, a box on a scrolled page had its bar found where it
+    /// had been laid out, the page's scroll away from where it was drawn.
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
@@ -1612,8 +1655,11 @@ impl ScrollManager {
                     effective > container
                 })
                 .map(|((dom_id, node_id), scroll_state)| {
-                    let state =
+                    let mut state =
                         Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation);
+                    let shift = self.ancestor_scroll_offset(*dom_id, *node_id);
+                    state.track_rect.origin.x -= shift.x;
+                    state.track_rect.origin.y -= shift.y;
                     ((*dom_id, *node_id, orientation), state)
                 })
                 .collect();
@@ -2035,6 +2081,10 @@ impl crate::managers::NodeIdRemap for ScrollManager {
     /// map" unambiguously means "unmounted".
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.states, dom, map);
+        // Ancestor lists hold node ids of the OLD tree in their values too;
+        // `register_scroll_nodes` publishes them afresh after the layout the
+        // new tree gets, so the stale ones are simply dropped.
+        self.scroll_ancestors.retain(|(d, _), _| *d != dom);
 
         let old = core::mem::take(&mut self.scrollbar_states);
         for ((d, old_node_id, orientation), state) in old {
