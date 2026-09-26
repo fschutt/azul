@@ -2365,3 +2365,36 @@ fn a_keyboard_opened_picker_leaves_exactly_one_ring() {
         "and rings it, the one ring on screen"
     );
 }
+
+/// P1-6: Escape that reaches the PARENT (X11, where the override-redirect
+/// popup never gets the keyboard) closes the picker - and that is all it
+/// does. The same key used to run the parent's own default too, `ClearFocus`,
+/// so the app saw the swatch blur and, a pass later, focus again (the owed
+/// focus restore), with a window focusing nothing in between.
+#[test]
+fn escape_in_the_parent_closes_the_picker_without_blurring_the_swatch() {
+    let (mut parent, _popup) = open_picker_by_click();
+    let swatch = node_with_class(&parent, "native_color_input");
+    assert_eq!(
+        focused(&parent),
+        Some(swatch),
+        "premise: the click focused the swatch"
+    );
+
+    key_down(&mut parent, VirtualKeyCode::Escape, &[], "t.escape");
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .is_empty(),
+        "Escape in the parent closed the picker"
+    );
+    assert_eq!(
+        focused(&parent),
+        Some(swatch),
+        "the Escape that closed the popup did not also clear the parent's focus"
+    );
+    keys_up(&mut parent, "t.escape.up");
+}
