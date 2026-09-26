@@ -8065,6 +8065,52 @@ mod tests {
         );
     }
 
+    /// A press held perfectly still fires `LongPress` once the wake-up comes,
+    /// and only once.
+    ///
+    /// The hold is REAL time, on a short threshold: every gesture sample is
+    /// stamped by the wall clock, not the test clock.
+    #[test]
+    fn a_motionless_press_fires_long_press_once_past_its_threshold() {
+        use core::sync::atomic::Ordering;
+
+        use azul_core::events::MouseButton;
+
+        azul_core::task::reset_test_clock();
+        let log = long_press_log();
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, long_press_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        // 30 ms, so the wake-up is due 45 ms after the press.
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.config.long_press_time_threshold_ms = 30;
+        }
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 100.0 });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        let at_press = log.hits.load(Ordering::SeqCst);
+
+        // Perfectly still, past the threshold and the wake-up's margin.
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let _ = window.process_timers_and_threads();
+        let after_wake = log.hits.load(Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let _ = window.process_timers_and_threads();
+        let later = log.hits.load(Ordering::SeqCst);
+
+        assert_eq!(at_press, 0, "harness: a fresh press is not a long press");
+        assert_eq!(
+            after_wake, 1,
+            "a press held still for 80 ms past a 30 ms threshold must fire LongPress when the \
+             wake-up runs its pass"
+        );
+        assert_eq!(later, 1, "a delivered long press must not fire again");
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect
