@@ -7768,6 +7768,148 @@ mod tests {
         }
     }
 
+    // --- The CSS animation driver's frame rate ----------------------------
+    //
+    // REPORTED: "the toggle animates smooth on macOS but not on wayland or
+    // x11". The switch's knob and track glide through a declared 150 ms
+    // `animation`, which the CPU renderer advances with the CSS animation
+    // driver (`CSS_ANIMATION_TIMER_ID`, 16 ms). Its callback is an inert
+    // marker, and `invoke_expired_timers` counts it as fired whenever it is
+    // REGISTERED. macOS and Windows reach `process_timers_and_threads` only
+    // when an OS timer fires; X11 and Wayland reach it on every pass through
+    // their loops as well, and there the knob stepped several times a frame.
+
+    extern "C" fn switch_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::switch::Switch;
+        Dom::create_body().with_child(Switch::create(false).dom())
+    }
+
+    /// The first laid-out node carrying `class`.
+    fn node_with_class(window: &HeadlessWindow, class: &str) -> Option<azul_core::dom::NodeId> {
+        use azul_core::dom::{DomId, IdOrClass, NodeId};
+
+        let lw = window.common.layout_window.as_ref()?;
+        let dom = lw.layout_results.get(&DomId::ROOT_ID)?;
+        dom.styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|data| {
+                data.get_ids_and_classes()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+            })
+            .map(NodeId::new)
+    }
+
+    /// A switch whose knob was just toggled on - the write the switch's click
+    /// handler makes - with the driver armed, on a FROZEN test clock that the
+    /// caller resets.
+    fn toggled_switch_window() -> HeadlessWindow {
+        use azul_core::dom::DomId;
+        use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
+        use azul_layout::overlay::ContentChange;
+
+        azul_core::task::reset_test_clock();
+        azul_core::task::freeze_test_clock();
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, switch_layout);
+        window.regenerate_layout().expect("initial layout");
+        let knob =
+            node_with_class(&window, "__azul-native-switch-knob").expect("the switch has a knob");
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            let _ = lw.apply_content_change(ContentChange::NodeCss {
+                dom_id: DomId::ROOT_ID,
+                node_id: knob,
+                props: vec![CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+                    16,
+                ))],
+                override_only: false,
+            });
+        }
+        window.arm_animation_drivers_if_needed();
+        window
+    }
+
+    /// How far the knob's glide has come, 0..=1 (`None` once it settled).
+    fn knob_glide_progress(window: &HeadlessWindow) -> Option<f32> {
+        use azul_css::props::property::CssPropertyType;
+
+        window
+            .common
+            .layout_window
+            .as_ref()?
+            .css_transitions
+            .iter()
+            .find(|tr| tr.prop_type == CssPropertyType::MarginLeft)
+            .map(|tr| tr.t)
+    }
+
+    #[test]
+    fn css_driver_steps_once_per_timer_period_not_per_pass() {
+        use azul_core::task::CSS_ANIMATION_TIMER_ID;
+
+        let mut window = toggled_switch_window();
+        let armed = window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.timers.contains_key(&CSS_ANIMATION_TIMER_ID));
+
+        let _ = azul_core::task::advance_test_clock_ms(16);
+        let first = window.process_timers_and_threads();
+        let progress = knob_glide_progress(&window);
+        // X11 and Wayland run the pass again in the same loop turn.
+        let again = window.process_timers_and_threads();
+        let progress_again = knob_glide_progress(&window);
+        azul_core::task::reset_test_clock();
+
+        assert!(
+            armed,
+            "harness: the toggle seeds a glide and arms the driver"
+        );
+        assert!(
+            first,
+            "harness: the driver's first frame steps the knob and owes a redraw"
+        );
+        assert!(
+            !again,
+            "a second pass in the same instant is not a frame: it must neither step the glide \
+             again nor owe a relayout and a redraw (progress {progress:?} -> {progress_again:?})"
+        );
+    }
+
+    /// The other half of the driver's frame rule: a LATE wake must not cost
+    /// the next frame. An OS timer keeps its schedule, so a wake delayed by a
+    /// slow frame is followed by an on-time one only a few ms later - an
+    /// `NSTimer` does exactly that behind a slow render - and both are frames.
+    #[test]
+    fn css_driver_steps_on_an_on_time_wake_after_a_late_one() {
+        let mut window = toggled_switch_window();
+        let _ = azul_core::task::advance_test_clock_ms(16);
+        let first = window.process_timers_and_threads();
+        // The 32 ms wake comes 10 ms late ...
+        let _ = azul_core::task::advance_test_clock_ms(26);
+        let late = window.process_timers_and_threads();
+        let progress_late = knob_glide_progress(&window);
+        // ... and the 48 ms one on time, 6 ms after it.
+        let _ = azul_core::task::advance_test_clock_ms(6);
+        let on_time = window.process_timers_and_threads();
+        let progress_on_time = knob_glide_progress(&window);
+        azul_core::task::reset_test_clock();
+
+        assert!(
+            first && late,
+            "harness: the first wake and the late one both step the knob"
+        );
+        assert!(
+            on_time,
+            "the on-time wake after a late one is a frame of its own and must step the knob \
+             (progress {progress_late:?} -> {progress_on_time:?})"
+        );
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect
