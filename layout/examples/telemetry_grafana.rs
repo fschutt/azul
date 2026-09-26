@@ -255,6 +255,7 @@ mod engine_frame {
                 &mut self.text_cache,
                 &self.styled,
                 viewport,
+                azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport.size),
                 &self.font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),

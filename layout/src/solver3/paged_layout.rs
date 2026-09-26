@@ -420,6 +420,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: Some(&mut fragmentation_context),
             cursor_is_visible: true,
             cursor_locations: Vec::new(),
@@ -503,6 +504,7 @@ where
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -741,6 +743,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -808,6 +811,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -2621,6 +2625,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: None,
             reflowed_ifcs: std::collections::BTreeSet::new(),
             cursor_is_visible: false,

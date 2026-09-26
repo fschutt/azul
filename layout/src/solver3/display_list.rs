@@ -3476,9 +3476,10 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
 
     // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
     //    becomes the background of the canvas." If the root (html) has a transparent background,
-    //    propagate from <body>. The canvas background fills the ENTIRE viewport, not just the
-    //    root's content box. This is critical when <html> doesn't have height:100% — without this,
-    //    the body's background only covers the body's content area, not the viewport.
+    //    propagate from <body>. The canvas background fills the WHOLE surface
+    //    (`LayoutContext::canvas_rect`), not just the root's content box - critical when <html>
+    //    doesn't have height:100%, and under a safe area: the insets move where the root is laid
+    //    out, not what lies behind it.
     {
         let root_node = tree.get(LayoutNodeId::new(tree.root));
         if let Some(root) = root_node {
@@ -3487,19 +3488,16 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
                 let canvas_bg =
                     get_background_color(generator.ctx.styled_dom, root_dom_id, &root_state);
                 if canvas_bg.a > 0 {
-                    let viewport_rect = LogicalRect {
-                        origin: LogicalPosition::zero(),
-                        size: generator.ctx.viewport_size,
-                    };
-                    builder.push_rect(viewport_rect, canvas_bg, BorderRadius::default());
+                    let canvas_rect = generator.ctx.canvas_rect;
+                    builder.push_rect(canvas_rect, canvas_bg, BorderRadius::default());
                     debug_info!(
                         generator.ctx,
-                        "[DisplayList] Canvas background: color=({},{},{},{}), size={:?}",
+                        "[DisplayList] Canvas background: color=({},{},{},{}), rect={:?}",
                         canvas_bg.r,
                         canvas_bg.g,
                         canvas_bg.b,
                         canvas_bg.a,
-                        generator.ctx.viewport_size
+                        canvas_rect
                     );
                 }
             }

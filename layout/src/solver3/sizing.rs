@@ -2918,6 +2918,7 @@ mod autotest_generated {
                 debug_messages: &mut self.debug_messages,
                 counters: &mut self.counters,
                 viewport_size: VIEWPORT,
+                canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), VIEWPORT),
                 fragmentation_context: None,
                 cursor_is_visible: true,
                 cursor_locations: Vec::new(),

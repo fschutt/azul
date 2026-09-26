@@ -4727,6 +4727,7 @@ impl LayoutWindow {
             &mut scratch_text,
             styled_dom,
             viewport,
+            LogicalRect::new(LogicalPosition::zero(), viewport.size),
             &self.font_manager,
             &BTreeMap::new(),
             &BTreeMap::new(),
@@ -5296,6 +5297,21 @@ impl LayoutWindow {
     /// negative. Only absolute (px) insets count - that is what every
     /// platform reports.
     #[must_use]
+    /// What a document's canvas background covers: the whole window for the
+    /// ROOT document, whatever the safe area took from its layout viewport;
+    /// a child DOM's own viewport (placed by its host) otherwise.
+    fn canvas_rect_for(
+        is_root: bool,
+        viewport: LogicalRect,
+        window_state: &FullWindowState,
+    ) -> LogicalRect {
+        if is_root {
+            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions)
+        } else {
+            LogicalRect::new(LogicalPosition::zero(), viewport.size)
+        }
+    }
+
     pub fn inset_by_safe_area(
         full: &LogicalRect,
         insets: &azul_css::system::SafeAreaInsets,
@@ -5622,6 +5638,10 @@ impl LayoutWindow {
                 Self::inset_by_safe_area(&full, &self.safe_area_insets)
             }
         });
+        // The canvas background is painted under the WHOLE window, safe area
+        // included (CSS 2.2 §14.2 - the inset moves where the root is laid
+        // out, not what lies behind it). A child DOM keeps its own box.
+        let canvas_rect = Self::canvas_rect_for(child_viewport.is_none(), viewport, window_state);
 
         // Get the platform from system_style, falling back to compile-time detection
         let platform = self
@@ -6115,6 +6135,7 @@ impl LayoutWindow {
                     text_cache,
                     &styled_dom,
                     viewport,
+                    canvas_rect,
                     font_manager,
                     &scroll_offsets,
                     &text_selections_map,
@@ -14244,6 +14265,7 @@ impl LayoutWindow {
                         &mut z.scratch_text,
                         &z.retained.styled_dom,
                         z.retained.viewport,
+                        LogicalRect::new(LogicalPosition::zero(), z.retained.viewport.size),
                         &self.font_manager,
                         &BTreeMap::new(),
                         &BTreeMap::new(),
@@ -18349,6 +18371,11 @@ impl LayoutWindow {
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: Self::canvas_rect_for(
+                dom_id == DomId::ROOT_ID,
+                viewport,
+                &self.current_window_state,
+            ),
             fragmentation_context: None,
             cursor_is_visible,
             cursor_locations,

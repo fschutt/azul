@@ -226,6 +226,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut HashMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
+    /// The surface the CANVAS background covers (CSS 2.2 §14.2): for a root
+    /// document the whole window, the safe-area strips included, while
+    /// `viewport_size` is only the part the root is laid out in. Everywhere
+    /// else - a child DOM, a page, a test - it is the viewport at the origin.
+    pub canvas_rect: LogicalRect,
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
@@ -546,6 +551,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     text_cache: &mut TextLayoutCache,
     new_dom: &StyledDom,
     viewport: LogicalRect,
+    // What the canvas background covers - see `LayoutContext::canvas_rect`.
+    canvas_rect: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     text_selections: &BTreeMap<DomId, TextSelection>,
@@ -639,6 +646,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -1047,6 +1055,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -2943,6 +2952,7 @@ mod autotest_generated {
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: size(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), size(800.0, 600.0)),
                     fragmentation_context: None,
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
@@ -3205,6 +3215,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3252,6 +3263,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3301,6 +3313,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),

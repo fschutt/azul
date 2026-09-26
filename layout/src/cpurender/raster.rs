@@ -5285,6 +5285,7 @@ pub fn render_component_preview(
         &mut text_cache,
         styled_dom,
         viewport,
+        LogicalRect::new(LogicalPosition::zero(), viewport.size),
         &preview_font_manager,
         &empty_scroll_offsets,
         &empty_text_selections,
