@@ -7326,6 +7326,48 @@ pub(crate) struct PerItemShapedEntry {
     pub(crate) compact: CompactShapedEntry,
     /// Sum of advance widths — for fast same-width detection during incremental relayout.
     pub(crate) total_advance: f32,
+    /// The group's text items as they were when it was shaped, in group
+    /// order: each one's `ContentIndex` and its byte offset in its logical
+    /// run (`VisualItem::run_byte_offset`). A hit re-stamps a cluster from the
+    /// hitting group's item at the SAME position - the key hashes the texts in
+    /// order, so both groups hold the same items, but not at the same run
+    /// indices.
+    pub(crate) items: Vec<(ContentIndex, usize)>,
+}
+
+/// One text item of a shaping group, as a cache hit re-stamps from it.
+struct GroupItem {
+    source: ContentIndex,
+    run_byte_offset: usize,
+    style: Arc<StyleProperties>,
+    source_node_id: Option<NodeId>,
+}
+
+/// The text items of a shaping group, in group order.
+fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
+    group
+        .iter()
+        .filter_map(|it| match &it.logical_source {
+            LogicalItem::Text {
+                source,
+                style,
+                source_node_id,
+                ..
+            } => Some(GroupItem {
+                source: *source,
+                run_byte_offset: it.run_byte_offset,
+                style: style.clone(),
+                source_node_id: *source_node_id,
+            }),
+            LogicalItem::CombinedText { source, style, .. } => Some(GroupItem {
+                source: *source,
+                run_byte_offset: it.run_byte_offset,
+                style: style.clone(),
+                source_node_id: None,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -8993,7 +9035,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // re-stamping the paint-and-identity fields from the CURRENT items
             // is sound and keeps the reuse. Clusters map back to their item
             // through `source_content_index`.
-            let group = &visual_items[idx..coalesce_end];
+            let group = group_items(&visual_items[idx..coalesce_end]);
             // NEGATIVE-CONTROL KNOB (T2, plan §2.3): AZ_T2_SKIP_RESTAMP=1
             // hands back the cached entry UNMODIFIED — the exact defect
             // 8ec9f387d fixed. The identity gate
@@ -9008,32 +9050,42 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 }
                 let mut c = c;
                 if let ShapedItem::Cluster(ref mut sc) = c {
-                    let current = group.iter().find_map(|it| match &it.logical_source {
-                        LogicalItem::Text {
-                            source,
-                            style,
-                            source_node_id,
-                            ..
-                        } if *source == sc.source_content_index => {
-                            Some((style.clone(), *source_node_id))
-                        }
-                        LogicalItem::CombinedText { source, style, .. }
-                            if *source == sc.source_content_index =>
+                    // The item that shaped this cluster, by POSITION in the
+                    // group: the cached group and the hitting one hold the same
+                    // texts in the same order (that is the key), but a text
+                    // shaped where it was run 0 is hit where it is run 1 - and
+                    // matched by content index it matched nothing, so the
+                    // cluster kept the run AND the node of the paragraph that
+                    // shaped it first.
+                    let position = cached
+                        .items
+                        .iter()
+                        .position(|(source, _)| *source == sc.source_content_index);
+                    if let Some(p) = position {
+                        if let (Some(current), Some(&(_, cached_offset))) =
+                            (group.get(p), cached.items.get(p))
                         {
-                            Some((style.clone(), None))
+                            // Cluster-level re-stamp: style no longer lives on
+                            // glyphs, so a cache hit is a few writes per
+                            // cluster instead of an Arc clone per glyph (T2
+                            // pins this). `source_text` is deliberately NOT
+                            // re-stamped: the cache key includes the text, so
+                            // the cached Arc is content-equal to the hitting
+                            // item's — keeping it SHARES one allocation across
+                            // all equal-text nodes.
+                            sc.source_content_index = current.source;
+                            sc.source_cluster_id.source_run = current.source.run_index;
+                            // The byte is relative to the item's LOGICAL run:
+                            // move it from the cached item's offset in its run
+                            // to the hitting item's.
+                            let byte = i64::from(sc.source_cluster_id.start_byte_in_run)
+                                - i64::try_from(cached_offset).unwrap_or(0)
+                                + i64::try_from(current.run_byte_offset).unwrap_or(0);
+                            sc.source_cluster_id.start_byte_in_run =
+                                u32::try_from(byte.max(0)).unwrap_or(u32::MAX);
+                            sc.source_node_id = current.source_node_id;
+                            sc.style = current.style.clone();
                         }
-                        _ => None,
-                    });
-                    if let Some((style, source_node_id)) = current {
-                        // Cluster-level re-stamp: style no longer lives on
-                        // glyphs, so a cache hit is TWO writes per cluster
-                        // instead of an Arc clone per glyph (T2 pins this).
-                        // `source_text` is deliberately NOT re-stamped: the
-                        // cache key includes the text, so the cached Arc is
-                        // content-equal to the hitting item's — keeping it
-                        // SHARES one allocation across all equal-text nodes.
-                        sc.source_node_id = source_node_id;
-                        sc.style = style;
                     }
                 }
                 c
@@ -9059,6 +9111,10 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 Arc::new(PerItemShapedEntry {
                     compact: CompactShapedEntry::build(&group_items),
                     total_advance,
+                    items: self::group_items(&visual_items[idx..coalesce_end])
+                        .into_iter()
+                        .map(|it| (it.source, it.run_byte_offset))
+                        .collect(),
                 }),
             );
             shaped.extend(group_items);
@@ -17258,6 +17314,7 @@ mod autotest_generated {
             Arc::new(PerItemShapedEntry {
                 compact: CompactShapedEntry::build(&[cl("a", 8.0)]),
                 total_advance: 8.0,
+                items: Vec::new(),
             }),
         );
         c.per_item_shaped.insert(
@@ -17265,6 +17322,7 @@ mod autotest_generated {
             Arc::new(PerItemShapedEntry {
                 compact: CompactShapedEntry::build(&[]),
                 total_advance: 0.0,
+                items: Vec::new(),
             }),
         );
         // Generation 0 → the eviction guard is skipped entirely.
