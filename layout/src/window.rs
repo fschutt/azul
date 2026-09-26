@@ -10445,18 +10445,26 @@ impl LayoutWindow {
             );
         }
         let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
-        // Crossing into a different focusable makes the caret JUMP, not glide.
-        let scope = self.find_focusable_ancestor(DomNodeId {
+        let seed_node = DomNodeId {
             dom: pending.dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
-        });
+        };
+        // Crossing into a different focusable makes the caret JUMP, not glide.
+        let scope = self.find_focusable_ancestor(seed_node);
         self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager.initialize_editing(
-            cursor,
-            pending.dom_id,
-            pending.text_node_id,
-            ce_key,
-        );
+        // The session lives on the text BLOCK whose runs the seeded caret
+        // indexes - the IFC root, as a click puts it - not on the text leaf
+        // the seed was found in. Keyed on the leaf, the painted range was
+        // handed over under a node the painter never looks up (a keyboard
+        // selection after Tab had no highlight), and an edit walked up from
+        // the leaf to the nearest boxed element: a `<b>` holding the last
+        // word, whose one run the caret's run 1 missed.
+        let session_node = self
+            .text_block_of(seed_node)
+            .and_then(|block| block.element())
+            .unwrap_or(pending.text_node_id);
+        self.text_edit_manager
+            .initialize_editing(cursor, pending.dom_id, session_node, ce_key);
         true
     }
 
