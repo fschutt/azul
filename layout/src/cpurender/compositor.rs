@@ -7484,7 +7484,9 @@ mod autotest_generated {
 
     #[test]
     fn scroll_layer_ignores_subpixel_deltas() {
-        let mut c = CompositorState::new(32, 32);
+        // Taller than the frame: a frame covering the WHOLE root is the
+        // page's own and is painted in place, without a layer.
+        let mut c = CompositorState::new(32, 40);
         let list = dlist(vec![
             push_scroll(1, 0.0, 0.0, 32.0, 32.0),
             opaque_rect(0.0, 0.0, 32.0, 200.0),
@@ -7513,7 +7515,9 @@ mod autotest_generated {
 
     #[test]
     fn scroll_layer_updates_offset_and_records_the_exposed_strip() {
-        let mut c = CompositorState::new(32, 32);
+        // Taller than the frame: a frame covering the WHOLE root is the
+        // page's own and is painted in place, without a layer.
+        let mut c = CompositorState::new(32, 40);
         let list = dlist(vec![
             push_scroll(1, 0.0, 0.0, 32.0, 32.0),
             opaque_rect(0.0, 0.0, 32.0, 200.0),

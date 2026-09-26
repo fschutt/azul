@@ -10019,17 +10019,21 @@ mod layer_path_text_tests {
             ..Default::default()
         };
 
-        let mut plain = AzulPixmap::new(200, 40).unwrap();
-        plain.fill(255, 255, 255, 255);
+        // The surface is 2px taller than the page: a scroll frame that covers
+        // the WHOLE root is the page's own and is painted in place (see
+        // `allocate_layers_from_display_list`), and this test is about a
+        // frame that gets a layer. The extra rows start in the page colour.
+        let mut plain = AzulPixmap::new(200, 42).unwrap();
+        plain.fill(bg.r, bg.g, bg.b, 255);
         let mut gc1 = GlyphCache::new();
         render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
         assert_ink_gamut(&plain, fg, bg, "flat render");
 
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        let mut layered = AzulPixmap::new(200, 40).unwrap();
-        layered.fill(255, 255, 255, 255);
+        let mut layered = AzulPixmap::new(200, 42).unwrap();
+        layered.fill(bg.r, bg.g, bg.b, 255);
         let mut gc2 = GlyphCache::new();
-        let mut comp = CompositorState::new(200, 40);
+        let mut comp = CompositorState::new(200, 42);
         comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(
             comp.layers.len(),
