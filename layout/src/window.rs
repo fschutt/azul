@@ -9209,7 +9209,19 @@ impl LayoutWindow {
             // a click - or by `autofocus` when a window opens - is focused but
             // not ringed, which is what every browser does and what keeps a
             // form from looking like the user pressed Tab when they did not.
-            if editing_active || !self.focus_manager.focus_is_visible {
+            //
+            // And only while the window is ACTIVE. Focus survives a
+            // deactivation, its indication does not: HTML's "currently
+            // focused area" is null without system focus, and AppKit, GTK and
+            // Win32 draw focus only in the key / active window. Without this
+            // a popup that took the keyboard (the ColorInput picker) left a
+            // second, stale ring on its invoker in the parent. The shell
+            // rebuilds the list on every activation change, so the ring comes
+            // back, same modality, the moment the window does.
+            if editing_active
+                || !self.focus_manager.focus_is_visible
+                || !self.current_window_state.is_window_active()
+            {
                 None
             } else {
                 self.focus_manager

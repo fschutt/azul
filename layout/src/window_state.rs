@@ -172,6 +172,24 @@ pub struct FullWindowState {
 }
 
 impl FullWindowState {
+    /// Does this window hold the OS keyboard focus - is it the active / key
+    /// window? THE one reading of the two flags that say so.
+    ///
+    /// Every backend writes `window_focused` on activation (macOS
+    /// `windowDidBecomeKey`, X11 `FocusIn`, Wayland `wl_keyboard.enter`,
+    /// Win32 `WM_SETFOCUS`); only Win32 also writes `flags.has_focus`, which
+    /// is an OS-SYNCED request flag (setting it asks for the foreground) and
+    /// therefore stays at its default `true` everywhere else. Reading one
+    /// flag or the other made "is the window focused" platform-dependent:
+    /// the cascade read `has_focus` (so `:backdrop` could only ever match on
+    /// Windows) while the caret blink read `window_focused`. Both default to
+    /// `true`, so a window no OS ever reported on (headless, a test) counts
+    /// as active.
+    #[must_use]
+    pub const fn is_window_active(&self) -> bool {
+        self.window_focused && self.flags.has_focus
+    }
+
     /// The state of pointer seat `seat_id`: the primary for
     /// [`PRIMARY_POINTER_SEAT`](azul_core::window::PRIMARY_POINTER_SEAT),
     /// otherwise the matching entry of `pointer_seats`, or `None` for a seat
