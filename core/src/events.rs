@@ -5089,13 +5089,15 @@ fn handle_key_down(
 
     // MWA-A2: standard shortcuts key off the PRIMARY modifier (Cmd on
     // macOS, Ctrl elsewhere); word-jump / word-delete keys off the
-    // platform's word modifier (Option on macOS, Ctrl elsewhere).
-    let primary = if cfg!(target_os = "macos") {
+    // platform's word modifier (Option on macOS, Ctrl elsewhere). "macOS"
+    // is `mac_shortcut_conventions`: X11 windows on a Mac use the Linux keys.
+    let mac_keys = crate::window::mac_shortcut_conventions();
+    let primary = if mac_keys {
         kbd.modifiers.meta
     } else {
         kbd.modifiers.ctrl
     };
-    let word_mod = if cfg!(target_os = "macos") {
+    let word_mod = if mac_keys {
         kbd.modifiers.alt
     } else {
         kbd.modifiers.ctrl

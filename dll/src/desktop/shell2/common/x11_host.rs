@@ -196,9 +196,12 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Hand this process's windows to the X11 backend on a non-Linux host.
 ///
 /// Called before the first window exists: the monitor list, the frame rules
-/// and the menu bar of that very first window already read [`active`].
+/// and the menu bar of that very first window already read [`active`]. The
+/// keyboard shortcuts switch with them - Ctrl, not Cmd, is the primary
+/// modifier of an X11 window (`azul_core::window::mac_shortcut_conventions`).
 pub(crate) fn activate() {
     ACTIVE.store(true, Ordering::Release);
+    azul_core::window::use_linux_shortcuts_on_macos();
 }
 
 /// Is X11 drawing this process's windows on a host whose native toolkit is

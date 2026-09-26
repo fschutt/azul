@@ -75,7 +75,9 @@ pub fn accelerator_matches(
     if want_shift != keyboard.shift_down() || want_alt != keyboard.alt_down() {
         return false;
     }
-    if cfg!(target_os = "macos") {
+    // The Mac rule where the Mac's keys arrive; an X11 window on a Mac gets
+    // the Linux one (see `window::mac_shortcut_conventions`).
+    if crate::window::mac_shortcut_conventions() {
         want_ctrl == keyboard.ctrl_down() && want_primary == keyboard.super_down()
     } else {
         // Ctrl IS the primary modifier here; the Super/Windows key never

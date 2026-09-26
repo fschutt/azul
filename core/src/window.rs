@@ -554,6 +554,36 @@ pub struct KeyboardState {
     pub current_physical_key: OptionPhysicalKey,
 }
 
+/// Raised by [`use_linux_shortcuts_on_macos`]; see there.
+static LINUX_SHORTCUTS_ON_MACOS: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Make a macOS process follow the Linux shortcut conventions: Ctrl as the
+/// primary modifier and as the word modifier.
+///
+/// Only the X11 backend on a macOS host (azul-dll's `x11-macos` feature,
+/// `AZ_BACKEND=x11`) calls this, once, before its first window. Its keys
+/// arrive the way an X server delivers them - Ctrl is Ctrl, and XQuartz sends
+/// the Command key as `Meta`, which X11 reads as Alt - so the Mac's
+/// Cmd-primary rule would leave Ctrl+C, Ctrl+V, Ctrl+A and Ctrl+Z dead in
+/// exactly the windows that exist to reproduce Linux behaviour.
+#[doc(hidden)]
+pub fn use_linux_shortcuts_on_macos() {
+    LINUX_SHORTCUTS_ON_MACOS.store(true, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Does this process follow the Mac's shortcut conventions - Cmd (super) as
+/// the primary modifier, Option (alt) as the word modifier?
+///
+/// `true` on macOS, unless the X11 backend draws the windows there (see
+/// [`use_linux_shortcuts_on_macos`]); `false` everywhere else.
+#[doc(hidden)]
+#[must_use]
+pub fn mac_shortcut_conventions() -> bool {
+    cfg!(target_os = "macos")
+        && !LINUX_SHORTCUTS_ON_MACOS.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 impl KeyboardState {
     #[must_use]
     pub fn shift_down(&self) -> bool {
@@ -575,10 +605,11 @@ impl KeyboardState {
     /// everywhere else (MWA-A2). Every standard editing shortcut
     /// (copy / cut / paste / select-all / undo / redo) keys off this —
     /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
-    /// arrives as LWin/super.
+    /// arrives as LWin/super. "macOS" means [`mac_shortcut_conventions`]: an
+    /// X11 window on a Mac follows the Linux rule.
     #[must_use]
     pub fn primary_down(&self) -> bool {
-        if cfg!(target_os = "macos") {
+        if mac_shortcut_conventions() {
             self.super_down()
         } else {
             self.ctrl_down()
