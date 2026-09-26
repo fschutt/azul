@@ -114,6 +114,13 @@ fn text_color(css: &str, theme: Theme, node: usize) -> ColorU {
     .color
 }
 
+fn background_color(css: &str, theme: Theme) -> ColorU {
+    let (sd, _style) = styled_under(css, theme);
+    let div = NodeId::new(1);
+    let state = sd.styled_nodes.as_container()[div].styled_node_state;
+    azul_layout::solver3::getters::get_background_color(&sd, div, &state)
+}
+
 fn border_top_color(css: &str, theme: Theme) -> Option<ColorU> {
     let (sd, _style) = styled_under(css, theme);
     let div = NodeId::new(1);
@@ -183,4 +190,86 @@ fn a_system_border_colour_resolves_to_the_accent_of_the_theme() {
             "{theme:?}: the `border-color` longhand path"
         );
     }
+}
+
+/// One keyword per `SystemColors` slot - the slot's field name in kebab-case -
+/// in the order the struct declares them.
+const SLOT_KEYWORDS: [&str; 24] = [
+    "text",
+    "secondary-text",
+    "tertiary-text",
+    "background",
+    "accent",
+    "accent-text",
+    "button-face",
+    "button-text",
+    "disabled-text",
+    "window-background",
+    "under-page-background",
+    "selection-background",
+    "selection-text",
+    "selection-background-inactive",
+    "selection-text-inactive",
+    "link",
+    "separator",
+    "grid",
+    "find-highlight",
+    "sidebar-background",
+    "sidebar-selection",
+    "control-background",
+    "placeholder-text",
+    "text-selection-background",
+];
+
+/// A widget that wants the desktop's secondary label, its field background
+/// or its separator has to be able to SAY so: every slot the system style
+/// carries is one keyword, and the keyword round-trips.
+#[test]
+fn every_colour_slot_has_a_system_keyword() {
+    use azul_css::props::basic::color::{parse_color_or_system, ColorOrSystem};
+
+    let mut missing = Vec::new();
+    for name in SLOT_KEYWORDS {
+        let keyword = format!("system:{name}");
+        match parse_color_or_system(&keyword) {
+            Ok(ColorOrSystem::System(r)) if r.as_css_str() == keyword => {}
+            other => missing.push(format!("{keyword} -> {other:?}")),
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} of {} slot keywords do not parse and round-trip: {missing:#?}",
+        missing.len(),
+        SLOT_KEYWORDS.len()
+    );
+}
+
+/// The field background - what a text input, a list or a drop-down sits on -
+/// is the slot that went wrong in the widget demo. The presets report no
+/// field colour (only the platform probe reads one from the desktop), so
+/// this is the keyword's own default doing its job: it still follows the
+/// theme instead of painting one colour into both.
+#[test]
+fn the_field_background_keyword_follows_the_theme() {
+    let css = "width: 40px; height: 20px; background-color: system:control-background;";
+    assert_eq!(
+        background_color(css, Theme::Light),
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255
+        },
+        "light: the field default is white"
+    );
+    assert_eq!(
+        background_color(css, Theme::Dark),
+        ColorU {
+            r: 30,
+            g: 30,
+            b: 30,
+            a: 255
+        },
+        "dark: the field default is #1e1e1e"
+    );
 }
