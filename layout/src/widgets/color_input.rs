@@ -910,7 +910,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_css(
             "display: flex; align-items: center; justify-content: center; width: 28px; height: \
              28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: \
-             #f4f4f4; color: #404040; font-size: 18px;",
+             #f4f4f4; color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { \
+             background: system:button-face; color: system:button-text; border-color: \
+             system:separator; }",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
@@ -996,7 +998,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_css(
             "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; \
              border: 1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, \
-             0, 0.25); font-size: 12px; color: #202020;",
+             0, 0.25); font-size: 12px; color: #202020; @media (prefers-color-scheme: dark) { \
+             background: system:window-background; border-color: system:separator; color: \
+             system:text; }",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,

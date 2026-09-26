@@ -2,6 +2,7 @@ use azul_css::{impl_option, impl_option_inner};
 
 pub mod flat;
 pub mod flora;
+pub mod system_palette;
 
 /// The visual theme for a widget.
 #[repr(C)]

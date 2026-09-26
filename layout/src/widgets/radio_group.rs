@@ -238,6 +238,8 @@ static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
+    // The checked dot is the desktop's accent in the dark theme.
+    crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(DOT_RADIUS),
     )),
@@ -259,6 +261,8 @@ static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
+    // The checked dot is the desktop's accent in the dark theme.
+    crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(DOT_RADIUS),
     )),
@@ -1252,10 +1256,20 @@ mod autotest_generated {
             ("the unselected dot style", RADIO_GROUP_DOT_STYLE_UNSELECTED),
             ("the label style", RADIO_GROUP_LABEL_STYLE),
         ] {
-            no_duplicate_properties(name, style);
+            // The light face: every unconditional declaration, each once.
+            let light: Vec<CssPropertyWithConditions> = style
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .cloned()
+                .collect();
+            no_duplicate_properties(name, &light);
+            // Anything conditional is a resting dark-theme twin and nothing
+            // else - a stray `@media`/`:hover` condition would make the
+            // property silently not apply.
             assert!(
-                all_unconditional(style),
-                "{name} must apply unconditionally"
+                style.iter().all(|p| all_unconditional(core::slice::from_ref(p))
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
+                "{name} must apply unconditionally, apart from its dark-theme twins"
             );
         }
     }

@@ -73,7 +73,10 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette as sys,
+};
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -349,6 +352,8 @@ static FIELD_STYLE: &[CssPropertyWithConditions] = &[
         LayoutPaddingRight::const_px(8),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    // A field surface: the desktop's field colour in the dark theme.
+    sys::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
@@ -393,6 +398,10 @@ static FIELD_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
 ];
 
 /// The date text inside the field.
@@ -433,6 +442,8 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
         LayoutPaddingRight::const_px(8),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    // A field surface: the desktop's field colour in the dark theme.
+    sys::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
@@ -477,6 +488,10 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
     )),
@@ -511,6 +526,7 @@ static NAV_BTN_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
@@ -523,6 +539,7 @@ static HEADER_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
 ];
 
 /// Weekday header row + cells.
@@ -540,6 +557,7 @@ static WEEKDAY_CELL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: MUTED_COLOR,
     })),
+    sys::DARK_SECONDARY_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
@@ -600,6 +618,43 @@ fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
     ])
+}
+
+/// One day cell's style as the grid renders it: [`build_day_cell_style`]'s
+/// light face, then the dark twins of its colours (a day cell has no
+/// state-conditional rules, so the twins simply go last). An unselected
+/// cell's fill is transparent in both themes and needs no twin.
+fn day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
+    let mut v = build_day_cell_style(selected).into_library_owned_vec();
+    if selected {
+        v.push(sys::DARK_ACCENT_BACKGROUND);
+        v.push(sys::DARK_ACCENT_TEXT);
+    } else {
+        v.push(sys::DARK_TEXT);
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The fill and ink `restyle_days` writes onto a day cell, in the window's
+/// theme. A `set_css_property` override outranks every inline declaration,
+/// dark twins included, so the restyle has to pick the dark face itself.
+fn day_cell_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+    match (selected, dark) {
+        (true, false) => (DAY_SELECTED_BG_VEC, WHITE),
+        (false, false) => (TRANSPARENT_BG_VEC, TEXT_COLOR),
+        (true, true) => (sys::ACCENT_BACKGROUND, sys::ACCENT_TEXT),
+        (false, true) => (TRANSPARENT_BG_VEC, sys::TEXT),
+    }
+}
+
+/// Whether the window a callback runs in cascades in the dark theme - the
+/// answer `LayoutWindow::dynamic_selector_context` gives: the `AZ_THEME` pin
+/// first, then the window's own theme.
+fn window_is_dark(info: &CallbackInfo) -> bool {
+    azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
+        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
+        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
+    )
 }
 
 /// Per-day-cell callback payload: the cell's day number + a clone of the shared
@@ -887,7 +942,7 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
 
     crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(build_day_cell_style(selected))
+        .with_css_props(day_cell_style(selected))
         .with_callbacks(
             alloc::vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -981,30 +1036,18 @@ fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId) {
     let Some(grid) = info.get_parent(row) else {
         return;
     };
+    let dark = window_is_dark(info);
 
     let mut week = info.get_first_child(grid);
     while let Some(w) = week {
         let mut cellopt = info.get_first_child(w);
         while let Some(cell) = cellopt {
-            if cell == clicked {
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_background_content(DAY_SELECTED_BG_VEC),
-                );
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_text_color(StyleTextColor { inner: WHITE }),
-                );
-            } else {
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_background_content(TRANSPARENT_BG_VEC),
-                );
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_text_color(StyleTextColor { inner: TEXT_COLOR }),
-                );
-            }
+            let (bg, text) = day_cell_colours(cell == clicked, dark);
+            info.set_css_property(cell, CssProperty::const_background_content(bg));
+            info.set_css_property(
+                cell,
+                CssProperty::const_text_color(StyleTextColor { inner: text }),
+            );
             cellopt = info.get_next_sibling(cell);
         }
         week = info.get_next_sibling(w);

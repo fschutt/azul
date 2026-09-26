@@ -21,6 +21,7 @@ use azul_css::{
     *,
 };
 
+use super::system_palette;
 use crate::widgets::button::{Button, ButtonOnClick};
 
 // ---------------------------------------------------------------------------
@@ -662,22 +663,28 @@ pub fn button(btn: Button) -> Dom {
     if btn_owns_style {
         // The dark face and ink — for the NEUTRAL surface only. A coloured
         // command (primary, danger, ...) is its own colour in both modes and
-        // a link has no face; painting `DARK_BG` over every type, as this
-        // did, turned a blue primary button into an invisible dark box on a
-        // dark window. (`ButtonType::surface` is the one place that rule
+        // a link has no face; painting a dark face over every type, as this
+        // once did, turned a blue primary button into an invisible dark box
+        // on a dark window. (`ButtonType::surface` is the one place that rule
         // lives; `button_states` reads it too.)
-        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
-            container_style.push(CssPropertyWithConditions::dark_theme(
-                CssProperty::BackgroundContent(
-                    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
-                        DARK_BG,
-                    )])
-                    .into(),
-                ),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
-                CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-            ));
+        //
+        // The neutral face is the DESKTOP's button: `system:button-face` and
+        // `system:button-text`, with the outline in `system:separator` - the
+        // light grey outline of the light face would otherwise ring a dark
+        // button in light grey.
+        match btn_type.surface() {
+            crate::widgets::button::ButtonSurface::Neutral => {
+                container_style.push(system_palette::DARK_BUTTON_FACE);
+                container_style.push(system_palette::DARK_BUTTON_TEXT);
+                container_style.extend(system_palette::dark_border(system_palette::SEPARATOR));
+            }
+            // A link is text on whatever surface it sits on: in the dark
+            // theme it takes the desktop's link colour, which is chosen to
+            // read on a dark surface - the light theme's blue is not.
+            crate::widgets::button::ButtonSurface::NoSurface => {
+                container_style.push(system_palette::DARK_LINK);
+            }
+            crate::widgets::button::ButtonSurface::OwnColour => {}
         }
 
         // The interactive states go LAST. Inline declarations resolve last-match
@@ -709,25 +716,19 @@ pub fn check_box(cb: CheckBox) -> Dom {
         dom::{EventFilter, HoverEventFilter},
     };
 
+    // The box is a field: in the dark theme it sits on the desktop's
+    // `system:control-background`, like the text fields next to it.
     let mut container_style: Vec<CssPropertyWithConditions> =
         cb.resolved_container_style().as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    // Flat checkmark background in dark mode
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    // The checked mark in the dark theme: the desktop's label colour, which
+    // reads on the dark field the way the light theme's grey mark reads on
+    // white.
     let is_checked = cb.check_box_state.inner.checked;
     let mut content_style: Vec<CssPropertyWithConditions> =
         cb.resolved_content_style().as_slice().to_vec();
     if checked_now {
-        content_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
-                    .into(),
-            ),
-        ));
+        content_style.push(system_palette::dark_background(SystemColorRef::Text));
     }
 
     Dom::create_div()
@@ -819,17 +820,12 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     let state_ref = RefAny::new(ti.text_input_state);
 
+    // The dark field is the DESKTOP's field: `system:control-background`
+    // under `system:text`, the colours the native text fields around it use.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    container_style.push(system_palette::DARK_TEXT);
 
     // The interactive states the widget no longer declares. Appended LAST —
     // after the base style and after the theme's own dark resting colours —
@@ -839,9 +835,9 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    label_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    label_style.push(system_palette::DARK_TEXT);
+    // After the resting ink, which matches in the `::placeholder` state too.
+    label_style.push(FIELD_PLACEHOLDER_DARK);
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())
@@ -1424,19 +1420,11 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let mut track_style = resolved_track_style.as_slice().to_vec();
     let mut thumb_style = resolved_thumb_style.as_slice().to_vec();
 
-    // Flat specific:
-    track_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    thumb_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
-                .into(),
-        ),
-    ));
+    // Flat specific, dark theme: the rail is a groove in the desktop's field
+    // colour and the thumb keeps the role it has in the light theme - the
+    // accent - in the desktop's own accent.
+    track_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    thumb_style.push(system_palette::DARK_ACCENT_BACKGROUND);
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
@@ -1497,17 +1485,12 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let state_ref = RefAny::new(ta.text_area_state);
 
+    // Same field as the text input: `system:control-background` under
+    // `system:text` in the dark theme.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    container_style.push(system_palette::DARK_TEXT);
 
     let mut label_style: Vec<CssPropertyWithConditions> = match &ta.label_style {
         azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
@@ -1517,9 +1500,9 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
         }
     };
-    label_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    label_style.push(system_palette::DARK_TEXT);
+    // After the resting ink, which matches in the `::placeholder` state too.
+    label_style.push(FIELD_PLACEHOLDER_DARK);
 
     // The interactive states go LAST. Inline declarations resolve last-match
     // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
@@ -1595,7 +1578,7 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 /// The dropdown's border, as a palette token rather than a private literal.
 ///
 /// It had no dark counterpart, so a dropdown kept a light-grey outline on a
-/// dark surface; the rules that use it now pair it with `DARK_BD`.
+/// dark surface; the rules that use it now pair it with `system:separator`.
 const FLAT_BORDER_NORMAL: ColorU = LIGHT_BD;
 
 const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
@@ -1668,26 +1651,16 @@ const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
             inner: FLAT_BORDER_NORMAL,
         },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_BG)]),
-    )),
+    // The dark trigger is a field like the text input's: the desktop's
+    // `system:control-background` under `system:text`.
+    system_palette::DARK_CONTROL_BACKGROUND,
     // The four border colours above are light-mode values; without these the
     // dropdown kept a light-grey outline on a dark surface.
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_top_color(
-        StyleBorderTopColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_left_color(
-        StyleBorderLeftColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_TEXT,
 ];
 
 const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
@@ -1698,9 +1671,7 @@ const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_FG,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_TEXT,
 ];
 
 const FLAT_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
@@ -1709,9 +1680,7 @@ const FLAT_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_FG,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_TEXT,
 ];
 
 #[must_use]
@@ -2038,6 +2007,28 @@ pub const HOVER_BORDER_RIGHT_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor { inner: DARK_ACC },
     ));
+
+/// The prompt of an empty field in the dark theme: `system:placeholder-text`.
+///
+/// A field's resting dark ink is a `dark_theme` declaration, and one of those
+/// matches in EVERY pseudo-state - `::placeholder` included - so without this
+/// the prompt painted exactly as bright as the value in the dark theme. Push it
+/// after the resting ink (last match wins); its light half is the field's own
+/// `on_placeholder` colour.
+pub const FIELD_PLACEHOLDER_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::with_single_condition(
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::PLACEHOLDER_TEXT,
+        }),
+        &[
+            azul_css::dynamic_selector::DynamicSelector::Theme(
+                azul_css::dynamic_selector::ThemeCondition::Dark,
+            ),
+            azul_css::dynamic_selector::DynamicSelector::PseudoState(
+                azul_css::dynamic_selector::PseudoStateType::Placeholder,
+            ),
+        ],
+    );
 
 /// Every border state a text field takes: the accent on hover and on focus, each
 /// edge, each with its dark twin.

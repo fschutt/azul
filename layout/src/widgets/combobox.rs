@@ -351,6 +351,13 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    // Dark twins of the resting edges - BEFORE the focus-ring rules below, so
+    // the ring still wins on focus (last match wins, and a `dark_theme` twin
+    // matches in every pseudo-state).
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // border-radius: 4px
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(RADIUS),
@@ -365,9 +372,11 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
         StyleBorderBottomRightRadius::const_px(RADIUS),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    crate::widgets::themes::system_palette::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    crate::widgets::themes::system_palette::DARK_TEXT,
     // Focus ring, light and dark. Declared in the theme module — see
     // `themes::flat::FOCUS_BORDER_TOP` — because the dark half needs the
     // palette's `DARK_ACC`, which this file cannot see. All four edges, because
@@ -472,6 +481,10 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
                 inner: BORDER_COLOR,
             },
         )),
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
         // border-radius: 4px
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
             StyleBorderBottomLeftRadius::const_px(RADIUS),
@@ -480,6 +493,8 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
             StyleBorderBottomRightRadius::const_px(RADIUS),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+        // The list is a field surface: the desktop's field colour in dark.
+        crate::widgets::themes::system_palette::DARK_CONTROL_BACKGROUND,
     ])
 }
 
@@ -503,6 +518,7 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    crate::widgets::themes::system_palette::DARK_TEXT,
     // Option-row hover, light and dark — see `themes::flat::OPTION_HOVER`.
     crate::widgets::themes::flat::OPTION_HOVER,
     crate::widgets::themes::flat::OPTION_HOVER_DARK,

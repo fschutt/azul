@@ -57,6 +57,9 @@ static LABEL_STYLE_DEFAULT: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
+    // The grey is a light-theme ink: on a dark window it reads at 1.6:1. The
+    // dark twin is the desktop's own label colour.
+    crate::widgets::themes::system_palette::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -75,6 +78,9 @@ static LABEL_STYLE_MAC: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
+    // The grey is a light-theme ink: on a dark window it reads at 1.6:1. The
+    // dark twin is the desktop's own label colour.
+    crate::widgets::themes::system_palette::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -164,8 +170,9 @@ mod autotest_generated {
     // Helpers
     // ------------------------------------------------------------------
 
-    /// The number of declarations each *populated* platform table carries.
-    const DECL_COUNT: usize = 9;
+    /// The number of declarations each *populated* platform table carries:
+    /// nine resting properties plus the dark twin of the text colour.
+    const DECL_COUNT: usize = 10;
 
     /// The class `dom()` stamps onto the label `<p>`.
     const LABEL_CLASS_NAME: &str = "__azul-native-label";
@@ -537,11 +544,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_but_the_dark_ink() {
         // A label is stateless — a declaration gated on `:hover`/`:active`
-        // would simply never paint.
+        // would simply never paint. The one conditional declaration is the
+        // text colour's dark twin, which follows the theme, not a state.
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             for p in table {
+                if p.is_dark_twin() {
+                    assert!(
+                        matches!(p.property, CssProperty::TextColor(_))
+                            && p.pseudo_state_conditions().is_empty(),
+                        "{name}: {:?} is a dark twin of something other than the resting ink",
+                        p.property
+                    );
+                    continue;
+                }
                 assert!(
                     p.apply_if.as_ref().is_empty(),
                     "{name}: {:?} is conditional on a stateless widget",
@@ -552,14 +569,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn no_property_is_declared_twice() {
+    fn no_property_is_declared_twice_in_one_theme() {
         // A duplicated declaration is a last-one-wins ambiguity: two font sizes
-        // would make one of them silently dead.
+        // would make one of them silently dead. The text colour's dark twin is
+        // the one property declared again - for the other theme.
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             let mut seen = HashSet::new();
             for p in table {
                 assert!(
-                    seen.insert(core::mem::discriminant(&p.property)),
+                    seen.insert((core::mem::discriminant(&p.property), p.is_dark_twin())),
                     "{name}: duplicate declaration of {:?}",
                     p.property
                 );

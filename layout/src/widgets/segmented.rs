@@ -300,6 +300,67 @@ fn build_segment_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// The dark twins of one segment's colours, appended after
+/// [`build_segment_style`]'s light face. Nothing in a segment's style is
+/// state-conditional, so "after its light value" is simply the end.
+///
+/// A selected segment takes the desktop's accent and the ink that sits on
+/// it, an unselected one the desktop's button face and button ink, and the
+/// shared seams the separator colour. The light palette (white paper, the
+/// fixed accent blue) is left exactly as it was.
+fn dark_segment_twins(selected: bool, is_first: bool) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::system_palette as sys;
+
+    let (bg, text) = if selected {
+        (sys::DARK_ACCENT_BACKGROUND, sys::DARK_ACCENT_TEXT)
+    } else {
+        (sys::DARK_BUTTON_FACE, sys::DARK_BUTTON_TEXT)
+    };
+    let mut v = alloc::vec![
+        bg,
+        text,
+        sys::dark_border_top(sys::SEPARATOR),
+        sys::dark_border_bottom(sys::SEPARATOR),
+        sys::dark_border_right(sys::SEPARATOR),
+    ];
+    if is_first {
+        v.push(sys::dark_border_left(sys::SEPARATOR));
+    }
+    v
+}
+
+/// One segment's full style as `dom()` renders it: the light face, then its
+/// dark twins.
+fn segment_style(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    let mut v = build_segment_style(selected, is_first, is_last).into_library_owned_vec();
+    v.extend(dark_segment_twins(selected, is_first));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The fill and ink the click restyle writes for a segment, in the window's
+/// theme. A `set_css_property` override outranks every inline declaration,
+/// dark twins included, so the restyle has to pick the dark face itself.
+fn segment_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+    use crate::widgets::themes::system_palette as sys;
+
+    match (selected, dark) {
+        (true, false) => (SEG_SELECTED_BG, SEG_SELECTED_TEXT),
+        (false, false) => (SEG_UNSELECTED_BG, SEG_UNSELECTED_TEXT),
+        (true, true) => (sys::ACCENT_BACKGROUND, sys::ACCENT_TEXT),
+        (false, true) => (sys::BUTTON_FACE, sys::BUTTON_TEXT),
+    }
+}
+
+/// Whether the window a callback runs in cascades in the dark theme - the
+/// answer `LayoutWindow::dynamic_selector_context` gives: the `AZ_THEME` pin
+/// first, then the window's own theme.
+fn window_is_dark(info: &CallbackInfo) -> bool {
+    azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
+        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
+        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
+    )
+}
+
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
     #[must_use]
@@ -395,7 +456,7 @@ impl Segmented {
         for (i, label) in self.labels.as_ref().iter().enumerate() {
             let is_first = i == 0;
             let is_last = i + 1 == count;
-            let seg_style = build_segment_style(i == selected, is_first, is_last);
+            let seg_style = segment_style(i == selected, is_first, is_last);
 
             children.push(
                 crate::widgets::widget_p_with_text(label.clone())
@@ -443,6 +504,7 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
     use azul_core::dom::DomNodeId;
 
     let clicked = info.get_hit_node();
+    let dark = window_is_dark(&info);
     let Some(parent) = info.get_parent(clicked) else {
         return Update::DoNothing;
     };
@@ -474,32 +536,15 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
         }
     };
 
-    // Live-restyle: selected segment gets the accent fill + light text,
-    // the rest get the neutral fill + dark text.
+    // Live-restyle: selected segment gets the accent fill + its ink, the rest
+    // get the neutral fill + the neutral ink - in the window's theme.
     for (i, node) in segments.iter().enumerate() {
-        if i == selected {
-            info.set_css_property(
-                *node,
-                CssProperty::const_background_content(SEG_SELECTED_BG),
-            );
-            info.set_css_property(
-                *node,
-                CssProperty::const_text_color(StyleTextColor {
-                    inner: SEG_SELECTED_TEXT,
-                }),
-            );
-        } else {
-            info.set_css_property(
-                *node,
-                CssProperty::const_background_content(SEG_UNSELECTED_BG),
-            );
-            info.set_css_property(
-                *node,
-                CssProperty::const_text_color(StyleTextColor {
-                    inner: SEG_UNSELECTED_TEXT,
-                }),
-            );
-        }
+        let (bg, text) = segment_colours(i == selected, dark);
+        info.set_css_property(*node, CssProperty::const_background_content(bg));
+        info.set_css_property(
+            *node,
+            CssProperty::const_text_color(StyleTextColor { inner: text }),
+        );
     }
 
     result
@@ -1840,8 +1885,7 @@ mod autotest_generated {
                 assert_eq!(children.len(), n);
 
                 for (i, child) in children.iter().enumerate() {
-                    let expected =
-                        properties(&build_segment_style(i == selected, i == 0, i + 1 == n));
+                    let expected = properties(&segment_style(i == selected, i == 0, i + 1 == n));
                     assert_eq!(
                         inline_properties(child),
                         expected,
@@ -1894,7 +1938,7 @@ mod autotest_generated {
             );
 
             for (i, child) in dom.children.as_ref().iter().enumerate() {
-                let expected = properties(&build_segment_style(false, i == 0, i + 1 == n));
+                let expected = properties(&segment_style(false, i == 0, i + 1 == n));
                 assert_eq!(
                     inline_properties(child),
                     expected,
@@ -1966,7 +2010,7 @@ mod autotest_generated {
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 1);
 
-        let expected = properties(&build_segment_style(true, true, true));
+        let expected = properties(&segment_style(true, true, true));
         assert_eq!(
             inline_properties(&children[0]),
             expected,
@@ -2131,7 +2175,7 @@ mod autotest_generated {
         let children = dom.children.as_ref();
         for (i, child) in children.iter().enumerate() {
             assert_eq!(text_of(child), Some("same"));
-            let expected = properties(&build_segment_style(i == 1, i == 0, i == 2));
+            let expected = properties(&segment_style(i == 1, i == 0, i == 2));
             assert_eq!(inline_properties(child), expected, "segment {i}");
         }
     }

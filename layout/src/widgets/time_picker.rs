@@ -51,7 +51,10 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette as sys,
+};
 
 // ---- classes ----
 static TIME_PICKER_CLASS: &[IdOrClass] =
@@ -275,6 +278,11 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    // The outline is the desktop's separator colour in the dark theme.
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
     )),
@@ -315,6 +323,7 @@ static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ARROW_COLOR,
     })),
+    sys::DARK_SECONDARY_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -331,6 +340,7 @@ static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -346,6 +356,7 @@ static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
@@ -363,7 +374,9 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: WHITE,
     })),
+    sys::DARK_ACCENT_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(ACCENT_BG_VEC)),
+    sys::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         8,
     ))),
