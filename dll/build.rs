@@ -86,8 +86,8 @@ fn main() {
     // minus Wayland (the X11 backend, the window registry, the shared
     // resources, the timers), the window loop in `run.rs` that drives it,
     // and the X11 halves of the eyedropper, the monitor list and the native
-    // screenshot. Always on Linux. On macOS only with the opt-in `x11-macos`
-    // feature, which runs that same backend against XQuartz so an X11 bug
+    // screenshot. Always on Linux. On macOS with the `x11-macos` feature (part
+    // of build-dll), which runs that same backend against XQuartz so an X11 bug
     // reproduces on a Mac (`AZ_BACKEND=x11`). Wayland, the D-Bus desktop
     // settings and AT-SPI stay `target_os = "linux"`: they are the Linux
     // DESKTOP, not the X protocol. One definition for every gate, for the

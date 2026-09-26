@@ -46,7 +46,7 @@ Every flag is read once at process start. Unset means off — **except `AZ_LOG`,
 - `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process.
 - `AZ_BACKEND=<mode>`. One of `auto`, `gpu`, `cpu`, or `headless`. Resolves the rendering backend. `headless` skips the OS window and is required by the E2E runner. Default `auto`.
 - `AZUL_HEADLESS=1`. Legacy alias for `AZ_BACKEND=headless`.
-- `AZ_WINDOW=<x11|wayland|auto>`. The windowing system, a separate axis from the renderer: on Linux it overrides the `WAYLAND_DISPLAY`/`DISPLAY` detection (`AZ_BACKEND=x11|wayland` is the older spelling). On macOS, `x11` opens X11 windows through XQuartz in a build with the `x11-macos` feature, see [Reproducing X11 bugs on macOS](#reproducing-x11-bugs-on-macos-xquartz).
+- `AZ_WINDOW=<x11|wayland|auto>`. The windowing system, a separate axis from the renderer: on Linux it overrides the `WAYLAND_DISPLAY`/`DISPLAY` detection (`AZ_BACKEND=x11|wayland` is the older spelling). On macOS, `x11` opens X11 windows through XQuartz (the `x11-macos` feature, part of `build-dll`), see [Reproducing X11 bugs on macOS](#reproducing-x11-bugs-on-macos-xquartz).
 - `AZ_RECORD=<path>`. Appends every internal log message to `<path>` as plain text.
 - `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](debugging/e2e-testing.md).
 - `AZ_PROFILE=<tokens>`. Comma-separated profiler tokens for per-frame instrumentation. See [Memory and Profiling](debugging/profiling.md).
@@ -167,8 +167,9 @@ The Linux X11 backend also runs on a Mac, against XQuartz. It is the same backen
 brew install --cask xquartz
 open -a XQuartz
 
-# 2. libazul with the X11 backend compiled in (the feature is not part of build-dll).
-cargo build --release -p azul-dll --features build-dll,x11-macos
+# 2. libazul - every macOS build-dll has the X11 backend (`x11-macos` is part of it;
+#    a link-static app adds `--features x11-macos`).
+cargo build --release -p azul-dll --features build-dll
 
 # 3. Any app on that libazul, with X11 windows instead of AppKit ones.
 cargo build --release -p AzWidgets

@@ -1,7 +1,7 @@
 //! The X11 backend on a host whose own toolkit is something else.
 //!
-//! `shell2/linux/x11` is the Linux X11 backend. With the opt-in `x11-macos`
-//! feature it is ALSO compiled into the macOS build, and `AZ_BACKEND=x11` (or
+//! `shell2/linux/x11` is the Linux X11 backend. With the `x11-macos` feature
+//! (part of `build-dll`) it is ALSO compiled into the macOS build, and `AZ_BACKEND=x11` (or
 //! `AZ_WINDOW=x11`) then runs that same backend - the same `X11Window`, the
 //! same window loop in `run.rs` - against XQuartz instead of opening AppKit
 //! windows. The point is reach: an X11 bug reproduces on a Mac, and because

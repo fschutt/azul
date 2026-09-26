@@ -727,6 +727,9 @@ build-dll = [
     # this an app built the normal way silently ignored AZ_E2E - which is
     # exactly what "the app did nothing" looked like (2026-09-01).
     "e2e-scripting",
+    # The X11 backend in the macOS dylib, so `AZ_BACKEND=x11` works out of
+    # the box against XQuartz. No dependency, a no-op off macOS - see below.
+    "x11-macos",
 ]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
@@ -967,14 +970,12 @@ web-transpiler-static = ["web-transpiler", "dep:cc"]
 # Windowing backends
 # -----------------------------------------------------------------------------
 
-# The X11 backend in the macOS build, to reproduce X11 bugs on a Mac. OFF by
-# default and NOT part of build-dll: a normal macOS build is unchanged. With
-# it, `AZ_BACKEND=x11` (or `AZ_WINDOW=x11`) runs the Linux X11 backend - the
-# same `X11Window`, the same window loop - against XQuartz instead of opening
-# AppKit windows; without the variable nothing changes at run time either.
-# Combine with build-dll or link-static:
-#
-#   cargo build --release -p azul-dll --features build-dll,x11-macos
+# The X11 backend in the macOS build, to reproduce X11 bugs on a Mac. Part of
+# build-dll, so every macOS dylib has it; a link-static app opts in with
+# `--features x11-macos`. `AZ_BACKEND=x11` (or `AZ_WINDOW=x11`) runs the Linux
+# X11 backend - the same `X11Window`, the same window loop - against XQuartz
+# instead of opening AppKit windows; without the variable nothing changes at
+# run time.
 #
 # No dependency of its own: the X libraries are dlopen'ed from /opt/X11/lib
 # at run time (shell2/common/x11_host.rs), and build.rs turns this feature

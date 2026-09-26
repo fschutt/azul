@@ -724,7 +724,7 @@ pub fn run(
             eprintln!(
                 "[azul] AZ_BACKEND=x11 / AZ_WINDOW=x11 asks for the X11 backend, but this build \
                  has no `x11-macos` feature, so it does NOTHING (opening an AppKit window). \
-                 Rebuild with: cargo build -p azul-dll --features build-dll,x11-macos"
+                 build-dll includes it; a link-static app adds `--features x11-macos`."
             );
         }
         super::common::x11_host::HostWindowing::Unsupported(value) => {
