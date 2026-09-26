@@ -1191,9 +1191,9 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
     let Some(key) = ks.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
-    // Ctrl (or Cmd on macOS) = the coarse step.
-    let coarse = ks.ctrl_down() || ks.super_down();
-    let step = if coarse { 0.10 } else { 0.01 };
+    let Some(step) = picker_step(&ks, azul_core::window::mac_shortcut_conventions()) else {
+        return Update::DoNothing;
+    };
 
     let mut hsv = picker.hsv;
     match (axis, key) {
@@ -1233,6 +1233,24 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
     info.prevent_default();
     let panel = info.get_parent(info.get_hit_node());
     publish(picker, info, panel)
+}
+
+/// One keyboard step of a picker control: 1%.
+const FINE_STEP: f32 = 0.01;
+/// The large keyboard step of a picker control: 10%.
+const COARSE_STEP: f32 = 0.10;
+
+/// The step a picker key takes for the modifiers held: [`FINE_STEP`], or
+/// [`COARSE_STEP`] with the large-step modifier. `None` means the chord is
+/// not the picker's and must fall through untouched.
+///
+/// THE one place the modifier decision lives. `mac_conventions` is the
+/// process's [`azul_core::window::mac_shortcut_conventions`], passed in
+/// rather than read here so both conventions are testable on any host.
+fn picker_step(ks: &azul_core::window::KeyboardState, _mac_conventions: bool) -> Option<f32> {
+    // Ctrl (or Cmd on macOS) = the coarse step.
+    let coarse = ks.ctrl_down() || ks.super_down();
+    Some(if coarse { COARSE_STEP } else { FINE_STEP })
 }
 
 /// Which control `nudge_hsv` is driving.
