@@ -2520,3 +2520,73 @@ fn a_combobox_list_popup_does_not_take_focus() {
     );
     assert_eq!(focused(&parent), Some(field), "the field keeps its focus");
 }
+
+/// A ComboBox whose list was opened by a click on its field: `(parent,
+/// popup, field)`, the popup after its first pass.
+fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = combobox_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let field_rect = rect_of_class(&parent, "combobox-input");
+    click_at(
+        &mut parent,
+        LogicalPosition::new(
+            field_rect.origin.x + field_rect.size.width / 2.0,
+            field_rect.origin.y + field_rect.size.height / 2.0,
+        ),
+    );
+    parent.regenerate_layout().expect("reconcile");
+    let field = node_with_class(&parent, "combobox-input");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    (parent, popup, field)
+}
+
+/// P0-3, the other half of the list model: the list keeps no focus while
+/// the user types, but a NAVIGATION key takes the keyboard into it - Down
+/// lands on the first option, from where arrows walk the options and Enter
+/// picks one. Delivered to the popup here, as macOS / Win32 / Wayland do
+/// (their popup gets the key natively).
+#[test]
+fn down_delivered_to_an_unfocused_list_popup_focuses_its_first_option() {
+    let (_parent, mut popup, _field) = open_combobox();
+    assert_eq!(focused(&popup), None, "premise: the list took no focus");
+    key_down(&mut popup, VirtualKeyCode::Down, &[], "t.down");
+    keys_up(&mut popup, "t.down.up");
+    assert_eq!(
+        focused(&popup),
+        Some(node_with_class(&popup, "combobox-option")),
+        "Down into an unfocused list focuses its FIRST option"
+    );
+}
+
+/// The same from the field, the way X11 delivers it (and headless): the
+/// parent keeps every key that edits the field, but a navigation key while
+/// the list is open belongs to the list, and the field keeps its focus.
+#[test]
+fn down_in_the_combobox_field_moves_into_its_open_list() {
+    let (mut parent, mut popup, field) = open_combobox();
+    key_down(&mut parent, VirtualKeyCode::Down, &[], "t.down");
+    let _ = popup.process_window_events(0);
+    keys_up(&mut parent, "t.down.up");
+    let _ = popup.process_window_events(0);
+    assert_eq!(
+        focused(&popup),
+        Some(node_with_class(&popup, "combobox-option")),
+        "Down in the field focused the list's first option"
+    );
+    assert_eq!(
+        focused(&parent),
+        Some(field),
+        "the field keeps its own focus"
+    );
+}
