@@ -551,6 +551,12 @@ fn a_caret_below_the_window_scrolls_the_viewport_to_reveal_it() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
     }));
+    let block = lw
+        .text_block_of(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(3))),
+        })
+        .expect("harness: the text is laid out in a text block");
     lw.text_edit_manager.initialize_editing(
         TextCursor {
             cluster_id: GraphemeClusterId {
@@ -559,8 +565,7 @@ fn a_caret_below_the_window_scrolls_the_viewport_to_reveal_it() {
             },
             affinity: CursorAffinity::Leading,
         },
-        DomId::ROOT_ID,
-        NodeId::new(3),
+        block,
         0,
     );
     let caret = lw
