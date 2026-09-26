@@ -5418,6 +5418,40 @@ impl LayoutWindow {
         ctx
     }
 
+    /// The window was activated or deactivated: mirror that into
+    /// `current_window_state` and rebuild what depends on it, without a
+    /// relayout.
+    ///
+    /// `current_window_state` is the copy the display-list build reads, and
+    /// only a LAYOUT pass refreshed it - an activation change is not one, so
+    /// the focus ring (painted only in an active window, see
+    /// `apply_text_tweens`) and every `:backdrop` declaration (the cascade
+    /// context carries the flag) kept answering for the old activation. The
+    /// context is re-offered to every laid-out DOM exactly as the layout
+    /// funnel does (a DOM without conditional styling pays one comparison),
+    /// then every list is rebuilt.
+    ///
+    /// Returns whether the activation changed, i.e. whether the caller owes
+    /// a present of the rebuilt lists.
+    pub fn apply_window_activation(&mut self, window_focused: bool, has_focus: bool) -> bool {
+        let before = self.current_window_state.is_window_active();
+        self.current_window_state.window_focused = window_focused;
+        self.current_window_state.flags.has_focus = has_focus;
+        if self.current_window_state.is_window_active() == before {
+            return false;
+        }
+        let window_state = self.current_window_state.clone();
+        let ctx = self.dynamic_selector_context(&window_state);
+        let dom_ids: Vec<DomId> = self.layout_results.keys().copied().collect();
+        for dom_id in dom_ids {
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                lr.styled_dom.set_dynamic_selector_context(ctx.clone());
+            }
+            self.regenerate_display_list_for_dom(dom_id);
+        }
+        true
+    }
+
     /// Measure the content of the `<transient-window>` at `source_node` for
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this

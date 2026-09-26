@@ -10660,6 +10660,39 @@ pub trait PlatformWindow {
             }
         };
 
+        // WINDOW ACTIVATION -> FOCUS INDICATION + `:backdrop`. Focus survives
+        // a deactivation, its ring does not (it is painted only in an active
+        // window), and `:backdrop` declarations flip with it. Both are read
+        // off the LayoutWindow's copy of the window state, which only a
+        // layout pass refreshed, so a popup that took the keyboard left its
+        // invoker ringed in the parent (report 1). Mirrored and rebuilt here,
+        // before the caret-blink resume below reads the same copy.
+        let activation_result: Option<ProcessEventResult> = {
+            let activation_changed = synthetic_events.iter().any(|ev| {
+                matches!(
+                    ev.event_type,
+                    azul_core::events::EventType::WindowFocusIn
+                        | azul_core::events::EventType::WindowFocusOut
+                )
+            });
+            if activation_changed {
+                let (window_focused, has_focus) = {
+                    let ws = self.get_current_window_state();
+                    (ws.window_focused, ws.flags.has_focus)
+                };
+                let rebuilt = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.apply_window_activation(window_focused, has_focus));
+                focus_trace!(
+                    "window activation: focused={window_focused} has_focus={has_focus} \
+                     rebuilt={rebuilt}"
+                );
+                rebuilt.then_some(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow)
+            } else {
+                None
+            }
+        };
+
         // MWA-C-focus_cursor: pause the caret blink while the window is
         // unfocused — the timer kept background windows repainting every
         // ~530ms and the caret blinked without key focus. On refocus,
@@ -12281,6 +12314,11 @@ pub trait PlatformWindow {
 
         // MWA-C-gesture: fold the Escape / focus-loss drag cancellation.
         if let Some(r) = drag_cancel_result {
+            result = result.max(r);
+        }
+
+        // ...and the lists the window (de)activation rebuilt.
+        if let Some(r) = activation_result {
             result = result.max(r);
         }
         result = result.max(accelerator_result);
