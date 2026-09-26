@@ -294,6 +294,8 @@ mod pagination_dom_breaks;
 mod pagination_fits_its_card;
 #[path = "shaping_cache_keeps_the_run_it_is_hit_from.rs"]
 mod shaping_cache_keeps_the_run_it_is_hit_from;
+#[path = "caret_in_an_inline_editing_host.rs"]
+mod caret_in_an_inline_editing_host;
 #[path = "fixed_size_widgets_sit_at_the_start.rs"]
 mod fixed_size_widgets_sit_at_the_start;
 #[path = "patched_opacity_reaches_the_paint.rs"]
