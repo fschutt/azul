@@ -964,6 +964,27 @@ web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/
 web-transpiler-static = ["web-transpiler", "dep:cc"]
 
 # -----------------------------------------------------------------------------
+# Windowing backends
+# -----------------------------------------------------------------------------
+
+# The X11 backend in the macOS build, to reproduce X11 bugs on a Mac. OFF by
+# default and NOT part of build-dll: a normal macOS build is unchanged. With
+# it, `AZ_BACKEND=x11` (or `AZ_WINDOW=x11`) runs the Linux X11 backend - the
+# same `X11Window`, the same window loop - against XQuartz instead of opening
+# AppKit windows; without the variable nothing changes at run time either.
+# Combine with build-dll or link-static:
+#
+#   cargo build --release -p azul-dll --features build-dll,x11-macos
+#
+# No dependency of its own: the X libraries are dlopen'ed from /opt/X11/lib
+# at run time (shell2/common/x11_host.rs), and build.rs turns this feature
+# into the `az_x11` cfg the backend is gated on. It deliberately does NOT
+# bring x11-clipboard to macOS - see shell2/linux/x11/clipboard_xquartz.rs.
+# A no-op on every other target (Linux always has the X11 backend).
+# How-to: "Reproducing X11 bugs on macOS" in doc/guide/en/debugging.md.
+x11-macos = []
+
+# -----------------------------------------------------------------------------
 # Accessibility
 # -----------------------------------------------------------------------------
 

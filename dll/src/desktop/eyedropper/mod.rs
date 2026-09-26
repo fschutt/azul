@@ -26,7 +26,9 @@ pub mod macos;
 pub mod wayland;
 #[cfg(target_os = "windows")]
 pub mod windows;
-#[cfg(target_os = "linux")]
+/// Wherever the X11 backend is built (`az_x11`): Linux, and macOS with the
+/// `x11-macos` feature, where it reads XQuartz's root window.
+#[cfg(az_x11)]
 pub mod x11;
 
 use azul_core::{

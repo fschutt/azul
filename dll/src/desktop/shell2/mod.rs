@@ -22,6 +22,9 @@
 //! # Environment Variables
 //!
 //! - `AZ_BACKEND` - Rendering backend: "cpu" (default), "gpu", "auto", "headless"
+//! - `AZ_WINDOW` - Windowing backend on Linux: "x11", "wayland", "auto" (`AZ_BACKEND=x11|wayland`
+//!   is the legacy spelling). On macOS `x11` selects the X11 backend (XQuartz) in a build with the
+//!   `x11-macos` feature - see `common::x11_host`.
 
 pub mod common;
 
@@ -30,7 +33,10 @@ pub mod common;
 pub mod android;
 #[cfg(target_os = "ios")]
 pub mod ios;
-#[cfg(target_os = "linux")]
+/// Linux: X11 + Wayland. `az_x11` is Linux, or macOS with the `x11-macos`
+/// feature - where this module is built WITHOUT Wayland and the Linux desktop
+/// integrations, so that the X11 backend can run against XQuartz.
+#[cfg(az_x11)]
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;

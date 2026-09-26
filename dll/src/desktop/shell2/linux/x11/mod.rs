@@ -10,12 +10,71 @@
 //!   timerfd file descriptors.
 //! - [`X11Window::render_and_present`] — full render cycle: layout regeneration, WebRender update,
 //!   and buffer swap (GPU) or XPutImage (CPU).
+//!
+//! Also built into a macOS binary with the `x11-macos` feature, where it runs
+//! against XQuartz (see `common::x11_host`). `LinuxWindow` has only the X11
+//! variant there, so every `_ =>` arm and `if let LinuxWindow::X11(..)` written
+//! against X11 + Wayland is trivially exhaustive on that host. The two lints
+//! that say so are silenced there only; on Linux, where this code is written
+//! and the enum has both variants, they stay live.
+#![cfg_attr(
+    not(target_os = "linux"),
+    allow(unreachable_patterns, irrefutable_let_patterns)
+)]
 
 use azul_layout::solver3::LayoutNodeId;
 
 use crate::impl_platform_window_getters;
 
+#[cfg(target_os = "linux")]
 pub mod accessibility;
+/// X11 on a macOS host: there is no AT-SPI bus to talk to, and
+/// `accesskit_unix` is a Linux-only dependency. The window keeps the adapter's
+/// API with nothing behind it - what an `a11y`-less Linux build gets.
+#[cfg(not(target_os = "linux"))]
+pub mod accessibility {
+    #[cfg(feature = "a11y")]
+    use accesskit::{ActionRequest, TreeUpdate};
+    #[cfg(feature = "a11y")]
+    use azul_core::dom::{AccessibilityAction, DomId, NodeId};
+
+    /// Inert off Linux: see the module docs.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct LinuxAccessibilityAdapter;
+
+    impl LinuxAccessibilityAdapter {
+        pub fn new() -> Self {
+            Self
+        }
+
+        pub fn initialize(&mut self, _window_name: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        #[cfg(feature = "a11y")]
+        pub fn update_tree(&self, _tree_update: TreeUpdate) {}
+
+        pub fn set_focus(&self, _has_focus: bool) {}
+
+        pub fn set_root_window_bounds(&self, _x: f64, _y: f64, _width: f64, _height: f64) {}
+
+        #[cfg(feature = "a11y")]
+        pub fn take_pending_actions(&self) -> Vec<ActionRequest> {
+            Vec::new()
+        }
+
+        #[cfg(feature = "a11y")]
+        pub fn poll_action(&self) -> Option<(DomId, NodeId, AccessibilityAction)> {
+            None
+        }
+    }
+}
+#[cfg(target_os = "linux")]
+pub mod clipboard;
+/// X11 on a macOS host: the selections through XQuartz's pasteboard bridge
+/// instead of the `x11-clipboard` transport - the file says why.
+#[cfg(not(target_os = "linux"))]
+#[path = "clipboard_xquartz.rs"]
 pub mod clipboard;
 pub mod defines;
 pub mod dlopen;
@@ -312,6 +371,29 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
         }
     }
     None
+}
+
+/// This host's name for `WM_CLIENT_MACHINE`, read from the kernel rather than
+/// from the environment: `/proc/sys/kernel/hostname` on Linux, gethostname(3)
+/// on a host without procfs (macOS under `x11-macos`). Empty when unreadable,
+/// and the caller then sets no property at all.
+fn client_machine_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/sys/kernel/hostname")
+            .map(|h| h.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut buf = [0 as c_char; 256];
+        if unsafe { libc::gethostname(buf.as_mut_ptr(), buf.len()) } != 0 {
+            return String::new();
+        }
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let bytes: Vec<u8> = buf[..len].iter().map(|&c| c as u8).collect();
+        String::from_utf8_lossy(&bytes).trim().to_string()
+    }
 }
 
 /// The bytes a window title goes onto the wire as, truncated at an interior
@@ -3875,9 +3957,7 @@ impl X11Window {
             );
             // The hostname has to be the one the WM would see, so it is read
             // from the kernel rather than from the environment.
-            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
-                .map(|h| h.trim().to_string())
-                .unwrap_or_default();
+            let host = client_machine_name();
             if !host.is_empty() {
                 let machine_atom = (xlib.XInternAtom)(
                     display,

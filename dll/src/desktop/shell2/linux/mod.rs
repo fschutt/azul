@@ -3,13 +3,48 @@
 //! Automatically selects between X11 and Wayland at runtime,
 //! or allows manual selection via environment variable.
 //! See [`BackendType`] and [`LinuxWindow::select_backend`] for the selection logic.
+//!
+//! # On macOS (`x11-macos`)
+//!
+//! The module is also built into a macOS binary with the `x11-macos` feature
+//! (the `az_x11` cfg), where the macOS `run()` hands it the process when
+//! `AZ_BACKEND=x11` asks for it, so the X11 backend runs against XQuartz.
+//! There it is the X11 backend and nothing else: Wayland is the Linux desktop's
+//! protocol and is not built, `system_style` (GNOME/KDE/portal settings) is
+//! replaced by an inert stand-in, and `LinuxWindow` has the one variant. The
+//! D-Bus modules are built but inert - they look for libdbus by its Linux
+//! soname only.
 
 pub mod common;
 pub mod registry;
 pub mod resources;
 pub(crate) mod system_icons;
+#[cfg(target_os = "linux")]
 pub(crate) mod system_style;
 pub mod timer;
+
+/// X11 on a macOS host: the desktop is Aqua, not GNOME or KDE, so there is no
+/// xdg-desktop-portal to watch and no desktop configuration to re-read. The
+/// windows keep the `SystemStyle` `App::create` detected through the macOS
+/// path (colours, fonts, light/dark at startup); a later appearance switch is
+/// not followed. The X11 backend's calls land here as no-ops.
+#[cfg(not(target_os = "linux"))]
+pub(crate) mod system_style {
+    /// No portal watcher, so nothing to put in a poll set.
+    pub(crate) fn theme_wake_fd() -> i32 {
+        -1
+    }
+
+    /// Nothing is ever signalled.
+    pub(crate) fn drain_theme_wake() {}
+
+    /// The desktop theme is never observed changing.
+    pub(crate) fn adopt_observed_theme(
+        _common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+    ) -> Option<std::sync::Arc<azul_css::system::SystemStyle>> {
+        None
+    }
+}
 
 /// DBus dynamic loading (for GNOME menus)
 pub mod dbus;
@@ -18,6 +53,7 @@ pub mod dbus;
 pub mod gnome_menu;
 
 /// Wayland implementation
+#[cfg(target_os = "linux")]
 pub mod wayland;
 /// X11 implementation
 pub mod x11;
@@ -34,6 +70,7 @@ use crate::{log_info, log_warn};
 /// Linux window - supports both X11 and Wayland
 pub enum LinuxWindow {
     X11(x11::X11Window),
+    #[cfg(target_os = "linux")]
     Wayland(wayland::WaylandWindow),
 }
 
@@ -41,6 +78,7 @@ pub enum LinuxWindow {
 #[derive(Debug, Clone, Copy)]
 pub enum LinuxEvent {
     X11(x11::X11Event),
+    #[cfg(target_os = "linux")]
     Wayland(wayland::WaylandEvent),
 }
 
@@ -49,6 +87,7 @@ impl LinuxWindow {
     pub fn poll_event(&mut self) -> Option<LinuxEvent> {
         match self {
             LinuxWindow::X11(w) => w.poll_event().map(LinuxEvent::X11),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.poll_event().map(LinuxEvent::Wayland),
         }
     }
@@ -63,6 +102,7 @@ impl LinuxWindow {
     pub fn is_open(&self) -> bool {
         match self {
             LinuxWindow::X11(w) => w.is_open(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.is_open(),
         }
     }
@@ -71,6 +111,7 @@ impl LinuxWindow {
     pub fn close_requested(&self) -> bool {
         match self {
             LinuxWindow::X11(w) => w.close_requested(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.close_requested(),
         }
     }
@@ -81,6 +122,7 @@ impl LinuxWindow {
     pub fn dismiss_chain_if_menu(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.dismiss_chain_if_menu(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(_) => {}
         }
     }
@@ -88,6 +130,7 @@ impl LinuxWindow {
     pub fn close(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.close(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.close(),
         }
     }
@@ -96,6 +139,7 @@ impl LinuxWindow {
     pub fn process_accessibility_actions(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.process_accessibility_actions(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.process_accessibility_actions(),
         }
     }
@@ -103,6 +147,7 @@ impl LinuxWindow {
     pub fn request_redraw(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.request_redraw(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.request_redraw(),
         }
     }
@@ -129,6 +174,7 @@ impl LinuxWindow {
             BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
                 options, resources,
             )?)),
+            #[cfg(target_os = "linux")]
             BackendType::Wayland => {
                 // F3: try Wayland, but fall back to X11 if it fails to initialise
                 // (missing/old libwayland, no compositor, etc.) instead of aborting
@@ -155,6 +201,10 @@ impl LinuxWindow {
                     }
                 }
             }
+            // Only an explicit AZ_WINDOW=wayland reaches this off Linux: there
+            // is no Wayland backend in the build, and no compositor to talk to.
+            #[cfg(not(target_os = "linux"))]
+            BackendType::Wayland => Err(WindowError::NoBackendAvailable),
         }
     }
 
@@ -210,6 +260,7 @@ impl LinuxWindow {
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
         match self {
             LinuxWindow::X11(w) => w.wait_for_events(),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.wait_for_events(),
         }
     }
