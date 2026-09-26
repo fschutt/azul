@@ -247,10 +247,11 @@ impl TextTarget {
     }
 }
 
-/// [`TextTarget::caret_at_byte`] over the sparse layout: clusters in item
-/// order, each contributing its text's byte length; the first cluster whose
-/// span contains `offset` wins, past the end falls to the last cluster.
-/// `None` for a layout with no cluster.
+/// [`TextTarget::caret_at_byte`] over the sparse layout: byte 0 is before
+/// the first cluster (`Leading`); any other offset is after the first
+/// cluster, in item order and counting each cluster's text bytes, whose span
+/// reaches it; past the end falls to the last cluster. `None` for a layout
+/// with no cluster.
 fn caret_at_byte_in_layout(layout: &UnifiedLayout, offset: u32) -> Option<TextCursor> {
     let mut clusters = layout.items.iter().filter_map(|item| match &item.item {
         ShapedItem::Cluster(cluster) => Some(cluster),
@@ -261,7 +262,13 @@ fn caret_at_byte_in_layout(layout: &UnifiedLayout, offset: u32) -> Option<TextCu
         affinity: CursorAffinity::Trailing,
     };
     if offset == 0 {
-        return clusters.next().map(trailing);
+        // BEFORE the first character. `Trailing` on it - what this returned -
+        // is after it: byte 0 read back as byte 1, and the IME's caret rect
+        // for "the start" stood one glyph in.
+        return clusters.next().map(|cluster| TextCursor {
+            cluster_id: cluster.source_cluster_id,
+            affinity: CursorAffinity::Leading,
+        });
     }
     let mut start = 0u32;
     let mut last = None;

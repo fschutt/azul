@@ -695,10 +695,11 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
                 let mut cur = 0u32;
                 let mut found = None;
                 if off == 0 {
+                    // Byte 0 is BEFORE the first cluster.
                     found = layout.items.iter().find_map(|it| match &it.item {
                         ShapedItem::Cluster(c) => Some(TextCursor {
                             cluster_id: c.source_cluster_id,
-                            affinity: CursorAffinity::Trailing,
+                            affinity: CursorAffinity::Leading,
                         }),
                         _ => None,
                     });

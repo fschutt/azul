@@ -1142,9 +1142,10 @@ impl DenseText {
     }
 
     /// (d4) Cursor for an IFC-wide byte offset — the dense twin of the
-    /// sparse accumulation walk: clusters in item order, each
-    /// contributing `cluster_byte_len`, first cluster whose span
-    /// contains the offset wins; past-the-end falls to the last cluster.
+    /// sparse accumulation walk: byte 0 is `Leading` on the first cluster
+    /// (before it); any other offset is `Trailing` on the first cluster, in
+    /// item order and each contributing `cluster_byte_len`, whose span
+    /// reaches it; past-the-end falls to the last cluster.
     #[must_use]
     pub fn byte_offset_to_cursor(
         &self,
@@ -1166,7 +1167,11 @@ impl DenseText {
             return None;
         }
         if byte_offset == 0 {
-            return cursor_at(0);
+            // Before the first character, not after it.
+            return cursor_at(0).map(|cursor| TextCursor {
+                affinity: CursorAffinity::Leading,
+                ..cursor
+            });
         }
         let mut acc = 0u32;
         for ci in 0..self.clusters.len() as u32 {
