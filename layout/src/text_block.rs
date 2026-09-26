@@ -604,38 +604,68 @@ impl LayoutWindow {
         }
     }
 
-    /// The app's `AddCursor` (`CallbackChange::AddCursor`): a caret at `cursor`.
-    /// Added to the editing session when there is one; otherwise a session
-    /// opens in the block `node` names ([`Self::text_block_named_by`]).
-    /// Returns whether anything changed.
+    /// Whether an app call naming `node` means the editing session's block:
+    /// `node`'s text is in it, or the block lies inside `node` (its host, a
+    /// container of blocks).
+    fn names_session_block(&self, node: DomNodeId) -> bool {
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
+            return false;
+        };
+        block.dom() == node.dom
+            && (self.text_block_of(node) == Some(block)
+                || self.text_blocks_within(node).contains(&block))
+    }
+
+    /// The app's `AddCursor` (`CallbackChange::AddCursor`): a caret at `cursor`
+    /// in the block `node` names.
+    ///
+    /// Added to the editing session when `node` means the session's block
+    /// ([`Self::names_session_block`]). Otherwise the session opens in the
+    /// block `node` names ([`Self::text_block_named_by`]), as a click opens
+    /// it: `cursor` indexes THAT block, and adding it to another block's
+    /// session put a caret at an unrelated place there. Returns whether
+    /// anything changed.
     pub fn add_app_cursor(&mut self, node: DomNodeId, cursor: TextCursor) -> bool {
-        if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
-            let _ = mc.add_cursor(cursor);
-        } else {
-            let Some(block) = self.text_block_named_by(node) else {
-                return false;
-            };
-            self.text_edit_manager.multi_cursor =
-                Some(MultiCursorState::new_with_cursor(cursor, block, 0));
-        }
-        self.text_edit_manager.mark_dirty();
-        true
+        self.add_app_selection(
+            node,
+            SelectionRange {
+                start: cursor,
+                end: cursor,
+            },
+            |mc| {
+                let _ = mc.add_cursor(cursor);
+            },
+        )
     }
 
     /// The app's `AddSelectionRange` (`CallbackChange::AddSelectionRange`):
     /// [`Self::add_app_cursor`] for a range.
     pub fn add_app_selection_range(&mut self, node: DomNodeId, range: SelectionRange) -> bool {
-        if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+        self.add_app_selection(node, range, |mc| {
             let _ = mc.add_selection(range);
-        } else {
-            let Some(block) = self.text_block_named_by(node) else {
-                return false;
-            };
-            let mut mc = MultiCursorState::new_with_cursor(range.start, block, 0);
-            mc.set_single_range(range);
-            self.text_edit_manager.multi_cursor = Some(mc);
+        })
+    }
+
+    /// [`Self::add_app_cursor`] / [`Self::add_app_selection_range`]: `add`
+    /// into the session `node` means, else a session opened on `node`'s block
+    /// with `range`.
+    fn add_app_selection(
+        &mut self,
+        node: DomNodeId,
+        range: SelectionRange,
+        add: impl FnOnce(&mut MultiCursorState),
+    ) -> bool {
+        if self.names_session_block(node) {
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                add(mc);
+            }
+            self.text_edit_manager.mark_dirty();
+            return true;
         }
-        self.text_edit_manager.mark_dirty();
+        let Some(block) = self.text_block_named_by(node) else {
+            return false;
+        };
+        self.open_session(block, range);
         true
     }
 
