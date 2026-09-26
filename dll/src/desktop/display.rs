@@ -97,6 +97,17 @@ fn get_displays_uncached() -> Vec<DisplayInfo> {
     #[cfg(target_os = "windows")]
     return windows::get_displays();
 
+    // X11 on this Mac (`x11-macos`, `AZ_BACKEND=x11`): the monitors the X
+    // SERVER reports, in its own pixels. The AppKit list carries the backing
+    // scale (2.0 on a Retina panel), while XQuartz draws one X pixel per point
+    // unless told otherwise - so an X11 window sized from the AppKit list
+    // through `detect_initial_dpi` came up at twice the size it asked for, and
+    // placed against screens the X server does not have.
+    #[cfg(all(target_os = "macos", az_x11))]
+    if crate::desktop::shell2::common::x11_host::active() {
+        return linux::get_displays();
+    }
+
     #[cfg(target_os = "macos")]
     return macos::get_displays();
 
@@ -554,7 +565,10 @@ mod macos {
     }
 }
 
-#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+/// The Linux monitor list: X11 (XRandR) and Wayland. Also built wherever the
+/// X11 backend is (`az_x11`), where only its X11 half exists: on a macOS host
+/// running X11 it is the list the X11 windows are sized and placed against.
+#[cfg(all(az_x11, not(target_arch = "wasm32")))]
 mod linux {
     use super::*;
 
@@ -562,6 +576,7 @@ mod linux {
     /// to approximate the work area when the real value is unavailable.
     const FALLBACK_PANEL_HEIGHT: f32 = 24.0;
 
+    #[cfg(target_os = "linux")]
     pub fn get_displays() -> Vec<DisplayInfo> {
         // Try X11 first, then Wayland
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
@@ -569,6 +584,12 @@ mod linux {
         } else {
             x11::get_displays()
         }
+    }
+
+    /// No Wayland off Linux: the X server is the only answer.
+    #[cfg(not(target_os = "linux"))]
+    pub fn get_displays() -> Vec<DisplayInfo> {
+        x11::get_displays()
     }
 
     mod x11 {
@@ -887,6 +908,7 @@ mod linux {
         }
     }
 
+    #[cfg(target_os = "linux")]
     mod wayland {
         use std::{
             process::Command,

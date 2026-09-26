@@ -535,6 +535,15 @@ pub fn regenerate_layout(
     // apply (see `inject_software_menubar`).
     #[cfg(target_os = "linux")]
     let user_dom = inject_software_menubar(user_dom);
+    // X11 on a macOS host (`x11-macos`, `AZ_BACKEND=x11`): NSApplication never
+    // starts, so there is no app menu to hand the bar to - the window carries
+    // the software bar exactly as it does under an X11 session on Linux.
+    #[cfg(all(az_x11, not(target_os = "linux")))]
+    let user_dom = if crate::desktop::shell2::common::x11_host::active() {
+        inject_software_menubar(user_dom)
+    } else {
+        user_dom
+    };
 
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is
@@ -2178,7 +2187,7 @@ fn inject_software_titlebar(
 /// the raw `Dom` *before* `create_from_dom` so the bar's `with_css` rules are
 /// scoped in the main flatten pass. No-op (returns `user_dom` unchanged) when
 /// there is no menu bar or a native global menu is in use.
-#[cfg(target_os = "linux")]
+#[cfg(az_x11)]
 fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
     use azul_core::dom::{Dom, DomVec};
 

@@ -83,14 +83,18 @@ pub(crate) fn should_inject_csd(has_decorations: bool, decorations: WindowDecora
 /// decorations, X11 WM decorations) always draw the full caption including the
 /// title text, so a software bar there is a second, fake titlebar under the
 /// real one. Mobile has no window to title at all.
+///
+/// The frame belongs to the window SYSTEM, not the OS: an X11 window on a Mac
+/// (`x11-macos`, `AZ_BACKEND=x11`) wears the X window manager's frame, so it
+/// gets the Linux answer here and in the two predicates below.
 #[inline]
-pub(crate) const fn auto_injects_software_titlebar() -> bool {
-    !cfg!(any(
+pub(crate) fn auto_injects_software_titlebar() -> bool {
+    !(cfg!(any(
         target_os = "windows",
         target_os = "linux",
         target_os = "android",
         target_os = "ios"
-    ))
+    )) || crate::desktop::shell2::common::x11_host::active())
 }
 
 /// Can this platform's own frame show window CONTROLS without a title?
@@ -104,8 +108,8 @@ pub(crate) const fn auto_injects_software_titlebar() -> bool {
 /// controls are drawn in software there. Mobile has no window controls to
 /// begin with, so nothing is owed.
 #[inline]
-pub(crate) const fn frame_shows_controls_without_title() -> bool {
-    !cfg!(target_os = "linux")
+pub(crate) fn frame_shows_controls_without_title() -> bool {
+    !crate::desktop::shell2::common::x11_host::linux_window_rules()
 }
 
 /// Can this platform's own frame show a TITLE without CONTROLS?
@@ -118,8 +122,8 @@ pub(crate) const fn frame_shows_controls_without_title() -> bool {
 /// is drawn in software instead, WITHOUT controls, which is exactly
 /// [`CsdInjection::SoftwareTitleOnly`].
 #[inline]
-pub(crate) const fn frame_shows_title_without_controls() -> bool {
-    !cfg!(target_os = "linux")
+pub(crate) fn frame_shows_title_without_controls() -> bool {
+    !crate::desktop::shell2::common::x11_host::linux_window_rules()
 }
 
 /// What the shell prepends above the user's DOM for a given set of window

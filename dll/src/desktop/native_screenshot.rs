@@ -114,7 +114,9 @@ impl NativeScreenshotExt for CallbackInfo {
             RawWindowHandle::Windows(handle) => {
                 take_native_screenshot_windows_bytes(handle.hwnd, wants_shadow(render_shadow))
             }
-            #[cfg(target_os = "linux")]
+            // Wherever the X11 backend is built - on a Mac with `x11-macos`
+            // too, where an X11 window's handle is this one.
+            #[cfg(az_x11)]
             RawWindowHandle::Xlib(handle) => {
                 take_native_screenshot_xlib_bytes(handle.display, handle.window)
             }
@@ -761,12 +763,13 @@ pub(crate) fn wants_shadow(render_shadow: Option<bool>) -> bool {
 /// instead of returning a half-read image. Process-global because Xlib's error
 /// handler is process-global; the window that sets it is the one that just
 /// called `XGetImage`, and captures are not concurrent.
-#[cfg(target_os = "linux")]
+#[cfg(az_x11)]
 static FRAME_GRAB_FAILED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
 /// Take a native screenshot on Linux/X11 using XGetImage via dlopen
-#[cfg(target_os = "linux")]
+/// (also X11 on a macOS host, `x11-macos`, where libX11 is XQuartz's).
+#[cfg(az_x11)]
 fn take_native_screenshot_xlib_bytes(
     display: *mut core::ffi::c_void,
     window: u64,
@@ -867,15 +870,21 @@ fn take_native_screenshot_xlib_bytes(
     #[cfg(miri)]
     let lib: *mut core::ffi::c_void = core::ptr::null_mut();
     #[cfg(not(miri))]
-    let lib = unsafe {
-        let lib_name = CString::new("libX11.so.6").unwrap();
-        let lib = libc::dlopen(lib_name.as_ptr(), libc::RTLD_LAZY);
-        if lib.is_null() {
-            let lib_name2 = CString::new("libX11.so").unwrap();
-            libc::dlopen(lib_name2.as_ptr(), libc::RTLD_LAZY)
-        } else {
-            lib
+    let lib = {
+        // The host's libX11 names, in order (`libX11.so.6`, `libX11.so` on
+        // Linux) - see `x11_host::library_candidates`.
+        use crate::desktop::shell2::common::x11_host::{candidates, X11Lib};
+        let mut lib: *mut core::ffi::c_void = core::ptr::null_mut();
+        for name in candidates(X11Lib::X11) {
+            let Ok(c_name) = CString::new(*name) else {
+                continue;
+            };
+            lib = unsafe { libc::dlopen(c_name.as_ptr(), libc::RTLD_LAZY) };
+            if !lib.is_null() {
+                break;
+            }
         }
+        lib
     };
 
     if lib.is_null() {
