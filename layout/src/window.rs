@@ -20947,12 +20947,43 @@ impl LayoutWindow {
         Self::extract_clipboard_ranges(&content, &[range])
     }
 
+    /// Push the text `range` covers onto `acc`, read from `runs` - the
+    /// layout's own `source_run -> (shaped text, style)` table that the
+    /// range's cursors are numbered against ([`Self::selection_runs_for_node`]).
+    /// Either direction: a range dragged backward copies the same text.
+    ///
+    /// Affinity-aware: a Trailing end on the final cluster means AFTER that
+    /// grapheme. A run the range only passes OVER is taken whole, and an end
+    /// that names a non-text item (a `<br>`, a `::marker`) has no entry in the
+    /// table at all - which is exactly the "take the neighbours whole" answer.
+    fn push_layout_range(
+        acc: &mut ClipboardExtract,
+        runs: &BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)>,
+        range: &SelectionRange,
+    ) {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let position = |c: &TextCursor| -> (u32, usize) {
+            let run = c.cluster_id.source_run;
+            let byte = runs.get(&run).map_or(0, |(text, _)| {
+                cursor_byte_offset_in_run(text, c).min(text.len())
+            });
+            (run, byte)
+        };
+        let (a, b) = (position(&range.start), position(&range.end));
+        let ((first_run, lo_byte), (last_run, hi_byte)) = if a <= b { (a, b) } else { (b, a) };
+        for (r, (text, style)) in runs.range(first_run..=last_run) {
+            let lo = if *r == first_run { lo_byte } else { 0 };
+            let hi = if *r == last_run { hi_byte } else { text.len() };
+            if lo < hi {
+                acc.push(&text[lo..hi], style);
+            }
+        }
+    }
+
     pub fn get_selected_content_for_clipboard(
         &self,
         dom_id: &DomId,
     ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-
         // Cross-block selection: join the anchor block's selected tail, the
         // fully-selected middles and the focus block's selected head with
         // newlines (what Word puts on the clipboard for a multi-paragraph
@@ -20987,32 +21018,7 @@ impl LayoutWindow {
                     if block > 0 {
                         acc.push_inheriting("\n");
                     }
-                    let sr = range.start.cluster_id.source_run;
-                    let er = range.end.cluster_id.source_run;
-                    if sr > er {
-                        continue;
-                    }
-                    for (r, (text, style)) in runs.range(sr..=er) {
-                        // Affinity-aware: a Trailing end cursor on the final
-                        // cluster means AFTER that grapheme. A run the range
-                        // only passes OVER is taken whole, and an end that
-                        // names a non-text item (a `<br>`, a `::marker`) has
-                        // no entry here at all — which is exactly the
-                        // "take the neighbours whole" answer.
-                        let lo = if *r == sr {
-                            cursor_byte_offset_in_run(text, &range.start).min(text.len())
-                        } else {
-                            0
-                        };
-                        let hi = if *r == er {
-                            cursor_byte_offset_in_run(text, &range.end).min(text.len())
-                        } else {
-                            text.len()
-                        };
-                        if lo < hi {
-                            acc.push(&text[lo..hi], style);
-                        }
-                    }
+                    Self::push_layout_range(&mut acc, &runs, range);
                 }
                 if let Some(content) = acc.finish() {
                     return Some(content);
@@ -21061,12 +21067,37 @@ impl LayoutWindow {
             return None;
         }
 
-        // Most editables are a single text run (the whole string, newlines and
-        // all), so source_run is 0 and the single-run branch handles everything.
-        // The multi-run branch is a best-effort for rich (multi-span) content.
-        // Byte offsets are affinity-aware (cursor_byte_offset_in_run), so a
-        // select-all whose end cursor is Trailing on the last cluster copies the
-        // full text — matching the affinity fix in delete_range.
+        // The runs the ranges' own cursors are numbered against: the layout's
+        // `source_run -> shaped text` table, exactly as the multi-block copy
+        // above reads it. The DOM-child walk below is a different vector - no
+        // `::marker` (a list item's text is run 1 to the cursor and run 0 to
+        // the walk, so it copied nothing) and raw, uncollapsed white space
+        // (so "c" of "a   b c", byte 4 of the SHAPED "a b c", copied "b").
+        let runs = self.selection_runs_for_node(*dom_id, node_id);
+        if !runs.is_empty() {
+            let mut acc = ClipboardExtract::default();
+            for range in &ranges {
+                Self::push_layout_range(&mut acc, &runs, range);
+            }
+            copy_trace(|| {
+                format!(
+                    "[copy] extracting from {:?}/{:?}: {} range(s) against {} layout run(s)",
+                    dom_id,
+                    node_id,
+                    ranges.len(),
+                    runs.len()
+                )
+            });
+            return acc.finish();
+        }
+
+        // No shaped runs to read (the session sits on a node no layout
+        // resolves): the DOM walk. Most editables are a single text run (the
+        // whole string, newlines and all), so source_run is 0 and the
+        // single-run branch handles everything. Byte offsets are
+        // affinity-aware (cursor_byte_offset_in_run), so a select-all whose end
+        // cursor is Trailing on the last cluster copies the full text —
+        // matching the affinity fix in delete_range.
         let mut content = self.get_text_before_textinput(*dom_id, node_id);
         if content.is_empty() {
             // Dual text path: a block whose committed styled_dom carries no
