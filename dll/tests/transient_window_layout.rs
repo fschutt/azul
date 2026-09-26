@@ -2252,3 +2252,116 @@ fn an_arrow_in_the_picker_popup_moves_saturation_by_one_percent() {
         "the primary modifier + Right in the popup adds 10% saturation: {s1} -> {s2}"
     );
 }
+
+/// Headless windows turn every glide off, the focus ring included (it is a
+/// glide). This turns the ring back on, at a 1 ms glide, for `window`.
+fn ring_on(window: &mut HeadlessWindow) {
+    let lw = window.get_layout_window_mut().expect("layout window");
+    lw.system_animations_override = Some(azul_core::resources::SystemAnimations {
+        focus_ring_duration_ms: 1,
+        ..azul_core::resources::SystemAnimations::disabled()
+    });
+}
+
+/// How many focus rings `window`'s root display list paints: the 2px
+/// accent-coloured `Border` the ring post-pass inserts.
+fn focus_rings(window: &HeadlessWindow) -> usize {
+    use azul_css::{css::CssPropertyValue, props::basic::ColorU};
+    use azul_layout::solver3::display_list::DisplayListItem;
+    let accent = ColorU {
+        r: 43,
+        g: 87,
+        b: 154,
+        a: 255,
+    };
+    let lw = window.get_layout_window().unwrap();
+    lw.layout_results.get(&DomId::ROOT_ID).map_or(0, |lr| {
+        lr.display_list
+            .items
+            .iter()
+            .filter(|item| match item {
+                DisplayListItem::Border { colors, .. } => {
+                    matches!(&colors.top, Some(CssPropertyValue::Exact(c)) if c.inner == accent)
+                }
+                _ => false,
+            })
+            .count()
+    })
+}
+
+/// A parent with the showcase's ColorInput and the focus ring on.
+fn ringed_picker_parent(app_data: Arc<RefCell<RefAny>>) -> HeadlessWindow {
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_widget_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    ring_on(&mut parent);
+    parent.regenerate_layout().expect("layout");
+    parent
+}
+
+/// REPORT 1: open the picker from the KEYBOARD (Tab to the swatch, Space),
+/// then let the popup take the keyboard the way macOS / Win32 / Wayland do:
+/// the parent resigns, the popup autofocuses its plane with the inherited
+/// ring. Exactly ONE ring may be on screen - the popup's. The parent kept
+/// painting its own ring on the swatch, so the two were out of sync.
+#[test]
+fn a_keyboard_opened_picker_leaves_exactly_one_ring() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut parent = ringed_picker_parent(app_data.clone());
+
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    let swatch = node_with_class(&parent, "native_color_input");
+    assert_eq!(focused(&parent), Some(swatch), "premise: Tab focused the swatch");
+
+    key_down(&mut parent, VirtualKeyCode::Space, &[], "t.space");
+    keys_up(&mut parent, "t.space.up");
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    assert!(
+        mailbox(&popup_opts.window_state).focus_visible,
+        "premise: a keyboard-opened popup inherits the ring"
+    );
+    assert_eq!(
+        focus_rings(&parent),
+        1,
+        "premise: the keyboard-focused swatch is ringed while its window is active"
+    );
+
+    // The popup becomes the key window; the parent resigns.
+    parent.snapshot_window_state_baseline("t.resign");
+    parent
+        .common
+        .update_unsynced_state(|ws| ws.window_focused = false);
+    let _ = parent.process_window_events(0);
+    let mut popup = headless(popup_opts, app_data);
+    ring_on(&mut popup);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+
+    assert_eq!(
+        focused(&parent),
+        Some(swatch),
+        "the invoker keeps its focus (it gets it back on close)"
+    );
+    assert_eq!(
+        focus_rings(&parent),
+        0,
+        "the parent paints no ring while the popup holds the keyboard"
+    );
+    assert_eq!(
+        focused(&popup),
+        Some(node_with_class(&popup, "color_picker_plane")),
+        "the popup autofocused its plane"
+    );
+    assert_eq!(
+        focus_rings(&popup),
+        1,
+        "and rings it, the one ring on screen"
+    );
+}
