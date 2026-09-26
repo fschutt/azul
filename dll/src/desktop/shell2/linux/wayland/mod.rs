@@ -10580,11 +10580,13 @@ impl WaylandWindow {
                     Some(mc) => mc,
                     None => return,
                 };
-                let node_id = match mc.node_id.node.into_crate_internal() {
+                // The element whose text the session's block is (an
+                // anonymous block has none to report).
+                let node_id = match mc.block.element() {
                     Some(id) => id,
                     None => return,
                 };
-                let dom_id = mc.node_id.dom;
+                let dom_id = mc.block.dom();
 
                 // Get current text (checks dirty_text_nodes first)
                 let content = lw.get_text_before_textinput(dom_id, node_id);

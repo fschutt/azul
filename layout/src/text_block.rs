@@ -17,7 +17,7 @@
 
 use azul_core::{
     dom::{DomId, DomNodeId},
-    selection::TextBlock,
+    selection::{MultiCursorState, SelectionRange, TextBlock, TextCursor},
     styled_dom::NodeHierarchyItem,
 };
 
@@ -75,6 +75,101 @@ impl LayoutWindow {
             .layout_tree
             .text_block_root(block.key())
             .map(LayoutNodeId::new)
+    }
+
+    /// Every text block of `dom_id`, in DOCUMENT order.
+    ///
+    /// The layout tree is built in pre-order, so its own order IS document
+    /// order. Anonymous blocks are left out (nothing selects in them yet).
+    #[must_use]
+    pub fn text_blocks_in_document_order(&self, dom_id: DomId) -> Vec<TextBlock> {
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let tree = &layout_result.layout_tree;
+        (0..tree.nodes.len())
+            .filter_map(|idx| tree.text_block_at(dom_id, idx))
+            .filter(|block| !block.is_anonymous())
+            .collect()
+    }
+
+    /// The text blocks inside `node`'s subtree - its own block included, when
+    /// it is one - in document order.
+    #[must_use]
+    pub fn text_blocks_within(&self, node: DomNodeId) -> Vec<TextBlock> {
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return Vec::new();
+        };
+        self.text_blocks_in_document_order(node.dom)
+            .into_iter()
+            .filter(|block| self.node_is_self_or_descendant(node.dom, block.first_node(), node_id))
+            .collect()
+    }
+
+    /// The text block an app-facing call naming `node` means: the block
+    /// `node`'s text is in, or - for a container of blocks - the first block
+    /// inside it.
+    #[must_use]
+    pub fn text_block_named_by(&self, node: DomNodeId) -> Option<TextBlock> {
+        self.text_block_of(node)
+            .or_else(|| self.text_blocks_within(node).first().copied())
+    }
+
+    /// Open an editing session with the caret at `cursor`, in the text block
+    /// `node` names ([`Self::text_block_named_by`]) - the node-level entry to
+    /// `TextEditManager::initialize_editing`, which takes the block itself.
+    /// `false` (and nothing changes) when `node` names no laid-out block.
+    pub fn start_editing_at(
+        &mut self,
+        cursor: TextCursor,
+        dom: DomId,
+        node: azul_core::dom::NodeId,
+        contenteditable_key: u64,
+    ) -> bool {
+        let Some(block) = self.text_block_named_by(DomNodeId {
+            dom,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
+        }) else {
+            return false;
+        };
+        self.text_edit_manager
+            .initialize_editing(cursor, block, contenteditable_key);
+        true
+    }
+
+    /// The app's `AddCursor` (`CallbackChange::AddCursor`): a caret at `cursor`.
+    /// Added to the editing session when there is one; otherwise a session
+    /// opens in the block `node` names ([`Self::text_block_named_by`]).
+    /// Returns whether anything changed.
+    pub fn add_app_cursor(&mut self, node: DomNodeId, cursor: TextCursor) -> bool {
+        if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+            let _ = mc.add_cursor(cursor);
+        } else {
+            let Some(block) = self.text_block_named_by(node) else {
+                return false;
+            };
+            self.text_edit_manager.multi_cursor =
+                Some(MultiCursorState::new_with_cursor(cursor, block, 0));
+        }
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// The app's `AddSelectionRange` (`CallbackChange::AddSelectionRange`):
+    /// [`Self::add_app_cursor`] for a range.
+    pub fn add_app_selection_range(&mut self, node: DomNodeId, range: SelectionRange) -> bool {
+        if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+            let _ = mc.add_selection(range);
+        } else {
+            let Some(block) = self.text_block_named_by(node) else {
+                return false;
+            };
+            let mut mc = MultiCursorState::new_with_cursor(range.start, block, 0);
+            mc.set_single_range(range);
+            self.text_edit_manager.multi_cursor = Some(mc);
+        }
+        self.text_edit_manager.mark_dirty();
+        true
     }
 
     /// The text block whose IFC root is the layout node `ifc_root` of `dom`.

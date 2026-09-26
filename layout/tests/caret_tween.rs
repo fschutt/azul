@@ -78,8 +78,7 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
     )
     .unwrap();
 
-    lw.text_edit_manager
-        .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT), 0);
+    lw.start_editing_at(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT), 0);
     lw.text_edit_manager.blink.set_visibility(true);
     // A real focused field has BOTH an editing session AND focus. The caret is
     // only painted when the edited node lives inside the focused subtree
@@ -91,12 +90,12 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
 }
 
 fn move_caret(lw: &mut LayoutWindow, byte: u32) {
-    lw.text_edit_manager.multi_cursor =
-        Some(azul_core::selection::MultiCursorState::new_with_cursor(
-            cursor(byte),
-            text_dom_node_id(),
-            0,
-        ));
+    let block = lw
+        .text_block_of(text_dom_node_id())
+        .expect("the editor's text is in a text block");
+    lw.text_edit_manager.multi_cursor = Some(
+        azul_core::selection::MultiCursorState::new_with_cursor(cursor(byte), block, 0),
+    );
 }
 
 fn rebuild(lw: &mut LayoutWindow) {
@@ -485,13 +484,15 @@ fn selection_bands(lw: &LayoutWindow) -> Vec<LogicalRect> {
 }
 
 fn select_p1_to(lw: &mut LayoutWindow, end_node: usize, end_byte: u32) {
-    let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        NodeId::new(1),
-        cursor(6),
-        NodeId::new(end_node),
-        cursor(end_byte),
-    );
+    let block = |lw: &LayoutWindow, n: usize| {
+        lw.text_block_of(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        })
+        .expect("a paragraph is a text block")
+    };
+    let (anchor, focus) = (block(&*lw, 1), block(&*lw, end_node));
+    let ok = lw.set_cross_block_selection(anchor, cursor(6), focus, cursor(end_byte));
     assert!(ok, "cross-block selection must be accepted");
 }
 
@@ -642,7 +643,7 @@ fn a_caret_after_trailing_spaces_stands_after_them() {
             &mut Some(Vec::new()),
         )
         .unwrap();
-        lw.text_edit_manager.initialize_editing(
+        lw.start_editing_at(
             cursor(text.len() as u32),
             DomId::ROOT_ID,
             NodeId::new(TEXT),

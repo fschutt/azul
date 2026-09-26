@@ -90,8 +90,7 @@ fn at(byte: u32, affinity: CursorAffinity) -> TextCursor {
 
 /// The editing session a click leaves: on the paragraph, at `cursor`.
 fn caret_in(lw: &mut LayoutWindow, paragraph: usize, cursor: TextCursor) {
-    lw.text_edit_manager
-        .initialize_editing(cursor, DomId::ROOT_ID, NodeId::new(paragraph), 0);
+    lw.start_editing_at(cursor, DomId::ROOT_ID, NodeId::new(paragraph), 0);
 }
 
 /// What the shell decides for `key` with the focus on the host.

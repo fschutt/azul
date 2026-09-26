@@ -3954,14 +3954,12 @@ where
         source_node_index: usize,
     ) -> Option<(ColorU, WindowLogicalRect)> {
         let tree = self.positioned_tree.tree;
-        let dom_id_opt = tree
-            .get(LayoutNodeId::new(source_node_index))
-            .and_then(|n| n.dom_node_id);
-        if let (Some(sel), Some(dom_id)) = (
+        let block = tree.text_block_at(self.ctx.styled_dom.dom_id, source_node_index);
+        if let (Some(sel), Some(block)) = (
             self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id),
-            dom_id_opt,
+            block,
         ) {
-            if sel.affected_nodes.contains_key(&dom_id) {
+            if sel.affected_blocks.contains_key(&block) {
                 return None;
             }
         }
@@ -4144,12 +4142,17 @@ where
     /// Emits drawing commands for text selections only (not cursor).
     /// The cursor is drawn separately via `paint_cursor()`.
     fn paint_selections(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
-        let node = self
-            .positioned_tree
-            .tree
-            .get(LayoutNodeId::new(node_index))
+        let tree = self.positioned_tree.tree;
+        tree.get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
-        let Some(dom_id) = node.dom_node_id else {
+        // The text block this node is the IFC root of - named by the SAME
+        // rule the editing paths key their selections with, so a range is
+        // looked up under exactly the block it was made in.
+        let Some(block) = tree.text_block_at(self.ctx.styled_dom.dom_id, node_index) else {
+            return Ok(());
+        };
+        // Anonymous blocks are not painted yet.
+        let Some(dom_id) = block.element() else {
             return Ok(());
         };
 
@@ -4192,22 +4195,16 @@ where
 
         // === NEW: Check text_selections first (multi-node selection support) ===
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
-            let local_ranges = text_selection.affected_nodes.get(&dom_id);
-            // Remote / seat ranges are keyed by the node the caret sits in,
-            // which may be a text CHILD of this IFC root rather than the root
-            // itself (a seat's caret lives in the text node, 9b-ii-a-i-d-ii-a)
-            // - the same ownership rule the caret path applies below.
+            let local_ranges = text_selection.affected_blocks.get(&block);
+            // Remote / seat ranges are keyed by their text block too.
             let remote_ranges: Vec<&(
                 azul_core::selection::SelectionOwner,
                 azul_core::selection::SelectionRange,
             )> = text_selection
                 .remote_ranges
-                .iter()
-                .filter(|(node, _)| {
-                    **node == dom_id || self.ifc_root_owns_dom_node(node_index, **node)
-                })
-                .flat_map(|(_, ranges)| ranges.iter())
-                .collect();
+                .get(&block)
+                .map(|ranges| ranges.iter().collect())
+                .unwrap_or_default();
             if local_ranges.is_some() || !remote_ranges.is_empty() {
                 let style = get_selection_style(
                     self.ctx.styled_dom,
@@ -4291,12 +4288,9 @@ where
     /// space as the offset glyph positions, plus the `::selection` text colour
     /// — or `None` when there is nothing to recolour.
     ///
-    /// Resolves the selection through `ifc_root_owns_dom_node` rather than off
-    /// the IFC root's own `dom_node_id`: an editing session keys `affected_nodes`
-    /// on the TEXT node (`initialize_editing` puts the caret there), while this
-    /// pass runs on the root that owns the inline layout. A cross-block
-    /// selection keys on the block, which is its own IFC root — both resolve.
-    /// The `user-select` gate matches `paint_selections` on purpose: the
+    /// Resolves the selection by the IFC root's TEXT BLOCK, the key every
+    /// selection is stored under (a session's and a cross-block selection's
+    /// alike). The `user-select` gate matches `paint_selections` on purpose: the
     /// recolour must cover exactly the glyphs the highlight covers.
     /// The origin of the content box that owns an IFC's inline layout.
     ///
@@ -4339,17 +4333,20 @@ where
         if sel.is_collapsed() {
             return None;
         }
-        let (dom_id, ranges) = sel
-            .affected_nodes
-            .iter()
-            .find(|&(node, _)| self.ifc_root_owns_dom_node(source_node_index, *node))?;
-        let node_state = self.get_styled_node_state(*dom_id);
-        if !super::getters::is_text_selectable(self.ctx.styled_dom, *dom_id, &node_state) {
+        let block = self
+            .positioned_tree
+            .tree
+            .text_block_at(self.ctx.styled_dom.dom_id, source_node_index)?;
+        let ranges = sel.affected_blocks.get(&block)?;
+        // An anonymous block has no style of its own: its container's.
+        let style_node = block.container();
+        let node_state = self.get_styled_node_state(style_node);
+        if !super::getters::is_text_selectable(self.ctx.styled_dom, style_node, &node_state) {
             return None;
         }
         let style = get_selection_style(
             self.ctx.styled_dom,
-            Some(*dom_id),
+            Some(style_node),
             self.ctx.system_style.as_ref(),
         );
         let text_color = style.text_color?;
@@ -4383,42 +4380,6 @@ where
         Some((rects, text_color))
     }
 
-    /// Does the IFC rooted at `node_index` own the inline content of `dom_id`?
-    ///
-    /// The editing session's text node need not be a DIRECT child of the IFC
-    /// root — `p > span > text` puts it one level deeper — so resolve it through
-    /// `ifc_membership`, which every inline descendant of the root carries,
-    /// instead of scanning the root's children.
-    fn ifc_root_owns_dom_node(&self, node_index: usize, dom_id: NodeId) -> bool {
-        let tree = self.positioned_tree.tree;
-        if let Some(indices) = tree.dom_to_layout.get(&dom_id) {
-            return indices
-                .iter()
-                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index);
-        }
-        // The node generated NO box of its own — an EMPTY text node is
-        // filtered out of the layout tree — so it belongs to the IFC of the
-        // nearest DOM ancestor that did generate one. This is the focused
-        // empty editable: the caret session sits on the value's empty text
-        // node, and the strut line box lives on its `<p>`.
-        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut current = hierarchy
-            .get(dom_id)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        while let Some(parent) = current {
-            if let Some(indices) = tree.dom_to_layout.get(&parent) {
-                return indices.iter().any(|&idx| {
-                    idx.index() == node_index
-                        || tree.get_ifc_root_layout_index(idx.index()) == node_index
-                });
-            }
-            current = hierarchy
-                .get(parent)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        false
-    }
-
     /// Emits drawing commands for all text cursors (carets).
     ///
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
@@ -4444,6 +4405,15 @@ where
             .tree
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
+        // The text block this node is the IFC root of: a caret is painted
+        // here iff it sits in this block.
+        let Some(block) = self
+            .positioned_tree
+            .tree
+            .text_block_at(self.ctx.styled_dom.dom_id, node_index)
+        else {
+            return Ok(());
+        };
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
@@ -4496,21 +4466,13 @@ where
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, loc)| {
-                loc.dom == self.ctx.styled_dom.dom_id
-                    && (loc.node == dom_id || self.ifc_root_owns_dom_node(node_index, loc.node))
-            })
+            .find(|(_, loc)| loc.block == block)
             .map(|(i, _)| i);
 
         for (i, location) in self.ctx.cursor_locations.iter().enumerate() {
             let cursor = &location.cursor;
-            // Check DOM ID matches
-            if self.ctx.styled_dom.dom_id != location.dom {
-                continue;
-            }
-
-            // Check this node contains the cursor
-            if dom_id != location.node && !self.ifc_root_owns_dom_node(node_index, location.node) {
+            // Only the carets in THIS block.
+            if location.block != block {
                 continue;
             }
 

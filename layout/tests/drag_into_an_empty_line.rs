@@ -96,7 +96,12 @@ fn middle_of(lw: &LayoutWindow, n: usize) -> LogicalPosition {
 fn spanned(lw: &LayoutWindow) -> Option<Vec<usize>> {
     lw.text_edit_manager
         .get_cross_block_selection()
-        .map(|s| s.affected_nodes.keys().map(|n| n.index()).collect())
+        .map(|s| {
+            s.affected_blocks
+                .keys()
+                .map(|b| b.first_node().index())
+                .collect()
+        })
 }
 
 /// `host(1) > [ p(2) > "alpha"(3), p(4) ]`

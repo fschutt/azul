@@ -114,11 +114,12 @@ fn selection_band_count(lw: &LayoutWindow) -> usize {
         .count()
 }
 
+/// The element of the editing session's text block.
 fn session_node(lw: &LayoutWindow) -> Option<NodeId> {
     lw.text_edit_manager
         .multi_cursor
         .as_ref()
-        .and_then(|mc| mc.node_id.node.into_crate_internal())
+        .and_then(|mc| mc.block.element())
 }
 
 fn selections(lw: &LayoutWindow) -> Vec<Selection> {
@@ -181,8 +182,7 @@ fn flat_editable(content: &str) -> LayoutWindow {
 
 fn start_editing(lw: &mut LayoutWindow, node: usize, at: u32) {
     lw.focus_manager.set_focused_node(Some(dnid(node)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(at), DomId::ROOT_ID, NodeId::new(node), 0);
+    lw.start_editing_at(cursor(at), DomId::ROOT_ID, NodeId::new(node), 0);
 }
 
 #[test]
@@ -502,8 +502,7 @@ fn the_caret_rect_answers_for_the_session_node_not_the_focused_node() {
     );
     let at_start = first_cluster_cursor(&lw, IFC_ROOT);
 
-    lw.text_edit_manager
-        .initialize_editing(at_start, DomId::ROOT_ID, NodeId::new(3), 0);
+    lw.start_editing_at(at_start, DomId::ROOT_ID, NodeId::new(3), 0);
     assert!(
         lw.focus_manager.get_focused_node().is_none(),
         "premise: nothing is focused, only a session exists"
@@ -514,8 +513,7 @@ fn the_caret_rect_answers_for_the_session_node_not_the_focused_node() {
         .expect("the session's text node resolves through the IFC root above it");
     assert!(from_text_node.size.height > 0.0);
 
-    lw.text_edit_manager
-        .initialize_editing(at_start, DomId::ROOT_ID, NodeId::new(IFC_ROOT), 0);
+    lw.start_editing_at(at_start, DomId::ROOT_ID, NodeId::new(IFC_ROOT), 0);
     assert_eq!(
         lw.get_focused_cursor_rect(),
         Some(from_text_node),
@@ -536,8 +534,7 @@ fn a_caret_two_levels_below_the_ifc_root_is_painted() {
     const DEEP_TEXT: usize = 4;
 
     let at_start = first_cluster_cursor(&lw, IFC_ROOT);
-    lw.text_edit_manager
-        .initialize_editing(at_start, DomId::ROOT_ID, NodeId::new(DEEP_TEXT), 0);
+    lw.start_editing_at(at_start, DomId::ROOT_ID, NodeId::new(DEEP_TEXT), 0);
     lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
 
     assert!(
@@ -701,10 +698,14 @@ fn a_pending_focus_on_an_unlaid_node_retries_before_seeding_the_start() {
 
     assert!(
         lw.finalize_pending_focus_changes(),
-        "the retry budget is bounded — the caret is seeded rather than deferred forever"
+        "the retry budget is bounded — the request is used up rather than deferred forever"
     );
     assert!(!lw.focus_manager.needs_cursor_initialization());
-    assert_eq!(session_node(&lw), Some(unlaid));
+    assert_eq!(
+        session_node(&lw),
+        None,
+        "a node that was never laid out is in no text block: no caret opens on it"
+    );
 }
 
 /// Two keystrokes arriving before one pass must BOTH land.
@@ -762,8 +763,7 @@ fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
     let editable = 1;
     let leaf = 4;
     lw.focus_manager.set_focused_node(Some(dnid(leaf)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(leaf), 0);
+    lw.start_editing_at(cursor(0), DomId::ROOT_ID, NodeId::new(leaf), 0);
 
     let before = glyph_count(&lw);
     lw.text_edit_manager.set_preedit("xy".to_string(), -1, -1);

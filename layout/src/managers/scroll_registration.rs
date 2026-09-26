@@ -40,7 +40,7 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         .text_edit_manager
         .multi_cursor
         .as_ref()
-        .map(|mc| mc.node_id);
+        .map(|mc| mc.block.container_dom_node());
 
     for (dom_id, layout_result) in &mut layout_window.layout_results {
         // The viewport the ROOT scrolls against (see the root arm below): the

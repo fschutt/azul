@@ -6662,24 +6662,11 @@ pub trait PlatformWindow {
                 cursor,
             } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        let _ = mc.add_cursor(*cursor);
-                    } else {
-                        // Create new MultiCursorState with the cursor
-                        let dom_node_id = azul_core::dom::DomNodeId {
-                            dom: *dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(
-                                Some(*node_id),
-                            ),
-                        };
-                        lw.text_edit_manager.multi_cursor =
-                            Some(azul_core::selection::MultiCursorState::new_with_cursor(
-                                *cursor,
-                                dom_node_id,
-                                0,
-                            ));
-                    }
-                    lw.text_edit_manager.mark_dirty();
+                    let node = azul_core::dom::DomNodeId {
+                        dom: *dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                    };
+                    lw.add_app_cursor(node, *cursor);
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
@@ -6690,24 +6677,11 @@ pub trait PlatformWindow {
                 range,
             } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        let _ = mc.add_selection(*range);
-                    } else {
-                        let dom_node_id = azul_core::dom::DomNodeId {
-                            dom: *dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(
-                                Some(*node_id),
-                            ),
-                        };
-                        let mut mc = azul_core::selection::MultiCursorState::new_with_cursor(
-                            range.start,
-                            dom_node_id,
-                            0,
-                        );
-                        mc.set_single_range(*range);
-                        lw.text_edit_manager.multi_cursor = Some(mc);
-                    }
-                    lw.text_edit_manager.mark_dirty();
+                    let node = azul_core::dom::DomNodeId {
+                        dom: *dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                    };
+                    lw.add_app_selection_range(node, *range);
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
@@ -7670,20 +7644,17 @@ pub trait PlatformWindow {
                                 .text_edit_manager
                                 .multi_cursor
                                 .as_ref()
-                                .map(|mc| (mc.node_id, mc.to_selections()));
-                            if let Some((session_node, selections)) = session {
-                                let dom_id = session_node.dom;
+                                .map(|mc| (mc.block, mc.to_selections()));
+                            if let Some((session_block, selections)) = session {
+                                let dom_id = session_block.dom();
                                 // Keyed like every other commit: the undo
                                 // stack on the focused HOST, the content on
-                                // the caret's IFC owner. The session node is
-                                // the caret's text LEAF — keying the commit
-                                // to it painted nothing and Ctrl+Z (which
-                                // pops the host's stack) never found it.
+                                // the caret's text block.
                                 let target = layout_window
                                     .focus_manager
                                     .focused_node
                                     .filter(|f| f.dom == dom_id)
-                                    .unwrap_or(session_node);
+                                    .unwrap_or_else(|| session_block.container_dom_node());
                                 if let Some(host_id) = target.node.into_crate_internal() {
                                     let node_id = layout_window.caret_text_target(dom_id, host_id);
                                     let content =
@@ -7892,9 +7863,19 @@ pub trait PlatformWindow {
                                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                                     }
                                 };
-                                layout_window
+                                // The seat's caret goes back into the block its
+                                // edit was in.
+                                let block = layout_window
                                     .text_edit_manager
-                                    .set_seat_selection(*seat_id, *target, cursor, anchor);
+                                    .seat_caret(*seat_id)
+                                    .filter(|c| c.node == *target)
+                                    .map(|c| c.block)
+                                    .or_else(|| layout_window.text_block_named_by(*target));
+                                if let Some(block) = block {
+                                    layout_window.text_edit_manager.set_seat_selection(
+                                        *seat_id, *target, block, cursor, anchor,
+                                    );
+                                }
                                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                             }
                             None => ProcessEventResult::DoNothing,
@@ -7926,11 +7907,11 @@ pub trait PlatformWindow {
                         .as_ref()
                         .map(|mc| mc.selections.clone())
                         .unwrap_or_default();
-                    let old_node_id = layout_window
+                    let old_block = layout_window
                         .text_edit_manager
                         .multi_cursor
                         .as_ref()
-                        .map(|mc| mc.node_id);
+                        .map(|mc| mc.block);
 
                     // This will reset multi_cursor to a single cursor at click position.
                     // `time_ms` is vestigial: multi-click detection moved into
@@ -7941,8 +7922,9 @@ pub trait PlatformWindow {
 
                     // Now add back the old cursors
                     if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-                        // Only merge if the node_id matches (same contenteditable)
-                        if old_node_id.map(|n| n == mc.node_id).unwrap_or(false) {
+                        // Only merge if the text block matches (the old
+                        // carets index the same runs)
+                        if old_block == Some(mc.block) {
                             // The new cursor is already in mc.selections[0].
                             // Prepend the old selections.
                             let new_cursor = mc.selections.clone();

@@ -9,11 +9,11 @@
 //!   semantics); the caret collapses to the selection start.
 
 use azul_core::{
-    dom::{Dom, DomId, IdOrClass, NodeId},
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
     geom::LogicalSize,
     resources::RendererResources,
-    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
-    styled_dom::StyledDom,
+    selection::{CursorAffinity, GraphemeClusterId, TextBlock, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
@@ -32,6 +32,15 @@ fn cursor(byte: u32) -> TextCursor {
 
 fn node_id(n: usize) -> NodeId {
     NodeId::new(n)
+}
+
+/// The text block of node `n` of the root DOM, through the resolver.
+fn text_block(lw: &LayoutWindow, n: usize) -> TextBlock {
+    lw.text_block_of(DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_id(n))),
+    })
+    .unwrap_or_else(|| panic!("node {n} is in a text block"))
 }
 
 /// The text runs directly inside `block` - its inline content, joined.
@@ -152,10 +161,9 @@ const P3: usize = 5;
 fn cross_block_selection_builds_ranges_for_every_spanned_block() {
     let mut lw = layout_three_paragraphs();
     let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(P1),
+        text_block(&lw, P1),
         cursor(6), // after "first "
-        node_id(P3),
+        text_block(&lw, P3),
         cursor(5), // before " paragraph" in "third paragraph"
     );
     assert!(ok, "sibling blocks must accept a cross-block selection");
@@ -166,21 +174,23 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
         .expect("selection for the root DOM");
     assert!(sel.is_forward);
     assert_eq!(
-        sel.affected_nodes.len(),
+        sel.affected_blocks.len(),
         3,
         "anchor + middle + focus: {:?}",
-        sel.affected_nodes
+        sel.affected_blocks
     );
     // One range per spanned block: a cross-block selection never multi-selects
     // inside a block (that is the Ctrl+D session's job).
-    for (node, ranges) in &sel.affected_nodes {
+    for (block, ranges) in &sel.affected_blocks {
         assert_eq!(
             ranges.len(),
             1,
-            "node {node:?} contributes exactly one range"
+            "block {block:?} contributes exactly one range"
         );
     }
-    let r1 = sel.get_range_for_node(&node_id(P1)).expect("anchor range");
+    let r1 = sel
+        .get_range_for_block(&text_block(&lw, P1))
+        .expect("anchor range");
     assert_eq!(r1.start.cluster_id.start_byte_in_run, 6);
     // End = Trailing on the LAST cluster ("after the final grapheme"), so
     // the byte names the final cluster's START, not the string length.
@@ -189,14 +199,18 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
         "first paragraph".len() - 1,
         "anchor end sits on the last cluster (Trailing)"
     );
-    let r2 = sel.get_range_for_node(&node_id(P2)).expect("middle range");
+    let r2 = sel
+        .get_range_for_block(&text_block(&lw, P2))
+        .expect("middle range");
     assert_eq!(r2.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(
         r2.end.cluster_id.start_byte_in_run as usize,
         "second paragraph".len() - 1,
         "middle end sits on its last cluster (Trailing)"
     );
-    let r3 = sel.get_range_for_node(&node_id(P3)).expect("focus range");
+    let r3 = sel
+        .get_range_for_block(&text_block(&lw, P3))
+        .expect("focus range");
     assert_eq!(r3.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(r3.end.cluster_id.start_byte_in_run, 5);
 }
@@ -205,20 +219,19 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
 fn backward_cross_block_selection_normalizes_to_document_order() {
     let mut lw = layout_three_paragraphs();
     let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(P3),
+        text_block(&lw, P3),
         cursor(5),
-        node_id(P1),
+        text_block(&lw, P1),
         cursor(6),
     );
     assert!(ok);
     let map = lw.text_edit_manager.build_text_selections_map();
     let sel = map.get(&DomId::ROOT_ID).unwrap();
     assert!(!sel.is_forward, "anchor after focus = backward selection");
-    assert_eq!(sel.affected_nodes.len(), 3);
+    assert_eq!(sel.affected_blocks.len(), 3);
     // Ranges are stored in DOCUMENT order regardless of drag direction.
     assert_eq!(
-        sel.get_range_for_node(&node_id(P1))
+        sel.get_range_for_block(&text_block(&lw, P1))
             .unwrap()
             .start
             .cluster_id
@@ -226,7 +239,7 @@ fn backward_cross_block_selection_normalizes_to_document_order() {
         6
     );
     assert_eq!(
-        sel.get_range_for_node(&node_id(P3))
+        sel.get_range_for_block(&text_block(&lw, P3))
             .unwrap()
             .end
             .cluster_id
@@ -235,18 +248,21 @@ fn backward_cross_block_selection_normalizes_to_document_order() {
     );
 }
 
+/// A text leaf is not a block of its own: it names its paragraph's block, so
+/// a "selection" from P1's text to P1 is a selection inside ONE block - the
+/// session's job, not a document selection.
 #[test]
-fn non_siblings_are_rejected() {
+fn a_selection_inside_one_block_is_not_a_document_selection() {
     let mut lw = layout_three_paragraphs();
-    // text node 2 is a CHILD of P1, not a sibling of P3.
+    // text node 2 is a CHILD of P1: the same block.
+    assert_eq!(text_block(&lw, 2), text_block(&lw, P1));
     let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(2),
+        text_block(&lw, 2),
         cursor(0),
-        node_id(P3),
+        text_block(&lw, P1),
         cursor(1),
     );
-    assert!(!ok, "v1 requires sibling IFC roots");
+    assert!(!ok, "one block is not a document selection");
     assert!(lw.text_edit_manager.get_cross_block_selection().is_none());
 }
 
@@ -254,10 +270,9 @@ fn non_siblings_are_rejected() {
 fn selection_spanning_delete_merges_into_one_replace_changeset() {
     let mut lw = layout_three_paragraphs();
     assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(P1),
+        text_block(&lw, P1),
         cursor(6), // after "first "
-        node_id(P3),
+        text_block(&lw, P3),
         cursor(6), // after "third "
     ));
     let changeset_id = lw.delete_cross_block_selection();
@@ -307,7 +322,7 @@ fn selection_spanning_delete_merges_into_one_replace_changeset() {
     // Pre-apply: caret collapsed at the selection start, selection cleared.
     assert!(lw.text_edit_manager.get_cross_block_selection().is_none());
     let mc = lw.text_edit_manager.multi_cursor.as_ref().expect("caret");
-    assert_eq!(mc.node_id.node.into_crate_internal(), Some(node_id(P1)));
+    assert_eq!(mc.block, text_block(&lw, P1));
 }
 
 #[test]
@@ -316,17 +331,10 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
 
     // Mouse-down analog: caret in P1 (the drag reads its anchor from here).
     let key = 0;
-    lw.text_edit_manager.multi_cursor =
-        Some(azul_core::selection::MultiCursorState::new_with_cursor(
-            cursor(6),
-            azul_core::dom::DomNodeId {
-                dom: DomId::ROOT_ID,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
-                    node_id(P1),
-                )),
-            },
-            key,
-        ));
+    let p1 = text_block(&lw, P1);
+    lw.text_edit_manager.multi_cursor = Some(
+        azul_core::selection::MultiCursorState::new_with_cursor(cursor(6), p1, key),
+    );
 
     // Drag far below P1 (into P3's territory): the global hit-test resolves
     // the block under the pointer and the selection goes cross-block.
@@ -346,7 +354,7 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
         .text_edit_manager
         .get_cross_block_selection()
         .expect("cross-block selection active after dragging into P3");
-    assert_eq!(cb.affected_nodes.len(), 3, "{:?}", cb.affected_nodes);
+    assert_eq!(cb.affected_blocks.len(), 3, "{:?}", cb.affected_blocks);
     assert!(cb.is_forward);
 
     // VISUAL: the regenerated display list carries SelectionRect items in
@@ -398,10 +406,9 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
 fn cross_block_copy_joins_paragraphs_and_paste_replaces_atomically() {
     let mut lw = layout_three_paragraphs();
     assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(P1),
+        text_block(&lw, P1),
         cursor(6), // after "first "
-        node_id(P3),
+        text_block(&lw, P3),
         cursor(6), // after "third "
     ));
 
@@ -444,10 +451,9 @@ fn a_selection_spans_text_blocks_in_other_containers() {
     const FIRST_P: usize = 2;
     const THIRD_P: usize = 7;
     let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(FIRST_P),
+        text_block(&lw, FIRST_P),
         cursor(6),
-        node_id(THIRD_P),
+        text_block(&lw, THIRD_P),
         cursor(5),
     );
     assert!(ok, "a selection across containers must be accepted");
@@ -456,10 +462,10 @@ fn a_selection_spans_text_blocks_in_other_containers() {
         .get_cross_block_selection()
         .expect("the selection is stored");
     assert_eq!(
-        sel.affected_nodes.len(),
+        sel.affected_blocks.len(),
         3,
         "both ends and the paragraph between them: {:?}",
-        sel.affected_nodes.keys().collect::<Vec<_>>()
+        sel.affected_blocks.keys().collect::<Vec<_>>()
     );
 }
 
@@ -468,17 +474,16 @@ fn a_selection_spans_text_blocks_in_other_containers() {
 fn a_selection_across_containers_works_in_both_directions() {
     let mut lw = layout_paragraphs_in_two_boxes();
     assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(7),
+        text_block(&lw, 7),
         cursor(5),
-        node_id(2),
+        text_block(&lw, 2),
         cursor(6),
     ));
     assert_eq!(
         lw.text_edit_manager
             .get_cross_block_selection()
             .expect("stored")
-            .affected_nodes
+            .affected_blocks
             .len(),
         3
     );
@@ -493,10 +498,9 @@ fn deleting_a_document_selection_trims_every_block_it_spans() {
 
     let mut lw = layout_three_paragraphs();
     assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(P1),
+        text_block(&lw, P1),
         cursor(6), // after "first "
-        node_id(P3),
+        text_block(&lw, P3),
         cursor(6), // after "third "
     ));
     let host = DomNodeId {
@@ -535,10 +539,9 @@ fn deleting_a_selection_across_containers_joins_its_ends() {
     const THIRD_P: usize = 7;
     let mut lw = layout_paragraphs_in_two_boxes();
     assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        node_id(FIRST_P),
+        text_block(&lw, FIRST_P),
         cursor(6), // after "first "
-        node_id(THIRD_P),
+        text_block(&lw, THIRD_P),
         cursor(6), // after "third "
     ));
 
@@ -679,8 +682,16 @@ fn a_document_selection_copies_a_block_whose_text_is_not_its_first_run() {
         )
         .expect("the pointer resolves a cursor in the second block");
 
-    assert_eq!(a_node, node_id(1), "the first end is the first block");
-    assert_eq!(b_node, node_id(3), "the second end is the second block");
+    assert_eq!(
+        a_node,
+        text_block(&lw, 1),
+        "the first end is the first block"
+    );
+    assert_eq!(
+        b_node,
+        text_block(&lw, 3),
+        "the second end is the second block"
+    );
     // The premise this test stands on: the `<br>` occupies run 0, so the
     // block's text is run 1 — a number the DOM-derived content has no item for.
     assert_eq!(
@@ -688,13 +699,7 @@ fn a_document_selection_copies_a_block_whose_text_is_not_its_first_run() {
         "the <br> is run 0 of the layout's inline content, so 'alpha' is run 1"
     );
 
-    assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        a_node,
-        a_cursor,
-        b_node,
-        b_cursor,
-    ));
+    assert!(lw.set_cross_block_selection(a_node, a_cursor, b_node, b_cursor));
 
     let clip = lw
         .get_selected_content_for_clipboard(&DomId::ROOT_ID)

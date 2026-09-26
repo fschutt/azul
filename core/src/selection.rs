@@ -47,10 +47,7 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{
-    dom::{DomId, DomNodeId, NodeId},
-    geom::{LogicalPosition, LogicalRect},
-};
+use crate::dom::{DomId, DomNodeId, NodeId};
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
 ///
@@ -566,8 +563,9 @@ pub struct MultiCursorState {
     /// position sort in `merge_overlapping`, which would otherwise make the
     /// vector's last element (position-last) masquerade as the primary.
     pub primary_id: SelectionId,
-    /// The DOM node this multi-cursor state applies to.
-    pub node_id: DomNodeId,
+    /// The text block every selection's cursors index - one block by
+    /// construction; a selection spanning blocks is `TextSelection`'s.
+    pub block: TextBlock,
     /// Stable key that survives DOM rebuilds (from `calculate_contenteditable_key`).
     pub contenteditable_key: u64,
 }
@@ -575,11 +573,7 @@ pub struct MultiCursorState {
 impl MultiCursorState {
     /// Create a new `MultiCursorState` with a single cursor.
     #[must_use]
-    pub fn new_with_cursor(
-        cursor: TextCursor,
-        node_id: DomNodeId,
-        contenteditable_key: u64,
-    ) -> Self {
+    pub fn new_with_cursor(cursor: TextCursor, block: TextBlock, contenteditable_key: u64) -> Self {
         let id = SelectionId::new();
         Self {
             selections: vec![IdentifiedSelection {
@@ -588,7 +582,7 @@ impl MultiCursorState {
                 owner: SelectionOwner::LOCAL,
             }],
             primary_id: id,
-            node_id,
+            block,
             contenteditable_key,
         }
     }
@@ -1120,21 +1114,18 @@ impl MultiCursorState {
         self.merge_overlapping();
     }
 
-    /// Remap the `NodeId` in `node_id` after DOM reconciliation.
+    /// Remap the session's text block after DOM reconciliation.
     ///
-    /// If the node was removed (not in the map), the multi-cursor state is cleared.
+    /// If a node naming the block was removed (not in the map), the
+    /// selections are cleared and the block is left as it was.
     pub fn remap_node_ids(&mut self, dom_id: DomId, node_id_map: &BTreeMap<NodeId, NodeId>) {
-        if self.node_id.dom != dom_id {
+        if self.block.dom() != dom_id {
             return;
         }
-        if let Some(old_node_id) = self.node_id.node.into_crate_internal() {
-            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                self.node_id.node =
-                    crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
-            } else {
-                // Node removed — clear selections
-                self.selections.clear();
-            }
+        match self.block.remap(|old| node_id_map.get(&old).copied()) {
+            Some(block) => self.block = block,
+            // Block removed — clear selections
+            None => self.selections.clear(),
         }
     }
 }
@@ -1173,43 +1164,27 @@ fn selection_end_pos(sel: &Selection) -> TextCursor {
 
 /// The anchor point of a text selection - where the user started selecting.
 ///
-/// This is the fixed point during a drag operation. It records:
-/// - The IFC root node (where the `UnifiedLayout` lives)
-/// - The exact cursor position within that layout
-/// - The visual bounds of the anchor character (for logical rectangle calculations)
-///
-/// The anchor remains constant during a drag; only the focus moves.
+/// The fixed end during a drag; only the focus moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionAnchor {
-    /// The IFC root node ID where selection started.
-    /// This is the node that has `inline_layout_result` (e.g., `<p>`, `<div>`).
-    pub ifc_root_node_id: NodeId,
+    /// The text block the selection started in.
+    pub block: TextBlock,
 
-    /// The exact cursor position within the IFC's `UnifiedLayout`.
+    /// The exact cursor position within the block's `UnifiedLayout`.
     pub cursor: TextCursor,
-
-    /// Visual bounds of the anchor character in viewport coordinates.
-    /// Used for computing the logical selection rectangle during multi-line/multi-node selection.
-    pub char_bounds: LogicalRect,
-
-    /// The mouse position when the selection started (viewport coordinates).
-    pub mouse_position: LogicalPosition,
 }
 
 /// The focus point of a text selection - where the selection currently ends.
 ///
-/// This is the movable point during a drag operation. It updates on every mouse move.
+/// The moving end during a drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionFocus {
-    /// The IFC root node ID where selection currently ends.
-    /// May differ from anchor's IFC root during cross-node selection.
-    pub ifc_root_node_id: NodeId,
+    /// The text block the selection currently ends in. May differ from the
+    /// anchor's during a selection across blocks.
+    pub block: TextBlock,
 
-    /// The exact cursor position within the IFC's `UnifiedLayout`.
+    /// The exact cursor position within the block's `UnifiedLayout`.
     pub cursor: TextCursor,
-
-    /// Current mouse position in viewport coordinates.
-    pub mouse_position: LogicalPosition,
 }
 
 /// Complete selection state spanning potentially multiple DOM nodes.
@@ -1219,9 +1194,9 @@ pub struct SelectionFocus {
 ///
 /// ## Storage Model
 ///
-/// Uses `BTreeMap<NodeId, Vec<SelectionRange>>` for O(log N) lookup during rendering.
-/// The key is the **IFC root `NodeId`**, and the value is every `SelectionRange`
-/// that IFC contributes.
+/// Uses `BTreeMap<TextBlock, Vec<SelectionRange>>` for O(log N) lookup during
+/// rendering. The key is the **text block** (the IFC), and the value is every
+/// `SelectionRange` that block contributes.
 ///
 /// ## Example
 ///
@@ -1241,20 +1216,21 @@ pub struct TextSelection {
     /// The focus point - where the selection currently ends (moves during drag).
     pub focus: SelectionFocus,
 
-    /// Map from IFC root `NodeId` to the `SelectionRange`s for that IFC.
-    /// This allows O(log N) lookup during rendering.
+    /// Map from text block to the `SelectionRange`s in it, iterating in
+    /// document order.
     ///
-    /// Each `SelectionRange` contains the actual `TextCursor` positions for that IFC,
-    /// ready to be passed to `UnifiedLayout::get_selection_rects()`.
+    /// Each `SelectionRange` contains the actual `TextCursor` positions for that
+    /// block, ready to be passed to `UnifiedLayout::get_selection_rects()`.
     ///
-    /// A node carries SEVERAL ranges when a multi-cursor session selects several
-    /// occurrences in it (Ctrl+D); the ranges are disjoint and in document order.
-    pub affected_nodes: BTreeMap<NodeId, Vec<SelectionRange>>,
+    /// A block carries SEVERAL ranges when a multi-cursor session selects
+    /// several occurrences in it (Ctrl+D); the ranges are disjoint and in
+    /// document order.
+    pub affected_blocks: BTreeMap<TextBlock, Vec<SelectionRange>>,
 
-    /// OTHER PARTICIPANTS' ranges on the same nodes, with whose they are
+    /// OTHER PARTICIPANTS' ranges on the same blocks, with whose they are
     /// (U1-a).
     ///
-    /// Separate from `affected_nodes` rather than mixed into it, because the
+    /// Separate from `affected_blocks` rather than mixed into it, because the
     /// two are painted differently and mean different things: that one is the
     /// LOCAL user's selection and takes the node's `::selection` colour, while
     /// these take their owner's. Mixing them made a remote participant's range
@@ -1262,7 +1238,7 @@ pub struct TextSelection {
     ///
     /// Empty for a single-user app, which is every app until one injects a
     /// remote owner.
-    pub remote_ranges: BTreeMap<NodeId, Vec<(SelectionOwner, SelectionRange)>>,
+    pub remote_ranges: BTreeMap<TextBlock, Vec<(SelectionOwner, SelectionRange)>>,
 
     /// Indicates whether anchor comes before focus in document order.
     /// True = forward selection (left-to-right), False = backward selection.
@@ -1474,32 +1450,13 @@ impl RunTextChange {
 }
 
 impl TextSelection {
-    /// Create a new collapsed selection (cursor) at the given position.
+    /// Create a new collapsed selection (a caret) at `cursor` in `block`.
     #[must_use]
-    pub fn new_collapsed(
-        dom_id: DomId,
-        ifc_root_node_id: NodeId,
-        cursor: TextCursor,
-        char_bounds: LogicalRect,
-        mouse_position: LogicalPosition,
-    ) -> Self {
-        let anchor = SelectionAnchor {
-            ifc_root_node_id,
-            cursor,
-            char_bounds,
-            mouse_position,
-        };
-
-        let focus = SelectionFocus {
-            ifc_root_node_id,
-            cursor,
-            mouse_position,
-        };
-
-        // For a collapsed selection, the anchor node has a zero-width range
-        let mut affected_nodes = BTreeMap::new();
-        affected_nodes.insert(
-            ifc_root_node_id,
+    pub fn new_collapsed(block: TextBlock, cursor: TextCursor) -> Self {
+        // For a collapsed selection, the anchor block has a zero-width range
+        let mut affected_blocks = BTreeMap::new();
+        affected_blocks.insert(
+            block,
             vec![SelectionRange {
                 start: cursor,
                 end: cursor,
@@ -1508,10 +1465,10 @@ impl TextSelection {
 
         Self {
             remote_ranges: BTreeMap::new(),
-            dom_id,
-            anchor,
-            focus,
-            affected_nodes,
+            dom_id: block.dom(),
+            anchor: SelectionAnchor { block, cursor },
+            focus: SelectionFocus { block, cursor },
+            affected_blocks,
             is_forward: true, // Direction doesn't matter for collapsed selection
         }
     }
@@ -1519,27 +1476,23 @@ impl TextSelection {
     /// Check if this is a collapsed selection (cursor with no range).
     #[must_use]
     pub fn is_collapsed(&self) -> bool {
-        self.anchor.ifc_root_node_id == self.focus.ifc_root_node_id
-            && self.anchor.cursor == self.focus.cursor
+        self.anchor.block == self.focus.block && self.anchor.cursor == self.focus.cursor
     }
 
-    /// Get the FIRST selection range for a specific IFC root node.
-    /// Returns `None` if this node is not part of the selection.
+    /// Get the FIRST selection range in `block`. Returns `None` if the block is
+    /// not part of the selection.
     ///
-    /// A multi-range node has more; [`Self::ranges_for_node`] returns all of them.
+    /// A multi-range block has more; [`Self::ranges_for_block`] returns all of
+    /// them.
     #[must_use]
-    pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
-        self.affected_nodes
-            .get(ifc_root_node_id)
-            .and_then(|r| r.first())
+    pub fn get_range_for_block(&self, block: &TextBlock) -> Option<&SelectionRange> {
+        self.affected_blocks.get(block).and_then(|r| r.first())
     }
 
-    /// Every range this IFC root contributes (empty slice when unaffected).
+    /// Every range `block` contributes (empty slice when unaffected).
     #[must_use]
-    pub fn ranges_for_node(&self, ifc_root_node_id: &NodeId) -> &[SelectionRange] {
-        self.affected_nodes
-            .get(ifc_root_node_id)
-            .map_or(&[], Vec::as_slice)
+    pub fn ranges_for_block(&self, block: &TextBlock) -> &[SelectionRange] {
+        self.affected_blocks.get(block).map_or(&[], Vec::as_slice)
     }
 }
 

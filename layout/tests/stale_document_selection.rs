@@ -126,18 +126,18 @@ fn text_of(lw: &LayoutWindow, n: usize) -> String {
 /// focus on the editing host.
 fn drag_selected_p1_to_p3(lw: &mut LayoutWindow) {
     lw.focus_manager.set_focused_node(Some(dnid(HOST)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(6), DomId::ROOT_ID, NodeId::new(P1), 0);
+    lw.start_editing_at(cursor(6), DomId::ROOT_ID, NodeId::new(P1), 0);
+    let (p1, p3) = (block_of(lw, P1), block_of(lw, P3));
     assert!(
-        lw.set_cross_block_selection(
-            DomId::ROOT_ID,
-            NodeId::new(P1),
-            cursor(6),
-            NodeId::new(P3),
-            cursor(6),
-        ),
+        lw.set_cross_block_selection(p1, cursor(6), p3, cursor(6)),
         "premise: the drag's selection is accepted"
     );
+}
+
+/// The text block of node `n`, through the resolver.
+fn block_of(lw: &LayoutWindow, n: usize) -> azul_core::selection::TextBlock {
+    lw.text_block_of(dnid(n))
+        .unwrap_or_else(|| panic!("node {n} is in a text block"))
 }
 
 fn assert_editor_untouched(lw: &LayoutWindow) {
@@ -171,7 +171,7 @@ fn a_click_inside_the_selection_collapses_it_to_the_clicked_caret() {
         "a click collapses the selection: the drag's selection must be gone, got {:?}",
         lw.text_edit_manager
             .get_cross_block_selection()
-            .map(|s| s.affected_nodes.keys().collect::<Vec<_>>())
+            .map(|s| s.affected_blocks.keys().collect::<Vec<_>>())
     );
 
     // Backspace now deletes ONE character in the second paragraph.
@@ -298,16 +298,10 @@ fn delete_only_deletes_a_selection_inside_its_own_host() {
     let mut lw = two_editors();
     // The caret is in the second field...
     lw.focus_manager.set_focused_node(Some(dnid(OTHER_HOST)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(3), DomId::ROOT_ID, NodeId::new(OTHER_P), 0);
+    lw.start_editing_at(cursor(3), DomId::ROOT_ID, NodeId::new(OTHER_P), 0);
     // ...and a document selection exists in the first one.
-    assert!(lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        NodeId::new(P1),
-        cursor(6),
-        NodeId::new(P3),
-        cursor(6),
-    ));
+    let (p1, p3) = (block_of(&lw, P1), block_of(&lw, P3));
+    assert!(lw.set_cross_block_selection(p1, cursor(6), p3, cursor(6)));
 
     // Backspace pressed in the SECOND field.
     lw.delete_selection(dnid(OTHER_HOST), false)

@@ -1,5 +1,12 @@
 #[allow(unused_imports)]
 pub use super::*;
+
+/// A text block for the tests: element `n` of the root DOM, standing in for
+/// the layout's resolver (see `TextBlock::from_resolved`).
+#[cfg(test)]
+fn test_block(n: usize) -> TextBlock {
+    TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(n)))
+}
 #[cfg(test)]
 mod audit_tests {
     use super::*;
@@ -15,7 +22,7 @@ mod audit_tests {
     }
 
     fn state(byte: u32) -> MultiCursorState {
-        MultiCursorState::new_with_cursor(cursor(byte), DomNodeId::ROOT, 0)
+        MultiCursorState::new_with_cursor(cursor(byte), test_block(0), 0)
     }
 
     #[test]
@@ -56,7 +63,6 @@ mod audit_tests {
 #[cfg(test)]
 mod autotest_generated {
     use super::*;
-    use crate::{geom::LogicalSize, styled_dom::NodeHierarchyItemId};
 
     // ---------------------------------------------------------------------
     // Fixtures
@@ -91,15 +97,8 @@ mod autotest_generated {
         }
     }
 
-    fn dom_node(index: usize) -> DomNodeId {
-        DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
-        }
-    }
-
     fn state(byte: u32) -> MultiCursorState {
-        MultiCursorState::new_with_cursor(c(byte), DomNodeId::ROOT, 0)
+        MultiCursorState::new_with_cursor(c(byte), test_block(0), 0)
     }
 
     /// A `MultiCursorState` with zero selections — "should not normally happen",
@@ -108,7 +107,7 @@ mod autotest_generated {
         MultiCursorState {
             selections: Vec::new(),
             primary_id: SelectionId::new(),
-            node_id: DomNodeId::ROOT,
+            block: test_block(0),
             contenteditable_key: 0,
         }
     }
@@ -285,13 +284,13 @@ mod autotest_generated {
 
     #[test]
     fn new_with_cursor_invariants_hold() {
-        let node = dom_node(7);
-        let mc = MultiCursorState::new_with_cursor(c(3), node, 0xDEAD_BEEF);
+        let block = test_block(7);
+        let mc = MultiCursorState::new_with_cursor(c(3), block, 0xDEAD_BEEF);
         assert_eq!(mc.len(), 1);
         assert!(!mc.is_empty());
         assert_eq!(mc.selections.len(), mc.len());
         assert_eq!(mc.primary_id, mc.selections[0].id);
-        assert_eq!(mc.node_id, node);
+        assert_eq!(mc.block, block);
         assert_eq!(mc.contenteditable_key, 0xDEAD_BEEF);
         assert_eq!(mc.get_primary_cursor(), Some(c(3)));
         assert_eq!(mc.to_selections(), vec![Selection::Cursor(c(3))]);
@@ -302,7 +301,7 @@ mod autotest_generated {
     fn new_with_cursor_extreme_args_do_not_panic() {
         let mc = MultiCursorState::new_with_cursor(
             c_full(u32::MAX, u32::MAX, CursorAffinity::Trailing),
-            dom_node(usize::MAX / 4),
+            test_block(usize::MAX / 4),
             u64::MAX,
         );
         assert_eq!(mc.len(), 1);
@@ -367,7 +366,7 @@ mod autotest_generated {
         // at the same byte offset.
         let mut mc = MultiCursorState::new_with_cursor(
             c_full(0, 4, CursorAffinity::Leading),
-            DomNodeId::ROOT,
+            test_block(0),
             0,
         );
         let _ = mc.add_cursor(c_full(0, 4, CursorAffinity::Trailing));
@@ -1146,8 +1145,8 @@ mod autotest_generated {
 
     #[test]
     fn remap_node_ids_for_a_different_dom_is_a_noop() {
-        let mut mc = MultiCursorState::new_with_cursor(c(1), dom_node(5), 0);
-        mc.node_id.dom = DomId { inner: 7 };
+        let mut mc = MultiCursorState::new_with_cursor(c(1), test_block(5), 0);
+        mc.block = TextBlock::from_resolved(DomId { inner: 7 }, mc.block.key());
         let before = mc.clone();
         let mut map = BTreeMap::new();
         map.insert(NodeId::new(5), NodeId::new(9));
@@ -1157,61 +1156,76 @@ mod autotest_generated {
 
     #[test]
     fn remap_node_ids_rewrites_a_surviving_node() {
-        let mut mc = MultiCursorState::new_with_cursor(c(1), dom_node(5), 0);
+        let mut mc = MultiCursorState::new_with_cursor(c(1), test_block(5), 0);
         let mut map = BTreeMap::new();
         map.insert(NodeId::new(5), NodeId::new(9));
         mc.remap_node_ids(DomId::ROOT_ID, &map);
-        assert_eq!(mc.node_id.node.into_crate_internal(), Some(NodeId::new(9)));
+        assert_eq!(mc.block, test_block(9));
         assert_eq!(mc.len(), 1, "selections survive a successful remap");
         assert_primary_resolves(&mc);
     }
 
     #[test]
     fn remap_node_ids_clears_selections_when_the_node_was_removed() {
-        let mut mc = MultiCursorState::new_with_cursor(c(1), dom_node(5), 0);
+        let mut mc = MultiCursorState::new_with_cursor(c(1), test_block(5), 0);
         let _ = mc.add_cursor(c(20));
         let map: BTreeMap<NodeId, NodeId> = BTreeMap::new(); // node 5 is gone
         mc.remap_node_ids(DomId::ROOT_ID, &map);
         assert!(mc.is_empty(), "a removed node must drop its selections");
         assert!(mc.get_primary().is_none());
-        // node_id itself is left alone (only selections are cleared).
-        assert_eq!(mc.node_id.node.into_crate_internal(), Some(NodeId::new(5)));
+        // The block itself is left alone (only selections are cleared).
+        assert_eq!(mc.block, test_block(5));
     }
 
     #[test]
-    fn remap_node_ids_with_a_none_node_is_a_noop() {
-        // DomNodeId::ROOT carries NodeHierarchyItemId::NONE -> into_crate_internal()
-        // is None, so neither branch runs and the selections must survive.
-        let mut mc = state(3);
-        let map: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+    fn remap_node_ids_of_an_anonymous_block_needs_both_of_its_nodes() {
+        let anonymous = TextBlock::from_resolved(
+            DomId::ROOT_ID,
+            TextBlockKey::Anonymous {
+                parent: NodeId::new(2),
+                first_child: NodeId::new(3),
+            },
+        );
+        let mut mc = MultiCursorState::new_with_cursor(c(1), anonymous, 0);
+        let mut map = BTreeMap::new();
+        map.insert(NodeId::new(2), NodeId::new(4));
+        map.insert(NodeId::new(3), NodeId::new(5));
         mc.remap_node_ids(DomId::ROOT_ID, &map);
+        assert_eq!(
+            mc.block.key(),
+            TextBlockKey::Anonymous {
+                parent: NodeId::new(4),
+                first_child: NodeId::new(5),
+            }
+        );
         assert_eq!(mc.len(), 1);
-        assert_eq!(mc.node_id.node, NodeHierarchyItemId::NONE);
-        assert_primary_resolves(&mc);
+
+        // Its first node gone, the block is gone.
+        let mut only_parent = BTreeMap::new();
+        only_parent.insert(NodeId::new(4), NodeId::new(4));
+        mc.remap_node_ids(DomId::ROOT_ID, &only_parent);
+        assert!(mc.is_empty());
     }
 
     #[test]
     fn remap_node_ids_handles_large_node_indices() {
         let big = 1_000_000usize;
-        let mut mc = MultiCursorState::new_with_cursor(c(1), dom_node(big), 0);
+        let mut mc = MultiCursorState::new_with_cursor(c(1), test_block(big), 0);
         let mut map = BTreeMap::new();
         map.insert(NodeId::new(big), NodeId::new(big * 2));
         mc.remap_node_ids(DomId::ROOT_ID, &map);
-        assert_eq!(
-            mc.node_id.node.into_crate_internal(),
-            Some(NodeId::new(big * 2))
-        );
+        assert_eq!(mc.block, test_block(big * 2));
     }
 
     #[test]
     fn remap_node_ids_twice_is_stable() {
-        let mut mc = MultiCursorState::new_with_cursor(c(1), dom_node(5), 0);
+        let mut mc = MultiCursorState::new_with_cursor(c(1), test_block(5), 0);
         let mut map = BTreeMap::new();
         map.insert(NodeId::new(5), NodeId::new(9));
         map.insert(NodeId::new(9), NodeId::new(9)); // identity for the new id
         mc.remap_node_ids(DomId::ROOT_ID, &map);
         mc.remap_node_ids(DomId::ROOT_ID, &map);
-        assert_eq!(mc.node_id.node.into_crate_internal(), Some(NodeId::new(9)));
+        assert_eq!(mc.block, test_block(9));
         assert_eq!(mc.len(), 1);
     }
 
@@ -1290,31 +1304,21 @@ mod autotest_generated {
     // TextSelection
     // =====================================================================
 
-    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
-        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
-    }
-
     #[test]
     fn new_collapsed_invariants_hold() {
-        let node = NodeId::new(3);
-        let sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
-            c(7),
-            rect(1.0, 2.0, 3.0, 4.0),
-            LogicalPosition::new(5.0, 6.0),
-        );
+        let block = test_block(3);
+        let sel = TextSelection::new_collapsed(block, c(7));
         assert!(sel.is_collapsed());
         assert!(sel.is_forward);
         assert_eq!(sel.dom_id, DomId::ROOT_ID);
-        assert_eq!(sel.anchor.ifc_root_node_id, node);
-        assert_eq!(sel.focus.ifc_root_node_id, node);
+        assert_eq!(sel.anchor.block, block);
+        assert_eq!(sel.focus.block, block);
         assert_eq!(sel.anchor.cursor, c(7));
         assert_eq!(sel.focus.cursor, c(7));
-        assert_eq!(sel.affected_nodes.len(), 1);
-        // The collapsed node maps to a zero-width range at the cursor.
+        assert_eq!(sel.affected_blocks.len(), 1);
+        // The collapsed block maps to a zero-width range at the cursor.
         assert_eq!(
-            sel.get_range_for_node(&node),
+            sel.get_range_for_block(&block),
             Some(&SelectionRange {
                 start: c(7),
                 end: c(7),
@@ -1323,47 +1327,32 @@ mod autotest_generated {
     }
 
     #[test]
-    fn new_collapsed_with_non_finite_geometry_does_not_panic() {
-        let node = NodeId::new(0);
+    fn new_collapsed_with_an_extreme_cursor_does_not_panic() {
+        let block = test_block(0);
         let sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
+            block,
             c_full(u32::MAX, u32::MAX, CursorAffinity::Trailing),
-            rect(f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX),
-            LogicalPosition::new(f32::NAN, f32::NEG_INFINITY),
         );
-        // Geometry is carried verbatim; only the cursors decide collapsedness.
         assert!(sel.is_collapsed());
-        assert!(sel.get_range_for_node(&node).is_some());
-        assert!(sel.anchor.char_bounds.origin.x.is_nan());
+        assert!(sel.get_range_for_block(&block).is_some());
     }
 
     #[test]
-    fn get_range_for_node_returns_none_for_an_unaffected_node() {
-        let sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            NodeId::new(3),
-            c(0),
-            rect(0.0, 0.0, 0.0, 0.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
-        assert!(sel.get_range_for_node(&NodeId::new(4)).is_none());
-        assert!(sel.get_range_for_node(&NodeId::new(0)).is_none());
-        assert!(sel.get_range_for_node(&NodeId::new(usize::MAX)).is_none());
+    fn get_range_for_block_returns_none_for_an_unaffected_block() {
+        let sel = TextSelection::new_collapsed(test_block(3), c(0));
+        assert!(sel.get_range_for_block(&test_block(4)).is_none());
+        assert!(sel.get_range_for_block(&test_block(0)).is_none());
+        assert!(sel
+            .get_range_for_block(&test_block(usize::MAX / 4))
+            .is_none());
     }
 
     #[test]
-    fn get_range_for_node_on_an_empty_map_returns_none() {
-        let node = NodeId::new(3);
-        let mut sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
-            c(0),
-            rect(0.0, 0.0, 0.0, 0.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
-        sel.affected_nodes.clear();
-        assert!(sel.get_range_for_node(&node).is_none());
+    fn get_range_for_block_on_an_empty_map_returns_none() {
+        let block = test_block(3);
+        let mut sel = TextSelection::new_collapsed(block, c(0));
+        sel.affected_blocks.clear();
+        assert!(sel.get_range_for_block(&block).is_none());
         assert!(
             sel.is_collapsed(),
             "collapsedness does not depend on the map"
@@ -1371,18 +1360,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn ranges_for_node_returns_every_range_the_node_carries() {
-        // A Ctrl+D session puts all of its occurrences on ONE node, so the
+    fn ranges_for_block_returns_every_range_the_block_carries() {
+        // A Ctrl+D session puts all of its occurrences in ONE block, so the
         // carrier has to be a list — the map used to hold a single range and
         // every occurrence but one was unexpressible.
-        let node = NodeId::new(3);
-        let mut sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
-            c(0),
-            rect(0.0, 0.0, 0.0, 0.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
+        let block = test_block(3);
+        let mut sel = TextSelection::new_collapsed(block, c(0));
         let first = SelectionRange {
             start: c(0),
             end: c(2),
@@ -1391,67 +1374,40 @@ mod autotest_generated {
             start: c(5),
             end: c(7),
         };
-        sel.affected_nodes.insert(node, vec![first, second]);
+        sel.affected_blocks.insert(block, vec![first, second]);
 
-        assert_eq!(sel.ranges_for_node(&node), &[first, second]);
+        assert_eq!(sel.ranges_for_block(&block), &[first, second]);
         assert_eq!(
-            sel.get_range_for_node(&node),
+            sel.get_range_for_block(&block),
             Some(&first),
             "the single-range accessor answers with the FIRST range"
         );
-        assert!(sel.ranges_for_node(&NodeId::new(4)).is_empty());
+        assert!(sel.ranges_for_block(&test_block(4)).is_empty());
 
-        sel.affected_nodes.insert(node, Vec::new());
-        assert!(sel.ranges_for_node(&node).is_empty());
+        sel.affected_blocks.insert(block, Vec::new());
+        assert!(sel.ranges_for_block(&block).is_empty());
         assert!(
-            sel.get_range_for_node(&node).is_none(),
+            sel.get_range_for_block(&block).is_none(),
             "an empty list is not a range"
         );
     }
 
     #[test]
     fn is_collapsed_is_false_when_the_focus_cursor_moves() {
-        let node = NodeId::new(3);
-        let mut sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
-            c(7),
-            rect(0.0, 0.0, 1.0, 1.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
+        let mut sel = TextSelection::new_collapsed(test_block(3), c(7));
         assert!(sel.is_collapsed());
         sel.focus.cursor = c(8);
         assert!(!sel.is_collapsed());
     }
 
     #[test]
-    fn is_collapsed_is_false_when_the_focus_crosses_into_another_ifc() {
-        let mut sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            NodeId::new(3),
-            c(7),
-            rect(0.0, 0.0, 1.0, 1.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
-        sel.focus.ifc_root_node_id = NodeId::new(4); // same cursor, different node
+    fn is_collapsed_is_false_when_the_focus_crosses_into_another_block() {
+        let mut sel = TextSelection::new_collapsed(test_block(3), c(7));
+        sel.focus.block = test_block(4); // same cursor, different block
         assert!(
             !sel.is_collapsed(),
-            "same cursor offset in a different IFC is not a collapsed selection"
+            "same cursor offset in a different block is not a collapsed selection"
         );
-    }
-
-    #[test]
-    fn is_collapsed_only_looks_at_cursors_not_at_mouse_position() {
-        let node = NodeId::new(1);
-        let mut sel = TextSelection::new_collapsed(
-            DomId::ROOT_ID,
-            node,
-            c(2),
-            rect(0.0, 0.0, 1.0, 1.0),
-            LogicalPosition::new(0.0, 0.0),
-        );
-        sel.focus.mouse_position = LogicalPosition::new(999.0, -999.0);
-        assert!(sel.is_collapsed());
     }
 }
 
@@ -1460,12 +1416,11 @@ mod owner_tests {
     use alloc::{vec, vec::Vec};
 
     use crate::{
-        dom::{DomId, DomNodeId, NodeId},
+        dom::{DomId, NodeId},
         selection::{
             CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, SelectionOwner,
-            SelectionRange, TextCursor,
+            SelectionRange, TextBlock, TextBlockKey, TextCursor,
         },
-        styled_dom::NodeHierarchyItemId,
     };
 
     fn cursor(byte: u32) -> TextCursor {
@@ -1478,15 +1433,12 @@ mod owner_tests {
         }
     }
 
-    fn node() -> DomNodeId {
-        DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-        }
+    fn block() -> TextBlock {
+        TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(1)))
     }
 
     fn state() -> MultiCursorState {
-        MultiCursorState::new_with_cursor(cursor(0), node(), 0)
+        MultiCursorState::new_with_cursor(cursor(0), block(), 0)
     }
 
     // ------------------------------------------------------------------
@@ -1704,7 +1656,6 @@ mod owner_tests {
 #[cfg(test)]
 mod peer_shift_tests {
     use super::*;
-    use crate::styled_dom::NodeHierarchyItemId;
 
     fn cursor(byte: u32) -> TextCursor {
         TextCursor {
@@ -1716,16 +1667,9 @@ mod peer_shift_tests {
         }
     }
 
-    fn node() -> DomNodeId {
-        DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
-        }
-    }
-
     fn with_peer_at(at: Selection) -> (MultiCursorState, SelectionOwner) {
         let bob = SelectionOwner::new(2, 2);
-        let mut mc = MultiCursorState::new_with_cursor(cursor(0), node(), 0);
+        let mut mc = MultiCursorState::new_with_cursor(cursor(0), test_block(1), 0);
         assert!(mc.set_owner_selections(bob, &[at]));
         (mc, bob)
     }

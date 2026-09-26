@@ -97,7 +97,7 @@ fn edit_at_last_line(lw: &mut LayoutWindow) -> NodeId {
             dom: DomId::ROOT_ID,
             node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(last_text)),
         }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
@@ -150,7 +150,7 @@ fn typing_at_a_visible_caret_leaves_the_view_alone() {
             dom: DomId::ROOT_ID,
             node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(first_text)),
         }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,

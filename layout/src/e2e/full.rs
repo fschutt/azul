@@ -7866,12 +7866,12 @@ fn eval_assert_manager_invariants(
                 "selection" | "text_edit" => {
                     if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
                         checked += 1;
-                        if !dom_node_is_live(lw, mc.node_id) {
+                        if !dom_node_is_live(lw, mc.block.container_dom_node()) {
                             violations.push(format!(
                                 "X10 {m}: multi_cursor is anchored on ({}, {:?}), which no longer \
                                  exists",
-                                mc.node_id.dom.inner,
-                                mc.node_id.node.into_crate_internal().map(|n| n.index())
+                                mc.block.dom().inner,
+                                mc.block.container().index()
                             ));
                         }
                     }
@@ -7980,7 +7980,7 @@ fn eval_assert_manager_invariants(
     if cross.iter().any(|c| c == "X5") {
         if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
             checked += 1;
-            if !dom_node_is_live(lw, mc.node_id) {
+            if !dom_node_is_live(lw, mc.block.container_dom_node()) {
                 violations.push(
                     "X5: the multi-cursor anchor node was removed but the selection was not \
                      cleared (remap_node_ids must DROP a selection whose node vanished)"
@@ -8939,8 +8939,8 @@ fn fp_text_edit(m: &azul_layout::managers::text_edit::TextEditManager) -> Manage
             population += mc.selections.len();
             format!(
                 "({},{:?})x{}span{}key{}",
-                mc.node_id.dom.inner,
-                mc.node_id.node.into_crate_internal().map(|n| n.index()),
+                mc.block.dom().inner,
+                Some(mc.block.container().index()),
                 mc.selections.len(),
                 multi_cursor_span(mc),
                 mc.contenteditable_key
@@ -9618,12 +9618,11 @@ fn e2e_record_composition_sample(
                 ))
             })
             .collect(),
-        selection_focus_node: lw.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            mc.node_id
-                .node
-                .into_crate_internal()
-                .map(|n| (mc.node_id.dom.inner, n.index()))
-        }),
+        selection_focus_node: lw
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| (mc.block.dom().inner, mc.block.container().index())),
         text_selection_drag: matches!(
             lw.gesture_drag_manager
                 .active_drag
@@ -16575,17 +16574,9 @@ pub fn process_debug_event(
             let layout_window = callback_info.get_layout_window();
             let mut selections = Vec::new();
             if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
-                let dom_id = mc.node_id.dom;
-                let node_id = mc
-                    .node_id
-                    .node
-                    .into_crate_internal()
-                    .map(|n| n.index() as u64);
-                let selector = mc
-                    .node_id
-                    .node
-                    .into_crate_internal()
-                    .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
+                let dom_id = mc.block.dom();
+                let node_id = Some(mc.block.container().index() as u64);
+                let selector = build_selector_for_node(callback_info, dom_id, mc.block.container());
                 let mut ranges = Vec::new();
                 for s in &mc.selections {
                     use azul_core::selection::Selection;
@@ -16633,17 +16624,9 @@ pub fn process_debug_event(
             let layout_window = callback_info.get_layout_window();
             let mut selections = Vec::new();
             if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
-                let dom_id = mc.node_id.dom;
-                let node_id = mc
-                    .node_id
-                    .node
-                    .into_crate_internal()
-                    .map(|n| n.index() as u64);
-                let selector = mc
-                    .node_id
-                    .node
-                    .into_crate_internal()
-                    .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
+                let dom_id = mc.block.dom();
+                let node_id = Some(mc.block.container().index() as u64);
+                let selector = build_selector_for_node(callback_info, dom_id, mc.block.container());
                 let mut sel_dumps = Vec::new();
                 for s in &mc.selections {
                     use azul_core::selection::Selection;
@@ -17490,13 +17473,8 @@ pub fn process_debug_event(
                 CursorStateResponse {
                     has_cursor: true,
                     cursor: Some(CursorInfo {
-                        dom_id: mc.node_id.dom.inner as u32,
-                        node_id: mc
-                            .node_id
-                            .node
-                            .into_crate_internal()
-                            .map(|n| n.index() as u64)
-                            .unwrap_or(0),
+                        dom_id: mc.block.dom().inner as u32,
+                        node_id: mc.block.container().index() as u64,
                         position,
                         affinity,
                         is_visible: tem.blink.is_visible,

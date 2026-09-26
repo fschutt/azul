@@ -84,14 +84,13 @@ fn at(cluster: GraphemeClusterId, affinity: CursorAffinity) -> TextCursor {
 /// An editing session on the block holding `range`, as a drag inside it
 /// leaves one.
 fn select(lw: &mut LayoutWindow, range: SelectionRange) {
-    let mut mc = MultiCursorState::new_with_cursor(
-        range.start,
-        azul_core::dom::DomNodeId {
+    let block = lw
+        .text_block_of(azul_core::dom::DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(BLOCK))),
-        },
-        0,
-    );
+        })
+        .expect("the block is a text block");
+    let mut mc = MultiCursorState::new_with_cursor(range.start, block, 0);
     mc.set_single_range(range);
     lw.text_edit_manager.multi_cursor = Some(mc);
 }

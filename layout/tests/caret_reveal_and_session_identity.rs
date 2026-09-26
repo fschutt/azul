@@ -269,7 +269,7 @@ fn the_ime_caret_rect_is_corrected_by_the_nested_doms_own_scroll() {
     // `focus_manager` wrong in the first place.
     lw.focus_manager
         .set_focused_node(Some(dom_node(nested, NESTED_EDITOR)));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         azul_core::selection::TextCursor {
             cluster_id: azul_core::selection::GraphemeClusterId {
                 source_run: 0,
@@ -311,7 +311,7 @@ fn a_caret_reveal_inside_a_virtual_view_moves_the_nested_container() {
 
     lw.focus_manager
         .set_focused_node(Some(dom_node(nested, NESTED_EDITOR)));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         last_cluster_cursor_in(&lw, nested, NESTED_EDITOR),
         nested,
         NodeId::new(NESTED_TEXT),
@@ -519,8 +519,7 @@ fn an_assistive_technology_focus_reveals_a_bottom_clipped_caret() {
 
     // Where the a11y Focus action will put the caret: the end of the text.
     let at_end = last_cluster_cursor(&lw, EDITOR);
-    lw.text_edit_manager
-        .initialize_editing(at_end, DomId::ROOT_ID, NodeId::new(EDITOR), 0);
+    lw.start_editing_at(at_end, DomId::ROOT_ID, NodeId::new(EDITOR), 0);
     let caret = lw
         .get_focused_cursor_rect()
         .expect("the caret resolves before the reveal");
@@ -583,8 +582,7 @@ fn a_small_caret_reveal_follows_immediately_instead_of_gliding() {
 
     let mut lw = clipped_editor();
     let at_end = last_cluster_cursor(&lw, EDITOR);
-    lw.text_edit_manager
-        .initialize_editing(at_end, DomId::ROOT_ID, NodeId::new(EDITOR), 0);
+    lw.start_editing_at(at_end, DomId::ROOT_ID, NodeId::new(EDITOR), 0);
     let caret = lw
         .get_focused_cursor_rect()
         .expect("the caret resolves before the reveal");

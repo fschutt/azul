@@ -75,7 +75,7 @@ fn host_id() -> DomNodeId {
 /// leaf at `byte` (what the editing session records).
 fn session_at(lw: &mut LayoutWindow, byte: u32) {
     lw.focus_manager.set_focused_node(Some(host_id()));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,

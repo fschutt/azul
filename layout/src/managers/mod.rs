@@ -223,7 +223,10 @@ mod preceding_sibling_remap_tests {
         drag::{DragContext, DragData},
         geom::LogicalPosition,
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        selection::{CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor},
+        selection::{
+            CursorAffinity, GraphemeClusterId, MultiCursorState, TextBlock, TextBlockKey,
+            TextCursor,
+        },
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
     };
@@ -475,12 +478,9 @@ mod preceding_sibling_remap_tests {
             },
             affinity: CursorAffinity::Leading,
         };
+        let block = |n: NodeId| TextBlock::from_resolved(ROOT, TextBlockKey::Element(n));
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(MultiCursorState::new_with_cursor(
-            cursor,
-            dom_node(C_OLD),
-            0,
-        ));
+        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, block(C_OLD), 0));
 
         m.remap_node_ids(ROOT, &delete_a());
 
@@ -489,8 +489,8 @@ mod preceding_sibling_remap_tests {
             .as_ref()
             .expect("the editing session survives");
         assert_eq!(
-            mc.node_id.node.into_crate_internal(),
-            Some(C_NEW),
+            mc.block,
+            block(C_NEW),
             "the caret must stay in the element the user is editing"
         );
         assert_eq!(
@@ -501,7 +501,7 @@ mod preceding_sibling_remap_tests {
 
         // Editing a node that gets deleted ends the session (no retarget).
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, dom_node(A), 0));
+        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, block(A), 0));
         m.remap_node_ids(ROOT, &delete_a());
         assert!(
             m.multi_cursor.is_none(),

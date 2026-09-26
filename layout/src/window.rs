@@ -41,7 +41,7 @@ use azul_core::{
     },
     selection::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
-        SelectionRange, SelectionState, TextCursor, TextSelection,
+        SelectionRange, SelectionState, TextBlock, TextCursor, TextSelection,
     },
     spaces::{
         BorderBoxLocal, ContentBoxLocal, ContentInset, Inclusivity, ScrollOffset,
@@ -2598,7 +2598,7 @@ impl LayoutWindow {
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .map_or(DomId::ROOT_ID, |mc| mc.node_id.dom);
+                .map_or(DomId::ROOT_ID, |mc| mc.block.dom());
             if self.scroll_focused_cursor_into_view() {
                 self.regenerate_display_list_for_dom(caret_dom);
             }
@@ -2787,24 +2787,30 @@ impl LayoutWindow {
 
     /// The current selection as app-facing byte spans (see
     /// `CallbackInfo::get_document_selection` for the contract). Cross-block
-    /// selections yield one span per affected IFC root in document order;
-    /// otherwise each multi-cursor RANGE on the editing session's node
+    /// selections yield one span per affected text block in document order;
+    /// otherwise each multi-cursor RANGE in the editing session's block
     /// yields one span. Spans are normalized (`start <= end`, logical
     /// order) — a backward or RTL drag reads the same as a forward one.
+    ///
+    /// A span names the block's ELEMENT, whose text its bytes index; an
+    /// anonymous block has none and yields no span.
     #[must_use]
     pub fn document_selection_spans(&self) -> Vec<azul_core::selection::DocumentSelectionSpan> {
         use azul_core::selection::{DocumentSelectionSpan, Selection};
         let mut out = Vec::new();
         if let Some(cross) = &self.text_edit_manager.cross_block {
-            for (&node, ranges) in &cross.affected_nodes {
+            for (block, ranges) in &cross.affected_blocks {
+                let Some(node) = block.element_dom_node() else {
+                    continue;
+                };
+                let Some(node_id) = block.element() else {
+                    continue;
+                };
                 for range in ranges {
-                    let a = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.start);
-                    let b = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.end);
+                    let a = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.end);
                     out.push(DocumentSelectionSpan {
-                        node: DomNodeId {
-                            dom: cross.dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
-                        },
+                        node,
                         start_byte: a.min(b),
                         end_byte: a.max(b),
                     });
@@ -2813,15 +2819,16 @@ impl LayoutWindow {
             return out;
         }
         if let Some(mc) = &self.text_edit_manager.multi_cursor {
-            let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+            let (Some(node), Some(node_id)) = (mc.block.element_dom_node(), mc.block.element())
+            else {
                 return out;
             };
             for sel in &mc.selections {
                 if let Selection::Range(range) = &sel.selection {
-                    let a = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.start);
-                    let b = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.end);
+                    let a = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(node.dom, node_id, &range.end);
                     out.push(DocumentSelectionSpan {
-                        node: mc.node_id,
+                        node,
                         start_byte: a.min(b),
                         end_byte: a.max(b),
                     });
@@ -2832,15 +2839,17 @@ impl LayoutWindow {
     }
 
     /// The primary caret as an app-facing position, if an editing session
-    /// is active (see `CallbackInfo::get_document_caret`).
+    /// is active (see `CallbackInfo::get_document_caret`). `None` in an
+    /// anonymous block, which has no element whose text a byte could index.
     #[must_use]
     pub fn document_caret(&self) -> Option<azul_core::selection::DocumentPosition> {
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let node_id = mc.node_id.node.into_crate_internal()?;
+        let node = mc.block.element_dom_node()?;
+        let node_id = mc.block.element()?;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
         Some(azul_core::selection::DocumentPosition {
-            node: mc.node_id,
-            text_byte: self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &cursor),
+            node,
+            text_byte: self.resolve_cursor_to_text_byte(node.dom, node_id, &cursor),
         })
     }
 
@@ -3050,13 +3059,8 @@ impl LayoutWindow {
             self.text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .filter(|mc| !document_selection && mc.node_id.dom == focus.dom)
-                .and_then(|mc| {
-                    Some((
-                        mc.node_id.node.into_crate_internal(),
-                        mc.get_primary()?.selection,
-                    ))
-                })
+                .filter(|mc| !document_selection && mc.block.dom() == focus.dom)
+                .and_then(|mc| Some((mc.block.element(), mc.get_primary()?.selection)))
         } else {
             self.text_edit_manager
                 .seat_caret(seat_id)
@@ -3457,8 +3461,8 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
+            .filter(|mc| mc.block.dom() == dom_id)
+            .map(|mc| mc.block.container())
         else {
             return host;
         };
@@ -3505,8 +3509,8 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal());
+            .filter(|mc| mc.block.dom() == dom_id)
+            .and_then(|mc| mc.block.element());
         self.text_target_of(dom_id, host, caret)
     }
 
@@ -3669,19 +3673,17 @@ impl LayoutWindow {
             .collect()
     }
 
-    /// Whether `a` and `b` are ONE caret position in `node_id`'s block: equal
-    /// as positions, not as cluster ids - `Trailing` on a grapheme and
-    /// `Leading` on the next name the same place
-    /// (`text3::edit::collapsed_range_caret`).
-    fn same_caret_position(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        a: TextCursor,
-        b: TextCursor,
-    ) -> bool {
+    /// Whether `a` and `b` are ONE caret position in `block`: equal as
+    /// positions, not as cluster ids - `Trailing` on a grapheme and `Leading`
+    /// on the next name the same place (`text3::edit::collapsed_range_caret`).
+    /// An anonymous block has no element content to measure positions in, so
+    /// there the ids are compared.
+    fn same_caret_position(&self, block: TextBlock, a: TextCursor, b: TextCursor) -> bool {
+        let Some(element) = block.element() else {
+            return a == b;
+        };
         crate::text3::edit::collapsed_range_caret(
-            &self.caret_block_content(dom_id, node_id).0,
+            &self.caret_block_content(block.dom(), element).0,
             &SelectionRange { start: a, end: b },
         )
         .is_some()
@@ -3749,7 +3751,7 @@ impl LayoutWindow {
             self.text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .and_then(|mc| mc.node_id.node.into_crate_internal())
+                .and_then(|mc| mc.block.element())
         } else {
             self.text_edit_manager
                 .seat_caret(seat_id)
@@ -3857,20 +3859,22 @@ impl LayoutWindow {
         )
     }
 
-    /// The end-of-text cursor of an IFC root: the byte AFTER the last text
+    /// The end-of-text cursor of a text block: the byte AFTER the last text
     /// run's content (overlay-aware — sees uncommitted edits). `None` when
-    /// the node has no text runs.
-    fn node_text_end_cursor(&self, dom_id: DomId, node_id: NodeId) -> Option<TextCursor> {
+    /// the block has no text runs.
+    fn block_text_end_cursor(&self, block: TextBlock) -> Option<TextCursor> {
         // The LAYOUT knows the real grapheme clusters: end = Trailing on the
         // final cluster. A byte-length synthetic cursor (one past the last
         // cluster start) resolves to NOTHING in get_selection_rects and the
-        // whole node silently loses its highlight.
+        // whole block silently loses its highlight.
         // (d6) Dense-first: last_cluster_cursor IS the end cursor (pinned
         // against the sparse rev-scan over the corpus); sparse fallback.
-        self.get_dense_for_node(dom_id, node_id)
+        let tree = &self.layout_results.get(&block.dom())?.layout_tree;
+        let root = tree.text_block_root(block.key())?;
+        tree.get_dense_for_node(root)
             .and_then(|d| d.last_cluster_cursor())
             .or_else(|| {
-                self.get_node_inline_layout(dom_id, node_id)
+                tree.materialized_inline_layout_for_node(root)
                     .and_then(|layout| layout.end_cursor())
             })
     }
@@ -3884,30 +3888,24 @@ impl LayoutWindow {
     /// the text-edit manager, where the display-list pass picks them up
     /// through `build_text_selections_map`.
     ///
-    /// Returns false (and changes nothing) when the two are the same node
-    /// (single-node selection is `MultiCursorState`'s job) or either is not a
-    /// text block of `dom_id`.
+    /// Returns false (and changes nothing) when the two are the same block
+    /// (single-block selection is `MultiCursorState`'s job), are in two
+    /// different DOMs, or either is not a laid-out text block.
     pub fn set_cross_block_selection(
         &mut self,
-        dom_id: DomId,
-        anchor_node: NodeId,
+        anchor: TextBlock,
         anchor_cursor: TextCursor,
-        focus_node: NodeId,
+        focus: TextBlock,
         focus_cursor: TextCursor,
     ) -> bool {
         use azul_core::selection::{
             CursorAffinity, GraphemeClusterId, SelectionAnchor, SelectionFocus, SelectionRange,
             TextCursor, TextSelection,
         };
-        if anchor_node == focus_node {
+        if anchor == focus || anchor.dom() != focus.dom() {
             return false;
         }
-        let is_forward = anchor_node.index() < focus_node.index();
-        let (first, first_cursor, last, last_cursor) = if is_forward {
-            (anchor_node, anchor_cursor, focus_node, focus_cursor)
-        } else {
-            (focus_node, focus_cursor, anchor_node, anchor_cursor)
-        };
+        let dom_id = anchor.dom();
 
         // The blocks between the two ends IN DOCUMENT ORDER - every text
         // block the selection passes over, wherever it sits in the tree.
@@ -3917,12 +3915,22 @@ impl LayoutWindow {
         // into a paragraph in another - a heading in a wrapper, a list, two
         // cards: every real document - was refused and the drag collapsed
         // back to the anchor's paragraph.
-        let ifc_roots = self.ifc_roots_in_document_order(dom_id);
-        let index_of = |n: NodeId| ifc_roots.iter().position(|&x| x == n);
-        let (Some(i_first), Some(i_last)) = (index_of(first), index_of(last)) else {
+        //
+        // The direction is read off the SAME order the middles are sliced
+        // from: two definitions of "document order" in one function made a
+        // reversed slice (and a panic) possible wherever they disagreed.
+        let blocks = self.text_blocks_in_document_order(dom_id);
+        let index_of = |b: TextBlock| blocks.iter().position(|&x| x == b);
+        let (Some(i_anchor), Some(i_focus)) = (index_of(anchor), index_of(focus)) else {
             return false; // an end that is not a text block of this dom
         };
-        let middles: Vec<NodeId> = ifc_roots[i_first + 1..i_last].to_vec();
+        let is_forward = i_anchor < i_focus;
+        let (first, first_cursor, last, last_cursor, i_first, i_last) = if is_forward {
+            (anchor, anchor_cursor, focus, focus_cursor, i_anchor, i_focus)
+        } else {
+            (focus, focus_cursor, anchor, anchor_cursor, i_focus, i_anchor)
+        };
+        let middles: Vec<TextBlock> = blocks[i_first + 1..i_last].to_vec();
 
         let block_start = TextCursor {
             cluster_id: GraphemeClusterId {
@@ -3934,7 +3942,7 @@ impl LayoutWindow {
         // A block with no cluster (a blank line, an image) ends where it
         // starts: inside the selection, with no text to highlight. The FIRST
         // block used to be refused instead - no drag from a blank line.
-        let block_end = |n: NodeId| self.node_text_end_cursor(dom_id, n).unwrap_or(block_start);
+        let block_end = |b: TextBlock| self.block_text_end_cursor(b).unwrap_or(block_start);
 
         // A cross-block selection contributes exactly ONE range per node; the
         // list carrier exists for the multi-cursor sessions of the other path.
@@ -3967,17 +3975,14 @@ impl LayoutWindow {
             .set_cross_block_selection(TextSelection {
                 dom_id,
                 anchor: SelectionAnchor {
-                    ifc_root_node_id: anchor_node,
+                    block: anchor,
                     cursor: anchor_cursor,
-                    char_bounds: LogicalRect::zero(),
-                    mouse_position: LogicalPosition::zero(),
                 },
                 focus: SelectionFocus {
-                    ifc_root_node_id: focus_node,
+                    block: focus,
                     cursor: focus_cursor,
-                    mouse_position: LogicalPosition::zero(),
                 },
-                affected_nodes: affected,
+                affected_blocks: affected,
                 // A drag across block boundaries is by definition the local
                 // user's own pointer, so it never carries a remote owner.
                 remote_ranges: BTreeMap::new(),
@@ -4031,22 +4036,27 @@ impl LayoutWindow {
 
         // A PEEK: the selection is consumed only once the edit exists, so a
         // refusal below leaves it standing.
-        let (dom_id, mut nodes): (DomId, Vec<(NodeId, SelectionRange)>) = {
+        let (dom_id, mut blocks): (DomId, Vec<(TextBlock, SelectionRange)>) = {
             let sel = self.text_edit_manager.get_cross_block_selection()?;
             (
                 sel.dom_id,
-                sel.affected_nodes
+                sel.affected_blocks
                     .iter()
-                    .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+                    .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
                     .collect(),
             )
         };
-        if nodes.len() < 2 {
+        if blocks.len() < 2 {
             return None;
         }
-        nodes.sort_by_key(|(n, _)| n.index());
-        let (first, first_range) = nodes[0];
-        let (last, last_range) = *nodes.last().expect("len >= 2");
+        blocks.sort_by_key(|(b, _)| *b);
+        let (first_block, first_range) = blocks[0];
+        let (last_block, last_range) = *blocks.last().expect("len >= 2");
+        // The delete rebuilds the two ends' ELEMENTS; an anonymous block at
+        // either end has none to rebuild.
+        let (Some(first), Some(last)) = (first_block.element(), last_block.element()) else {
+            return None;
+        };
 
         // The text a block keeps before (`head`) or after its cut, in the
         // carets' own run numbering (`caret_block_content` - a list item's
@@ -4123,10 +4133,7 @@ impl LayoutWindow {
             self.text_edit_manager.multi_cursor =
                 Some(azul_core::selection::MultiCursorState::new_with_cursor(
                     first_range.start,
-                    DomNodeId {
-                        dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(first)),
-                    },
+                    first_block,
                     key,
                 ));
         }
@@ -4288,25 +4295,6 @@ impl LayoutWindow {
             out.add_child(self.live_subtree(dom_id, c));
         }
         out
-    }
-
-    /// Every IFC root (text block) of `dom_id`, in DOCUMENT order.
-    ///
-    /// The layout tree is built in pre-order, so its own order IS document
-    /// order; anonymous boxes carry no `dom_node_id` and are skipped.
-    #[must_use]
-    pub fn ifc_roots_in_document_order(&self, dom_id: DomId) -> Vec<NodeId> {
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return Vec::new();
-        };
-        let tree = &lr.layout_tree;
-        (0..tree.nodes.len())
-            .filter(|idx| {
-                tree.warm(LayoutNodeId::new(*idx))
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .filter_map(|idx| tree.nodes[idx].dom_node_id)
-            .collect()
     }
 
     /// The previous/next MERGE-ELIGIBLE block sibling of a node (C13).
@@ -4652,11 +4640,7 @@ impl LayoutWindow {
     fn shift_carets_across_generation(&mut self) {
         let Some((key, dom_id, node_id)) =
             self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-                Some((
-                    mc.contenteditable_key,
-                    mc.node_id.dom,
-                    mc.node_id.node.into_crate_internal()?,
-                ))
+                Some((mc.contenteditable_key, mc.block.dom(), mc.block.element()?))
             })
         else {
             self.caret_text_snapshot = None;
@@ -4754,13 +4738,19 @@ impl LayoutWindow {
             },
             affinity: CursorAffinity::Leading,
         };
+        // The session lives on the text block the caret node's text is in; a
+        // boundary on a node with no block of its own (a container of blocks)
+        // opens it on the first block inside that node.
         let dom_node = DomNodeId {
             dom: dom_id,
             node: NodeHierarchyItemId::from_crate_internal(Some(caret_node)),
         };
+        let block = self
+            .text_block_of(dom_node)
+            .or_else(|| self.text_blocks_within(dom_node).first().copied())?;
         self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
-            dom_node,
+            block,
             resume.anchor_key,
         ));
         Some(dom_id)
@@ -9847,7 +9837,12 @@ impl LayoutWindow {
     ///
     /// Walks parents rather than descending, so the cost is the node's depth
     /// and not the subtree size.
-    fn node_is_self_or_descendant(&self, dom_id: DomId, node_id: NodeId, ancestor: NodeId) -> bool {
+    pub(crate) fn node_is_self_or_descendant(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        ancestor: NodeId,
+    ) -> bool {
         if node_id == ancestor {
             return true;
         }
@@ -10074,14 +10069,11 @@ impl LayoutWindow {
                             .iter()
                             .any(|sel| matches!(sel.selection, Selection::Range(_)))
                 })
-                .and_then(|mc| {
-                    mc.node_id
-                        .node
-                        .into_crate_internal()
-                        .map(|node| (mc.node_id.dom, node))
-                })
-                .is_some_and(|(dom, node)| {
-                    !self.is_node_contenteditable_inherited_internal(dom, node)
+                .is_some_and(|mc| {
+                    !self.is_node_contenteditable_inherited_internal(
+                        mc.block.dom(),
+                        mc.block.container(),
+                    )
                 });
             // Likewise a selection over static text that spans BLOCKS: it
             // sits in `cross_block`, beside a session that is only its anchor
@@ -10090,7 +10082,7 @@ impl LayoutWindow {
                 self.text_edit_manager.cross_block.as_ref().is_some_and(|cb| {
                     !self.is_node_contenteditable_inherited_internal(
                         cb.dom_id,
-                        cb.anchor.ifc_root_node_id,
+                        cb.anchor.block.container(),
                     )
                 });
 
@@ -10287,11 +10279,7 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .and_then(|mc| {
-                (mc.node_id.dom == pending.dom_id)
-                    .then(|| mc.node_id.node.into_crate_internal())
-                    .flatten()
-            })
+            .and_then(|mc| (mc.block.dom() == pending.dom_id).then(|| mc.block.first_node()))
             .is_some_and(|session_node| {
                 session_node == pending.text_node_id
                     || self.node_is_self_or_descendant(
@@ -10459,12 +10447,13 @@ impl LayoutWindow {
         // selection after Tab had no highlight), and an edit walked up from
         // the leaf to the nearest boxed element: a `<b>` holding the last
         // word, whose one run the caret's run 1 missed.
-        let session_node = self
-            .text_block_of(seed_node)
-            .and_then(|block| block.element())
-            .unwrap_or(pending.text_node_id);
-        self.text_edit_manager
-            .initialize_editing(cursor, pending.dom_id, session_node, ce_key);
+        let Some(block) = self.text_block_of(seed_node) else {
+            // A seed in no text block - a node this layout never laid out,
+            // once the retries are spent - has no line a caret could stand
+            // on: the request is used up, and no session opens.
+            return true;
+        };
+        self.text_edit_manager.initialize_editing(cursor, block, ce_key);
         true
     }
 
@@ -10634,12 +10623,10 @@ impl LayoutWindow {
         let Some(focus) = self.focus_manager.get_focused_node() else {
             return false;
         };
-        let (Some(edom), Some(enode)) = (
-            self.text_edit_manager.get_editing_dom_id(),
-            self.text_edit_manager.get_editing_node_id(),
-        ) else {
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
+        let (edom, enode) = (block.dom(), block.first_node());
         let Some(fnode) = focus.node.into_crate_internal() else {
             return false;
         };
@@ -10678,8 +10665,8 @@ impl LayoutWindow {
         if cb.dom_id != dom_id {
             return false;
         }
-        let anchor = (cb.anchor.ifc_root_node_id, cb.anchor.cursor);
-        let focus = (cb.focus.ifc_root_node_id, cb.focus.cursor);
+        let anchor = (cb.anchor.block, cb.anchor.cursor);
+        let focus = (cb.focus.block, cb.focus.cursor);
         let (start, end) = if cb.is_forward {
             (anchor, focus)
         } else {
@@ -10690,8 +10677,8 @@ impl LayoutWindow {
             (SelectionStep::Character, SelectionDirection::Forward) => end,
             _ => focus,
         };
-        let key = self.contenteditable_session_key(dom_id, block);
-        self.text_edit_manager.initialize_editing(caret, dom_id, block, key);
+        let key = self.contenteditable_session_key(dom_id, block.container());
+        self.text_edit_manager.initialize_editing(caret, block, key);
         true
     }
 
@@ -10706,8 +10693,8 @@ impl LayoutWindow {
             return false;
         };
         cb.dom_id == target.dom
-            && (self.node_is_self_or_descendant(target.dom, cb.anchor.ifc_root_node_id, host)
-                || self.node_is_self_or_descendant(target.dom, cb.focus.ifc_root_node_id, host))
+            && (self.node_is_self_or_descendant(target.dom, cb.anchor.block.first_node(), host)
+                || self.node_is_self_or_descendant(target.dom, cb.focus.block.first_node(), host))
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
@@ -10778,10 +10765,17 @@ impl LayoutWindow {
         let dense = self.get_dense_for_node(dom_id, ifc_node).cloned();
 
         if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+            let Some(block) = self.text_block_of(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(ifc_node)),
+            }) else {
+                return false;
+            };
             return self.apply_seat_selection_op(
                 seat_id,
                 target,
                 node_id,
+                block,
                 op,
                 &layout,
                 dense.as_deref(),
@@ -10844,14 +10838,23 @@ impl LayoutWindow {
         let Some(node_id) = focused.node.into_crate_internal() else {
             return false;
         };
-        let blocks = self.select_all_blocks(dom_id, node_id);
+        let blocks: Vec<TextBlock> = self
+            .select_all_blocks(dom_id, node_id)
+            .into_iter()
+            .filter_map(|n| {
+                self.text_block_of(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                })
+            })
+            .collect();
         let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
             return false;
         };
 
         let (Some(start), Some(end)) = (
-            self.block_edge_caret(dom_id, first, false),
-            self.block_edge_caret(dom_id, last, true),
+            self.block_edge_caret(first, false),
+            self.block_edge_caret(last, true),
         ) else {
             return false;
         };
@@ -10866,7 +10869,7 @@ impl LayoutWindow {
                 return false;
             };
             mc.set_single_range(SelectionRange { start, end });
-        } else if !self.set_cross_block_selection(dom_id, first, start, last, end) {
+        } else if !self.set_cross_block_selection(first, start, last, end) {
             return false;
         }
         // Rebuild the display list so the selection HIGHLIGHT is actually
@@ -10879,8 +10882,12 @@ impl LayoutWindow {
     /// first/last cluster of the MATERIALIZED layout (the sparse one is the
     /// empty retirement sentinel under dense text), or on a blank editable
     /// line the one position it owns ([`Self::empty_editing_host_caret`]).
-    fn block_edge_caret(&self, dom_id: DomId, block: NodeId, end: bool) -> Option<TextCursor> {
-        let layout = self.materialized_inline_layout_for_node(dom_id, block)?;
+    fn block_edge_caret(&self, block: TextBlock, end: bool) -> Option<TextCursor> {
+        let layout_result = self.layout_results.get(&block.dom())?;
+        let root = layout_result.layout_tree.text_block_root(block.key())?;
+        let layout = layout_result
+            .layout_tree
+            .materialized_inline_layout_for_node(root)?;
         let edge = if end {
             layout.get_last_cluster_cursor()
         } else {
@@ -10888,8 +10895,8 @@ impl LayoutWindow {
         };
         edge.or_else(|| {
             Self::empty_editing_host_caret(
-                &self.layout_results.get(&dom_id)?.styled_dom,
-                block,
+                &layout_result.styled_dom,
+                block.container(),
                 layout.as_ref(),
             )
         })
@@ -10949,6 +10956,12 @@ impl LayoutWindow {
         let ifc_node = self
             .resolve_ifc_layout_node(dom_id, node_id)
             .unwrap_or(node_id);
+        let Some(block) = self.text_block_of(DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_node)),
+        }) else {
+            return false;
+        };
         let (first, last) = {
             let dense = self.get_dense_for_node(dom_id, ifc_node);
             if let Some(d) = dense {
@@ -10967,7 +10980,7 @@ impl LayoutWindow {
             return false;
         };
         self.text_edit_manager
-            .set_seat_selection(seat_id, target, last, Some(first));
+            .set_seat_selection(seat_id, target, block, last, Some(first));
         self.regenerate_display_list_for_dom(dom_id);
         true
     }
@@ -10989,11 +11002,13 @@ impl LayoutWindow {
     /// Extend keeps the anchor; Delete removes the selection, or one step -
     /// a word / line step first extends to that boundary - then the other
     /// carets on the node shift across the change.
+    #[allow(clippy::too_many_arguments)]
     fn apply_seat_selection_op(
         &mut self,
         seat_id: u64,
         target: DomNodeId,
         node_id: NodeId,
+        block: TextBlock,
         op: &azul_core::events::SelectionOp,
         layout: &UnifiedLayout,
         dense: Option<&crate::text3::dense::DenseText>,
@@ -11016,6 +11031,7 @@ impl LayoutWindow {
             .filter(|c| c.node == target)
             .unwrap_or(crate::managers::text_edit::SeatCaret {
                 node: target,
+                block,
                 cursor: end,
                 anchor: None,
             });
@@ -11046,7 +11062,7 @@ impl LayoutWindow {
                     }
                 }
                 self.text_edit_manager
-                    .set_seat_selection(seat_id, target, caret.cursor, None);
+                    .set_seat_selection(seat_id, target, block, caret.cursor, None);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
@@ -11058,6 +11074,7 @@ impl LayoutWindow {
                 self.text_edit_manager.set_seat_selection(
                     seat_id,
                     target,
+                    block,
                     caret.cursor,
                     Some(anchor),
                 );
@@ -11097,10 +11114,10 @@ impl LayoutWindow {
                 );
                 if let Some(Selection::Cursor(cursor)) = new_selections.first() {
                     self.text_edit_manager
-                        .set_seat_selection(seat_id, target, *cursor, None);
+                        .set_seat_selection(seat_id, target, block, *cursor, None);
                 }
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                    if mc.node_id == target {
+                    if mc.block == block {
                         mc.shift_all_across_diff(&changes);
                     }
                 }
@@ -12889,7 +12906,7 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
         let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let node_id = mc.node_id.node.into_crate_internal()?;
+            let node_id = mc.block.container();
             let primary = mc.get_primary()?;
             let (anchor_offset, focus_offset) = match &primary.selection {
                 Selection::Cursor(c) => {
@@ -12902,7 +12919,7 @@ impl LayoutWindow {
                 ),
             };
             Some(crate::managers::a11y::CursorA11yInfo {
-                dom_id: mc.node_id.dom,
+                dom_id: mc.block.dom(),
                 node_id,
                 anchor_offset,
                 focus_offset,
@@ -12986,11 +13003,8 @@ impl LayoutWindow {
             return; // No cursor — nothing to update incrementally
         };
 
-        let dom_node_id = mc.node_id;
-        let Some(node_id) = dom_node_id.node.into_crate_internal() else {
-            return;
-        };
-        let dom_id = dom_node_id.dom;
+        let dom_id = mc.block.dom();
+        let node_id = mc.block.container();
 
         // Get current text content (from dirty overrides or StyledDom).
         // Edits are recorded against the FOCUSED host (the contenteditable
@@ -13132,56 +13146,34 @@ impl LayoutWindow {
         }
     }
 
-    /// Inline layout + absolute origin of the node an editing session is
-    /// anchored on, resolved in THAT session's own DOM.
+    /// The layout result and IFC root of `block`, resolved in the block's
+    /// OWN DOM.
     ///
     /// The geometry helpers used to walk `layout_cache.tree`, which only ever
     /// holds the ROOT dom, and matched a bare `dom_node_id` with no `DomId`
     /// alongside it — so in a virtualized view the caret answered for whatever
     /// unrelated node happened to occupy the same index, or for nothing at all.
-    fn session_geometry_node(&self, node: DomNodeId) -> Option<(&DomLayoutResult, LayoutNodeId)> {
-        let node_id = node.node.into_crate_internal()?;
-        let layout_result = self.layout_results.get(&node.dom)?;
-        let tree = &layout_result.layout_tree;
-
-        // A DOM node can map to several layout nodes; the caret lives on the
-        // one that actually carries an inline layout.
-        let candidates = tree.dom_to_layout.get(&node_id)?;
-        let layout_idx = candidates
-            .iter()
-            .copied()
-            .find(|&idx| {
-                tree.warm(idx)
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .or_else(|| {
-                // ...or on the IFC ROOT above it. A session is anchored either
-                // on the block that establishes the inline context (the click
-                // path passes `ifc_root_node_id`) or on the raw text node
-                // inside it (the focus path passes `pending.text_node_id`),
-                // and a text node carries no inline layout of its own. Looking
-                // only at the anchored node left every focus-opened session
-                // with no caret rect at all -- and with it, no caret reveal.
-                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
-                while let Some(idx) = cur {
-                    if tree
-                        .warm(LayoutNodeId::new(idx))
-                        .is_some_and(|w| w.inline_layout_result.is_some())
-                    {
-                        return Some(LayoutNodeId::new(idx));
-                    }
-                    cur = tree.nodes.get(idx)?.parent;
-                }
-                None
-            })?;
-        Some((layout_result, layout_idx))
+    fn block_geometry_node(&self, block: TextBlock) -> Option<(&DomLayoutResult, LayoutNodeId)> {
+        let layout_result = self.layout_results.get(&block.dom())?;
+        let root = layout_result.layout_tree.text_block_root(block.key())?;
+        Some((layout_result, LayoutNodeId::new(root)))
     }
 
-    fn session_inline_geometry(
+    /// `block`'s MATERIALIZED inline layout (the stored sparse one is the
+    /// retirement sentinel under dense text).
+    fn block_inline_layout(&self, block: TextBlock) -> Option<Arc<UnifiedLayout>> {
+        let (layout_result, root) = self.block_geometry_node(block)?;
+        layout_result
+            .layout_tree
+            .materialized_inline_layout_for_node(root.index())
+    }
+
+    /// Inline layout + absolute CONTENT-box origin of `block`.
+    fn block_inline_geometry(
         &self,
-        node: DomNodeId,
+        block: TextBlock,
     ) -> Option<(Arc<UnifiedLayout>, LogicalPosition)> {
-        let (layout_result, layout_idx) = self.session_geometry_node(node)?;
+        let (layout_result, layout_idx) = self.block_geometry_node(block)?;
 
         // (d6h) Materialized: the stored layout may be the retirement
         // sentinel; geometry runs on the transient expansion. (An
@@ -13213,26 +13205,22 @@ impl LayoutWindow {
     }
 
     pub fn get_focused_cursor_rect(&self) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
-        self.cursor_rect_for(session_node, &cursor)
+        self.cursor_rect_for(session_block, &cursor)
     }
 
-    /// `get_focused_cursor_rect` for any caret: `cursor` in `session_node`'s
-    /// inline layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
+    /// `get_focused_cursor_rect` for any caret: `cursor` in `block`'s inline
+    /// layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
     #[must_use]
-    pub fn cursor_rect_for(
-        &self,
-        session_node: DomNodeId,
-        cursor: &TextCursor,
-    ) -> Option<LogicalRect> {
+    pub fn cursor_rect_for(&self, block: TextBlock, cursor: &TextCursor) -> Option<LogicalRect> {
         let cursor = *cursor;
-        // Keyed on the SESSION's node, not the focused node: focus lands on the
-        // contenteditable container while the caret is anchored on the IFC root
-        // inside it, so matching the focused node returned None for every
-        // nested editable — and with it, no caret reveal.
+        // Keyed on the SESSION's block, not the focused node: focus lands on
+        // the contenteditable container while the caret is in the block inside
+        // it, so matching the focused node returned None for every nested
+        // editable — and with it, no caret reveal.
 
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let (inline_layout, origin) = self.block_inline_geometry(block)?;
 
         // Get the cursor rect in node-relative coordinates
         let mut cursor_rect = inline_layout.get_cursor_rect(&cursor)?;
@@ -13263,8 +13251,8 @@ impl LayoutWindow {
     /// one offset the engine happened to be holding.
     #[must_use]
     pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
+        let (inline_layout, origin) = self.block_inline_geometry(session_block)?;
         let cursor = Self::byte_offset_to_cursor(
             &inline_layout,
             u32::try_from(byte_offset).unwrap_or(u32::MAX),
@@ -13312,9 +13300,9 @@ impl LayoutWindow {
     /// coordinate rebasing were missing.
     #[must_use]
     pub fn focused_byte_offset_for_point(&self, point: LogicalPosition) -> Option<usize> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.focused_cursor_for_point(point)?;
-        self.byte_offset_of_cursor(session_node, &cursor)
+        self.byte_offset_of_cursor(session_block, &cursor)
     }
 
     /// The cursor nearest a point in absolute window coordinates, in the
@@ -13322,8 +13310,8 @@ impl LayoutWindow {
     /// [`Self::focused_byte_offset_for_point`], shared with the handle drag.
     #[must_use]
     pub fn focused_cursor_for_point(&self, point: LogicalPosition) -> Option<TextCursor> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
+        let (inline_layout, origin) = self.block_inline_geometry(session_block)?;
         // The hit test works in NODE-relative coordinates; the shells hand in
         // window ones, and mixing them puts the answer off by the node's
         // position on screen - which on a scrolled page is the whole error.
@@ -13335,17 +13323,17 @@ impl LayoutWindow {
     /// coordinates.
     #[must_use]
     fn focused_rect_for_cursor(&self, cursor: &TextCursor) -> Option<LogicalRect> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        self.rect_for_cursor_in(session_node, cursor)
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
+        self.rect_for_cursor_in(session_block, cursor)
     }
 
-    /// A cursor's caret rect in ANY laid-out IFC root, in absolute window
+    /// A cursor's caret rect in ANY laid-out text block, in absolute window
     /// coordinates - the block-agnostic half of
     /// [`Self::focused_rect_for_cursor`], which a cross-block selection's far
     /// end needs (U2-a-i).
     #[must_use]
-    fn rect_for_cursor_in(&self, node: DomNodeId, cursor: &TextCursor) -> Option<LogicalRect> {
-        let (inline_layout, origin) = self.session_inline_geometry(node)?;
+    fn rect_for_cursor_in(&self, block: TextBlock, cursor: &TextCursor) -> Option<LogicalRect> {
+        let (inline_layout, origin) = self.block_inline_geometry(block)?;
         let mut rect = inline_layout.get_cursor_rect(cursor)?;
         rect.origin.x += origin.x;
         rect.origin.y += origin.y;
@@ -13355,16 +13343,12 @@ impl LayoutWindow {
     /// The two ends of the current selection in DOCUMENT order, each as
     /// `(block, cursor)`: the cross-block selection's anchor/focus pair sorted
     /// by `is_forward`, or the single-block primary range's two cursors on the
-    /// session node. `None` without a range.
-    fn selection_ends_in_document_order(&self) -> Option<[(DomNodeId, TextCursor); 2]> {
+    /// session's block. `None` without a range.
+    fn selection_ends_in_document_order(&self) -> Option<[(TextBlock, TextCursor); 2]> {
         use azul_core::selection::Selection;
         if let Some(sel) = self.text_edit_manager.cross_block.as_ref() {
-            let block = |n: NodeId| DomNodeId {
-                dom: sel.dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-            };
-            let anchor = (block(sel.anchor.ifc_root_node_id), sel.anchor.cursor);
-            let focus = (block(sel.focus.ifc_root_node_id), sel.focus.cursor);
+            let anchor = (sel.anchor.block, sel.anchor.cursor);
+            let focus = (sel.focus.block, sel.focus.cursor);
             return Some(if sel.is_forward {
                 [anchor, focus]
             } else {
@@ -13383,7 +13367,7 @@ impl LayoutWindow {
         } else {
             (range.end, range.start)
         };
-        Some([(mc.node_id, lo), (mc.node_id, hi)])
+        Some([(mc.block, lo), (mc.block, hi)])
     }
 
     /// The focused editable's text with the preedit spliced in at the caret,
@@ -13513,25 +13497,18 @@ impl LayoutWindow {
             else {
                 return false;
             };
-            let Some(anchor_node) = anchor_block.node.into_crate_internal() else {
-                return false;
-            };
             let already_there = self
                 .text_edit_manager
                 .multi_cursor
                 .as_ref()
-                .is_some_and(|mc| mc.node_id == anchor_block);
+                .is_some_and(|mc| mc.block == anchor_block);
             if !already_there {
                 // A new caret ends the document selection everywhere else;
                 // this one only moves to its other end, and the selection
                 // stays painted until the first move rebuilds it.
                 let kept = self.text_edit_manager.cross_block.take();
-                self.text_edit_manager.initialize_editing(
-                    anchor,
-                    anchor_block.dom,
-                    anchor_node,
-                    key,
-                );
+                self.text_edit_manager
+                    .initialize_editing(anchor, anchor_block, key);
                 self.text_edit_manager.cross_block = kept;
             } else if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
                 mc.set_single_cursor(anchor);
@@ -13567,16 +13544,13 @@ impl LayoutWindow {
             // single-block range inside the anchor block. The same
             // "onto the anchor is ignored" rule as below, checked up front
             // because that machinery would collapse the selection to a caret.
-            let Some(dom_id) = self.text_edit_manager.get_editing_dom_id() else {
+            let Some(anchor_block) = self.text_edit_manager.get_editing_block() else {
                 return false;
             };
-            let Some(anchor_node) = self.text_edit_manager.get_editing_node_id() else {
-                return false;
-            };
-            if let Some((node, cursor)) = self.hittest_text_position_global(dom_id, point) {
-                if node == anchor_node
-                    && self.same_caret_position(dom_id, node, cursor, drag.anchor)
-                {
+            if let Some((block, cursor)) =
+                self.hittest_text_position_global(anchor_block.dom(), point)
+            {
+                if block == anchor_block && self.same_caret_position(block, cursor, drag.anchor) {
                     return false;
                 }
             }
@@ -13589,9 +13563,8 @@ impl LayoutWindow {
         };
         let onto_the_anchor = self
             .text_edit_manager
-            .get_editing_dom_id()
-            .zip(self.text_edit_manager.get_editing_node_id())
-            .is_some_and(|(dom, node)| self.same_caret_position(dom, node, focus, drag.anchor));
+            .get_editing_block()
+            .is_some_and(|block| self.same_caret_position(block, focus, drag.anchor));
         if onto_the_anchor {
             return false;
         }
@@ -13631,15 +13604,11 @@ impl LayoutWindow {
     /// which is what this does and what makes it worth having once rather than
     /// at each call site.
     #[must_use]
-    pub fn byte_offset_of_cursor(
-        &self,
-        session_node: DomNodeId,
-        cursor: &TextCursor,
-    ) -> Option<usize> {
+    pub fn byte_offset_of_cursor(&self, block: TextBlock, cursor: &TextCursor) -> Option<usize> {
         use crate::text3::edit::cursor_byte_offset_in_run;
 
-        let node = session_node.node.into_crate_internal()?;
-        let content = self.get_text_before_textinput(session_node.dom, node);
+        let node = block.element()?;
+        let content = self.get_text_before_textinput(block.dom(), node);
         let target_run = cursor.cluster_id.source_run;
         let mut consumed = 0usize;
         for (i, item) in content.iter().enumerate() {
@@ -13668,9 +13637,9 @@ impl LayoutWindow {
     /// could turn the engine's cursor into an offset.
     #[must_use]
     pub fn focused_caret_byte_offset(&self) -> Option<usize> {
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
         let cursor = self.text_edit_manager.get_primary_cursor()?;
-        self.byte_offset_of_cursor(session_node, &cursor)
+        self.byte_offset_of_cursor(session_block, &cursor)
     }
 
     /// The primary selection as a byte range, or the caret twice when there is
@@ -13684,16 +13653,16 @@ impl LayoutWindow {
         use azul_core::selection::Selection;
 
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let session_node = mc.node_id;
+        let session_block = mc.block;
         let primary = mc.get_primary()?;
         match &primary.selection {
             Selection::Cursor(c) => {
-                let at = self.byte_offset_of_cursor(session_node, c)?;
+                let at = self.byte_offset_of_cursor(session_block, c)?;
                 Some((at, at))
             }
             Selection::Range(r) => {
-                let a = self.byte_offset_of_cursor(session_node, &r.start)?;
-                let b = self.byte_offset_of_cursor(session_node, &r.end)?;
+                let a = self.byte_offset_of_cursor(session_block, &r.start)?;
+                let b = self.byte_offset_of_cursor(session_block, &r.end)?;
                 Some(if a <= b { (a, b) } else { (b, a) })
             }
         }
@@ -13713,15 +13682,10 @@ impl LayoutWindow {
     pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
         use azul_core::selection::SelectionRange;
 
-        let Some(session_node) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .map(|mc| mc.node_id)
-        else {
+        let Some(session_block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
-        let Some((inline_layout, _)) = self.session_inline_geometry(session_node) else {
+        let Some((inline_layout, _)) = self.block_inline_geometry(session_block) else {
             return false;
         };
         let (lo, hi) = if start <= end {
@@ -13774,8 +13738,8 @@ impl LayoutWindow {
         }
 
         // Get the inline layout for the node the SESSION is anchored on, in
-        // its own dom (see `session_inline_geometry`).
-        let (inline_layout, calc_pos) = self.session_inline_geometry(mc.node_id)?;
+        // its own dom (see `block_inline_geometry`).
+        let (inline_layout, calc_pos) = self.block_inline_geometry(mc.block)?;
 
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
@@ -13827,17 +13791,13 @@ impl LayoutWindow {
     pub fn select_word_at_caret(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
-            return false;
-        };
-        let node_id = mc.node_id;
-        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
         let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
             return false;
         };
-        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+        let Some(inline_layout) = self.block_inline_layout(block) else {
             return false;
         };
         let Some(range) = select_word_at_cursor(&cursor, &inline_layout) else {
@@ -13863,8 +13823,10 @@ impl LayoutWindow {
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
             return false;
         };
-        let node_id = mc.node_id;
-        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+        let block = mc.block;
+        // The occurrence search reads the block's ELEMENT's text; an
+        // anonymous block has none.
+        let Some(dom_node_id) = block.element() else {
             return false;
         };
 
@@ -13885,7 +13847,7 @@ impl LayoutWindow {
         };
 
         // Get the inline layout
-        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+        let Some(inline_layout) = self.block_inline_layout(block) else {
             return false;
         };
 
@@ -13900,7 +13862,7 @@ impl LayoutWindow {
         };
 
         // Extract the search text from inline content
-        let content = self.get_text_before_textinput(node_id.dom, dom_node_id);
+        let content = self.get_text_before_textinput(block.dom(), dom_node_id);
         let full_text = self.extract_text_from_inline_content(&content);
 
         // Extract the selected word text using byte offsets
@@ -14046,8 +14008,8 @@ impl LayoutWindow {
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
     pub fn get_focused_cursor_rect_viewport(&self) -> Option<LogicalRect> {
         let cursor_rect = self.get_focused_cursor_rect()?;
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        self.cursor_rect_viewport_for(session_node, cursor_rect)
+        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
+        self.cursor_rect_viewport_for(session_block, cursor_rect)
     }
 
     /// Seat `seat_id`'s caret rectangle in viewport coordinates
@@ -14059,16 +14021,16 @@ impl LayoutWindow {
             return self.get_focused_cursor_rect_viewport();
         }
         let caret = self.text_edit_manager.seat_caret(seat_id)?;
-        let rect = self.cursor_rect_for(caret.node, &caret.cursor)?;
-        self.cursor_rect_viewport_for(caret.node, rect)
+        let rect = self.cursor_rect_for(caret.block, &caret.cursor)?;
+        self.cursor_rect_viewport_for(caret.block, rect)
     }
 
     /// `get_focused_cursor_rect_viewport`'s scroll and transform walk for any
-    /// caret rectangle of `session_node`.
+    /// caret rectangle in `block`.
     #[must_use]
     pub fn cursor_rect_viewport_for(
         &self,
-        session_node: DomNodeId,
+        block: TextBlock,
         mut cursor_rect: LogicalRect,
     ) -> Option<LogicalRect> {
         // Start with absolute position
@@ -14080,24 +14042,20 @@ impl LayoutWindow {
         // unrelated root node happened to share that index, or bailed to None
         // — so every IME candidate window inside a virtualized view was placed
         // at the wrong spot on screen.
-        let (layout_result, layout_idx) = self.session_geometry_node(session_node)?;
+        let (layout_result, layout_idx) = self.block_geometry_node(block)?;
         let layout_tree = &layout_result.layout_tree;
 
         // STEP 1: Apply scroll offsets from the node and all scrollable
         // ancestors. SELF-inclusive on purpose: the caret is CONTENT of the
         // node it sits on, so that node's own scrolling moves it.
         let scroll = self
-            .accumulated_scroll(
-                session_node.dom,
-                layout_idx.index(),
-                Inclusivity::SelfAndAncestors,
-            )
+            .accumulated_scroll(block.dom(), layout_idx.index(), Inclusivity::SelfAndAncestors)
             .get();
         cursor_rect.origin.x -= scroll.x;
         cursor_rect.origin.y -= scroll.y;
 
         // STEP 2: Apply inverse GPU transforms from all transformed ancestors
-        let gpu_cache = self.gpu_state_manager.caches.get(&session_node.dom);
+        let gpu_cache = self.gpu_state_manager.caches.get(&block.dom());
         let mut current_layout_idx = layout_idx.index();
 
         while let Some(parent_idx) = layout_tree.nodes.get(current_layout_idx)?.parent {
@@ -14129,7 +14087,7 @@ impl LayoutWindow {
         // this rect straight to the platform IME, which places the candidate
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
-        let host_offset = self.window_space_offset_of_dom(session_node.dom);
+        let host_offset = self.window_space_offset_of_dom(block.dom());
         cursor_rect.origin.x += host_offset.x;
         cursor_rect.origin.y += host_offset.y;
 
@@ -14290,7 +14248,7 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.node_id)
+            .map(|mc| mc.block.container_dom_node())
             .or(self.focus_manager.focused_node);
         let Some(anchor_node) = anchor_node else {
             return false;
@@ -14511,7 +14469,7 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.node_id)
+            .map(|mc| mc.block.container_dom_node())
             .or(self.focus_manager.focused_node);
         if anchor
             .and_then(|a| self.find_scrollable_ancestor(a))
@@ -16644,13 +16602,14 @@ impl LayoutWindow {
                                 let ce_key = self.contenteditable_session_key(dom_id, node_id);
                                 // Crossing into a different focusable makes the
                                 // caret JUMP, not glide.
-                                let scope = self.find_focusable_ancestor(DomNodeId {
-                                    dom: dom_id,
-                                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-                                });
+                                let scope = self.find_focusable_ancestor(dom_node_id);
                                 self.text_edit_manager.enter_focus_scope(scope);
-                                self.text_edit_manager
-                                    .initialize_editing(cursor, dom_id, node_id, ce_key);
+                                // The node owns an inline layout (checked above),
+                                // so it names a text block.
+                                if let Some(block) = self.text_block_of(dom_node_id) {
+                                    self.text_edit_manager
+                                        .initialize_editing(cursor, block, ce_key);
+                                }
 
                                 // Reveal the caret the way a keyboard focus does:
                                 // the canonical session-anchored path, which knows
@@ -16993,15 +16952,25 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetTextSelection(selection) => {
-                // Get the text layout for this node from the layout tree
-                let text_layout = self.get_node_inline_layout(dom_id, node_id);
+                // The text block the node's text is in, and its layout.
+                let block = self.text_block_of(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                });
+                let text_layout = block.and_then(|b| self.block_inline_layout(b));
 
                 if let Some(inline_layout) = text_layout {
                     // (d4b) Dense-first byte→cursor resolution, sparse
                     // fallback — the dense twin is pinned against the
                     // sparse walk at every boundary offset (equivalence
                     // gate dense_cursor_helpers_agree_with_the_sparse_walks).
-                    let dense = self.get_dense_for_node(dom_id, node_id).cloned();
+                    let dense = block.and_then(|b| {
+                        let (layout_result, root) = self.block_geometry_node(b)?;
+                        layout_result
+                            .layout_tree
+                            .get_dense_for_node(root.index())
+                            .cloned()
+                    });
                     let start_cursor = dense
                         .as_ref()
                         .and_then(|d| d.byte_offset_to_cursor(selection.selection_start as u32))
@@ -17387,13 +17356,21 @@ impl LayoutWindow {
             }
         } else {
             // The seat's own caret follows its edit; the primary's caret and
-            // peers on this node shift across it like across any edit.
-            if let Some(Selection::Cursor(cursor)) = new_selections.first() {
+            // peers in this block shift across it like across any edit.
+            let edited_block = self
+                .text_block_of(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                })
+                .or_else(|| self.text_blocks_within(changeset.node).first().copied());
+            if let (Some(Selection::Cursor(cursor)), Some(block)) =
+                (new_selections.first(), edited_block)
+            {
                 self.text_edit_manager
-                    .set_seat_caret(seat_id, changeset.node, *cursor);
+                    .set_seat_caret(seat_id, changeset.node, block, *cursor);
             }
             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                if mc.node_id == changeset.node {
+                if Some(mc.block) == edited_block {
                     mc.shift_all_across_diff(&changes);
                 }
             }
@@ -17979,9 +17956,9 @@ impl LayoutWindow {
             .get_cross_block_selection()
             .is_some_and(|cb| {
                 cb.dom_id == dom_id
-                    && cb.affected_nodes.keys().any(|&block| {
-                        self.node_is_self_or_descendant(dom_id, block, node_id)
-                            || self.node_is_self_or_descendant(dom_id, node_id, block)
+                    && cb.affected_blocks.keys().any(|block| {
+                        self.node_is_self_or_descendant(dom_id, block.first_node(), node_id)
+                            || self.node_is_self_or_descendant(dom_id, node_id, block.container())
                     })
             });
         if spans_edited_node {
@@ -18007,7 +17984,7 @@ impl LayoutWindow {
         // An ENGINE edit placed its carets itself; the generation diff must
         // not shift them again for it (U3-b).
         if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
-            if mc.node_id.dom == dom_id && mc.node_id.node.into_crate_internal() == Some(node_id) {
+            if mc.block.dom() == dom_id && mc.block.element() == Some(node_id) {
                 self.caret_text_snapshot =
                     Some((mc.contenteditable_key, new_inline_content.clone()));
             }
@@ -18085,8 +18062,8 @@ impl LayoutWindow {
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal());
+            .filter(|mc| mc.block.dom() == dom_id)
+            .map(|mc| mc.block.first_node());
 
         if let Some(caret) = caret {
             if let Some(pos) = children
@@ -19320,7 +19297,7 @@ impl LayoutWindow {
     }
 
     /// The `source_run → (that run's shared source text, its style)` table
-    /// a node's SELECTION cursors are numbered against.
+    /// a block's SELECTION cursors are numbered against.
     ///
     /// A [`TextCursor`]'s `source_run` indexes the inline content
     /// `solver3::fc` BUILT for the IFC, and `start_byte_in_run` indexes THAT
@@ -19337,26 +19314,13 @@ impl LayoutWindow {
     /// through `content.get(source_run)`), so this table cannot drift from
     /// the cursors the way the DOM vector does.
     ///
-    /// `node_id` is any node of the block (IFC root, text leaf, text under a
-    /// `<span>`), resolved by [`Self::get_node_inline_layout`] - through the
-    /// parent for a text leaf with no box of its own - to the MATERIALIZED
-    /// layout (the sparse one is the retirement sentinel under dense text).
-    fn selection_runs_for_node(
+    /// Read off the block's MATERIALIZED layout (the sparse one is the
+    /// retirement sentinel under dense text).
+    fn selection_runs_for_block(
         &self,
-        dom_id: DomId,
-        node_id: NodeId,
+        block: TextBlock,
     ) -> BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> {
-        let layout = self.get_node_inline_layout(dom_id, node_id).or_else(|| {
-            let parent = self
-                .layout_results
-                .get(&dom_id)?
-                .styled_dom
-                .node_hierarchy
-                .as_container()
-                .get(node_id)?
-                .parent_id()?;
-            self.get_node_inline_layout(dom_id, parent)
-        });
+        let layout = self.block_inline_layout(block);
         let mut out: BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> = BTreeMap::new();
         for item in layout.iter().flat_map(|l| l.items.iter()) {
             if let ShapedItem::Cluster(c) = &item.item {
@@ -19751,54 +19715,6 @@ impl LayoutWindow {
         }
     }
 
-    /// Get the inline layout result for a specific node
-    ///
-    /// This looks up the node in the layout tree and returns its inline layout result
-    /// if it exists.
-    fn get_node_inline_layout(&self, dom_id: DomId, node_id: NodeId) -> Option<Arc<UnifiedLayout>> {
-        // The tree of the REQUESTED dom. `layout_cache.tree` is the root dom's
-        // only, so a bare `dom_node_id` match against it answered for an
-        // unrelated node of the root DOM whenever `dom_id` named a virtualized
-        // view — the `dom_id` parameter was accepted and then ignored.
-        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
-
-        // Find the layout node index carrying the inline layout for this DOM node
-        let candidates = tree.dom_to_layout.get(&node_id)?;
-        let layout_idx = candidates
-            .iter()
-            .copied()
-            .find(|&idx| {
-                tree.warm(idx)
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .or_else(|| {
-                // ...or on the IFC ROOT above it. A session is anchored either
-                // on the block that establishes the inline context (the click
-                // path passes `ifc_root_node_id`) or on the raw text node
-                // inside it (the focus path passes `pending.text_node_id`),
-                // and a text node carries no inline layout of its own. Looking
-                // only at the anchored node left every focus-opened session
-                // with no caret rect at all -- and with it, no caret reveal.
-                let mut cur = tree.nodes.get(candidates.first()?.index())?.parent;
-                while let Some(idx) = cur {
-                    if tree
-                        .warm(LayoutNodeId::new(idx))
-                        .is_some_and(|w| w.inline_layout_result.is_some())
-                    {
-                        return Some(LayoutNodeId::new(idx));
-                    }
-                    cur = tree.nodes.get(idx)?.parent;
-                }
-                None
-            })?;
-
-        // Return the inline layout result (warm data).
-        // (d6h) Materialized: sentinel-safe for every geometry/search
-        // caller of this accessor (caret scroll, selection paint,
-        // occurrence search).
-        tree.materialized_inline_layout_for_node(layout_idx.index())
-    }
-
     /// Edit the text content of a node (used for text input actions)
     ///
     /// This function applies text edits to nodes that contain text content.
@@ -20147,10 +20063,10 @@ impl LayoutWindow {
             text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
         };
 
-        // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
-        // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
+        // found_selection stores: (dom_id, text block, selection_range, local_pos)
+        // IMPORTANT: We always store the text BLOCK, never the hit text node,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
-        let mut found_selection: Option<(DomId, NodeId, SelectionRange, ScrolledContentPoint)> =
+        let mut found_selection: Option<(DomId, TextBlock, SelectionRange, ScrolledContentPoint)> =
             None;
 
         // Try to get hit test from HoverManager first (fast path, uses WebRender's
@@ -20278,11 +20194,14 @@ impl LayoutWindow {
                             layout.as_ref(),
                         )
                     });
+                    let Some(block) = tree.text_block_at(*dom_id, ifc_root_layout_idx) else {
+                        continue;
+                    };
                     if let Some(cursor) = hit_cursor {
-                        // Store selection with IFC root NodeId, not the hit text node
+                        // Store the selection's TEXT BLOCK, not the hit text node
                         found_selection = Some((
                             *dom_id,
-                            ifc_root_node_id,
+                            block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
@@ -20380,10 +20299,13 @@ impl LayoutWindow {
                             layout.as_ref(),
                         )
                     });
+                    let Some(block) = tree.text_block_at(*dom_id, node_idx) else {
+                        continue;
+                    };
                     if let Some(cursor) = hit_cursor {
                         found_selection = Some((
                             *dom_id,
-                            node_id,
+                            block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
@@ -20408,7 +20330,7 @@ impl LayoutWindow {
         // on the title, then every stroke on the canvas dragged a selection
         // through the title (`TextSelectionDrag` is armed whenever
         // `left_down && has_active_editing()`).
-        let Some((dom_id, ifc_root_node_id, initial_range, _local_pos)) = found_selection else {
+        let Some((dom_id, block, initial_range, _local_pos)) = found_selection else {
             let pressed_an_editable = self
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
@@ -20431,13 +20353,9 @@ impl LayoutWindow {
             return None;
         };
 
-        // Create DomNodeId for click state tracking - use IFC root's NodeId
-        // Selection state is keyed by IFC root because that's where inline_layout_result lives
-        let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: node_hierarchy_id,
-        };
+        // The node the click reports as affected: the block's element (an
+        // anonymous block's container).
+        let dom_node_id = block.container_dom_node();
 
         // Derive click count from the gesture manager's session history
         // (timestamps + positions), no mutable click state needed.
@@ -20449,12 +20367,8 @@ impl LayoutWindow {
             let layout_result = self.layout_results.get(&dom_id)?;
             let tree = &layout_result.layout_tree;
 
-            // Find layout node - ifc_root_node_id is always the IFC root, so it has
-            // inline_layout_result
-            let layout_idx = tree
-                .nodes
-                .iter()
-                .position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            // The block's IFC root - the node that carries its inline layout.
+            let layout_idx = tree.text_block_root(block.key())?;
             let cached_layout = tree
                 .warm(LayoutNodeId::new(layout_idx))?
                 .inline_layout_result
@@ -20485,7 +20399,7 @@ impl LayoutWindow {
             let node_data = lr.styled_dom.node_data.as_ref();
 
             // Walk up the DOM tree to check if any ancestor has contenteditable
-            let mut current_node = Some(ifc_root_node_id);
+            let mut current_node = Some(block.container());
             while let Some(node_id) = current_node {
                 if let Some(styled_node) = node_data.get(node_id.index()) {
                     // Check BOTH: the contenteditable boolean field AND the attribute
@@ -20520,21 +20434,14 @@ impl LayoutWindow {
         // appear until the next full layout (e.g., resize).
 
         // Initialize editing at the clicked position via unified API.
-        let ce_key = self.contenteditable_session_key(dom_id, ifc_root_node_id);
+        let ce_key = self.contenteditable_session_key(dom_id, block.container());
         // Crossing into a different focusable makes the caret JUMP, not glide:
         // clicking from one text input into another must not animate the caret
         // out of the first field and across into the second.
-        let scope = self.find_focusable_ancestor(DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id)),
-        });
+        let scope = self.find_focusable_ancestor(block.container_dom_node());
         self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager.initialize_editing(
-            final_range.start,
-            dom_id,
-            ifc_root_node_id,
-            ce_key,
-        );
+        self.text_edit_manager
+            .initialize_editing(final_range.start, block, ce_key);
         // MWA-C-text_edit: double/triple-click computed the word/paragraph
         // range above but then threw it away — initialize_editing only
         // places a collapsed caret at range.start, so word/paragraph select
@@ -20607,17 +20514,14 @@ impl LayoutWindow {
             Selection::Cursor(c) => *c,
             Selection::Range(r) => r.start, // anchor stays fixed during drag
         };
-        let dom_id = mc.node_id.dom;
-        let node_id = mc.node_id.node.into_crate_internal()?;
-        let dom_node_id = mc.node_id;
+        let block = mc.block;
+        let dom_id = block.dom();
+        let dom_node_id = block.container_dom_node();
 
         // Hit-test the current drag position to get the focus cursor
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let layout_idx = tree
-            .nodes
-            .iter()
-            .position(|n| n.dom_node_id == Some(node_id))?;
+        let layout_idx = tree.text_block_root(block.key())?;
         // (the anchor node's cached inline layout is re-borrowed below,
         // after the cross-block branch may have taken &mut self)
         tree.warm(LayoutNodeId::new(layout_idx))?
@@ -20657,9 +20561,9 @@ impl LayoutWindow {
                 });
         if !anchor_rect_contains {
             let global_hit = self.hittest_text_position_global(dom_id, current_position);
-            if let Some((hit_node, hit_cursor)) = global_hit {
-                if hit_node != node_id
-                    && self.set_cross_block_selection(dom_id, node_id, anchor, hit_node, hit_cursor)
+            if let Some((hit_block, hit_cursor)) = global_hit {
+                if hit_block != block
+                    && self.set_cross_block_selection(block, anchor, hit_block, hit_cursor)
                 {
                     self.text_edit_manager.mark_dirty();
                     self.regenerate_display_list_for_dom(dom_id);
@@ -20682,14 +20586,14 @@ impl LayoutWindow {
         let focus = materialized.hittest_point(local_pos).or_else(|| {
             Self::empty_editing_host_caret(
                 &layout_result.styled_dom,
-                node_id,
+                block.container(),
                 materialized.as_ref(),
             )
         })?;
 
         // Compared as ids, `Trailing` on a grapheme and `Leading` on the next
         // made a range of nothing out of a drag that moved nowhere.
-        let moved = !self.same_caret_position(dom_id, node_id, anchor, focus);
+        let moved = !self.same_caret_position(block, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -20712,8 +20616,8 @@ impl LayoutWindow {
         Some(vec![dom_node_id])
     }
 
-    /// The IFC root + text cursor under a window-space position, searched
-    /// across ALL laid-out IFC roots of `dom_id` (the cross-block drag needs
+    /// The text block + text cursor under a window-space position, searched
+    /// across ALL laid-out text blocks of `dom_id` (the cross-block drag needs
     /// a target outside the anchor block). Candidates are ranked against where
     /// they actually sit ON SCREEN (static position minus accumulated scroll)
     /// by vertical distance first, horizontal distance second — so direct
@@ -20726,7 +20630,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         position: LogicalPosition,
-    ) -> Option<(NodeId, TextCursor)> {
+    ) -> Option<(TextBlock, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
         // (vertical distance, horizontal distance, node, layout index)
@@ -20818,7 +20722,7 @@ impl LayoutWindow {
         let cursor = layout.hittest_point(clamped).or_else(|| {
             Self::empty_editing_host_caret(&layout_result.styled_dom, node_dom_id, layout.as_ref())
         })?;
-        Some((node_dom_id, cursor))
+        Some((tree.text_block_at(dom_id, layout_idx)?, cursor))
     }
 
     /// Delete the currently selected text or one character at the cursor
@@ -20922,12 +20826,9 @@ impl LayoutWindow {
                     .text_edit_manager
                     .get_cross_block_selection()
                     .map(|sel| {
-                        sel.affected_nodes
+                        sel.affected_blocks
                             .keys()
-                            .map(|n| DomNodeId {
-                                dom: dom_id,
-                                node: NodeHierarchyItemId::from_crate_internal(Some(*n)),
-                            })
+                            .map(TextBlock::container_dom_node)
                             .collect()
                     })
                     .unwrap_or_default();
@@ -21032,8 +20933,7 @@ impl LayoutWindow {
         let Selection::Range(range) = caret.selection() else {
             return None;
         };
-        let node_id = caret.node.node.into_crate_internal()?;
-        let runs = self.selection_runs_for_node(caret.node.dom, node_id);
+        let runs = self.selection_runs_for_block(caret.block);
         let mut acc = ClipboardExtract::default();
         Self::push_layout_range(&mut acc, &runs, &range);
         acc.finish()
@@ -21041,7 +20941,7 @@ impl LayoutWindow {
 
     /// Push the text `range` covers onto `acc`, read from `runs` - the
     /// layout's run table its cursors are numbered against
-    /// ([`Self::selection_runs_for_node`]). Either direction; affinity-aware
+    /// ([`Self::selection_runs_for_block`]). Either direction; affinity-aware
     /// (a Trailing end is AFTER its grapheme); a run the range passes over is
     /// taken whole, and an end on a non-text item (a `<br>`, a `::marker`)
     /// has no entry, which takes its neighbours whole.
@@ -21088,31 +20988,31 @@ impl LayoutWindow {
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
             copy_trace(|| {
                 format!(
-                    "[copy] cross-block selection on {:?} ({} node(s)); copy targets {:?}",
+                    "[copy] cross-block selection on {:?} ({} block(s)); copy targets {:?}",
                     cb.dom_id,
-                    cb.affected_nodes.len(),
+                    cb.affected_blocks.len(),
                     dom_id
                 )
             });
             if cb.dom_id == *dom_id {
-                let mut nodes: Vec<(NodeId, SelectionRange)> = cb
-                    .affected_nodes
+                // `affected_blocks` iterates in document order already.
+                let blocks: Vec<(TextBlock, SelectionRange)> = cb
+                    .affected_blocks
                     .iter()
-                    .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+                    .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
                     .collect();
-                nodes.sort_by_key(|(n, _)| n.index());
                 let mut acc = ClipboardExtract::default();
-                for (block, (node, range)) in nodes.iter().enumerate() {
+                for (i, (block, range)) in blocks.iter().enumerate() {
                     // The runs the selection's own cursors are numbered
                     // against — NOT the DOM-child recursion of
                     // `get_text_before_textinput`, which is a different
                     // vector with different indices (see
-                    // `selection_runs_for_node`).
-                    let runs = self.selection_runs_for_node(*dom_id, *node);
+                    // `selection_runs_for_block`).
+                    let runs = self.selection_runs_for_block(*block);
                     // The paragraph joiner, carrying the style of the text it
                     // follows — a `\n` of its own would be a run with no
                     // formatting between two that have it.
-                    if block > 0 {
+                    if i > 0 {
                         acc.push_inheriting("\n");
                     }
                     Self::push_layout_range(&mut acc, &runs, range);
@@ -21131,16 +21031,7 @@ impl LayoutWindow {
             });
             return None;
         };
-        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
-            copy_trace(|| {
-                format!(
-                    "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — nothing \
-                     to extract",
-                    mc.node_id.dom
-                )
-            });
-            return None;
-        };
+        let block = mc.block;
 
         // Collect the LOCAL range selections (collapsed cursors contribute
         // nothing to a copy; a peer's range is not the local user's to copy).
@@ -21154,10 +21045,9 @@ impl LayoutWindow {
         if ranges.is_empty() {
             copy_trace(|| {
                 format!(
-                    "[copy] multi_cursor on {:?}/{:?} holds {} selection(s) but no RANGE — \
-                     nothing to extract",
-                    mc.node_id.dom,
-                    node_id,
+                    "[copy] multi_cursor on {:?} holds {} selection(s) but no RANGE — nothing to \
+                     extract",
+                    block,
                     mc.selections.len()
                 )
             });
@@ -21166,7 +21056,7 @@ impl LayoutWindow {
 
         // The layout's runs, as the multi-block copy reads them - not the DOM
         // walk, which has no `::marker` and uncollapsed white space.
-        let runs = self.selection_runs_for_node(*dom_id, node_id);
+        let runs = self.selection_runs_for_block(block);
         let mut acc = ClipboardExtract::default();
         for range in &ranges {
             Self::push_layout_range(&mut acc, &runs, range);
@@ -21175,8 +21065,8 @@ impl LayoutWindow {
         if out.is_none() {
             copy_trace(|| {
                 format!(
-                    "[copy] {} range(s) on {dom_id:?}/{node_id:?} cover no text of the {} layout \
-                     run(s) they index",
+                    "[copy] {} range(s) on {block:?} cover no text of the {} layout run(s) they \
+                     index",
                     ranges.len(),
                     runs.len()
                 )
@@ -23531,8 +23421,17 @@ mod autotest_generated {
         }
 
         let mut w = window_for(editable("hello world"));
-        w.text_edit_manager
-            .initialize_editing(at(6), DomId::ROOT_ID, NodeId::new(0), 77);
+        // A bare layout result has no layout tree to resolve a block in: the
+        // resolver's stand-in names the editable directly (its text is what
+        // the generation diff reads).
+        w.text_edit_manager.initialize_editing(
+            at(6),
+            TextBlock::from_resolved(
+                DomId::ROOT_ID,
+                azul_core::selection::TextBlockKey::Element(NodeId::new(0)),
+            ),
+            77,
+        );
         let bob = SelectionOwner::new(2, 2);
         assert!(w
             .text_edit_manager
@@ -23690,7 +23589,9 @@ mod autotest_generated {
             "direct children in document order first, then deeper descendants"
         );
 
-        // Caret on the TEXT LEAF of the second <p>: the block that owns it wins.
+        // Caret in the second <p>'s block: the block that owns it wins.
+        // (A bare layout result has no tree to resolve it in - the resolver's
+        // stand-in names it.)
         w.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             TextCursor {
                 cluster_id: GraphemeClusterId {
@@ -23699,7 +23600,10 @@ mod autotest_generated {
                 },
                 affinity: CursorAffinity::Leading,
             },
-            dnid(4),
+            TextBlock::from_resolved(
+                DomId::ROOT_ID,
+                azul_core::selection::TextBlockKey::Element(NodeId::new(3)),
+            ),
             0,
         ));
         assert_eq!(
@@ -26705,10 +26609,12 @@ mod tween_clock_unit_tests {
             Dom::create_body().with_child(editable_paragraph("hello world tween target")),
             animations(caret_ms, 0, 0),
         );
-        win.text_edit_manager
-            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(2), 0);
+        let block = win
+            .text_block_of(dnid(2))
+            .expect("premise: the editable's text is in a text block");
+        win.text_edit_manager.initialize_editing(cursor(0), block, 0);
         win.text_edit_manager.multi_cursor =
-            Some(MultiCursorState::new_with_cursor(cursor(0), dnid(2), 0));
+            Some(MultiCursorState::new_with_cursor(cursor(0), block, 0));
         win.regenerate_display_list_for_dom(DomId::ROOT_ID);
         win
     }
@@ -26738,14 +26644,10 @@ mod tween_clock_unit_tests {
                 .with_child(editable_paragraph("third paragraph")),
             animations(0, sel_ms, 0),
         );
+        let first = win.text_block_of(dnid(1)).expect("the first paragraph");
+        let second = win.text_block_of(dnid(3)).expect("the second paragraph");
         assert!(
-            win.set_cross_block_selection(
-                DomId::ROOT_ID,
-                NodeId::new(1),
-                cursor(6),
-                NodeId::new(3),
-                cursor(6),
-            ),
+            win.set_cross_block_selection(first, cursor(6), second, cursor(6)),
             "premise: the fixture must accept a cross-block selection"
         );
         win.regenerate_display_list_for_dom(DomId::ROOT_ID);
@@ -27934,8 +27836,13 @@ mod selection_anchor_survives_focus_tests {
     /// root (no range yet - the drag has not moved), and the shell latches the
     /// drag anchor on the press edge to say a selection gesture is in flight.
     fn press_on_plain_text(win: &mut LayoutWindow, gesture_in_flight: bool) {
-        win.text_edit_manager
-            .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(1), 0);
+        let block = win
+            .text_block_of(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            })
+            .expect("premise: the paragraph is a text block");
+        win.text_edit_manager.initialize_editing(cursor(0), block, 0);
         win.text_selection_drag_anchor = gesture_in_flight.then(|| LogicalPosition::new(12.0, 8.0));
     }
 

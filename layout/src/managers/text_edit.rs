@@ -16,8 +16,7 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     events::SyntheticEvent,
     geom::{LogicalPosition, LogicalRect},
-    selection::{MultiCursorState, Selection, SelectionRange, TextCursor},
-    styled_dom::NodeHierarchyItemId,
+    selection::{MultiCursorState, Selection, SelectionRange, TextBlock, TextCursor},
     task::{Duration, Instant},
 };
 use azul_css::props::basic::color::ColorU;
@@ -201,14 +200,14 @@ pub struct TextTweenState {
     /// DOM the tracked geometry belongs to. A caret/selection appearing on a
     /// DIFFERENT dom resets tracking (no cross-dom tween).
     pub dom_id: Option<DomId>,
-    /// Node the tracked caret/selection geometry belongs to — the editing
-    /// session's node, maintained by [`TextEditManager`].
+    /// Text block the tracked caret/selection geometry belongs to — the
+    /// editing session's block, maintained by [`TextEditManager`].
     ///
     /// Without it the geometry is unattributable, and a DOM reconcile that
-    /// moves or unmounts the edited node leaves `last_caret`/`last_selection`
+    /// moves or unmounts the edited block leaves `last_caret`/`last_selection`
     /// describing a rectangle that belongs to nothing: the next frame then
     /// glides the caret across the screen from a dead rect.
-    pub node: Option<DomNodeId>,
+    pub node: Option<TextBlock>,
     /// Focusable the tracked caret geometry currently sits inside, as
     /// [`super::super::window::LayoutWindow::find_focusable_ancestor`] reports
     /// it. `None` is a real value — text outside any focusable — and compares
@@ -320,15 +319,13 @@ impl TextTweenState {
 /// The range selections of ONE editing session, as
 /// [`TextEditManager::session_selection_ranges`] reports them.
 ///
-/// All ranges of a session live on the same IFC root — `MultiCursorState` is
-/// single-node by construction; a selection spanning several roots takes the
+/// All ranges of a session live in the same text block — `MultiCursorState` is
+/// single-block by construction; a selection spanning several blocks takes the
 /// `cross_block` path instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionSelectionRanges {
-    /// DOM the session's node belongs to.
-    pub dom_id: DomId,
-    /// IFC root every range is expressed against.
-    pub node_id: NodeId,
+    /// The text block every range is expressed against.
+    pub block: TextBlock,
     /// Every range, in `MultiCursorState` order (position-sorted,
     /// non-overlapping). Never empty.
     pub ranges: Vec<SelectionRange>,
@@ -345,10 +342,8 @@ pub struct SessionSelectionRanges {
 /// owner (`set_owner_selections`); a single-user app never sees one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RemoteSelectionRanges {
-    /// DOM the session's node belongs to.
-    pub dom_id: DomId,
-    /// IFC root every range is expressed against.
-    pub node_id: NodeId,
+    /// The text block every range is expressed against.
+    pub block: TextBlock,
     /// Each range and whose it is. Never empty.
     pub ranges: Vec<(azul_core::selection::SelectionOwner, SelectionRange)>,
     /// The local participant's own caret, when they have one.
@@ -395,8 +390,8 @@ pub enum CompositionPhase {
 /// site can tell which is which.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CursorLocation {
-    pub dom: DomId,
-    pub node: NodeId,
+    /// The text block the caret's cluster ids index.
+    pub block: TextBlock,
     pub cursor: TextCursor,
     /// [`SelectionOwner::LOCAL`] for this machine's caret.
     ///
@@ -572,12 +567,15 @@ pub const fn seat_owner_color(seat_id: u64) -> ColorU {
     PALETTE[(seat_id % 6) as usize]
 }
 
-/// A non-primary seat's caret: the node it sits in and where. With an
-/// `anchor` it is a SELECTION from the anchor to the cursor (a seat's
-/// Shift+arrow, 9b-ii-a-i-d-ii-b).
+/// A non-primary seat's caret: the node it edits, the text block it sits in
+/// and where. With an `anchor` it is a SELECTION from the anchor to the cursor
+/// (a seat's Shift+arrow, 9b-ii-a-i-d-ii-b).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SeatCaret {
+    /// The node the seat's keys act on - its focused editing host.
     pub node: DomNodeId,
+    /// The text block the cursor's cluster ids index.
+    pub block: TextBlock,
     pub cursor: TextCursor,
     pub anchor: Option<TextCursor>,
 }
@@ -738,15 +736,23 @@ impl TextEditManager {
     /// Get the `DomId` of the node being edited.
     #[must_use]
     pub fn get_editing_dom_id(&self) -> Option<DomId> {
-        self.multi_cursor.as_ref().map(|mc| mc.node_id.dom)
+        self.multi_cursor.as_ref().map(|mc| mc.block.dom())
     }
 
-    /// Get the `NodeId` of the node being edited.
+    /// The element that owns the editing session's text block (what an edit
+    /// of the session's text is keyed to). `None` without a session, and for a
+    /// session in an anonymous block, which has no element.
     #[must_use]
     pub fn get_editing_node_id(&self) -> Option<NodeId> {
         self.multi_cursor
             .as_ref()
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
+            .and_then(|mc| mc.block.element())
+    }
+
+    /// The text block of the editing session.
+    #[must_use]
+    pub fn get_editing_block(&self) -> Option<TextBlock> {
+        self.multi_cursor.as_ref().map(|mc| mc.block)
     }
 
     /// Get the primary cursor position (last-added cursor).
@@ -776,7 +782,8 @@ impl TextEditManager {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             let mc = self.multi_cursor.as_ref()?;
             return mc.get_primary_cursor().map(|cursor| SeatCaret {
-                node: mc.node_id,
+                node: mc.block.container_dom_node(),
+                block: mc.block,
                 cursor,
                 anchor: None,
             });
@@ -785,9 +792,16 @@ impl TextEditManager {
     }
 
     /// Place seat `seat_id`'s caret (non-primary seats only; the primary's
-    /// caret is the multi-cursor's).
-    pub fn set_seat_caret(&mut self, seat_id: u64, node: DomNodeId, cursor: TextCursor) {
-        self.set_seat_selection(seat_id, node, cursor, None);
+    /// caret is the multi-cursor's): at `cursor` in `block`, the seat's keys
+    /// acting on `node`.
+    pub fn set_seat_caret(
+        &mut self,
+        seat_id: u64,
+        node: DomNodeId,
+        block: TextBlock,
+        cursor: TextCursor,
+    ) {
+        self.set_seat_selection(seat_id, node, block, cursor, None);
     }
 
     /// Place seat `seat_id`'s caret with an anchor: a selection from `anchor`
@@ -796,6 +810,7 @@ impl TextEditManager {
         &mut self,
         seat_id: u64,
         node: DomNodeId,
+        block: TextBlock,
         cursor: TextCursor,
         anchor: Option<TextCursor>,
     ) {
@@ -804,6 +819,7 @@ impl TextEditManager {
                 seat_id,
                 SeatCaret {
                     node,
+                    block,
                     cursor,
                     anchor: anchor.filter(|a| *a != cursor),
                 },
@@ -944,17 +960,12 @@ impl TextEditManager {
     pub fn initialize_editing(
         &mut self,
         cursor: TextCursor,
-        dom_id: DomId,
-        node_id: NodeId,
+        block: TextBlock,
         contenteditable_key: u64,
     ) {
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        };
         self.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
-            dom_node_id,
+            block,
             contenteditable_key,
         ));
         // A new caret is a new selection: the document selection beside the
@@ -971,7 +982,7 @@ impl TextEditManager {
         // [`Self::enter_focus_scope`], which the caller invokes first and which
         // drops this geometry when the caret crosses into a different
         // focusable.
-        self.tween.node = Some(dom_node_id);
+        self.tween.node = Some(block);
         self.blink.reset_blink_on_input(Instant::now());
         self.clear_preedit();
         self.mark_dirty();
@@ -1271,35 +1282,28 @@ impl TextEditManager {
     pub fn build_cursor_locations(&self) -> Vec<CursorLocation> {
         let mut out: Vec<CursorLocation> = Vec::new();
         if let Some(ref mc) = self.multi_cursor {
-            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
-                out.extend(mc.selections.iter().map(|s| {
-                    let cursor = match &s.selection {
-                        Selection::Cursor(c) => *c,
-                        Selection::Range(r) => r.end,
-                    };
-                    CursorLocation {
-                        dom: mc.node_id.dom,
-                        node: node_id,
-                        cursor,
-                        owner: s.owner,
-                        preedit_bytes: 0,
-                        preedit_chars: 0,
-                    }
-                }));
-            }
+            out.extend(mc.selections.iter().map(|s| {
+                let cursor = match &s.selection {
+                    Selection::Cursor(c) => *c,
+                    Selection::Range(r) => r.end,
+                };
+                CursorLocation {
+                    block: mc.block,
+                    cursor,
+                    owner: s.owner,
+                    preedit_bytes: 0,
+                    preedit_chars: 0,
+                }
+            }));
         }
         // The other seats' carets (9b-ii-a-i-d-ii-a), drawn like peer carets
-        // under their seat owner - on whatever node each sits in.
+        // under their seat owner - in whatever block each sits in.
         for (seat, caret) in &self.seat_carets {
-            let Some(node_id) = caret.node.node.into_crate_internal() else {
-                continue;
-            };
             let (preedit_bytes, preedit_chars) = self.seat_preedits.get(seat).map_or((0, 0), |p| {
                 (p.text.len() as u32, p.text.chars().count() as u32)
             });
             out.push(CursorLocation {
-                dom: caret.node.dom,
-                node: node_id,
+                block: caret.block,
                 cursor: caret.cursor,
                 owner: azul_core::selection::SelectionOwner::seat(*seat),
                 preedit_bytes,
@@ -1379,7 +1383,6 @@ impl TextEditManager {
     #[must_use]
     pub fn session_selection_ranges(&self) -> Option<SessionSelectionRanges> {
         let mc = self.multi_cursor.as_ref()?;
-        let node_id = mc.node_id.node.into_crate_internal()?;
 
         let mut ranges = Vec::new();
         let mut primary = None;
@@ -1409,8 +1412,7 @@ impl TextEditManager {
         let primary = primary.or_else(|| ranges.first().copied())?;
 
         Some(SessionSelectionRanges {
-            dom_id: mc.node_id.dom,
-            node_id,
+            block: mc.block,
             ranges,
             primary,
         })
@@ -1432,7 +1434,6 @@ impl TextEditManager {
     #[must_use]
     pub fn remote_selection_ranges(&self) -> Option<RemoteSelectionRanges> {
         let mc = self.multi_cursor.as_ref()?;
-        let node_id = mc.node_id.node.into_crate_internal()?;
 
         let mut ranges = Vec::new();
         let mut local_cursor = None;
@@ -1459,8 +1460,7 @@ impl TextEditManager {
         }
 
         Some(RemoteSelectionRanges {
-            dom_id: mc.node_id.dom,
-            node_id,
+            block: mc.block,
             ranges,
             local_cursor,
         })
@@ -1470,15 +1470,15 @@ impl TextEditManager {
     ///
     /// Extracts Range selections from `MultiCursorState` into the format that
     /// `LayoutContext.text_selections` expects: `BTreeMap<DomId, TextSelection>`.
-    /// The `affected_nodes` map uses the editing node's `NodeId` as key.
+    /// The `affected_blocks` map uses the session's text block as key.
     ///
     /// `anchor`, `focus` and `is_forward` all describe the SAME range — the
-    /// session's primary, which is also one of the ranges in `affected_nodes`.
+    /// session's primary, which is also one of the ranges in `affected_blocks`.
     /// They used to disagree: the endpoints came from the first range,
     /// `affected_nodes` kept the last (each insert overwrote the same key), and
     /// `is_forward` was hard-coded.
     ///
-    /// `affected_nodes` carries EVERY range of the session under the one node
+    /// `affected_blocks` carries EVERY range of the session under the one block
     /// key, so a multi-range (Ctrl+D) session paints all of its occurrences and
     /// not just the primary one.
     #[must_use]
@@ -1500,22 +1500,13 @@ impl TextEditManager {
             let Selection::Range(range) = caret.selection() else {
                 continue;
             };
-            let Some(node_id) = caret.node.node.into_crate_internal() else {
-                continue;
-            };
             let owner = SelectionOwner::seat(*seat);
-            let entry = map.entry(caret.node.dom).or_insert_with(|| {
-                TextSelection::new_collapsed(
-                    caret.node.dom,
-                    node_id,
-                    caret.cursor,
-                    LogicalRect::zero(),
-                    LogicalPosition::zero(),
-                )
-            });
+            let entry = map
+                .entry(caret.block.dom())
+                .or_insert_with(|| TextSelection::new_collapsed(caret.block, caret.cursor));
             entry
                 .remote_ranges
-                .entry(node_id)
+                .entry(caret.block)
                 .or_default()
                 .push((owner, range));
         }
@@ -1548,43 +1539,34 @@ impl TextEditManager {
                 let cursor = remote
                     .local_cursor
                     .unwrap_or_else(|| remote.ranges[0].1.start);
-                let mut sel = TextSelection::new_collapsed(
-                    remote.dom_id,
-                    remote.node_id,
-                    cursor,
-                    LogicalRect::zero(),
-                    LogicalPosition::zero(),
-                );
-                sel.remote_ranges.insert(remote.node_id, remote.ranges);
-                map.insert(remote.dom_id, sel);
+                let mut sel = TextSelection::new_collapsed(remote.block, cursor);
+                sel.remote_ranges.insert(remote.block, remote.ranges);
+                map.insert(remote.block.dom(), sel);
             }
             return map;
         };
         let range = session.primary;
 
-        let mut affected_nodes = BTreeMap::new();
-        affected_nodes.insert(session.node_id, session.ranges);
+        let mut affected_blocks = BTreeMap::new();
+        affected_blocks.insert(session.block, session.ranges);
         let mut remote_ranges = BTreeMap::new();
         if let Some(remote) = remote {
-            remote_ranges.insert(remote.node_id, remote.ranges);
+            remote_ranges.insert(remote.block, remote.ranges);
         }
 
         map.insert(
-            session.dom_id,
+            session.block.dom(),
             TextSelection {
-                dom_id: session.dom_id,
+                dom_id: session.block.dom(),
                 anchor: SelectionAnchor {
-                    ifc_root_node_id: session.node_id,
+                    block: session.block,
                     cursor: range.start,
-                    char_bounds: LogicalRect::zero(),
-                    mouse_position: LogicalPosition::zero(),
                 },
                 focus: SelectionFocus {
-                    ifc_root_node_id: session.node_id,
+                    block: session.block,
                     cursor: range.end,
-                    mouse_position: LogicalPosition::zero(),
                 },
-                affected_nodes,
+                affected_blocks,
                 remote_ranges,
                 is_forward: range_is_forward(&range),
             },
@@ -1603,43 +1585,37 @@ impl crate::managers::NodeIdRemap for TextEditManager {
     /// node is gone; here we additionally drop the whole editing session, since a
     /// cursor whose IFC root no longer exists is not an editing session.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
-        // The other seats' carets (9b-ii-a-i-d-ii): follow the node, drop on
-        // an unmounted one - the same rule as the primary's below.
+        // The other seats' carets (9b-ii-a-i-d-ii): follow the node and the
+        // block, drop on an unmounted one - the same rule as the primary's
+        // below.
         self.seat_carets.retain(|_, caret| {
             if caret.node.dom != dom {
                 return true;
             }
-            match caret
-                .node
-                .node
-                .into_crate_internal()
-                .and_then(|old| map.resolve(old))
-            {
-                Some(new_id) => {
-                    caret.node.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
-                    true
-                }
-                None => false,
-            }
+            let (Some(node), Some(block)) = (
+                map.resolve_dom_node_id(dom, caret.node),
+                caret.block.remap(|old| map.resolve(old)),
+            ) else {
+                return false;
+            };
+            caret.node = node;
+            caret.block = block;
+            true
         });
 
-        // The tween's caret/selection geometry belongs to the session's node.
+        // The tween's caret/selection geometry belongs to the session's block.
         // Resolve that anchor BEFORE the session below can be dropped — and
         // fall back to the session for state that was installed by writing
         // `multi_cursor` directly (which cannot set the anchor), so a stale
         // `None` heals itself here instead of leaving the geometry orphaned.
-        let tween_node = self
+        let tween_block = self
             .tween
             .node
-            .or_else(|| self.multi_cursor.as_ref().map(|mc| mc.node_id));
+            .or_else(|| self.multi_cursor.as_ref().map(|mc| mc.block));
 
         if let Some(ref mut mc) = self.multi_cursor {
-            if mc.node_id.dom == dom {
-                let unmounted = mc
-                    .node_id
-                    .node
-                    .into_crate_internal()
-                    .is_none_or(|old| map.resolve(old).is_none());
+            if mc.block.dom() == dom {
+                let unmounted = mc.block.remap(|old| map.resolve(old)).is_none();
                 if unmounted {
                     self.multi_cursor = None;
                     self.preedit_text = None;
@@ -1656,15 +1632,20 @@ impl crate::managers::NodeIdRemap for TextEditManager {
         // `last_selection` describe a rectangle that belonged to a node which
         // is now gone, and the next display-list pass would glide the caret
         // out of it across the screen.
-        if let Some(old) = tween_node {
-            match map.resolve_dom_node_id(dom, old) {
-                Some(new_id) => self.tween.node = Some(new_id),
+        if let Some(old) = tween_block {
+            let remapped = if old.dom() == dom {
+                old.remap(|n| map.resolve(n))
+            } else {
+                Some(old)
+            };
+            match remapped {
+                Some(new_block) => self.tween.node = Some(new_block),
                 None => self.tween.reset_text_tweens(),
             }
         }
 
-        // A cross-block selection is render-ready geometry keyed by IFC-root
-        // NodeIds. Unremapped, it paints a highlight over whichever nodes
+        // A cross-block selection is render-ready geometry keyed by text
+        // blocks. Unremapped, it paints a highlight over whichever nodes
         // inherited those indices.
         if self.cross_block.as_ref().is_some_and(|cb| cb.dom_id == dom) {
             self.remap_cross_block_selection(map);
@@ -1697,34 +1678,33 @@ impl crate::managers::NodeIdRemap for TextEditManager {
 }
 
 impl TextEditManager {
-    /// Rewrite the cross-block selection's IFC-root ids for the rebuilt DOM.
+    /// Rewrite the cross-block selection's text blocks for the rebuilt DOM.
     ///
-    /// The selection is dropped outright when either endpoint's root is gone:
+    /// The selection is dropped outright when either endpoint's block is gone:
     /// a band whose anchor or focus no longer exists has no endpoints to paint
-    /// between. Interior roots that were unmounted are dropped individually.
+    /// between. Interior blocks that were unmounted are dropped individually.
     fn remap_cross_block_selection(&mut self, map: &crate::managers::NodeIdMap) {
         let Some(ref mut cb) = self.cross_block else {
             return;
         };
         let (Some(anchor), Some(focus)) = (
-            map.resolve(cb.anchor.ifc_root_node_id),
-            map.resolve(cb.focus.ifc_root_node_id),
+            cb.anchor.block.remap(|n| map.resolve(n)),
+            cb.focus.block.remap(|n| map.resolve(n)),
         ) else {
             self.cross_block = None;
             self.display_list_dirty = true;
             return;
         };
-        let mut changed =
-            anchor != cb.anchor.ifc_root_node_id || focus != cb.focus.ifc_root_node_id;
-        cb.anchor.ifc_root_node_id = anchor;
-        cb.focus.ifc_root_node_id = focus;
+        let mut changed = anchor != cb.anchor.block || focus != cb.focus.block;
+        cb.anchor.block = anchor;
+        cb.focus.block = focus;
 
-        let before: Vec<NodeId> = cb.affected_nodes.keys().copied().collect();
-        cb.affected_nodes = core::mem::take(&mut cb.affected_nodes)
+        let before: Vec<TextBlock> = cb.affected_blocks.keys().copied().collect();
+        cb.affected_blocks = core::mem::take(&mut cb.affected_blocks)
             .into_iter()
-            .filter_map(|(node, ranges)| map.resolve(node).map(|new| (new, ranges)))
+            .filter_map(|(block, ranges)| block.remap(|n| map.resolve(n)).map(|new| (new, ranges)))
             .collect();
-        changed |= !cb.affected_nodes.keys().copied().eq(before);
+        changed |= !cb.affected_blocks.keys().copied().eq(before);
 
         // Only owe a repaint when the painted band actually moved:
         // `display_list_dirty` is a latch, and a rebuild that renumbered
@@ -1749,7 +1729,7 @@ mod autotest_generated {
     fn locs_as_triples(m: &TextEditManager) -> Vec<(DomId, NodeId, TextCursor)> {
         m.build_cursor_locations()
             .into_iter()
-            .map(|l| (l.dom, l.node, l.cursor))
+            .map(|l| (l.block.dom(), l.block.first_node(), l.cursor))
             .collect()
     }
 
@@ -1790,6 +1770,7 @@ mod autotest_generated {
     };
 
     use super::*;
+    use azul_core::{selection::TextBlockKey, styled_dom::NodeHierarchyItemId};
     use crate::managers::{NodeIdMap, NodeIdRemap};
 
     const DOM0: DomId = DomId { inner: 0 };
@@ -1828,11 +1809,17 @@ mod autotest_generated {
         }
     }
 
+    /// The text block of element `node` in `dom`, standing in for the
+    /// layout's resolver.
+    fn blk(dom: DomId, node: NodeId) -> TextBlock {
+        TextBlock::from_resolved(dom, TextBlockKey::Element(node))
+    }
+
     /// Build a `MultiCursorState` with an arbitrary selection list, bypassing
     /// `add_cursor`/`add_selection` (which sort + merge) so the exact ordering
     /// under test is preserved.
     fn multi_cursor_with(
-        node_id: DomNodeId,
+        block: TextBlock,
         selections: Vec<Selection>,
         key: u64,
     ) -> MultiCursorState {
@@ -1848,7 +1835,7 @@ mod autotest_generated {
         MultiCursorState {
             selections: identified,
             primary_id,
-            node_id,
+            block,
             contenteditable_key: key,
         }
     }
@@ -2193,7 +2180,7 @@ mod autotest_generated {
         a.mark_dirty();
         assert_eq!(a, b, "preedit / blink / dirty are transient visual state");
 
-        b.initialize_editing(cursor(0, 0), DOM0, NodeId::ZERO, 1);
+        b.initialize_editing(cursor(0, 0), blk(DOM0, NodeId::ZERO), 1);
         assert_ne!(a, b, "a live editing session is not equal to no session");
     }
 
@@ -2204,7 +2191,7 @@ mod autotest_generated {
     #[test]
     fn autotest_initialize_editing_at_zero() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 0), DOM0, NodeId::ZERO, 0);
+        m.initialize_editing(cursor(0, 0), blk(DOM0, NodeId::ZERO), 0);
 
         assert!(m.has_active_editing());
         assert_eq!(m.get_editing_dom_id(), Some(DOM0));
@@ -2237,8 +2224,7 @@ mod autotest_generated {
         {
             let locs = m.build_cursor_locations();
             assert_eq!(locs.len(), 1);
-            assert_eq!(locs[0].dom, DOM0);
-            assert_eq!(locs[0].node, NodeId::ZERO);
+            assert_eq!(locs[0].block, blk(DOM0, NodeId::ZERO));
             assert_eq!(locs[0].cursor, cursor(0, 0));
             assert!(locs[0].owner.is_local());
         }
@@ -2258,7 +2244,7 @@ mod autotest_generated {
         };
 
         let mut m = TextEditManager::new();
-        m.initialize_editing(extreme_cursor, DOM_MAX, node, u64::MAX);
+        m.initialize_editing(extreme_cursor, blk(DOM_MAX, node), u64::MAX);
 
         assert_eq!(m.get_editing_dom_id(), Some(DOM_MAX));
         assert_eq!(
@@ -2278,8 +2264,8 @@ mod autotest_generated {
     #[test]
     fn autotest_initialize_editing_overwrites_previous_session() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(1, 1), DOM0, NodeId::new(7), 111);
-        m.initialize_editing(cursor(2, 2), DOM1, NodeId::new(9), 222);
+        m.initialize_editing(cursor(1, 1), blk(DOM0, NodeId::new(7)), 111);
+        m.initialize_editing(cursor(2, 2), blk(DOM1, NodeId::new(9)), 222);
 
         assert_eq!(m.get_editing_dom_id(), Some(DOM1));
         assert_eq!(m.get_editing_node_id(), Some(NodeId::new(9)));
@@ -2299,7 +2285,7 @@ mod autotest_generated {
     fn autotest_initialize_editing_clears_stale_preedit() {
         let mut m = TextEditManager::new();
         m.set_preedit("漢字".to_string(), 3, 6);
-        m.initialize_editing(cursor(0, 0), DOM0, NodeId::new(4), 42);
+        m.initialize_editing(cursor(0, 0), blk(DOM0, NodeId::new(4)), 42);
 
         assert!(
             m.preedit_text.is_none(),
@@ -2339,7 +2325,7 @@ mod autotest_generated {
     #[test]
     fn autotest_clear_editing_tears_down_everything() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 5), DOM0, NodeId::new(3), 77);
+        m.initialize_editing(cursor(0, 5), blk(DOM0, NodeId::new(3)), 77);
         m.set_preedit("ab".to_string(), 0, 2);
         m.blink.set_blink_timer_active(true);
         m.blink.reset_blink_on_input(Instant::now());
@@ -2517,7 +2503,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM1, Some(node)),
+            blk(DOM1, node),
             vec![
                 Selection::Cursor(a),
                 Selection::Range(range(b, c)),
@@ -2534,27 +2520,10 @@ mod autotest_generated {
     }
 
     #[test]
-    fn autotest_build_cursor_locations_with_detached_node_is_empty() {
-        // A `MultiCursorState` whose node encodes "no node" must yield nothing
-        // rather than panicking or fabricating NodeId(0).
-        let mut m = TextEditManager::new();
-        m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, None),
-            vec![Selection::Cursor(cursor(0, 0))],
-            1,
-        ));
-
-        assert!(m.has_active_editing());
-        assert!(m.get_editing_node_id().is_none());
-        assert!(m.build_cursor_locations().is_empty());
-        assert!(m.build_text_selections_map().is_empty());
-    }
-
-    #[test]
     fn autotest_build_cursor_locations_with_no_selections_is_empty() {
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(NodeId::ZERO)),
+            blk(DOM0, NodeId::ZERO),
             Vec::new(),
             0,
         ));
@@ -2572,21 +2541,17 @@ mod autotest_generated {
             .collect();
 
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(multi_cursor_with(dom_node(DOM0, Some(node)), selections, 9));
+        m.multi_cursor = Some(multi_cursor_with(blk(DOM0, node), selections, 9));
 
         let locations = m.build_cursor_locations();
         assert_eq!(locations.len(), 1000);
         assert_eq!(
-            (locations[0].dom, locations[0].node, locations[0].cursor),
-            (DOM0, node, cursor(0, 0))
+            (locations[0].block, locations[0].cursor),
+            (blk(DOM0, node), cursor(0, 0))
         );
         assert_eq!(
-            (
-                locations[999].dom,
-                locations[999].node,
-                locations[999].cursor
-            ),
-            (DOM0, node, cursor(0, 999))
+            (locations[999].block, locations[999].cursor),
+            (blk(DOM0, node), cursor(0, 999))
         );
     }
 
@@ -2605,7 +2570,7 @@ mod autotest_generated {
     fn autotest_build_text_selections_map_ignores_pure_cursors() {
         // Collapsed carets are not selections — nothing to paint.
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 3), DOM0, NodeId::new(1), 8);
+        m.initialize_editing(cursor(0, 3), blk(DOM0, NodeId::new(1)), 8);
         assert!(m.build_text_selections_map().is_empty());
     }
 
@@ -2630,7 +2595,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
+            blk(DOM0, node),
             vec![Selection::Range(mine)],
             3,
         ));
@@ -2646,8 +2611,7 @@ mod autotest_generated {
 
         let remote = m.remote_selection_ranges().expect("the peer's range");
         assert_eq!(remote.ranges, vec![(owner(7), theirs)]);
-        assert_eq!(remote.node_id, node);
-        assert_eq!(remote.dom_id, DOM0);
+        assert_eq!(remote.block, blk(DOM0, node));
         assert_eq!(
             remote.local_cursor,
             Some(mine.end),
@@ -2663,7 +2627,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
+            blk(DOM0, node),
             vec![Selection::Range(mine)],
             3,
         ));
@@ -2674,12 +2638,14 @@ mod autotest_generated {
 
         let sel = m.build_text_selections_map().remove(&DOM0).expect("a map");
         assert_eq!(
-            sel.ranges_for_node(&node),
+            sel.ranges_for_block(&blk(DOM0, node)),
             &[mine],
-            "affected_nodes is the LOCAL selection and takes ::selection"
+            "affected_blocks is the LOCAL selection and takes ::selection"
         );
         assert_eq!(
-            sel.remote_ranges.get(&node).map(|v| v.as_slice()),
+            sel.remote_ranges
+                .get(&blk(DOM0, node))
+                .map(|v| v.as_slice()),
             Some(&[(owner(1), theirs)][..]),
         );
         // The endpoints still describe the local primary, not the peer's.
@@ -2700,7 +2666,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM1, Some(node)),
+            blk(DOM1, node),
             vec![Selection::Cursor(cursor(0, 1))],
             4,
         ));
@@ -2722,7 +2688,9 @@ mod autotest_generated {
         );
         assert_eq!(sel.anchor.cursor, cursor(0, 1), "at the local caret");
         assert_eq!(
-            sel.remote_ranges.get(&node).map(|v| v.as_slice()),
+            sel.remote_ranges
+                .get(&blk(DOM1, node))
+                .map(|v| v.as_slice()),
             Some(&[(owner(3), theirs)][..]),
         );
         // `new_collapsed` still lists the caret as a degenerate range, so the
@@ -2730,7 +2698,7 @@ mod autotest_generated {
         // an empty map — worth pinning, because painting that range would put
         // a zero-width `::selection` rect under the caret.
         assert_eq!(
-            sel.ranges_for_node(&node),
+            sel.ranges_for_block(&blk(DOM1, node)),
             &[range(cursor(0, 1), cursor(0, 1))]
         );
     }
@@ -2741,7 +2709,7 @@ mod autotest_generated {
         let node = NodeId::new(1);
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
+            blk(DOM0, node),
             vec![Selection::Range(range(cursor(0, 0), cursor(0, 3)))],
             3,
         ));
@@ -2781,7 +2749,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM1, Some(node)),
+            blk(DOM1, node),
             vec![Selection::Range(range(start, end))],
             3,
         ));
@@ -2790,14 +2758,20 @@ mod autotest_generated {
         assert_eq!(map.len(), 1);
         let sel = map.get(&DOM1).expect("keyed by the editing DomId");
         assert_eq!(sel.dom_id, DOM1);
-        assert_eq!(sel.anchor.ifc_root_node_id, node);
+        assert_eq!(sel.anchor.block, blk(DOM1, node));
         assert_eq!(sel.anchor.cursor, start);
-        assert_eq!(sel.focus.ifc_root_node_id, node);
+        assert_eq!(sel.focus.block, blk(DOM1, node));
         assert_eq!(sel.focus.cursor, end);
         assert!(sel.is_forward);
-        assert_eq!(sel.affected_nodes.len(), 1);
-        assert_eq!(sel.ranges_for_node(&node), &[range(start, end)]);
-        assert_eq!(sel.get_range_for_node(&node), Some(&range(start, end)));
+        assert_eq!(sel.affected_blocks.len(), 1);
+        assert_eq!(
+            sel.ranges_for_block(&blk(DOM1, node)),
+            &[range(start, end)]
+        );
+        assert_eq!(
+            sel.get_range_for_block(&blk(DOM1, node)),
+            Some(&range(start, end))
+        );
     }
 
     #[test]
@@ -2810,7 +2784,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
+            blk(DOM0, node),
             vec![Selection::Range(range(start, end))],
             3,
         ));
@@ -2835,7 +2809,7 @@ mod autotest_generated {
     fn autotest_build_text_selections_map_multi_range_endpoints_match_the_painted_range() {
         // The two halves of the emitted `TextSelection` must agree: the
         // `anchor`/`focus` endpoints describe the PRIMARY range, and that range
-        // is one of the ranges `affected_nodes` paints. They used to disagree —
+        // is one of the ranges `affected_blocks` paints. They used to disagree —
         // endpoints from the FIRST range, the map from the LAST (each insert
         // overwrote the same key, so a Ctrl+D session painted ONE occurrence).
         let node = NodeId::new(4);
@@ -2844,7 +2818,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
+            blk(DOM0, node),
             vec![
                 Selection::Range(first),
                 Selection::Cursor(cursor(0, 3)),
@@ -2861,21 +2835,20 @@ mod autotest_generated {
             "endpoints from the PRIMARY range"
         );
         assert_eq!(sel.focus.cursor, last.end);
-        assert_eq!(sel.affected_nodes.len(), 1, "one node key, several ranges");
+        assert_eq!(sel.affected_blocks.len(), 1, "one block key, several ranges");
         assert_eq!(
-            sel.ranges_for_node(&node),
+            sel.ranges_for_block(&blk(DOM0, node)),
             &[first, last],
             "BOTH occurrences reach the painter, in document order"
         );
         assert!(
-            sel.ranges_for_node(&node).contains(&last),
+            sel.ranges_for_block(&blk(DOM0, node)).contains(&last),
             "the range the endpoints describe is one of the painted ones"
         );
 
         // …and no range is lost on the way: the session reports both.
         let session = m.session_selection_ranges().expect("a session with ranges");
-        assert_eq!(session.dom_id, DOM0);
-        assert_eq!(session.node_id, node);
+        assert_eq!(session.block, blk(DOM0, node));
         assert_eq!(session.ranges, vec![first, last], "carets are not ranges");
         assert_eq!(session.primary, last);
     }
@@ -2891,7 +2864,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM1, Some(node)),
+            blk(DOM1, node),
             vec![Selection::Range(only), Selection::Cursor(cursor(0, 12))],
             9,
         ));
@@ -2914,18 +2887,8 @@ mod autotest_generated {
 
         // Carets only — nothing to highlight.
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 3), DOM0, NodeId::new(1), 8);
+        m.initialize_editing(cursor(0, 3), blk(DOM0, NodeId::new(1)), 8);
         assert!(m.session_selection_ranges().is_none());
-
-        // A range on a DETACHED node has no IFC root to express it against.
-        let mut m = TextEditManager::new();
-        m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, None),
-            vec![Selection::Range(range(cursor(0, 0), cursor(0, 1)))],
-            1,
-        ));
-        assert!(m.session_selection_ranges().is_none());
-        assert!(m.build_text_selections_map().is_empty());
     }
 
     #[test]
@@ -2936,7 +2899,7 @@ mod autotest_generated {
 
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM_MAX, Some(node)),
+            blk(DOM_MAX, node),
             vec![Selection::Range(range(point, point))],
             u64::MAX,
         ));
@@ -2945,7 +2908,10 @@ mod autotest_generated {
         let sel = map.get(&DOM_MAX).expect("keyed by the editing DomId");
         assert_eq!(sel.anchor.cursor, point);
         assert_eq!(sel.focus.cursor, point);
-        assert_eq!(sel.ranges_for_node(&node), &[range(point, point)]);
+        assert_eq!(
+            sel.ranges_for_block(&blk(DOM_MAX, node)),
+            &[range(point, point)]
+        );
     }
 
     // ------------------------------------------------------------------
@@ -2970,7 +2936,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_rewrites_surviving_node() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 2), DOM0, NodeId::new(3), 55);
+        m.initialize_editing(cursor(0, 2), blk(DOM0, NodeId::new(3)), 55);
         m.set_preedit("ok".to_string(), 0, 2);
 
         m.remap_node_ids(
@@ -2997,7 +2963,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_drops_session_when_node_unmounted() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 1), DOM0, NodeId::new(3), 55);
+        m.initialize_editing(cursor(0, 1), blk(DOM0, NodeId::new(3)), 55);
         m.set_preedit("gone".to_string(), 1, 4);
         m.display_list_dirty = false;
 
@@ -3019,7 +2985,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_with_empty_map_drops_session() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 0), DOM0, NodeId::ZERO, 1);
+        m.initialize_editing(cursor(0, 0), blk(DOM0, NodeId::ZERO), 1);
         m.remap_node_ids(DOM0, &NodeIdMap::default());
 
         assert!(
@@ -3031,7 +2997,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_leaves_other_doms_alone() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 0), DOM1, NodeId::new(3), 1);
+        m.initialize_editing(cursor(0, 0), blk(DOM1, NodeId::new(3)), 1);
 
         // A reconciliation of DOM0 says nothing about a cursor living in DOM1.
         m.remap_node_ids(DOM0, &NodeIdMap::default());
@@ -3039,24 +3005,6 @@ mod autotest_generated {
         assert!(m.has_active_editing());
         assert_eq!(m.get_editing_dom_id(), Some(DOM1));
         assert_eq!(m.get_editing_node_id(), Some(NodeId::new(3)));
-    }
-
-    #[test]
-    fn autotest_remap_of_detached_node_drops_session() {
-        let mut m = TextEditManager::new();
-        m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, None),
-            vec![Selection::Cursor(cursor(0, 0))],
-            1,
-        ));
-
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::ZERO, NodeId::ZERO)]));
-
-        assert!(
-            !m.has_active_editing(),
-            "a cursor with no IFC root is not an editing session"
-        );
-        assert!(m.display_list_dirty);
     }
 
     // ------------------------------------------------------------------
@@ -3081,7 +3029,7 @@ mod autotest_generated {
     /// tween both mid-flight, and both "last rendered" geometries recorded.
     fn manager_with_live_tween(node: NodeId) -> TextEditManager {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 0), DOM0, node, 7);
+        m.initialize_editing(cursor(0, 0), blk(DOM0, node), 7);
         m.tween.dom_id = Some(DOM0);
         m.tween.caret = Some(CaretTweenTrack {
             from: rect(10.0, 0.0),
@@ -3103,7 +3051,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_keeps_the_tween_anchored_to_a_moved_node() {
         let mut m = manager_with_live_tween(NodeId::new(3));
-        assert_eq!(m.tween.node, Some(dom_node(DOM0, Some(NodeId::new(3)))));
+        assert_eq!(m.tween.node, Some(blk(DOM0, NodeId::new(3))));
 
         // A sibling was inserted ahead of it: same node, new index.
         m.remap_node_ids(
@@ -3113,7 +3061,7 @@ mod autotest_generated {
 
         assert_eq!(
             m.tween.node,
-            Some(dom_node(DOM0, Some(NodeId::new(4)))),
+            Some(blk(DOM0, NodeId::new(4))),
             "the tween must follow the node it belongs to"
         );
         assert_eq!(m.get_editing_node_id(), Some(NodeId::new(4)));
@@ -3158,7 +3106,7 @@ mod autotest_generated {
         // anchor from the session so that state is not orphaned.
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(NodeId::new(2))),
+            blk(DOM0, NodeId::new(2)),
             vec![Selection::Cursor(cursor(0, 0))],
             1,
         ));
@@ -3177,12 +3125,12 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_leaves_the_tween_of_another_dom_alone() {
         let mut m = TextEditManager::new();
-        m.initialize_editing(cursor(0, 0), DOM1, NodeId::new(3), 7);
+        m.initialize_editing(cursor(0, 0), blk(DOM1, NodeId::new(3)), 7);
         m.tween.last_caret = Some(rect(12.0, 0.0));
 
         m.remap_node_ids(DOM0, &NodeIdMap::default());
 
-        assert_eq!(m.tween.node, Some(dom_node(DOM1, Some(NodeId::new(3)))));
+        assert_eq!(m.tween.node, Some(blk(DOM1, NodeId::new(3))));
         assert_eq!(m.tween.last_caret, Some(rect(12.0, 0.0)));
     }
 
@@ -3246,25 +3194,30 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     fn cross_block_selection(anchor: NodeId, focus: NodeId) -> azul_core::selection::TextSelection {
+        cross_block_selection_in(DOM0, anchor, focus)
+    }
+
+    fn cross_block_selection_in(
+        dom: DomId,
+        anchor: NodeId,
+        focus: NodeId,
+    ) -> azul_core::selection::TextSelection {
         use azul_core::selection::{SelectionAnchor, SelectionFocus, TextSelection};
         let mut affected = alloc::collections::BTreeMap::new();
-        affected.insert(anchor, vec![range(cursor(0, 0), cursor(0, 1))]);
-        affected.insert(focus, vec![range(cursor(0, 0), cursor(0, 2))]);
+        affected.insert(blk(dom, anchor), vec![range(cursor(0, 0), cursor(0, 1))]);
+        affected.insert(blk(dom, focus), vec![range(cursor(0, 0), cursor(0, 2))]);
         TextSelection {
-            dom_id: DOM0,
+            dom_id: dom,
             remote_ranges: alloc::collections::BTreeMap::new(),
             anchor: SelectionAnchor {
-                ifc_root_node_id: anchor,
+                block: blk(dom, anchor),
                 cursor: cursor(0, 0),
-                char_bounds: LogicalRect::zero(),
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
             },
             focus: SelectionFocus {
-                ifc_root_node_id: focus,
+                block: blk(dom, focus),
                 cursor: cursor(0, 2),
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
             },
-            affected_nodes: affected,
+            affected_blocks: affected,
             is_forward: true,
         }
     }
@@ -3283,12 +3236,12 @@ mod autotest_generated {
         );
 
         let cb = m.get_cross_block_selection().expect("both roots survived");
-        assert_eq!(cb.anchor.ifc_root_node_id, NodeId::new(3));
-        assert_eq!(cb.focus.ifc_root_node_id, NodeId::new(6));
-        assert_eq!(cb.ranges_for_node(&NodeId::new(3)).len(), 1);
-        assert_eq!(cb.ranges_for_node(&NodeId::new(6)).len(), 1);
+        assert_eq!(cb.anchor.block, blk(DOM0, NodeId::new(3)));
+        assert_eq!(cb.focus.block, blk(DOM0, NodeId::new(6)));
+        assert_eq!(cb.ranges_for_block(&blk(DOM0, NodeId::new(3))).len(), 1);
+        assert_eq!(cb.ranges_for_block(&blk(DOM0, NodeId::new(6))).len(), 1);
         assert!(
-            cb.ranges_for_node(&NodeId::new(2)).is_empty(),
+            cb.ranges_for_block(&blk(DOM0, NodeId::new(2))).is_empty(),
             "the old index must not still paint"
         );
     }
@@ -3312,8 +3265,7 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_leaves_a_cross_block_selection_of_another_dom_alone() {
         let mut m = TextEditManager::new();
-        let mut sel = cross_block_selection(NodeId::new(2), NodeId::new(5));
-        sel.dom_id = DOM1;
+        let sel = cross_block_selection_in(DOM1, NodeId::new(2), NodeId::new(5));
         m.set_cross_block_selection(sel);
 
         m.remap_node_ids(DOM0, &NodeIdMap::default());
@@ -3321,8 +3273,8 @@ mod autotest_generated {
         let cb = m
             .get_cross_block_selection()
             .expect("other DOM is untouched");
-        assert_eq!(cb.anchor.ifc_root_node_id, NodeId::new(2));
-        assert_eq!(cb.focus.ifc_root_node_id, NodeId::new(5));
+        assert_eq!(cb.anchor.block, blk(DOM1, NodeId::new(2)));
+        assert_eq!(cb.focus.block, blk(DOM1, NodeId::new(5)));
     }
 
     #[test]

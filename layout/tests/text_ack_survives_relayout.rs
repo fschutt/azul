@@ -105,7 +105,7 @@ fn type_at_start(lw: &mut LayoutWindow, s: &str) {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(HOST)),
     }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,

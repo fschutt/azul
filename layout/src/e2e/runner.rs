@@ -2794,19 +2794,11 @@ impl Runner {
                 node_id,
                 cursor,
             } => {
-                use azul_core::selection::MultiCursorState;
-                let lw = &mut self.layout_window;
-                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                    let _ = mc.add_cursor(*cursor);
-                } else {
-                    let dom_node_id = DomNodeId {
-                        dom: *dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                    };
-                    lw.text_edit_manager.multi_cursor =
-                        Some(MultiCursorState::new_with_cursor(*cursor, dom_node_id, 0));
-                }
-                lw.text_edit_manager.mark_dirty();
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.add_app_cursor(node, *cursor);
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
             CallbackChange::AddSelectionRange {
@@ -2814,20 +2806,11 @@ impl Runner {
                 node_id,
                 range,
             } => {
-                use azul_core::selection::MultiCursorState;
-                let lw = &mut self.layout_window;
-                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                    let _ = mc.add_selection(*range);
-                } else {
-                    let dom_node_id = DomNodeId {
-                        dom: *dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                    };
-                    let mut mc = MultiCursorState::new_with_cursor(range.start, dom_node_id, 0);
-                    mc.set_single_range(*range);
-                    lw.text_edit_manager.multi_cursor = Some(mc);
-                }
-                lw.text_edit_manager.mark_dirty();
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.add_app_selection_range(node, *range);
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
             CallbackChange::RemoveSelectionById { selection_id } => {
@@ -4523,12 +4506,14 @@ mod tests {
             .layout_window
             .focus_manager
             .set_focused_node(Some(editor_node()));
-        runner.layout_window.text_edit_manager.initialize_editing(
-            cursor(0),
-            DomId::ROOT_ID,
-            NodeId::new(EDITOR),
-            0,
-        );
+        let block = runner
+            .layout_window
+            .text_block_of(editor_node())
+            .expect("the editor is a text block");
+        runner
+            .layout_window
+            .text_edit_manager
+            .initialize_editing(cursor(0), block, 0);
         runner
             .layout_window
             .text_edit_manager

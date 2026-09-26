@@ -72,20 +72,19 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
     let mut dbg = Some(Vec::new());
     lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
         .unwrap();
-    lw.text_edit_manager
-        .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT_NODE), 0);
+    lw.start_editing_at(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT_NODE), 0);
     lw.text_edit_manager.blink.set_visibility(true);
     lw.focus_manager.set_focused_node(Some(text_dom_node_id()));
     lw
 }
 
 fn move_caret(lw: &mut LayoutWindow, byte: u32) {
-    lw.text_edit_manager.multi_cursor =
-        Some(azul_core::selection::MultiCursorState::new_with_cursor(
-            cursor(byte),
-            text_dom_node_id(),
-            0,
-        ));
+    let block = lw
+        .text_block_of(text_dom_node_id())
+        .expect("the editor's text is in a text block");
+    lw.text_edit_manager.multi_cursor = Some(
+        azul_core::selection::MultiCursorState::new_with_cursor(cursor(byte), block, 0),
+    );
 }
 
 fn rebuild(lw: &mut LayoutWindow) {

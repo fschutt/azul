@@ -111,7 +111,7 @@ impl Harness {
         self.lw
             .focus_manager
             .set_focused_node(Some(dnid(0, CONTAINER)));
-        self.lw.text_edit_manager.initialize_editing(
+        self.lw.start_editing_at(
             cursor,
             DomId::ROOT_ID,
             NodeId::new(LABEL_P),
