@@ -84,3 +84,31 @@ show a 12 px bar at the window's right edge - run the dll suite.
    published size.
 4. Theoretical blit risk: the move-blit could drag bar pixels over a mover
    moving by a different amount.
+
+## Follow-up: branch `wt/viewport-scroll-frame` (on top of 358f07ef1), UNCOMPILED
+
+The first agent was stopped by the harness; a second one continued from
+358f07ef1. Six RED/fix pairs (only `rustfmt --check` was run as a parse check):
+
+```
+328a10b93 test(scroll): the page moves when the viewport scrolls
+2e2960992 fix(scroll): the viewport scrolls the page as a scroll frame of its own
+1d575e51b test(scroll): a classic thumb stops above its bottom arrow button
+77db3be30 fix(scroll): a classic bar's thumb is moved along the track between its buttons
+428c620dc test(scroll): a bar inside the scrolled page is found where it is painted
+e4df7c059 fix(scroll): a bar is hit-tested where its scrolled ancestors paint it
+edd167d82 test(cpurender): GPU value damage inside a scrolled frame lands where it is painted
+d5489dc38 fix(cpurender): GPU value damage is in viewport space
+a8d8b29d7 test(cpurender): a scroll frame that only resized damages nothing by itself
+cd0410c0f fix(cpurender): a scroll frame that only resized paints nothing by itself
+5078b840f test(cpurender): a nested scroll frame keeps the fast path while nothing around it is scrolled
+5f7f58c78 fix(cpurender): a nested scroll frame keeps the fast path while nothing around it is scrolled
+```
+
+Expected REDs (derived): 328a10b93 (`layout/tests/viewport_scroll_frame.rs`, 1000px page in 400x300 scrolled 150): red block painted y 200 not 50, pixel (200,100) blue, hit test NodeId 1 not 2, translucent layer pixel white not red, `collect_scroll_shifts` [], wheel target None not (ROOT,0), `scroll_node_into_view` offset 0 not 700, caret reveal nudges 5px (caret stays ~895); three guards pass today. 1d575e51b: thumb ends y=206 vs bottom button 188 (two gpu_state tests pinned 68.0 -> 36.0). 428c620dc: `hit_test_scrollbars((194,75))` None instead of NodeId 2. edd167d82: compile failure (6th argument). a8d8b29d7: damage [(0,0) 440x300] instead of empty. 5078b840f: nested frame ineligible for the fast path.
+
+Fixes: `is_viewport_scroll_frame` (scrollbar.rs:56) gives the root a scroll id (window.rs:12232); display_list pushes/pops a PushScrollFrame for the page (clip = `canvas_rect`, no PushClip, after the root's own background); compositor paints a whole-root-layer frame in place (layers inside inherit its offset); headless makes the root a wheel target; scroll_into_view applies the root overflow rule; caret reveal uses the window rect; gpu_state bars read their own axis's reservation; `register_scroll_nodes` publishes scroll ancestors and `calculate_scrollbar_states` moves each track by them; `gpu_value_damage` takes scroll offsets; a frame whose clip only resized is skipped by the damage diff (else every resize of an overflowing page was a full repaint); a nested frame keeps the scroll blit while its on-screen clip equals its DL clip.
+
+Least sure to compile: `.filter(|(_, depth)| ...)` over `&&(u64, usize)` in compositor.rs; `scrollport_overflow` closure inference in headless.rs; `self.ancestor_scroll_offset` called in a closure while iterating `self.states`.
+
+Open design choices: `position: fixed` descendants now scroll with the page; the root's own background/border stay put; scroll boxes lose the CPU blit while the page is scrolled; scrollbars inside VirtualView child DOMs still hit-tested in child-local coords; `scrollbar-width: thin` / forced overlay can disagree on button size. Run the dll headless + e2e suites: every page taller than its window now has a frame in its DL.
