@@ -1078,6 +1078,38 @@ impl GestureAndDragManager {
         true
     }
 
+    /// Record that the pointer is STILL down where it last was, at
+    /// `timestamp`: the current session's last sample, repeated.
+    ///
+    /// A motionless hold produces no input events, so its session never grows
+    /// past the press, `duration_ms` stays 0 and `detect_long_press` cannot
+    /// fire for it however long the button is held. This is the sample
+    /// [`Self::record_input_sample`] asks a system timer to provide; the shell
+    /// records one when the long-press wake-up runs, right before the pass
+    /// that evaluates the gesture.
+    ///
+    /// Returns whether a sample was recorded: `false` without a session, or
+    /// once its button was released.
+    pub fn record_hold_sample(&mut self, timestamp: CoreInstant) -> bool {
+        let Some(session) = self.last_primary_session_mut() else {
+            return false;
+        };
+        if session.ended {
+            return false;
+        }
+        let Some(mut sample) = session.last_sample().cloned() else {
+            return false;
+        };
+        sample.timestamp = timestamp;
+        sample.event_id = allocate_event_id();
+        if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
+            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
+            session.samples.drain(0..remove_count);
+        }
+        session.samples.push(sample);
+        true
+    }
+
     /// End the current input session (mouse button released)
     ///
     /// Call this when receiving mouse button up event.

@@ -13416,6 +13416,21 @@ pub trait PlatformWindow {
             }
         }
 
+        if long_press_due {
+            // A motionless hold produces no input events: its session still
+            // holds the press alone, and `detect_long_press` would measure a
+            // hold of 0 ms however long the button has been down. The pointer
+            // is where it was - say so, on the clock `record_input_sample`
+            // stamps every other sample of the session with.
+            #[cfg(feature = "std")]
+            let now = azul_core::task::Instant::from(std::time::Instant::now());
+            #[cfg(not(feature = "std"))]
+            let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.gesture_drag_manager.record_hold_sample(now);
+            }
+        }
+
         if capability_pump_fired || long_press_due {
             let r = self.process_window_events(0);
             changes_result = changes_result.max(r);
