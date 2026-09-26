@@ -1119,11 +1119,26 @@ impl X11Window {
                     std::ptr::null_mut(),
                 )
             };
+            // This core lookup answers in the LOCALE's encoding: Latin-1
+            // bytes under a non-UTF-8 locale (U+FFFD once decoded), nothing
+            // at all for a character the locale cannot spell. The keysym names
+            // the character either way, so off Linux (XQuartz on macOS, where
+            // an app is often started without a UTF-8 LANG) or without
+            // libxkbcommon it is asked before the text is given up on. On
+            // Linux, where libxkbcommon is required, nothing changes.
+            let keysym_fallback = cfg!(not(target_os = "linux")) || self.xkb.is_none();
             let chars = if count > 0 {
                 // Use count to slice the buffer rather than CStr::from_ptr, which would
                 // read past the buffer if all 32 bytes are filled with no null terminator.
                 let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
-                String::from_utf8_lossy(&bytes).into_owned()
+                match String::from_utf8(bytes) {
+                    Ok(text) => text,
+                    Err(e) if keysym_fallback => keysym_to_text(keysym)
+                        .unwrap_or_else(|| String::from_utf8_lossy(e.as_bytes()).into_owned()),
+                    Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                }
+            } else if keysym_fallback {
+                keysym_to_text(keysym).unwrap_or_default()
             } else {
                 String::new()
             };
@@ -1779,6 +1794,35 @@ pub(super) fn apply_key_state_change(
 }
 
 // Keycode Conversion
+
+/// The text a keysym stands for, read from the keysym itself: the fallback
+/// `handle_keyboard` uses when the core `XLookupString` could not spell the
+/// character in the current locale and there is no libxkbcommon to ask.
+///
+/// Covers the ranges whose encoding makes a keysym self-describing (X11
+/// protocol, appendix A): printable ASCII and Latin-1 ARE their code points,
+/// `0x0100_0000 | U` is Unicode `U`, and the keypad's printable keys (Num Lock
+/// on) name their characters. The pre-Unicode legacy blocks (Latin-2,
+/// Cyrillic, Greek, ...) need xkbcommon's tables and answer `None`, as do the
+/// function, modifier and dead keys, which type nothing.
+pub(super) fn keysym_to_text(keysym: KeySym) -> Option<String> {
+    let keysym = u32::try_from(keysym).ok()?;
+    let code_point = match keysym {
+        0x0020..=0x007E | 0x00A0..=0x00FF => keysym,
+        0x0100_0100..=0x0110_FFFF => keysym - 0x0100_0000,
+        0xFF80 => u32::from(b' '),                              // KP_Space
+        0xFFAA => u32::from(b'*'),                              // KP_Multiply
+        0xFFAB => u32::from(b'+'),                              // KP_Add
+        0xFFAC => u32::from(b','),                              // KP_Separator
+        0xFFAD => u32::from(b'-'),                              // KP_Subtract
+        0xFFAE => u32::from(b'.'),                              // KP_Decimal
+        0xFFAF => u32::from(b'/'),                              // KP_Divide
+        0xFFB0..=0xFFB9 => u32::from(b'0') + (keysym - 0xFFB0), // KP_0 ..= KP_9
+        0xFFBD => u32::from(b'='),                              // KP_Equal
+        _ => return None,
+    };
+    char::from_u32(code_point).map(String::from)
+}
 
 pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
     // This is a partial mapping based on X11/keysymdef.h
@@ -2439,6 +2483,71 @@ mod tests {
     fn an_unknown_keysym_is_none_not_escape() {
         assert_eq!(vk(0), None);
         assert_eq!(vk(0x0100_0000), None);
+    }
+
+    fn text(keysym: u32) -> Option<String> {
+        keysym_to_text(keysym as KeySym)
+    }
+
+    /// The keysym fallback for typed text without libxkbcommon (XQuartz):
+    /// under a Latin-1 locale `XLookupString` hands back the single byte 0xE4
+    /// for `ä`, which decodes to U+FFFD; the keysym is 0xE4, i.e. U+00E4.
+    /// ASCII and Latin-1 keysyms are their own code points.
+    #[test]
+    fn latin1_keysyms_are_their_own_characters() {
+        assert_eq!(text(0x61).as_deref(), Some("a")); // XK_a
+        assert_eq!(text(0x41).as_deref(), Some("A")); // XK_A
+        assert_eq!(text(0x20).as_deref(), Some(" ")); // XK_space
+        assert_eq!(text(0x7E).as_deref(), Some("~")); // XK_asciitilde
+        assert_eq!(text(0xE4).as_deref(), Some("ä")); // XK_adiaeresis
+        assert_eq!(text(0xDF).as_deref(), Some("ß")); // XK_ssharp
+        assert_eq!(text(0xA7).as_deref(), Some("§")); // XK_section
+    }
+
+    /// `0x0100_0000 | U` is Unicode `U` by definition - how a keymap spells
+    /// anything outside Latin-1 (the euro sign, Cyrillic, CJK) - and a
+    /// surrogate is not a character even there.
+    #[test]
+    fn unicode_keysyms_carry_their_code_point() {
+        assert_eq!(text(0x0100_20AC).as_deref(), Some("€"));
+        assert_eq!(text(0x0100_0429).as_deref(), Some("Щ"));
+        assert_eq!(text(0x0100_4E2D).as_deref(), Some("中"));
+        assert_eq!(text(0x0100_D800), None);
+    }
+
+    /// Num Lock on: the keypad types what is printed on it.
+    #[test]
+    fn the_keypad_types_its_characters() {
+        assert_eq!(text(0xFFB0).as_deref(), Some("0")); // XK_KP_0
+        assert_eq!(text(0xFFB7).as_deref(), Some("7")); // XK_KP_7
+        assert_eq!(text(0xFFAE).as_deref(), Some(".")); // XK_KP_Decimal
+        assert_eq!(text(0xFFAB).as_deref(), Some("+")); // XK_KP_Add
+        assert_eq!(text(0xFFAF).as_deref(), Some("/")); // XK_KP_Divide
+        assert_eq!(text(0xFFBD).as_deref(), Some("=")); // XK_KP_Equal
+    }
+
+    /// Keys that type nothing must not type something in the fallback:
+    /// editing and function keys (their action comes from the
+    /// VirtualKeyCode), modifiers, a dead key (a compose PREFIX, not text), a
+    /// Num-Lock-off keypad key, DEL, and a legacy block this table does not
+    /// carry.
+    #[test]
+    fn keys_that_type_nothing_stay_silent() {
+        for keysym in [
+            0xFF0D, // XK_Return
+            0xFF08, // XK_BackSpace
+            0xFF1B, // XK_Escape
+            0xFF09, // XK_Tab
+            0xFFBE, // XK_F1
+            0xFFE1, // XK_Shift_L
+            0xFE51, // XK_dead_acute
+            0xFF95, // XK_KP_Home
+            0x7F,   // DEL
+            0x06C1, // XK_Cyrillic_a (legacy block)
+            0,      // NoSymbol
+        ] {
+            assert_eq!(text(keysym), None, "keysym {keysym:#x}");
+        }
     }
 
     fn masks(
