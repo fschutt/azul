@@ -2398,3 +2398,57 @@ fn escape_in_the_parent_closes_the_picker_without_blurring_the_swatch() {
     );
     keys_up(&mut parent, "t.escape.up");
 }
+
+/// P0-2, REPORT 2 ON X11: the picker is open, but the popup is an
+/// override-redirect window that never gets the input focus, so every key
+/// lands in the PARENT - which ran its own default (spatial navigation from
+/// the swatch, onto the Slider hidden under the popup) while the plane the
+/// popup rings did nothing. The parent must hand a key it receives while a
+/// focus-taking popup is open to that popup, keep its own focus on the
+/// invoker, and not ring the invoker while the popup holds the keyboard.
+/// Backend-neutral: the headless parent stays the active window, exactly as
+/// an X11 parent does.
+#[test]
+fn a_key_the_parent_receives_while_its_picker_is_open_drives_the_picker() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut parent = ringed_picker_parent(app_data.clone());
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    let swatch = node_with_class(&parent, "native_color_input");
+    assert_eq!(focused(&parent), Some(swatch), "premise: Tab focused the swatch");
+    key_down(&mut parent, VirtualKeyCode::Space, &[], "t.space");
+    keys_up(&mut parent, "t.space.up");
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    ring_on(&mut popup);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    assert_eq!(
+        focused(&popup),
+        Some(node_with_class(&popup, "color_picker_plane")),
+        "premise: the popup autofocused its plane"
+    );
+
+    // Right arrives at the PARENT; the popup's next pass is its wake-up.
+    let s0 = picker_hsv(&popup).s;
+    key_down(&mut parent, VirtualKeyCode::Right, &[], "t.right");
+    let _ = popup.process_window_events(0);
+    keys_up(&mut parent, "t.right.up");
+    let _ = popup.process_window_events(0);
+    let s1 = picker_hsv(&popup).s;
+    assert!(
+        (s1 - s0 - 0.01).abs() < 0.005,
+        "a Right the parent received moved the picker's saturation by 1%: {s0} -> {s1}"
+    );
+    assert_eq!(
+        focused(&parent),
+        Some(swatch),
+        "the parent's own focus stays on the invoker"
+    );
+    assert_eq!(
+        focus_rings(&parent),
+        0,
+        "the invoker is not ringed while its popup holds the keyboard"
+    );
+}
