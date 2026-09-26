@@ -369,3 +369,58 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
     }
     assert!(bad.is_empty(), "illegible demo titles:\n  {}", bad.join("\n  "));
 }
+
+/// The demo paints from the desktop palette DIRECTLY: every colour it names
+/// is a `system:` keyword in BOTH themes - no light value with a
+/// `@media (prefers-color-scheme: dark)` patch over it - and its page text
+/// is the platform's UI face (`font-family: system:ui`). A light palette
+/// with dark twins follows the theme, but not the platform: on a desktop
+/// with its own light palette (or accent) the page kept the demo's greys.
+#[test]
+fn the_demo_paints_from_the_system_palette_directly() {
+    let styles: Vec<String> = string_literals(DEMO)
+        .into_iter()
+        .filter(|l| l.contains(':') && l.contains(';'))
+        .collect();
+
+    let mut fixed = Vec::new();
+    let mut twins = Vec::new();
+    for s in &styles {
+        let head = || s.chars().take(60).collect::<String>();
+        for rule in Css::parse_inline(s).rules.as_ref() {
+            if rule
+                .conditions
+                .as_ref()
+                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+            {
+                twins.push(head());
+            }
+            for d in rule.declarations.as_ref() {
+                let CssDeclaration::Static(p) = d else {
+                    continue;
+                };
+                if paints_a_colour(p.get_type()) && !follows_the_theme(p) {
+                    fixed.push(format!("{:?} in {:?}", p.get_type(), head()));
+                }
+            }
+        }
+    }
+    assert!(
+        fixed.is_empty(),
+        "{} fixed colour(s) where the demo should name a `system:` colour:\n  {}",
+        fixed.len(),
+        fixed.join("\n  ")
+    );
+    assert!(
+        twins.is_empty(),
+        "{} dark-theme patch(es) - a `system:` colour needs none:\n  {}",
+        twins.len(),
+        twins.join("\n  ")
+    );
+
+    let body = page_frame().body;
+    assert!(
+        body.split(';').any(|d| d.trim() == "font-family: system:ui"),
+        "the page text is the platform's UI face, got {body:?}"
+    );
+}
