@@ -16753,23 +16753,33 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetTextSelection(selection) => {
-                // The text block the node's text is in; its offsets become
-                // carets by the converter every byte-offset protocol uses.
-                let target = self.text_target_at_node(DomNodeId {
-                    dom: dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                // The selection is in the text block the node names (its own
+                // text's, or - a text field's host - the first one inside it),
+                // with both ends the screen reader set: anchor
+                // `selection_start`, focus `selection_end`. It opens the
+                // session there, as a click would, whatever session was open
+                // before: its offsets index THIS block, so writing them into
+                // another block's session put the caret at an unrelated place,
+                // and without a session the action did nothing. Text a
+                // selection may not cover (`user-select`) is refused, as it is
+                // for the mouse.
+                let target = self
+                    .text_block_named_by(DomNodeId {
+                        dom: dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                    })
+                    .and_then(|block| self.text_target(block))
+                    .filter(|t| t.selectable);
+                let selected = target.and_then(|t| {
+                    let range = SelectionRange {
+                        start: t.caret_at_byte(selection.selection_start)?,
+                        end: t.caret_at_byte(selection.selection_end)?,
+                    };
+                    Some((t.block, range))
                 });
-                let start = target
-                    .as_ref()
-                    .and_then(|t| t.caret_at_byte(selection.selection_start));
-                if let Some(start) = start {
-                    // A collapsed selection (start == end) and a ranged one
-                    // both place the cursor at the selection start.
-                    if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                        mc.set_single_cursor(start);
-                    }
+                if let Some((block, range)) = selected {
+                    self.open_session(block, range);
                 }
-                // No laid-out text for the node: silently ignored.
             }
 
             // Tooltip actions
