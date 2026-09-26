@@ -159,6 +159,16 @@ impl ObjcLib {
         f(target, sel, arg)
     }}
 
+    /// `[target respondsToSelector:sel]`. Sent to a CLASS it answers for
+    /// the class's own methods - which is what guards a class-method send
+    /// that older AppKit releases do not implement (an unknown selector is
+    /// an uncaught Objective-C exception, not a nil).
+    #[inline]
+    unsafe fn responds_to(&self, target: Id, sel: Sel) -> bool { unsafe {
+        let f: unsafe extern "C" fn(Id, Sel, Sel) -> i8 = core::mem::transmute(self.msg_send);
+        f(target, self.sel(b"respondsToSelector:\0"), sel) != 0
+    }}
+
     /// `[color getRed:&r green:&g blue:&b alpha:&a]` (returns void, 4 out-pointers)
     #[inline]
     unsafe fn send_get_rgba(
@@ -333,6 +343,31 @@ pub(crate) fn discover() -> SystemStyle {
         q!(link, b"linkColor\0");
         q!(separator, b"separatorColor\0");
         q!(grid, b"gridColor\0");
+
+        // The remaining semantic slots. Most arrived with Mojave's dark
+        // appearance (10.14), so each send is guarded: where AppKit does not
+        // know the colour the slot stays as it was, and a `system:` keyword
+        // naming it takes its own default for the theme.
+        macro_rules! q_if_known {
+            ($field:ident, $sel:expr) => {{
+                let sel = lib.sel($sel);
+                if lib.responds_to(nsc, sel) {
+                    if let Some(c) = extract_color(&lib, lib.send_id(nsc, sel)) {
+                        style.colors.$field = OptionColorU::Some(c);
+                    }
+                }
+            }};
+        }
+
+        q_if_known!(accent_text, b"alternateSelectedControlTextColor\0");
+        q_if_known!(under_page_background, b"underPageBackgroundColor\0");
+        q_if_known!(selection_text_inactive, b"unemphasizedSelectedTextColor\0");
+        q_if_known!(find_highlight, b"findHighlightColor\0");
+        q_if_known!(control_background, b"controlBackgroundColor\0");
+        q_if_known!(placeholder_text, b"placeholderTextColor\0");
+        q_if_known!(text_selection_background, b"selectedTextBackgroundColor\0");
+        // Sidebars are a vibrancy MATERIAL on macOS, not a colour AppKit
+        // publishes: `sidebar_background` / `sidebar_selection` stay unset.
 
         // Put back whatever was current, so this probe cannot leak an
         // appearance into unrelated AppKit drawing on this thread.

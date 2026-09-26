@@ -216,6 +216,22 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         style.colors.button_face = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 15));
         style.colors.button_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 18));
         style.colors.disabled_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
+        // The rest of the semantic slots that have a classic counterpart.
+        // Outside high contrast `adopt_theme_palette` below replaces the
+        // palette wholesale (GetSysColor stays light in dark mode); under
+        // high contrast these ARE the user's colours.
+        // COLOR_WINDOW = 5 (edit fields), COLOR_HIGHLIGHT = 13,
+        // COLOR_HIGHLIGHTTEXT = 14, COLOR_BTNSHADOW = 16, COLOR_GRAYTEXT = 17,
+        // COLOR_HOTLIGHT = 26 (hyperlinks)
+        style.colors.control_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 5));
+        style.colors.placeholder_text =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
+        style.colors.text_selection_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 13));
+        style.colors.accent_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 14));
+        style.colors.separator = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 16));
+        style.colors.link = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 26));
 
         // ── Text rendering hints ─────────────────────────────────────
         {

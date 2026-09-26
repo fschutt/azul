@@ -1778,12 +1778,16 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     }
     if let Some(c) = read_kde_color("Colors:View", "BackgroundNormal") {
         style.colors.background = OptionColorU::Some(c);
+        // Colors:View is also the group every editable control is drawn in.
+        style.colors.control_background = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundNormal") {
         style.colors.text = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundInactive") {
         style.colors.secondary_text = OptionColorU::Some(c);
+        // Breeze greys a field's prompt with the view's inactive foreground.
+        style.colors.placeholder_text = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundLink") {
         style.colors.link = OptionColorU::Some(c);
@@ -1800,6 +1804,8 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     if let Some(c) = read_kde_color("Colors:Selection", "BackgroundNormal") {
         style.colors.accent = OptionColorU::Some(c);
         style.colors.selection_background = OptionColorU::Some(c);
+        // KDE has one selection group for items and text alike.
+        style.colors.text_selection_background = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:Selection", "ForegroundNormal") {
         style.colors.accent_text = OptionColorU::Some(c);
