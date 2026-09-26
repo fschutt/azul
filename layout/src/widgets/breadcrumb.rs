@@ -42,7 +42,10 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static BREADCRUMB_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-breadcrumb"))];
@@ -158,6 +161,9 @@ static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LINK_COLOR,
     })),
+    // Dark theme: the desktop's link colour (the Bootstrap blue is 3:1 on a
+    // dark window and matches nothing around it).
+    system_palette::DARK_LINK,
 ];
 
 /// Current (last) crumb style: muted dark, bold, not clickable.
@@ -168,6 +174,8 @@ static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: CURRENT_COLOR,
     })),
+    // Dark theme: the label colour - #495057 on a dark window is dark-on-dark.
+    system_palette::DARK_TEXT,
 ];
 
 /// Separator-glyph style: grey, with a small horizontal gap on each side.
@@ -183,6 +191,7 @@ static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: SEPARATOR_COLOR,
     })),
+    system_palette::DARK_SECONDARY_TEXT,
 ];
 
 impl Breadcrumb {

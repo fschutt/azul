@@ -49,7 +49,7 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{callbacks::CallbackInfo, widgets::themes::system_palette};
 
 static STEPPER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-stepper"))];
 static STEPPER_STEP_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -215,6 +215,16 @@ impl ConnFill {
             Self::Hidden => TRANSPARENT_BG,
         }
     }
+
+    /// The fill in the dark theme: the accent and the hidden ends are the same
+    /// in both; the muted line takes the desktop's quiet neutral highlight.
+    const fn dark_bg(self) -> StyleBackgroundContentVec {
+        match self {
+            Self::Accent => ACCENT_BG,
+            Self::Muted => system_palette::SELECTION_BACKGROUND_INACTIVE,
+            Self::Hidden => TRANSPARENT_BG,
+        }
+    }
 }
 
 /// Row container: a horizontal flex row whose steps spread evenly.
@@ -344,6 +354,63 @@ fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
     ])
+}
+
+/// A style vec with the dark twins appended after its (unconditional) light
+/// face. The builders above stay the light face alone; `dom()` renders with
+/// this.
+fn with_dark_twins(
+    light: CssPropertyWithConditionsVec,
+    twins: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    let mut v = light.into_library_owned_vec();
+    v.extend_from_slice(twins);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Dark twins of [`circle_style`]: a reached circle is the accent in both
+/// themes; an upcoming one takes the desktop's quiet neutral highlight
+/// (#e9ecef on a dark window is a light island) and its secondary label
+/// colour.
+fn circle_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+    if reached {
+        Vec::new()
+    } else {
+        vec![
+            system_palette::DARK_SELECTION_BACKGROUND_INACTIVE,
+            system_palette::DARK_SECONDARY_TEXT,
+        ]
+    }
+}
+
+/// Dark twins of [`connector_style`]: only the muted line changes.
+fn connector_dark_twins(fill: ConnFill) -> Vec<CssPropertyWithConditions> {
+    match fill {
+        ConnFill::Muted => vec![system_palette::DARK_SELECTION_BACKGROUND_INACTIVE],
+        ConnFill::Accent | ConnFill::Hidden => Vec::new(),
+    }
+}
+
+/// Dark twins of [`label_style`]: the desktop's label colour for a reached
+/// step (#212529 on a dark window is dark-on-dark), its secondary one for
+/// an upcoming step.
+fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+    vec![if reached {
+        system_palette::DARK_TEXT
+    } else {
+        system_palette::DARK_SECONDARY_TEXT
+    }]
+}
+
+/// Whether the window renders dark - the cascade's own rule
+/// (`LayoutWindow::dynamic_selector_context`): `AZ_THEME` pins it, else the
+/// window's theme. The live restyle writes plain overrides, which win over
+/// the dark twins, so it has to pick the theme's colours itself.
+fn renders_dark(info: &CallbackInfo) -> bool {
+    azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
+        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
+        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
+    )
 }
 
 /// Connector fill for the left half-line of step `i` (the gap entering circle `i`).
@@ -487,17 +554,26 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(connector_style(conn_left_fill(i, current))),
+                            .with_css_props(with_dark_twins(
+                                connector_style(conn_left_fill(i, current)),
+                                &connector_dark_twins(conn_left_fill(i, current)),
+                            )),
                         crate::widgets::widget_p_with_text(AzString::from(
                             format!("{}", i + 1).as_str(),
                         ))
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CIRCLE_CLASS))
-                        .with_css_props(circle_style(reached)),
+                        .with_css_props(with_dark_twins(
+                            circle_style(reached),
+                            &circle_dark_twins(reached),
+                        )),
                         Dom::create_div()
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(connector_style(conn_right_fill(i, last, current))),
+                            .with_css_props(with_dark_twins(
+                                connector_style(conn_right_fill(i, last, current)),
+                                &connector_dark_twins(conn_right_fill(i, last, current)),
+                            )),
                     ]
                     .into(),
                 );
@@ -538,7 +614,10 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))
-                            .with_css_props(label_style(reached)),
+                            .with_css_props(with_dark_twins(
+                                label_style(reached),
+                                &label_dark_twins(reached),
+                            )),
                     ]
                     .into(),
                 );
@@ -615,7 +694,10 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
 
     // Live-restyle every cell: circle (reached → accent fill + white number),
-    // its two connector half-lines, and its label colour.
+    // its two connector half-lines, and its label colour - in the theme the
+    // window renders in (the writes are plain overrides and beat the twins).
+    let dark = renders_dark(&info);
+    let fill_bg = |f: ConnFill| if dark { f.dark_bg() } else { f.bg() };
     for (i, cell) in cells.iter().enumerate() {
         let reached = i <= clicked_idx;
 
@@ -630,6 +712,11 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         if let Some(circle) = circle {
             let (bg, text) = if reached {
                 (ACCENT_BG, WHITE)
+            } else if dark {
+                (
+                    system_palette::SELECTION_BACKGROUND_INACTIVE,
+                    system_palette::SECONDARY_TEXT,
+                )
             } else {
                 (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
             };
@@ -642,20 +729,25 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         if let Some(cl) = conn_left {
             info.set_css_property(
                 cl,
-                CssProperty::const_background_content(conn_left_fill(i, clicked_idx).bg()),
+                CssProperty::const_background_content(fill_bg(conn_left_fill(i, clicked_idx))),
             );
         }
         if let Some(cr) = conn_right {
             info.set_css_property(
                 cr,
-                CssProperty::const_background_content(conn_right_fill(i, last, clicked_idx).bg()),
+                CssProperty::const_background_content(fill_bg(conn_right_fill(
+                    i,
+                    last,
+                    clicked_idx,
+                ))),
             );
         }
         if let Some(label) = label {
-            let text = if reached {
-                DARK_TEXT_COLOR
-            } else {
-                MUTED_TEXT_COLOR
+            let text = match (reached, dark) {
+                (true, false) => DARK_TEXT_COLOR,
+                (false, false) => MUTED_TEXT_COLOR,
+                (true, true) => system_palette::TEXT,
+                (false, true) => system_palette::SECONDARY_TEXT,
             };
             info.set_css_property(
                 label,
@@ -985,13 +1077,48 @@ mod autotest_generated {
         }
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The UNCONDITIONAL properties of a rendered node's *inline* style - its
+    /// light face - in declaration order. The dark twins `dom()` appends after
+    /// them are pinned by `dom_appends_the_dark_twins_after_the_light_face`.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
         node.root
             .style
             .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
+    }
+
+    /// Every inline declaration of a rendered node, conditions included.
+    fn inline_declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dom_appends_the_dark_twins_after_the_light_face() {
+        let dom = Stepper::create(n_labels(3)).with_current_step(1).dom();
+        for (i, cell) in dom.children.as_ref().iter().enumerate() {
+            let reached = i <= 1;
+            let circle = inline_declarations(circle_of(row_of(cell)));
+            let label = inline_declarations(label_of(cell));
+            assert_eq!(
+                &circle[circle_style(reached).as_ref().len()..],
+                circle_dark_twins(reached).as_slice(),
+                "circle {i}"
+            );
+            assert_eq!(
+                &label[label_style(reached).as_ref().len()..],
+                label_dark_twins(reached).as_slice(),
+                "label {i}"
+            );
+        }
     }
 
     /// The true recursive descendant count of a `Dom` — what

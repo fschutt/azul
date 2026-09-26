@@ -447,6 +447,17 @@ impl Titlebar {
                 inner: self.title_color,
             }),
         ));
+        // `Titlebar::new` has no desktop to ask, so its title colour is the
+        // LIGHT default: #4c4c4c, which on a dark window reads 1.6:1. Give
+        // that default its dark counterpart. A colour `from_system_style`
+        // picked is the desktop's own for its theme and gets no twin.
+        if self.title_color == DEFAULT_TITLE_COLOR_LIGHT {
+            props.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::const_text_color(StyleTextColor {
+                    inner: DEFAULT_TITLE_COLOR_DARK,
+                }),
+            ));
+        }
         // In CSD mode the title does NOT grow. Growing was what put it off
         // centre: a title that eats the space the buttons left over is
         // centred in THAT, so `text-align: center` landed it half the button
@@ -1426,6 +1437,13 @@ mod autotest_generated {
                 inner: t.title_color,
             }),
         ];
+        // The default light title colour carries its dark twin (the twin's
+        // condition is not part of `properties`).
+        if t.title_color == DEFAULT_TITLE_COLOR_LIGHT {
+            v.push(CssProperty::const_text_color(StyleTextColor {
+                inner: DEFAULT_TITLE_COLOR_DARK,
+            }));
+        }
         if show_buttons {
             // The title no longer grows: `[spacer][title][buttons]` with both
             // ends `flex-grow: 1; flex-basis: 0` centres it on the BAR instead
@@ -2451,8 +2469,11 @@ mod autotest_generated {
                 expected_title(&t, show_buttons),
                 "title declarations drifted (show_buttons = {show_buttons})",
             );
+            // Unconditional, except the dark twin of the default title
+            // colour, which is gated on the dark theme alone.
             assert!(
-                all_unconditional(&style),
+                style.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
                 "a title declaration became conditional"
             );
         }

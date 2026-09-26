@@ -53,7 +53,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static PAGINATION_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-pagination"))];
@@ -336,6 +339,60 @@ fn build_button_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// The dark twins of one button's colours, appended after
+/// [`build_button_style`]'s light face (which stays unconditional).
+///
+/// The shared separator lines take `system:separator`; every button but the
+/// active page takes the desktop's button face and label colour - a white
+/// button on a dark window is a light island. The active page is the
+/// accent, its own colour in both themes, and keeps it.
+fn build_button_dark_twins(
+    active: bool,
+    disabled: bool,
+    is_first: bool,
+) -> Vec<CssPropertyWithConditions> {
+    let mut v = vec![
+        system_palette::DARK_SEPARATOR_BORDER_TOP,
+        system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+        system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    ];
+    if is_first {
+        v.push(system_palette::DARK_SEPARATOR_BORDER_LEFT);
+    }
+    if !active {
+        v.push(system_palette::DARK_BUTTON_FACE);
+        v.push(if disabled {
+            system_palette::DARK_SECONDARY_TEXT
+        } else {
+            system_palette::DARK_BUTTON_TEXT
+        });
+    }
+    v
+}
+
+/// One button's full style: the light face, then its dark twins.
+fn button_style(
+    active: bool,
+    disabled: bool,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
+    let mut v = build_button_style(active, disabled, is_first, is_last).into_library_owned_vec();
+    v.extend(build_button_dark_twins(active, disabled, is_first));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Whether the window renders dark - the cascade's own rule
+/// (`LayoutWindow::dynamic_selector_context`): `AZ_THEME` pins it, else the
+/// window's theme. The live restyle writes plain overrides, which win over
+/// the dark twins, so it has to pick the theme's colours itself.
+fn renders_dark(info: &CallbackInfo) -> bool {
+    azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
+        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
+        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
+    )
+}
+
 impl Pagination {
     /// Creates a pager for `total_pages` pages with `current_page` (1-based)
     /// selected. `current_page` is clamped into `[1, total_pages.max(1)]`.
@@ -465,7 +522,7 @@ impl Pagination {
         children.push(make_button(
             PREV_LABEL,
             PAGINATION_NAV_CLASS,
-            build_button_style(false, current <= 1, true, false),
+            button_style(false, current <= 1, true, false),
         ));
 
         // Page-number buttons 1..=total.
@@ -473,7 +530,7 @@ impl Pagination {
             children.push(make_button(
                 AzString::from(format!("{page}").as_str()),
                 PAGINATION_PAGE_CLASS,
-                build_button_style(page == current, false, false, false),
+                button_style(page == current, false, false, false),
             ));
         }
 
@@ -481,7 +538,7 @@ impl Pagination {
         children.push(make_button(
             NEXT_LABEL,
             PAGINATION_NAV_CLASS,
-            build_button_style(false, current >= total, false, true),
+            button_style(false, current >= total, false, true),
         ));
 
         Dom::create_div()
@@ -574,34 +631,45 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
 
     // Live-restyle: active page gets the accent fill + light text; Prev/Next show
-    // the muted disabled text at their bounds; everything else is neutral.
+    // the muted disabled text at their bounds; everything else is neutral -
+    // in the theme the window renders in.
+    let dark = renders_dark(&info);
+    let (neutral_bg, neutral_text, disabled_text) = if dark {
+        (
+            system_palette::BUTTON_FACE,
+            system_palette::BUTTON_TEXT,
+            system_palette::SECONDARY_TEXT,
+        )
+    } else {
+        (NEUTRAL_BG, NEUTRAL_TEXT, DISABLED_TEXT)
+    };
     for (i, node) in buttons.iter().enumerate() {
         let (bg, text) = if i == 0 {
             // Prev
             let disabled = new_page <= 1;
             (
-                NEUTRAL_BG,
+                neutral_bg.clone(),
                 if disabled {
-                    DISABLED_TEXT
+                    disabled_text
                 } else {
-                    NEUTRAL_TEXT
+                    neutral_text
                 },
             )
         } else if i == n - 1 {
             // Next
             let disabled = new_page >= total;
             (
-                NEUTRAL_BG,
+                neutral_bg.clone(),
                 if disabled {
-                    DISABLED_TEXT
+                    disabled_text
                 } else {
-                    NEUTRAL_TEXT
+                    neutral_text
                 },
             )
         } else if i == new_page {
             (ACCENT_BG, ACTIVE_TEXT)
         } else {
-            (NEUTRAL_BG, NEUTRAL_TEXT)
+            (neutral_bg.clone(), neutral_text)
         };
         info.set_css_property(*node, CssProperty::const_background_content(bg));
         info.set_css_property(
@@ -665,14 +733,49 @@ mod autotest_generated {
         v.as_ref().iter().map(|p| p.property.clone()).collect()
     }
 
-    /// The declared properties of a rendered node's inline style, in declaration
-    /// order (`with_css_props` folds the vec into a `Css`; this reads it back).
+    /// The UNCONDITIONAL declarations of a rendered node's inline style - its
+    /// light face - in declaration order (`with_css_props` folds the vec into a
+    /// `Css`; this reads it back). The dark twins `dom()` appends after them are
+    /// pinned by `dom_appends_the_dark_twins_after_the_light_face`.
     fn inline_props(node: &Dom) -> Vec<CssProperty> {
         node.root
             .style
             .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
+    }
+
+    #[test]
+    fn dom_appends_the_dark_twins_after_the_light_face() {
+        let dom = Pagination::create(2, 3).dom();
+        let children = dom.children.as_ref();
+        for (i, (active, disabled, first)) in [
+            (false, false, true),
+            (false, false, false),
+            (true, false, false),
+            (false, false, false),
+            (false, false, false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let all: Vec<CssPropertyWithConditions> = children[i]
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| CssPropertyWithConditions {
+                    property: p.clone(),
+                    apply_if: c.clone(),
+                })
+                .collect();
+            let light = all.iter().filter(|p| p.apply_if.as_ref().is_empty()).count();
+            assert_eq!(
+                &all[light..],
+                build_button_dark_twins(active, disabled, first).as_slice(),
+                "button {i}: the dark twins follow the whole light face"
+            );
+        }
     }
 
     fn text_of(node: &Dom) -> Option<&str> {

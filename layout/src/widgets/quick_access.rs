@@ -59,7 +59,7 @@ use azul_css::{
 
 use super::{
     button::{Button, OptionButtonOnClick},
-    themes::flat,
+    themes::{flat, system_palette},
     titlebar,
 };
 
@@ -333,6 +333,14 @@ fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
     )));
 }
 
+/// Whether `t` is the stock Office palette: a LIGHT band that has no dark
+/// counterpart of its own, so its dark twins come from the desktop's palette.
+/// A palette from [`QuickAccessTheme::from_system`] already is the desktop's
+/// own titlebar colours for its theme, and gets none.
+fn is_stock_light_palette(t: &QuickAccessTheme) -> bool {
+    *t == QuickAccessTheme::office_2013()
+}
+
 fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
@@ -345,10 +353,23 @@ fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
         TITLE_PX,
     ))));
     v.push(cond_bg(t.bg));
+    if is_stock_light_palette(t) {
+        // The white band is a light island on a dark window: it is window
+        // chrome, so it takes the desktop's window background.
+        v.push(system_palette::DARK_WINDOW_BACKGROUND);
+    }
     v.push(Cond::simple(P::const_padding_left(
         LayoutPaddingLeft::const_px(8),
     )));
     CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// `color: c`, plus the stock palette's dark twin `dark`.
+fn cond_text_color_themed(v: &mut Vec<Cond>, t: &QuickAccessTheme, c: ColorU, dark: Cond) {
+    v.push(cond_text_color(c));
+    if is_stock_light_palette(t) {
+        v.push(dark);
+    }
 }
 
 fn theme_leading(_t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
@@ -377,30 +398,31 @@ fn theme_action_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_action_icon(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(QAT_ICON_PX))),
-        cond_text_color(t.icon),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        QAT_ICON_PX,
+    )))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The small "customize quick access toolbar" chevron after the actions.
 fn theme_menu_arrow(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_text_color(t.icon),
-        Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(1))),
-        Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(4))),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(12)))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    v.push(Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(1))));
+    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(4))));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_title(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         Cond::simple(P::const_text_align(StyleTextAlign::Center)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(TITLE_PX))),
-        cond_text_color(t.text),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    ];
+    cond_text_color_themed(&mut v, t, t.text, system_palette::DARK_TEXT);
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_window_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
@@ -420,10 +442,11 @@ fn theme_window_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_window_icon(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(WIN_ICON_PX))),
-        cond_text_color(t.icon),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        WIN_ICON_PX,
+    )))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// APPENDED to the close button: the caption-red hover.
