@@ -319,6 +319,15 @@ fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// The dark twins of the NEUTRAL tag: the desktop's quiet neutral highlight
+/// under its label colour. A light-grey pill is a light island on a dark
+/// window; the coloured kinds are their own saturated colour in both themes
+/// and need none.
+static CHIP_DEFAULT_DARK_TWINS: &[CssPropertyWithConditions] = &[
+    crate::widgets::themes::system_palette::DARK_TEXT,
+    crate::widgets::themes::system_palette::DARK_SELECTION_BACKGROUND_INACTIVE,
+];
+
 /// Label style: left-aligned, hugs its content.
 static CHIP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -358,10 +367,12 @@ impl Chip {
         }
     }
 
-    /// The container CSS this chip renders with.
+    /// The container CSS this chip renders its light face with.
     ///
     /// `None` means no opinion, so the kind's default applies — the same answer
-    /// both themes give, asked in one place so they cannot drift.
+    /// both themes give, asked in one place so they cannot drift. For that
+    /// case `dom()` appends the neutral tag's dark twins
+    /// (`CHIP_DEFAULT_DARK_TWINS`).
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
@@ -467,7 +478,15 @@ impl Chip {
         };
 
         // Resolved before `self.chip_state` is moved out below.
-        let container_style = self.resolved_container_style();
+        let mut container_style = self.resolved_container_style();
+        // The neutral tag's dark twins, after its light colours (last match
+        // wins). Only on the widget's own style: a caller's `container_style`
+        // owns every property, dark ones included.
+        if self.container_style.is_none() && self.kind == ChipKind::Default {
+            let mut style = container_style.into_library_owned_vec();
+            style.extend_from_slice(CHIP_DEFAULT_DARK_TWINS);
+            container_style = CssPropertyWithConditionsVec::from_vec(style);
+        }
 
         let has_on_click = matches!(self.chip_state.on_click, OptionChipOnClick::Some(_));
 
@@ -803,13 +822,12 @@ mod autotest_generated {
         }
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The properties of a rendered node's *inline* style that apply in every
+    /// theme and state - its light face - in declaration order. (`dom()`
+    /// appends the neutral tag's dark twins after them; those are asserted on
+    /// their own, by `dom_gives_only_the_neutral_tag_dark_twins`.)
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
+        crate::widgets::theme_probe::unconditional(node)
     }
 
     /// Adversarial chip labels: empty, whitespace, combining marks, ZWJ emoji,
@@ -2517,6 +2535,32 @@ mod autotest_generated {
                 "{kind:?}: the DOM does not show the current kind"
             );
         }
+    }
+
+    #[test]
+    fn dom_gives_only_the_neutral_tag_dark_twins() {
+        // The light-grey tag would be a light island on a dark window; the
+        // coloured kinds are saturated and keep their colour in both themes.
+        for kind in ALL_KINDS {
+            let dark = crate::widgets::theme_probe::dark(
+                &Chip::with_kind(AzString::from("t"), kind).dom(),
+            );
+            if kind == ChipKind::Default {
+                let want: Vec<CssProperty> = CHIP_DEFAULT_DARK_TWINS
+                    .iter()
+                    .map(|p| p.property.clone())
+                    .collect();
+                assert_eq!(dark, want, "the neutral tag's dark surface and ink");
+            } else {
+                assert!(dark.is_empty(), "{kind:?}: a coloured chip needs no twin");
+            }
+        }
+        // A caller's own style owns every property, dark ones included.
+        let mut own = Chip::create(AzString::from("t"));
+        own.container_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+        );
+        assert_eq!(own.dom().root.style.iter_inline_properties().count(), 0);
     }
 
     #[test]

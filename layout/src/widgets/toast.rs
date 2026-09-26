@@ -213,6 +213,37 @@ impl ToastKind {
         }
     }
 
+    /// Returns the `(background, border, text)` colours this kind takes in
+    /// the DARK theme - the same dark alert palette as
+    /// [`crate::widgets::alert::AlertKind`]: the hue as a deep tint under
+    /// light ink, so a dark window gets a dark toast instead of a pastel
+    /// island. A semantic tint has no desktop slot to borrow.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // same shape as `colors`
+    const fn dark_colors(&self) -> (ColorU, ColorU, ColorU) {
+        match self {
+            Self::Info => (
+                ColorU::rgb(3, 40, 48),     // #032830
+                ColorU::rgb(8, 121, 144),   // #087990
+                ColorU::rgb(110, 223, 246), // #6edff6
+            ),
+            Self::Success => (
+                ColorU::rgb(5, 27, 17),     // #051b11
+                ColorU::rgb(15, 81, 50),    // #0f5132
+                ColorU::rgb(117, 183, 152), // #75b798
+            ),
+            Self::Warning => (
+                ColorU::rgb(51, 39, 1),     // #332701
+                ColorU::rgb(153, 116, 4),   // #997404
+                ColorU::rgb(255, 218, 106), // #ffda6a
+            ),
+            Self::Danger => (
+                ColorU::rgb(44, 11, 14),    // #2c0b0e
+                ColorU::rgb(132, 32, 41),   // #842029
+                ColorU::rgb(234, 134, 143), // #ea868f
+            ),
+        }
+    }
+
     /// CSS class name for this toast kind (mirrors `AlertKind::class_name`).
     #[must_use]
     pub const fn class_name(&self) -> &'static str {
@@ -383,6 +414,30 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// The dark twins of [`build_toast_style`]'s kind colours - the four border
+/// edges, the inherited text colour and the background - from
+/// [`ToastKind::dark_colors`].
+///
+/// `dom()` appends them AFTER the light style, and only to the widget's own
+/// style: inline declarations resolve last-match-wins, and a caller's
+/// `container_style` owns every property, dark ones included.
+fn build_toast_dark_twins(kind: ToastKind) -> [CssPropertyWithConditions; 6] {
+    use crate::widgets::themes::system_palette::{
+        dark_background_color, dark_border_bottom, dark_border_left, dark_border_right,
+        dark_border_top, dark_text,
+    };
+
+    let (bg, border, text) = kind.dark_colors();
+    [
+        dark_border_top(border),
+        dark_border_bottom(border),
+        dark_border_left(border),
+        dark_border_right(border),
+        dark_text(text),
+        dark_background_color(bg),
+    ]
+}
+
 /// Message-text style: takes the remaining horizontal space, left-aligned.
 static TOAST_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
@@ -422,10 +477,11 @@ impl Toast {
         }
     }
 
-    /// The container CSS this toast renders with.
+    /// The container CSS this toast renders its light face with.
     ///
     /// `None` means no opinion, so the kind's default applies — the same answer
-    /// both themes give, asked in one place so they cannot drift.
+    /// both themes give, asked in one place so they cannot drift. For that
+    /// case `dom()` appends the kind's dark twins (`build_toast_dark_twins`).
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
@@ -510,7 +566,16 @@ impl Toast {
         };
 
         // Resolved before `self.message` is moved out below.
-        let container_style = self.resolved_container_style();
+        let mut container_style = self.resolved_container_style();
+        // The kind's dark twins, after its light colours (last match wins):
+        // a pastel toast is a light island on a dark window. Only on the
+        // widget's own style - a caller's `container_style` owns every
+        // property, dark ones included.
+        if self.container_style.is_none() {
+            let mut style = container_style.into_library_owned_vec();
+            style.extend(build_toast_dark_twins(self.kind));
+            container_style = CssPropertyWithConditionsVec::from_vec(style);
+        }
 
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
@@ -1728,8 +1793,9 @@ mod autotest_generated {
         );
         assert_eq!(
             dom.root.style.iter_inline_properties().count(),
-            style.len(),
-            "every container property must reach the node's inline style"
+            style.len() + build_toast_dark_twins(ToastKind::Info).len(),
+            "every container property - and each colour's dark twin - must reach the node's \
+             inline style"
         );
 
         let children = dom.children.as_ref();
@@ -1738,6 +1804,58 @@ mod autotest_generated {
         assert_eq!(text_of(&children[0]), Some("hi"));
         assert!(children[0].root.get_callbacks().as_ref().is_empty());
         assert!(children[0].root.get_tab_index().is_none());
+    }
+
+    #[test]
+    fn dom_gives_every_kind_colour_a_dark_twin_and_keeps_the_light_face() {
+        for kind in ALL_KINDS {
+            let dom = Toast::with_kind(AzString::from("m"), kind).dom();
+            let (bg, border, text) = kind.dark_colors();
+            let dark = crate::widgets::theme_probe::dark(&dom);
+            assert_eq!(
+                dark.len(),
+                6,
+                "{kind:?}: 4 border edges + text + background, got {dark:?}"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_text_color(StyleTextColor {
+                    inner: text
+                })),
+                "{kind:?}: the dark ink"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: border }
+                )),
+                "{kind:?}: the dark border"
+            );
+            assert!(
+                dark.iter().any(|p| matches!(
+                    p,
+                    CssProperty::BackgroundContent(v)
+                        if v.get_property().and_then(|b| b.as_ref().first().cloned())
+                            == Some(StyleBackgroundContent::Color(bg))
+                )),
+                "{kind:?}: the dark surface"
+            );
+            // Light values never move: the unconditional half IS the kind's style.
+            assert_eq!(
+                crate::widgets::theme_probe::unconditional(&dom),
+                build_toast_style(kind)
+                    .as_ref()
+                    .iter()
+                    .map(|p| p.property.clone())
+                    .collect::<Vec<_>>(),
+                "{kind:?}: the light face moved"
+            );
+        }
+
+        // A caller's own style owns every property: nothing is appended to it.
+        let mut own = Toast::create(AzString::from("m"));
+        own.container_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+        );
+        assert_eq!(own.dom().root.style.iter_inline_properties().count(), 0);
     }
 
     #[test]

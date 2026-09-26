@@ -192,6 +192,37 @@ impl AlertKind {
         }
     }
 
+    /// Returns the `(background, border, text)` colours this kind takes in
+    /// the DARK theme: the same hue as a deep tint under light ink
+    /// (Bootstrap's dark alert palette), so a dark window gets a dark banner
+    /// instead of a pastel island. A semantic tint has no desktop slot to
+    /// borrow - these are the widget's own colours, like the light ones.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // same shape as `colors`
+    const fn dark_colors(&self) -> (ColorU, ColorU, ColorU) {
+        match self {
+            Self::Info => (
+                ColorU::rgb(3, 40, 48),     // #032830
+                ColorU::rgb(8, 121, 144),   // #087990
+                ColorU::rgb(110, 223, 246), // #6edff6
+            ),
+            Self::Success => (
+                ColorU::rgb(5, 27, 17),     // #051b11
+                ColorU::rgb(15, 81, 50),    // #0f5132
+                ColorU::rgb(117, 183, 152), // #75b798
+            ),
+            Self::Warning => (
+                ColorU::rgb(51, 39, 1),     // #332701
+                ColorU::rgb(153, 116, 4),   // #997404
+                ColorU::rgb(255, 218, 106), // #ffda6a
+            ),
+            Self::Danger => (
+                ColorU::rgb(44, 11, 14),    // #2c0b0e
+                ColorU::rgb(132, 32, 41),   // #842029
+                ColorU::rgb(234, 134, 143), // #ea868f
+            ),
+        }
+    }
+
     /// CSS class name for this alert kind (mirrors `ButtonType::class_name`).
     #[must_use]
     pub const fn class_name(&self) -> &'static str {
@@ -348,6 +379,30 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
     ])
+}
+
+/// The dark twins of [`build_alert_style`]'s kind colours - the four border
+/// edges, the inherited text colour and the background - from
+/// [`AlertKind::dark_colors`].
+///
+/// `dom()` appends them AFTER the light style, and only to the widget's own
+/// style: inline declarations resolve last-match-wins, and a caller's
+/// `container_style` owns every property, dark ones included.
+fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditions; 6] {
+    use crate::widgets::themes::system_palette::{
+        dark_background_color, dark_border_bottom, dark_border_left, dark_border_right,
+        dark_border_top, dark_text,
+    };
+
+    let (bg, border, text) = kind.dark_colors();
+    [
+        dark_border_top(border),
+        dark_border_bottom(border),
+        dark_border_left(border),
+        dark_border_right(border),
+        dark_text(text),
+        dark_background_color(bg),
+    ]
 }
 
 /// Message-text style: takes the remaining horizontal space, left-aligned.
@@ -520,12 +575,13 @@ impl Alert {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CONTAINER_CLASS))
-            .with_css_props(
-                self.container_style
-                    .clone()
-                    .into_option()
-                    .unwrap_or_else(|| build_alert_style(self.kind)),
-            )
+            .with_css_props(self.container_style.clone().into_option().unwrap_or_else(|| {
+                // The kind's face, then its dark twins: a pastel banner is a
+                // light island on a dark window.
+                let mut style = build_alert_style(self.kind).into_library_owned_vec();
+                style.extend(build_alert_dark_twins(self.kind));
+                CssPropertyWithConditionsVec::from_vec(style)
+            }))
             .with_children(children.into())
     }
 }
@@ -593,8 +649,9 @@ mod autotest_generated {
     };
     use azul_css::system::SystemStyle;
 
-    /// The container CSS the widget actually renders with, resolving the
-    /// "no opinion" case the way `dom()` does.
+    /// The container CSS the widget renders its LIGHT face with, resolving the
+    /// "no opinion" case the way `dom()` does. (For that case `dom()` then
+    /// appends the kind's dark twins, `build_alert_dark_twins`.)
     ///
     /// The tests used to read `alert.container_style` directly, back when the
     /// constructor pre-filled it. It is `None` until somebody sets one, so the
@@ -1453,8 +1510,9 @@ mod autotest_generated {
         );
         assert_eq!(
             dom.root.style.iter_inline_properties().count(),
-            style.len(),
-            "every container property must reach the node's inline style"
+            style.len() + build_alert_dark_twins(AlertKind::Info).len(),
+            "every container property - and each colour's dark twin - must reach the node's \
+             inline style"
         );
 
         let children = dom.children.as_ref();
@@ -1541,6 +1599,57 @@ mod autotest_generated {
                 "current behaviour: the kind class is not emitted"
             );
         }
+    }
+
+    #[test]
+    fn dom_gives_every_kind_colour_a_dark_twin_and_keeps_the_light_face() {
+        for kind in ALL_KINDS {
+            let dom = Alert::with_kind(AzString::from("m"), kind).dom();
+            let (bg, border, text) = kind.dark_colors();
+            let dark = crate::widgets::theme_probe::dark(&dom);
+            assert_eq!(
+                dark.len(),
+                6,
+                "{kind:?}: 4 border edges + text + background, got {dark:?}"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_text_color(StyleTextColor {
+                    inner: text
+                })),
+                "{kind:?}: the dark ink"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: border }
+                )),
+                "{kind:?}: the dark border"
+            );
+            assert!(
+                dark.iter().any(|p| matches!(
+                    p,
+                    CssProperty::BackgroundContent(v)
+                        if v.get_property().and_then(|b| b.as_ref().first().cloned())
+                            == Some(StyleBackgroundContent::Color(bg))
+                )),
+                "{kind:?}: the dark surface"
+            );
+            // Light values never move: the unconditional half IS the kind's style.
+            assert_eq!(
+                crate::widgets::theme_probe::unconditional(&dom),
+                build_alert_style(kind)
+                    .as_ref()
+                    .iter()
+                    .map(|p| p.property.clone())
+                    .collect::<Vec<_>>(),
+                "{kind:?}: the light face moved"
+            );
+        }
+
+        // A caller's own style owns every property: nothing is appended to it.
+        let own = Alert::create(AzString::from("m"))
+            .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
+            .dom();
+        assert_eq!(own.root.style.iter_inline_properties().count(), 0);
     }
 
     // ------------------------------------------------------------------
