@@ -17,7 +17,7 @@ use azul_css::{
     css::{Css, CssDeclaration},
     dynamic_selector::{DynamicSelector, ThemeCondition},
     props::{
-        basic::color::SystemColorRef,
+        basic::color::{ColorU, SystemColorRef},
         property::{CssProperty, CssPropertyType},
         style::StyleBackgroundContent,
     },
@@ -191,4 +191,181 @@ fn the_check_tells_a_themed_style_from_a_fixed_one() {
         vec![CssPropertyType::BackgroundContent],
         "a twin for one property does not excuse another"
     );
+}
+
+// ---------------------------------------------------------------------------
+// What the user READS: the page title and the titlebar title, in both themes.
+// ---------------------------------------------------------------------------
+
+/// The demo's own page frame, rebuilt from its source: `body > [titlebar >
+/// title, scroll > heading]`, each node carrying the inline style the demo
+/// gives it. Located by the literals around it: the first
+/// `"Azul Widget Showcase"` is the heading's text (its style follows), the
+/// second the titlebar title's (the titlebar's style precedes it), and the
+/// body and scroll styles follow the `"custom titlebar"` label's.
+struct PageFrame {
+    body: String,
+    titlebar: String,
+    title: String,
+    scroll: String,
+    heading: String,
+}
+
+fn page_frame() -> PageFrame {
+    let lits = string_literals(DEMO);
+    let at = |text: &str| -> Vec<usize> {
+        lits.iter()
+            .enumerate()
+            .filter(|(_, l)| l.as_str() == text)
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let titles = at("Azul Widget Showcase");
+    assert!(titles.len() >= 2, "premise: the heading and the titlebar title, got {titles:?}");
+    let label = *at("custom titlebar").first().expect("premise: the titlebar's label");
+    let frame = PageFrame {
+        heading: lits[titles[0] + 1].clone(),
+        titlebar: lits[titles[1] - 1].clone(),
+        title: lits[titles[1] + 1].clone(),
+        body: lits[label + 2].clone(),
+        scroll: lits[label + 3].clone(),
+    };
+    for (what, style, marker) in [
+        ("heading", &frame.heading, "font-size"),
+        ("titlebar", &frame.titlebar, "app-region"),
+        ("title", &frame.title, "font-size"),
+        ("body", &frame.body, "margin"),
+        ("scroll", &frame.scroll, "overflow"),
+    ] {
+        assert!(style.contains(marker), "premise: found the {what}'s style, got {style:?}");
+    }
+    frame
+}
+
+type Rgb = [f32; 3];
+
+fn rgb(c: ColorU) -> Rgb {
+    [f32::from(c.r), f32::from(c.g), f32::from(c.b)]
+}
+
+/// `top` (straight alpha) over an opaque `base`.
+fn over(top: ColorU, base: Rgb) -> Rgb {
+    let a = f32::from(top.a) / 255.0;
+    let t = rgb(top);
+    [
+        t[0] * a + base[0] * (1.0 - a),
+        t[1] * a + base[1] * (1.0 - a),
+        t[2] * a + base[2] * (1.0 - a),
+    ]
+}
+
+/// WCAG 2 contrast ratio of two opaque sRGB colours.
+fn contrast(a: Rgb, b: Rgb) -> f32 {
+    let lum = |c: Rgb| {
+        let lin = |v: f32| {
+            let v = v / 255.0;
+            if v <= 0.040_45 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+    };
+    let (la, lb) = (lum(a), lum(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// `(ink, background)` of the text node `text` as the display list paints
+/// it: the ink is the cascade's `color` for the text node itself (the live
+/// re-resolve the display list makes, `system:` keywords resolved), the
+/// background every solid layer on the path from the root, over the
+/// window's background.
+fn seen(
+    sd: &azul_core::styled_dom::StyledDom,
+    text: azul_core::dom::NodeId,
+    ctx: &azul_css::dynamic_selector::DynamicSelectorContext,
+) -> (Rgb, Rgb) {
+    use azul_layout::solver3::getters;
+
+    let hierarchy = sd.node_hierarchy.as_container();
+    let states = sd.styled_nodes.as_container();
+    let mut path = vec![text];
+    let mut cur = hierarchy[text].parent_id();
+    while let Some(n) = cur {
+        path.push(n);
+        cur = hierarchy[n].parent_id();
+    }
+    path.reverse();
+
+    let mut bg = rgb(ctx.system_color(SystemColorRef::WindowBackground));
+    for &n in &path {
+        for layer in getters::get_background_contents(sd, n, &states[n].styled_node_state) {
+            if let StyleBackgroundContent::Color(c) = layer {
+                bg = over(c, bg);
+            }
+        }
+    }
+    let nd = &sd.node_data.as_container()[text];
+    let ink = sd
+        .get_css_property_cache()
+        .get_text_color(nd, &text, &states[text].styled_node_state)
+        .and_then(|v| v.get_property().copied())
+        .map(|c| c.inner)
+        .expect("a cascaded DOM gives every text node a `color`");
+    let ink = getters::system_colors_resolved(sd, ink);
+    (over(ink, bg), bg)
+}
+
+/// The page heading and the titlebar title read at WCAG AA (4.5:1) in the
+/// macOS light AND dark presets. On a dark desktop both came out `#101828`
+/// on the dark page - their `@media (prefers-color-scheme: dark)` twin won
+/// on the div but the text inside inherited the light value.
+#[test]
+fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
+    use azul_core::{
+        dom::{Dom, NodeId},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{
+        dynamic_selector::DynamicSelectorContext,
+        system::{defaults, Theme},
+    };
+
+    let f = page_frame();
+    let text = || Dom::create_text_do_not_use_without_block_level_wrapper("Azul Widget Showcase");
+    // body(0) > titlebar(1) > title(2) > text(3); body > scroll(4) >
+    // heading(5) > text(6)
+    let dom = Dom::create_body()
+        .with_css(&f.body)
+        .with_child(
+            Dom::create_div()
+                .with_css(&f.titlebar)
+                .with_child(Dom::create_div().with_css(&f.title).with_child(text())),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(&f.scroll)
+                .with_child(Dom::create_div().with_css(&f.heading).with_child(text())),
+        );
+
+    let mut bad = Vec::new();
+    for theme in [Theme::Light, Theme::Dark] {
+        let style = std::sync::Arc::new(match theme {
+            Theme::Light => defaults::macos_modern_light(),
+            Theme::Dark => defaults::macos_modern_dark(),
+        });
+        let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(1024.0, 768.0);
+        let sd = StyledDom::create_from_dom_with_context(dom.clone(), Some(ctx.clone()));
+        for (what, node) in [("titlebar title", 3), ("page heading", 6)] {
+            let (ink, bg) = seen(&sd, NodeId::new(node), &ctx);
+            let ratio = contrast(ink, bg);
+            if ratio < 4.5 {
+                bad.push(format!(
+                    "{theme:?} {what}: {ratio:.2}:1 - ink {ink:?} on {bg:?}"
+                ));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "illegible demo titles:\n  {}", bad.join("\n  "));
 }
