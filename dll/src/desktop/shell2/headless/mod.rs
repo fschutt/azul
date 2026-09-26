@@ -7910,6 +7910,51 @@ mod tests {
         );
     }
 
+    /// A DOM rebuild is not animation time.
+    ///
+    /// In a real app the switch's toggle returns `RefreshDom`, and X11 runs
+    /// the timer pass at the top of its loop turn, BEFORE the frame path
+    /// rebuilds the DOM: the driver's first frame lands ahead of the rebuild,
+    /// the whole rebuild then falls inside the step of the second one, and the
+    /// knob jumps a large part of its glide at once. The rebuild's duration is
+    /// modelled by advancing the frozen clock ahead of it.
+    #[test]
+    fn a_dom_rebuild_between_two_driver_frames_is_not_animation_time() {
+        let mut window = toggled_switch_window();
+        let _ = azul_core::task::advance_test_clock_ms(16);
+        let first = window.process_timers_and_threads();
+        let after_first = knob_glide_progress(&window);
+        // The toggle's rebuild runs next and takes 60 ms ...
+        let _ = azul_core::task::advance_test_clock_ms(60);
+        let rebuilt = window.regenerate_layout().is_ok();
+        // ... and the driver's next frame follows one period later.
+        let _ = azul_core::task::advance_test_clock_ms(16);
+        let second = window.process_timers_and_threads();
+        let after_second = knob_glide_progress(&window);
+        azul_core::task::reset_test_clock();
+
+        assert!(
+            first && rebuilt && second,
+            "harness: two driver frames with a rebuild between them (first {first}, rebuilt \
+             {rebuilt}, second {second})"
+        );
+        let (Some(before), Some(after)) = (after_first, after_second) else {
+            panic!(
+                "harness: the glide is in flight across the rebuild ({after_first:?} -> \
+                 {after_second:?})"
+            );
+        };
+        // A frame is 1/9 of the knob's 150 ms glide. The frame after the
+        // rebuild may take the rebuild's last frame and its own, 2/9 - not
+        // the 76 ms that passed since the first one.
+        assert!(
+            after - before <= 2.0 / 9.0 + 0.01,
+            "the frame after a 60 ms rebuild advanced the glide from {before} to {after}, i.e. \
+             by {} of it; at most two frames' worth (0.22) may land in one step",
+            after - before
+        );
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect
