@@ -4151,10 +4151,9 @@ where
         let Some(block) = tree.text_block_at(self.ctx.styled_dom.dom_id, node_index) else {
             return Ok(());
         };
-        // Anonymous blocks are not painted yet.
-        let Some(dom_id) = block.element() else {
-            return Ok(());
-        };
+        // The element whose style the block's text takes: its own, or an
+        // anonymous block's container's (it has no style of its own).
+        let dom_id = block.container();
 
         // Get inline layout using the unified helper that handles IFC membership
         // This is critical: text nodes don't have their own inline_layout_result,
@@ -4414,9 +4413,9 @@ where
         else {
             return Ok(());
         };
-        let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
-        };
+        // The element whose style the caret takes: the block's own, or an
+        // anonymous block's container's.
+        let dom_id = block.container();
 
         // Check if this node is contenteditable
         let is_contenteditable =

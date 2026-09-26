@@ -19991,15 +19991,6 @@ impl LayoutWindow {
                         continue; // Skip non-IFC-root nodes
                     };
 
-                    let Some(node_id) = layout_node.dom_node_id else {
-                        continue;
-                    };
-
-                    // Check if text is selectable
-                    if !Self::is_text_selectable(&layout_result.styled_dom, node_id) {
-                        continue;
-                    }
-
                     // Check if position is within node bounds. `calculated_positions`
                     // is STATIC geometry, so the node's on-screen box is
                     // `static - ANCESTOR scroll`; comparing the window-space
@@ -20030,24 +20021,33 @@ impl LayoutWindow {
                         continue;
                     }
 
+                    // The text block this IFC root is - an ANONYMOUS block
+                    // (inline content beside a block) included: it has no
+                    // node of its own, and demanding one made its text
+                    // unclickable.
+                    let idx = LayoutNodeId::new(node_idx);
+                    let Some(text_target) = self.text_target_at_layout_index(*dom_id, idx) else {
+                        continue;
+                    };
+
+                    // Check if text is selectable
+                    if !text_target.selectable {
+                        continue;
+                    }
+
                     // Window position → the IFC's own space, every step named.
                     // This branch used to stop at "node-local", so it skipped
-                    // the content inset that `padding`/`border` introduce.
-                    let idx = LayoutNodeId::new(node_idx);
-                    let own_scroll = self
-                        .scroll_manager
-                        .get_current_offset(*dom_id, node_id)
+                    // the content inset that `padding`/`border` introduce. (An
+                    // anonymous block does not scroll: no own offset.)
+                    let own_scroll = layout_node
+                        .dom_node_id
+                        .and_then(|nid| self.scroll_manager.get_current_offset(*dom_id, nid))
                         .map_or_else(ScrollOffset::zero, ScrollOffset);
                     let local_pos = WindowPoint::new(position)
                         .to_static_layout(ancestor_scroll)
                         .to_border_box_local(node_pos)
                         .to_content_box_local(tree.content_inset(idx))
                         .scrolled_by(own_scroll);
-
-                    let Some(text_target) = self.text_target_at_layout_index(*dom_id, idx)
-                    else {
-                        continue;
-                    };
 
                     // Hit-test the cursor in this text block
                     if let Some(cursor) = text_target.hittest(local_pos) {

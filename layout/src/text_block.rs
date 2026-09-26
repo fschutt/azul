@@ -102,17 +102,14 @@ impl EditHost {
 pub struct BlockFilter {
     /// Only blocks whose text `user-select` lets be selected.
     pub selectable_only: bool,
-    /// Anonymous block boxes too.
-    pub include_anonymous: bool,
     /// Only blocks inside this node's subtree (its own block included).
     pub within: Option<DomNodeId>,
 }
 
 impl BlockFilter {
-    /// Every text block with an element of its own.
+    /// Every text block - anonymous ones included.
     pub const ALL: Self = Self {
         selectable_only: false,
-        include_anonymous: false,
         within: None,
     };
 }
@@ -441,7 +438,6 @@ impl LayoutWindow {
         let tree = &layout_result.layout_tree;
         (0..tree.nodes.len())
             .filter_map(|idx| Some((tree.text_block_at(dom_id, idx)?, LayoutNodeId::new(idx))))
-            .filter(|(block, _)| filter.include_anonymous || !block.is_anonymous())
             .filter(|(block, _)| {
                 scope.is_none_or(|scope| {
                     self.node_is_self_or_descendant(dom_id, block.first_node(), scope)
