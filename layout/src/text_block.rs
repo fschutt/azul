@@ -912,6 +912,22 @@ impl LayoutWindow {
         })
     }
 
+    /// The DOM text node `cursor`'s run was laid out from in `block` - the
+    /// inverse of [`Self::caret_at_node_byte`]. `None` on a blank line (no
+    /// cluster to name one) and for a block that is not laid out.
+    #[must_use]
+    pub fn caret_text_node(&self, block: TextBlock, cursor: TextCursor) -> Option<NodeId> {
+        let target = self.text_target(block)?;
+        target.layout.items.iter().find_map(|item| match &item.item {
+            ShapedItem::Cluster(cluster)
+                if cluster.source_cluster_id.source_run == cursor.cluster_id.source_run =>
+            {
+                cluster.source_node_id
+            }
+            _ => None,
+        })
+    }
+
     /// The text block whose IFC root is the layout node `ifc_root` of `dom`.
     #[must_use]
     pub fn text_block_at_layout_index(

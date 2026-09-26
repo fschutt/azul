@@ -10541,7 +10541,18 @@ impl LayoutWindow {
         if !self.layout_results.contains_key(&edom) {
             return true;
         }
-        self.node_is_self_or_descendant(edom, enode, fnode)
+        // The caret's OWN text has to be in the focused subtree - the focused
+        // node is its editing host or an ancestor of that. The block cannot
+        // stand in for it: an inline host (`<p>Name: <span contenteditable>`)
+        // lies INSIDE the paragraph that is the caret's block, and asked of
+        // the block, a focused span never painted its caret. On a blank line
+        // there is no text to name, and the block does.
+        let caret_node = self
+            .text_edit_manager
+            .get_primary_cursor()
+            .and_then(|cursor| self.caret_text_node(block, cursor))
+            .unwrap_or(enode);
+        self.node_is_self_or_descendant(edom, caret_node, fnode)
     }
 
     /// Collapse `dom_id`'s document selection for a plain (non-extending)

@@ -4413,24 +4413,10 @@ where
         else {
             return Ok(());
         };
-        // The element whose style the caret takes: the block's own, or an
-        // anonymous block's container's.
+        // The block's element: the block's own, or an anonymous block's
+        // container. An empty editable's strut caret takes its metrics.
         let dom_id = block.container();
-
-        // Check if this node is contenteditable
-        let is_contenteditable =
-            super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id);
-        if !is_contenteditable {
-            return Ok(());
-        }
-
-        // Check if text is selectable
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        let is_selectable =
-            super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
-        if !is_selectable {
-            return Ok(());
-        }
 
         // Get inline layout
         // (d6h) Materialized: sentinel-safe caret/selection geometry.
@@ -4455,7 +4441,32 @@ where
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
-        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+        // The element a caret STANDS in: the parent of the text its run was
+        // laid out from, or the block itself on a blank line. Editability,
+        // selectability and `caret-color` are asked of it, not of the block:
+        // an inline editing host (`<p>Name: <span contenteditable>`) sits
+        // INSIDE its paragraph, and asked of the paragraph its caret was
+        // never painted.
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let caret_element = |cursor: &azul_core::selection::TextCursor| -> NodeId {
+            layout
+                .items
+                .iter()
+                .find_map(|item| match &item.item {
+                    ShapedItem::Cluster(c)
+                        if c.source_cluster_id.source_run == cursor.cluster_id.source_run =>
+                    {
+                        c.source_node_id
+                    }
+                    _ => None,
+                })
+                .and_then(|text| {
+                    hierarchy
+                        .get(text)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                })
+                .unwrap_or(dom_id)
+        };
 
         // Find the index of the last (primary) cursor that belongs to this DOM/node,
         // so preedit underline is only drawn on the actual primary cursor.
@@ -4474,6 +4485,16 @@ where
             if location.block != block {
                 continue;
             }
+            let element = caret_element(cursor);
+            if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, element) {
+                continue;
+            }
+            let element_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[element].styled_node_state;
+            if !super::getters::is_text_selectable(self.ctx.styled_dom, element, element_state) {
+                continue;
+            }
+            let style = get_caret_style(self.ctx.styled_dom, Some(element));
 
             // Get cursor rect from text layout — or, for an EMPTY editable,
             // the strut caret. `get_cursor_rect` anchors the caret to a
