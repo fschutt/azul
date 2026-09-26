@@ -368,6 +368,8 @@ mod switch_animation;
 mod synthetic_events;
 #[path = "system_colour_keywords.rs"]
 mod system_colour_keywords;
+#[path = "system_colours_in_every_colour_property.rs"]
+mod system_colours_in_every_colour_property;
 #[path = "table_cell_width.rs"]
 mod table_cell_width;
 #[path = "table_cell_width_diag.rs"]
