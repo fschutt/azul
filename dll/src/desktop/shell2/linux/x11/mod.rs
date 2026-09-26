@@ -2894,7 +2894,8 @@ pub struct X11Window {
     /// XRandR event base (if available). Screen change events have type xrandr_event_base + 0.
     pub xrandr_event_base: Option<i32>,
 
-    // Native timer support via timerfd (Linux-specific)
+    // Native timer support via timerfd (a kqueue timer off Linux, see
+    // `linux/timer.rs`)
     // Maps TimerId -> (timerfd file descriptor)
     // When timerfd becomes readable, the timer has fired
     pub timer_fds: std::collections::BTreeMap<usize, i32>,
@@ -3896,10 +3897,10 @@ impl X11Window {
         // Shared frame-ready signal: ONE Arc for both the WR Notifier and the
         // window field (they used to be two different Arcs — the notifier
         // signalled into the void), plus an eventfd in the poll set so the
-        // backend thread can WAKE the blocked loop.
+        // backend thread can WAKE the blocked loop (a kqueue off Linux - see
+        // `linux/timer.rs`).
         let new_frame_ready_shared = Arc::new((Mutex::new(false), Condvar::new()));
-        let frame_ready_wake_fd =
-            unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        let frame_ready_wake_fd = super::timer::new_wake_fd();
 
         let (
             render_mode,
@@ -3965,14 +3966,7 @@ impl X11Window {
                         Box::new(Notifier {
                             new_frame_ready: new_frame_ready.clone(),
                             wake: Some(Arc::new(move || {
-                                let one: u64 = 1;
-                                unsafe {
-                                    libc::write(
-                                        wake_fd_for_notifier,
-                                        std::ptr::addr_of!(one).cast(),
-                                        8,
-                                    );
-                                }
+                                super::timer::signal_wake_fd(wake_fd_for_notifier);
                             })),
                         }),
                         wr_translate2::default_renderer_options(
@@ -4908,8 +4902,7 @@ impl X11Window {
                     {
                         // Read from timerfd to acknowledge the timer
                         if let Some(&fd) = self.timer_fds.get(&timer_id) {
-                            let mut expirations: u64 = 0;
-                            libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
+                            super::timer::drain_fd(fd);
                             any_timer_fired = true;
                         }
                     }
@@ -4923,12 +4916,7 @@ impl X11Window {
                     && frame_ready_idx < pollfds.len()
                     && pollfds[frame_ready_idx].revents & libc::POLLIN != 0
                 {
-                    let mut n: u64 = 0;
-                    libc::read(
-                        self.frame_ready_wake_fd,
-                        &mut n as *mut u64 as *mut libc::c_void,
-                        8,
-                    );
+                    super::timer::drain_fd(self.frame_ready_wake_fd);
                     let ready = {
                         let (lock, _) = &*self.new_frame_ready;
                         let mut g = lock.lock().unwrap();
@@ -4965,8 +4953,7 @@ impl X11Window {
                     && pace_idx < pollfds.len()
                     && pollfds[pace_idx].revents & libc::POLLIN != 0
                 {
-                    let mut n: u64 = 0;
-                    libc::read(self.pace_fd, &mut n as *mut u64 as *mut libc::c_void, 8);
+                    super::timer::drain_fd(self.pace_fd);
                 }
             }
             // result == 0: timeout (the 16ms thread tick, or spurious)
@@ -6602,31 +6589,8 @@ impl X11Window {
             return true;
         }
         let remaining = self.frame_interval - since;
-        unsafe {
-            if self.pace_fd < 0 {
-                self.pace_fd = libc::timerfd_create(
-                    libc::CLOCK_MONOTONIC,
-                    libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
-                );
-            }
-            if self.pace_fd >= 0 {
-                let ns = remaining.as_nanos().max(1);
-                #[allow(clippy::cast_possible_truncation)]
-                let spec = libc::itimerspec {
-                    // one-shot: it_interval zero
-                    it_interval: libc::timespec {
-                        tv_sec: 0,
-                        tv_nsec: 0,
-                    },
-                    it_value: libc::timespec {
-                        tv_sec: (ns / 1_000_000_000) as libc::time_t,
-                        tv_nsec: (ns % 1_000_000_000) as libc::c_long,
-                    },
-                };
-                if libc::timerfd_settime(self.pace_fd, 0, &spec, std::ptr::null_mut()) == 0 {
-                    return false;
-                }
-            }
+        if super::timer::arm_oneshot_timer(&mut self.pace_fd, remaining) {
+            return false;
         }
         // No usable timerfd: never defer (pacing must not lose frames).
         true
