@@ -573,6 +573,30 @@ impl LayoutWindow {
         true
     }
 
+    /// Open the editing session on `block` with `range` selected - its
+    /// `start` the anchor, its `end` the focus; a collapsed range is a caret.
+    ///
+    /// The one way a session opens on a block the caller has resolved: keyed
+    /// on the block's editing host, so the same editable carries the same
+    /// identity however it was opened, and in the focusable the caret now sits
+    /// in, so a caret crossing into another field jumps rather than glides
+    /// ([`TextEditManager::enter_focus_scope`]). It replaces any previous
+    /// session and ends a document selection.
+    ///
+    /// [`TextEditManager::enter_focus_scope`]: crate::managers::text_edit::TextEditManager::enter_focus_scope
+    pub fn open_session(&mut self, block: TextBlock, range: SelectionRange) {
+        let key = self.contenteditable_session_key(block.dom(), block.container());
+        let scope = self.find_focusable_ancestor(block.container_dom_node());
+        self.text_edit_manager.enter_focus_scope(scope);
+        self.text_edit_manager
+            .initialize_editing(range.start, block, key);
+        if range.start != range.end {
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_range(range);
+            }
+        }
+    }
+
     /// The app's `AddCursor` (`CallbackChange::AddCursor`): a caret at `cursor`.
     /// Added to the editing session when there is one; otherwise a session
     /// opens in the block `node` names ([`Self::text_block_named_by`]).

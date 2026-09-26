@@ -3201,7 +3201,7 @@ impl LayoutWindow {
     /// [`Self::compute_edit_resume_point`] stores. Two of the three used to
     /// pass a literal `0`, so the same editable opened by click and by focus
     /// carried two different session identities.
-    fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
+    pub(crate) fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
         let anchor = self
             .find_contenteditable_host(DomNodeId {
                 dom: dom_id,
@@ -10295,10 +10295,6 @@ impl LayoutWindow {
                 seed_target.is_some()
             );
         }
-        let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
-        // Crossing into a different focusable makes the caret JUMP, not glide.
-        let scope = self.find_focusable_ancestor(seed_node);
-        self.text_edit_manager.enter_focus_scope(scope);
         // The session lives on the text BLOCK whose runs the seeded caret
         // indexes - the IFC root, as a click puts it - not on the text leaf
         // the seed was found in. Keyed on the leaf, the painted range was
@@ -10312,7 +10308,13 @@ impl LayoutWindow {
             // on: the request is used up, and no session opens.
             return true;
         };
-        self.text_edit_manager.initialize_editing(cursor, block, ce_key);
+        self.open_session(
+            block,
+            SelectionRange {
+                start: cursor,
+                end: cursor,
+            },
+        );
         true
     }
 
@@ -16402,13 +16404,13 @@ impl LayoutWindow {
                                     },
                                     affinity: CursorAffinity::Leading,
                                 });
-                                let ce_key = self.contenteditable_session_key(dom_id, node_id);
-                                // Crossing into a different focusable makes the
-                                // caret JUMP, not glide.
-                                let scope = self.find_focusable_ancestor(dom_node_id);
-                                self.text_edit_manager.enter_focus_scope(scope);
-                                self.text_edit_manager
-                                    .initialize_editing(cursor, target.block, ce_key);
+                                self.open_session(
+                                    target.block,
+                                    SelectionRange {
+                                        start: cursor,
+                                        end: cursor,
+                                    },
+                                );
 
                                 // Reveal the caret the way a keyboard focus does:
                                 // the canonical session-anchored path, which knows
@@ -20050,24 +20052,12 @@ impl LayoutWindow {
         // Setting focus directly here bypasses that, causing the blue border to not
         // appear until the next full layout (e.g., resize).
 
-        // Initialize editing at the clicked position via unified API.
-        let ce_key = self.contenteditable_session_key(dom_id, block.container());
-        // Crossing into a different focusable makes the caret JUMP, not glide:
-        // clicking from one text input into another must not animate the caret
-        // out of the first field and across into the second.
-        let scope = self.find_focusable_ancestor(block.container_dom_node());
-        self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager
-            .initialize_editing(final_range.start, block, ce_key);
-        // MWA-C-text_edit: double/triple-click computed the word/paragraph
-        // range above but then threw it away — initialize_editing only
-        // places a collapsed caret at range.start, so word/paragraph select
-        // never actually selected anything. Apply the full range.
-        if click_count > 1 && final_range.start != final_range.end {
-            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
-                mc.set_single_range(final_range);
-            }
-        }
+        // Open the session at the clicked position: a caret for a single
+        // click, the word/paragraph range for a double/triple click. (Crossing
+        // into a different focusable makes the caret JUMP, not glide: clicking
+        // from one text input into another must not animate the caret out of
+        // the first field and across into the second.)
+        self.open_session(block, final_range);
         // Only an EDITABLE click owns a caret, and the blink flag means "an OS
         // timer is running", not "a caret exists". Asserting it on every
         // selectable-text click claimed a timer nobody had armed: the next
