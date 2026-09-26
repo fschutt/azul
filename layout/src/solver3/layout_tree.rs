@@ -1925,6 +1925,31 @@ impl LayoutTree {
 
         content_size
     }
+
+    /// What a scroll container's bar has to reach: its content, and - for
+    /// the VIEWPORT's scroller (`is_viewport`, see
+    /// [`crate::solver3::scrollbar::is_viewport_scroller`]) - the root's
+    /// margin box as well ([`crate::solver3::scrollbar::viewport_scroll_extent`]).
+    ///
+    /// A pure function of THIS layout. The painted thumb used to read the
+    /// extent the `ScrollManager` held instead, which is what the PREVIOUS
+    /// layout published - or nothing, on a window's first pass - so a
+    /// relayout and a fresh window of the same size painted two different
+    /// thumbs. Registration, painting and the GPU thumb offset all read this.
+    #[must_use]
+    pub fn scroll_extent(&self, index: LayoutNodeId, is_viewport: bool) -> LogicalSize {
+        let content = self.get_content_size(index);
+        if !is_viewport {
+            return content;
+        }
+        self.nodes.get(index.index()).map_or(content, |node| {
+            crate::solver3::scrollbar::viewport_scroll_extent(
+                content,
+                node.used_size.unwrap_or_default(),
+                &node.box_props.unpack().margin,
+            )
+        })
+    }
 }
 
 /// Generate layout tree from styled DOM with proper anonymous box generation

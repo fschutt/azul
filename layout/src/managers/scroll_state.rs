@@ -1763,9 +1763,25 @@ impl ScrollManager {
     /// a hit-tested node from `WebRender`.
     #[must_use]
     pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
-        // Iterate in reverse order to hit top-most scrollbars first
-        for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
-        {
+        use crate::solver3::scrollbar::is_viewport_scroller;
+
+        // The VIEWPORT's bar first: it is painted over the whole page, after
+        // everything the root's stacking context holds, so wherever it lies
+        // over another bar - a scroll box flush with the window's edge - it is
+        // the bar the user sees and presses. Reverse key order alone tried it
+        // LAST (the root element is node 0) and handed the press to the bar
+        // underneath.
+        let viewport = self
+            .scrollbar_states
+            .iter()
+            .filter(|((dom, node, _), _)| is_viewport_scroller(*dom, *node));
+        // Then the rest in reverse order, to hit top-most scrollbars first
+        let rest = self
+            .scrollbar_states
+            .iter()
+            .rev()
+            .filter(|((dom, node, _), _)| !is_viewport_scroller(*dom, *node));
+        for ((dom_id, node_id, orientation), scrollbar_state) in viewport.chain(rest) {
             if !scrollbar_state.visible {
                 continue;
             }

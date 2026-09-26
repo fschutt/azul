@@ -285,13 +285,29 @@ impl GpuStateManager {
                 .get_current_offset(dom_id, node_id)
                 .unwrap_or_default();
 
+            // THE VIEWPORT'S BAR runs along the window and scrolls the root's
+            // margin box (CSS Overflow 3 §3.3): the scrollport
+            // `register_scroll_nodes` published and the extent it measured,
+            // which is the bar `paint_scrollbars` paints and the pointer drags.
+            // Measured against the root's own box - which IS its content -
+            // there was nothing to scroll, so the thumb stayed parked at the
+            // top while the page scrolled under it.
+            let is_viewport = crate::solver3::scrollbar::is_viewport_scroller(dom_id, node_id);
+
             // Compute inner_rect (padding-box) by subtracting borders from used_size
             let border_box_size = node.used_size.unwrap_or_default();
             let nbp = node.box_props.unpack();
             let border = &nbp.border;
-            let inner_size = LogicalSize {
+            let padding_box_size = LogicalSize {
                 width: (border_box_size.width - border.left - border.right).max(0.0),
                 height: (border_box_size.height - border.top - border.bottom).max(0.0),
+            };
+            let inner_size = if is_viewport {
+                scroll_manager
+                    .get_scroll_state(dom_id, node_id)
+                    .map_or(padding_box_size, |s| s.container_rect.size)
+            } else {
+                padding_box_size
             };
             // Use zero origin since we only need the geometry ratios, not absolute position
             let inner_rect = LogicalRect {
@@ -309,7 +325,9 @@ impl GpuStateManager {
             let content_size = scroll_manager
                 .get_scroll_state(dom_id, node_id)
                 .and_then(|s| s.virtual_scroll_size)
-                .unwrap_or_else(|| layout_tree.get_content_size(LayoutNodeId::new(node_idx)));
+                .unwrap_or_else(|| {
+                    layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport)
+                });
 
             if scrollbar_info.needs_vertical {
                 // Use the visual width from the scrollbar style — same value used

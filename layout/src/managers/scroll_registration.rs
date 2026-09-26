@@ -42,9 +42,14 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         .as_ref()
         .map(|mc| mc.node_id);
 
-    // The viewport the ROOT scrolls against (see the root arm below).
-    let viewport_size = layout_window.current_window_state.size.dimensions;
     for (dom_id, layout_result) in &mut layout_window.layout_results {
+        // The viewport the ROOT scrolls against (see the root arm below): the
+        // one this layout was SOLVED in, which is what the display list paints
+        // the viewport's bar along. `current_window_state` is not that - the
+        // layout funnel publishes before the shell's resize path writes the
+        // new size into it, so the first registration of every resize read
+        // the previous window's.
+        let viewport_size = layout_result.viewport.size;
         // ONLY the node the caret sits on — which in a TextInput is the value
         // <p>, i.e. both the IFC root and the horizontal scroll box.
         //
@@ -102,29 +107,13 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
             // §3.3). Its box has `height: auto` and grows to its content, so
             // measured against itself it never overflows and a page taller
             // than the window had nothing to scroll. The scrollport is the
-            // window; what scrolls past it is the root's MARGIN box.
-            let is_viewport_root = node_idx == 0 && *dom_id == azul_core::dom::DomId::ROOT_ID;
-            // The root's own margins and borders scroll with it: what the
-            // viewport has to reach is the root's MARGIN box, and a
-            // `height: 100%` body plus the UA's 8px margins is exactly 16px
-            // taller than the window. Measured here, where the node is in
-            // hand, and applied to the content size below.
-            let root_margin_box = is_viewport_root.then(|| {
-                let bp = node.box_props.unpack();
-                let used = node.used_size.unwrap_or_default();
-                azul_core::geom::LogicalSize {
-                    width: used.width
-                        + bp.margin.left
-                        + bp.margin.right
-                        + bp.border.left
-                        + bp.border.right,
-                    height: used.height
-                        + bp.margin.top
-                        + bp.margin.bottom
-                        + bp.border.top
-                        + bp.border.bottom,
-                }
-            });
+            // window; what scrolls past it is the root's MARGIN box
+            // (`LayoutTree::scroll_extent`, applied to the content size below).
+            // The same question and the same extent `paint_scrollbars` and
+            // `update_scrollbar_transforms` use, so the bar the pointer finds
+            // here is the bar they paint and move.
+            let is_viewport_root =
+                crate::solver3::scrollbar::is_viewport_scroller(*dom_id, dom_node_id);
             let (container_size, container_origin) = if is_viewport_root {
                 (
                     viewport_size,
@@ -243,11 +232,7 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
 
             let mut content_size = layout_result
                 .layout_tree
-                .get_content_size(LayoutNodeId::new(node_idx));
-            if let Some(margin_box) = root_margin_box {
-                content_size.height = content_size.height.max(margin_box.height);
-                content_size.width = content_size.width.max(margin_box.width);
-            }
+                .scroll_extent(LayoutNodeId::new(node_idx), is_viewport_root);
             // See [`CARET_SCROLL_GUTTER_PX`]: the caret is content the text
             // extent does not account for, so without this the reveal has
             // nowhere to scroll to and the caret is clipped at the end of an

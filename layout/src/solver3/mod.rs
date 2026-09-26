@@ -1840,6 +1840,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             add_items(&display_list);
         }
+        // ...and every SCROLLBAR the build changed. Bars are untagged
+        // (stacking-context walk items), so the pass above never sees them,
+        // and they change without their node: the viewport's bar runs along
+        // the window, outside the root's box, and any thumb follows the
+        // content extent under it. See `changed_scrollbar_damage`.
+        if let Some((_, _, _, _, _, old_dl)) = cache.cached_display_list.as_ref() {
+            rects.extend(display_list::changed_scrollbar_damage(
+                old_dl,
+                &display_list,
+            ));
+        }
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!("[PATCHDMG] rects={rects:?}");

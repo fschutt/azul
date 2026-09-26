@@ -3804,6 +3804,40 @@ pub fn compute_patch_move_summary(
     })
 }
 
+/// Damage for every scrollbar whose drawing differs between two builds of one
+/// DOM: the old AND the new bounds of each such bar.
+///
+/// A patched build's changed-node damage cannot see a bar. Bars are pushed by
+/// the stacking-context walk (`EmitPhase::ScWalk`: re-built on every pass,
+/// never spliced), so they carry no layout tag - and they change without
+/// their node changing: the VIEWPORT's bar runs along the window, so a taller
+/// window lengthens it under a root that did not move, and any thumb follows
+/// the content extent under it. A bar outside its node's box (the viewport's
+/// is outside the root's whenever the page has margins) then had no rect at
+/// all in the damage a frame paints with when the item diff bails. So bars
+/// are compared directly, paired by their hit id; one that appeared,
+/// vanished or carries no id counts as changed.
+#[must_use]
+pub fn changed_scrollbar_damage(old: &DisplayList, new: &DisplayList) -> Vec<LogicalRect> {
+    fn bars(dl: &DisplayList) -> impl Iterator<Item = &ScrollbarDrawInfo> + '_ {
+        dl.items.iter().filter_map(|item| match item {
+            DisplayListItem::ScrollBarStyled { info } => Some(&**info),
+            _ => None,
+        })
+    }
+    let mut damage = Vec::new();
+    for (from, to) in [(old, new), (new, old)] {
+        for bar in bars(from) {
+            let unchanged = bar.hit_id.is_some()
+                && bars(to).any(|other| other.hit_id == bar.hit_id && other == bar);
+            if !unchanged {
+                damage.push(*bar.bounds.inner());
+            }
+        }
+    }
+    damage
+}
+
 impl<'a> PatchState<'a> {
     pub(crate) fn build(
         prev: &'a DisplayList,
@@ -7173,6 +7207,18 @@ where
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
 
+        // THE VIEWPORT'S BAR. CSS Overflow 3 §3.3 gives the root element's
+        // overflow to the viewport, so the root's bar belongs to the WINDOW:
+        // it runs along the viewport's edge - not along the root's box, which
+        // sits inside the page's margins and is as tall as the page - it is
+        // an overlay without arrow buttons, and it measures the viewport
+        // against the root's margin box. That is the scrollport and extent
+        // `register_scroll_nodes` publishes, which is where the pointer finds
+        // and drags the bar, and what `update_scrollbar_transforms` moves the
+        // thumb along.
+        let is_viewport = node_id
+            .is_some_and(|nid| crate::solver3::scrollbar::is_viewport_scroller(self.dom_id, nid));
+
         // A VirtualView is a replaced element with NO flow content, so the
         // layout-side necessity test (`check_scrollbar_necessity`: laid-out
         // content > container) can never fire for it and `overflow: auto` would
@@ -7310,38 +7356,52 @@ where
         let sbp = node.box_props.unpack();
         let border = &sbp.border;
 
-        // Get border-radius for potential clipping
-        let container_border_radius = node_id
-            .map(|nid| {
-                let node_state =
-                    &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
-                let element_size = PhysicalSizeImport {
-                    width: paint_rect.size.width,
-                    height: paint_rect.size.height,
-                };
-                let viewport_size =
-                    LogicalSize::new(self.ctx.viewport_size.width, self.ctx.viewport_size.height);
-                get_border_radius(
-                    self.ctx.styled_dom,
-                    nid,
-                    node_state,
-                    element_size,
-                    viewport_size,
-                )
-            })
-            .unwrap_or_default();
+        // Get border-radius for potential clipping. The viewport has none:
+        // the root's radius rounds the root's box, not the window.
+        let container_border_radius = if is_viewport {
+            BorderRadius::default()
+        } else {
+            node_id
+                .map(|nid| {
+                    let node_state =
+                        &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                    let element_size = PhysicalSizeImport {
+                        width: paint_rect.size.width,
+                        height: paint_rect.size.height,
+                    };
+                    let viewport_size = LogicalSize::new(
+                        self.ctx.viewport_size.width,
+                        self.ctx.viewport_size.height,
+                    );
+                    get_border_radius(
+                        self.ctx.styled_dom,
+                        nid,
+                        node_state,
+                        element_size,
+                        viewport_size,
+                    )
+                })
+                .unwrap_or_default()
+        };
 
         // Calculate the inner rect (content-box) where scrollbars should be placed
-        // Scrollbars are positioned inside the border, at the right/bottom edges
-        let inner_rect = LogicalRect {
-            origin: LogicalPosition::new(
-                paint_rect.origin.x + border.left,
-                paint_rect.origin.y + border.top,
-            ),
-            size: LogicalSize::new(
-                (paint_rect.size.width - border.left - border.right).max(0.0),
-                (paint_rect.size.height - border.top - border.bottom).max(0.0),
-            ),
+        // Scrollbars are positioned inside the border, at the right/bottom edges.
+        // The viewport's scrollport is the viewport itself - at the window
+        // origin, like the canvas background - the same rect
+        // `register_scroll_nodes` publishes as the root's container.
+        let inner_rect = if is_viewport {
+            LogicalRect::new(LogicalPosition::zero(), self.ctx.viewport_size)
+        } else {
+            LogicalRect {
+                origin: LogicalPosition::new(
+                    paint_rect.origin.x + border.left,
+                    paint_rect.origin.y + border.top,
+                ),
+                size: LogicalSize::new(
+                    (paint_rect.size.width - border.left - border.right).max(0.0),
+                    (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                ),
+            }
         };
 
         // Get scroll position for thumb calculation.
@@ -7368,16 +7428,32 @@ where
         // For VirtualView nodes, the virtual_scroll_size (propagated through
         // ScrollPosition.children_rect) is more accurate than the layout-computed content
         // size.
-        let content_size = node_id
-            .and_then(|nid| self.scroll_offsets.get(&nid))
-            .map_or_else(
-                || {
-                    self.positioned_tree
-                        .tree
-                        .get_content_size(LayoutNodeId::new(node_index))
-                },
-                |pos| pos.children_rect.size,
-            );
+        //
+        // NOT for the viewport. `scroll_offsets` is the ScrollManager snapshot
+        // taken BEFORE this pass, so it holds what the PREVIOUS layout
+        // published - and for the viewport that is the root's margin box at
+        // the previous window size - or nothing at all on a window's first
+        // pass, where this fell back to the bare content (no margin box). A
+        // relayout and a fresh window of the same size painted two different
+        // thumbs: real_ribbon_resize_sweep diverged by 6 px at 705, the first
+        // width after the root was first published. The viewport's extent is
+        // read off THIS layout, by the function registration publishes.
+        let content_size = if is_viewport {
+            self.positioned_tree
+                .tree
+                .scroll_extent(LayoutNodeId::new(node_index), true)
+        } else {
+            node_id
+                .and_then(|nid| self.scroll_offsets.get(&nid))
+                .map_or_else(
+                    || {
+                        self.positioned_tree
+                            .tree
+                            .get_content_size(LayoutNodeId::new(node_index))
+                    },
+                    |pos| pos.children_rect.size,
+                )
+        };
 
         // The HANDLE's own width, which is not the groove's: Breeze centres a
         // 6px handle in a 21px groove, and Adwaita/macOS inset theirs too.
@@ -7401,6 +7477,12 @@ where
             bottom_left: thumb_radius,
             bottom_right: thumb_radius,
         };
+        // Arrow buttons belong to a bar that reserves its gutter. The
+        // viewport's bar is an overlay, which the scroll manager hit-tests and
+        // the GPU updater moves the thumb along WITHOUT buttons: painted with
+        // them, its thumb started a button's length below where the pointer
+        // grabs it.
+        let show_buttons = scrollbar_style.show_scroll_buttons && !is_viewport;
 
         if scrollbar_info.needs_vertical {
             // Look up opacity key from GPU cache for GPU-animated opacity.
@@ -7421,7 +7503,7 @@ where
             });
 
             // Vertical scrollbar: use shared geometry computation
-            let button_size = if scrollbar_style.show_scroll_buttons {
+            let button_size = if show_buttons {
                 scrollbar_style.scroll_button_size_px
             } else {
                 0.0
@@ -7528,7 +7610,7 @@ where
             });
 
             // Horizontal scrollbar: use shared geometry computation
-            let h_button_size = if scrollbar_style.show_scroll_buttons {
+            let h_button_size = if show_buttons {
                 scrollbar_style.scroll_button_size_px
             } else {
                 0.0

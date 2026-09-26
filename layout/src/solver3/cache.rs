@@ -2401,7 +2401,7 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     // decision only: the root's own clip, hit testing and pagination keep
     // reading the declared value.
     let is_viewport_root =
-        dom_id.index() == 0 && ctx.styled_dom.dom_id == azul_core::dom::DomId::ROOT_ID;
+        crate::solver3::scrollbar::is_viewport_scroller(ctx.styled_dom.dom_id, dom_id);
     let viewport_rule = |v| {
         if is_viewport_root {
             crate::solver3::getters::apply_viewport_overflow_rule(dom_id, v)
@@ -2618,16 +2618,12 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     // had nothing to scroll. Its scrollport is the window and what has to fit
     // in it is the root's MARGIN box - the UA's 8px body margins alone put
     // 16px past the bottom edge.
-    if dom_id.index() == 0 && ctx.styled_dom.dom_id == azul_core::dom::DomId::ROOT_ID {
-        let m = &box_props.margin;
-        let margin_box = LogicalSize {
-            width: final_used_size.width + m.left + m.right,
-            height: final_used_size.height + m.top + m.bottom,
-        };
-        let content = LogicalSize {
-            width: content_size.width.max(margin_box.width),
-            height: content_size.height.max(margin_box.height),
-        };
+    if crate::solver3::scrollbar::is_viewport_scroller(ctx.styled_dom.dom_id, dom_id) {
+        let content = crate::solver3::scrollbar::viewport_scroll_extent(
+            content_size,
+            final_used_size,
+            &box_props.margin,
+        );
         return compute_scrollbar_info_core(
             ctx,
             dom_id,

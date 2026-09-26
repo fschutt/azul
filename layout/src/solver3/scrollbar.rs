@@ -10,9 +10,56 @@
 //! - Drag delta conversion (`handle_scrollbar_drag`)
 
 use azul_core::{
-    dom::ScrollbarOrientation,
+    dom::{DomId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
 };
+
+use crate::solver3::geometry::EdgeSizes;
+
+/// Does `node` of `dom` carry the VIEWPORT's scrollbar?
+///
+/// CSS Overflow 3 §3.3 gives the root element's `overflow` to the viewport,
+/// so the root element's bar is the WINDOW's: it runs along the viewport's
+/// edge, measures the viewport against the root's margin box
+/// ([`viewport_scroll_extent`]), and reserves no gutter. The root element is
+/// node 0 of the ROOT dom; a `VirtualView`'s child dom has a node 0 of its
+/// own, and that one is an ordinary box inside the host page.
+///
+/// Every consumer asks THIS: the scrollport decision
+/// (`cache::compute_scrollbar_info`), the published scroll state
+/// (`register_scroll_nodes`, which hit-testing and dragging read), the painted
+/// bar (`paint_scrollbars`) and the thumb the GPU value cache moves
+/// (`GpuStateManager::update_scrollbar_transforms`). When they asked
+/// different questions the bar was painted along the root's box while the
+/// pointer found it at the window's edge.
+#[must_use]
+pub fn is_viewport_scroller(dom: DomId, node: NodeId) -> bool {
+    dom == DomId::ROOT_ID && node.index() == 0
+}
+
+/// How far the VIEWPORT has to scroll: the root element's `content`, and its
+/// MARGIN box - the root's margins and borders scroll with it, so a
+/// full-height `body` with the UA's 8px margins is 16px taller than the
+/// window. `border_box` is the root's used size.
+///
+/// The one formula behind the viewport's scrollbar necessity, its published
+/// scroll range, its painted thumb and the thumb's GPU offset (see
+/// [`is_viewport_scroller`]).
+#[must_use]
+pub const fn viewport_scroll_extent(
+    content: LogicalSize,
+    border_box: LogicalSize,
+    margin: &EdgeSizes,
+) -> LogicalSize {
+    LogicalSize {
+        width: content
+            .width
+            .max(border_box.width + margin.left + margin.right),
+        height: content
+            .height
+            .max(border_box.height + margin.top + margin.bottom),
+    }
+}
 
 /// Information about scrollbar requirements and dimensions
 // +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
