@@ -3118,11 +3118,34 @@ impl Runner {
                 if node.dom != DomId::ROOT_ID {
                     return ProcessEventResult::DoNothing;
                 }
+                // FOCUS RETURN, the same bookkeeping as the desktop shell's
+                // arm: remember where focus is as the popup opens, hand it
+                // back (with its ring) when the callback closes it. Without
+                // it no scenario could cover focus return at all.
+                let focus_now = self.layout_window.focus_manager.get_focused_node().copied();
+                let restore_to = if *open {
+                    if let Some(focused) = focus_now {
+                        let visible = self.layout_window.focus_manager.focus_is_visible;
+                        self.layout_window
+                            .transient_windows
+                            .remember_focus_before_open(node_id, focused, visible);
+                    }
+                    None
+                } else {
+                    self.layout_window
+                        .transient_windows
+                        .take_focus_before_open(node_id)
+                };
                 if self
                     .layout_window
                     .transient_windows
                     .set_forced_open(node_id, *open)
                 {
+                    if let Some((target, visible)) = restore_to {
+                        self.layout_window
+                            .focus_manager
+                            .set_focused_node_with_visibility(Some(target), visible);
+                    }
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing

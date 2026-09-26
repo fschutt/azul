@@ -830,6 +830,35 @@ impl TransientWindowManager {
         self.focus_before_open.push((node, focused, visible));
     }
 
+    /// Record `focused` (with its `:focus-visible` modality) as the focus to
+    /// hand back for every window `diff` just OPENED that no seam recorded
+    /// one for.
+    ///
+    /// The `open` ATTRIBUTE is the documented way to open a popup ("the app
+    /// never touches a window, it toggles `open`") and it reaches no callback
+    /// seam, so only `set_transient_window_open` used to record anything: an
+    /// attribute-opened popup owed nobody their focus, and Escape left it
+    /// nowhere. Called right after [`Self::reconcile`], while the focus the
+    /// user had when the popup appeared is still the focus.
+    pub fn remember_focus_for_opened(
+        &mut self,
+        diff: &TransientDiff,
+        focused: Option<(azul_core::dom::DomNodeId, bool)>,
+    ) {
+        let Some((focused, visible)) = focused else {
+            return;
+        };
+        for dom in &diff.opened {
+            let Some(node) = self.get(*dom).map(|w| w.source_node) else {
+                continue;
+            };
+            if self.focus_before_open.iter().any(|(n, _, _)| *n == node) {
+                continue;
+            }
+            self.focus_before_open.push((node, focused, visible));
+        }
+    }
+
     /// Take back the focus recorded for `node` (one-shot, so a second close
     /// cannot steal focus from wherever the user has since moved it), together
     /// with whether it was INDICATED when the popup opened.

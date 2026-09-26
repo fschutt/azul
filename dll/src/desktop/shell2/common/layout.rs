@@ -2278,6 +2278,13 @@ pub(crate) fn reconcile_transient_windows(
         // manager is borrowed mutably — split the borrow by taking the
         // manager out, reconciling, and putting it back.
         let mut manager = core::mem::take(&mut layout_window.transient_windows);
+        // Where focus is as popups open: owed back on close, whichever way
+        // they opened (see `remember_focus_for_opened` below).
+        let focus_at_open = layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .map(|n| (n, layout_window.focus_manager.focus_is_visible));
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
             let measured = layout_window.layout_transient_content(
                 placement.node,
@@ -2308,6 +2315,9 @@ pub(crate) fn reconcile_transient_windows(
             };
             Some(widened)
         });
+        // A window opened by its `open` ATTRIBUTE reached no callback seam
+        // that could have recorded the focus it owes back.
+        manager.remember_focus_for_opened(&diff, focus_at_open);
         layout_window.transient_windows = manager;
         diff
     };
