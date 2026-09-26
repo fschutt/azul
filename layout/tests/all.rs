@@ -424,6 +424,8 @@ mod typed_script_font_fallback;
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
 mod variable_font_disk_path;
+#[path = "viewport_scroll_frame.rs"]
+mod viewport_scroll_frame;
 #[path = "viewport_scrollbar.rs"]
 mod viewport_scrollbar;
 #[path = "viewport_scrolls_its_overflow.rs"]
