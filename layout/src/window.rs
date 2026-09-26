@@ -3528,6 +3528,117 @@ impl LayoutWindow {
         }
     }
 
+    /// The layout node whose inline layout an edit of `node_id` re-shapes:
+    /// its own, or - for a node that owns none, like a text widget's
+    /// container - the first one among its descendants, the caret's block
+    /// first ([`Self::ifc_candidate_children`]). The one search both
+    /// [`Self::reshape_text_node`] (which writes there) and
+    /// [`Self::caret_block_content`] (which reads the generated prefix from
+    /// there) go through, so the two cannot disagree about the block.
+    fn ifc_layout_index_for_edit(&self, dom_id: DomId, node_id: NodeId) -> Option<usize> {
+        let tree = &self.layout_results.get(&dom_id)?.layout_tree;
+        let owned_ifc = |n: NodeId| -> Option<usize> {
+            tree.dom_to_layout
+                .get(&n)?
+                .iter()
+                .find(|&&idx| {
+                    tree.warm(idx)
+                        .is_some_and(|w| w.inline_layout_result.is_some())
+                })
+                .map(|idx| idx.index())
+        };
+        owned_ifc(node_id).or_else(|| {
+            self.ifc_candidate_children(dom_id, node_id)
+                .into_iter()
+                .find_map(owned_ifc)
+        })
+    }
+
+    /// The generated items `solver3::fc` put IN FRONT of an IFC's own content
+    /// - today exactly a list item's `::marker` - as the IFC root's cached
+    /// collection (`LayoutNodeWarm::inline_content_cache`) holds them.
+    fn generated_ifc_prefix(&self, dom_id: DomId, layout_index: usize) -> Vec<InlineContent> {
+        self.layout_results
+            .get(&dom_id)
+            .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(layout_index)))
+            .and_then(|w| w.inline_content_cache.as_deref())
+            .map(|cache| {
+                cache
+                    .content
+                    .iter()
+                    .take_while(|item| matches!(item, InlineContent::Marker { .. }))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The content a caret in `node_id`'s block indexes, and how many
+    /// generated items lead it.
+    ///
+    /// The layout numbers a block's runs in the content `solver3::fc` built,
+    /// which starts with a list item's `::marker`: every caret it mints in a
+    /// list item's text says run 1. The edit model - `get_text_before_textinput`,
+    /// the content overlay - is the DOM's text alone, where that text is run 0,
+    /// so an edit that handed it the layout's carets spliced a run that is not
+    /// there and typing into a list item did nothing. This is the edit model
+    /// behind the generated prefix: the carets' own numbering.
+    ///
+    /// An edit splices this, then keeps only `[generated..]` - the overlay,
+    /// the undo snapshots and the app's text-sync API get the text alone -
+    /// and [`Self::reshape_text_node`] shapes the prefix in front of it again,
+    /// so the marker stays drawn and the carets keep their numbering.
+    fn caret_block_content(&self, dom_id: DomId, node_id: NodeId) -> (Vec<InlineContent>, usize) {
+        let text = self.get_text_before_textinput(dom_id, node_id);
+        let leading = text
+            .iter()
+            .take_while(|item| matches!(item, InlineContent::Marker { .. }))
+            .count();
+        if leading > 0 {
+            return (text, leading);
+        }
+        let mut content = self
+            .ifc_layout_index_for_edit(dom_id, node_id)
+            .map(|idx| self.generated_ifc_prefix(dom_id, idx))
+            .unwrap_or_default();
+        let generated = content.len();
+        content.extend(text);
+        (content, generated)
+    }
+
+    /// The carets are the layout's, and one can sit ON a generated item (a
+    /// click on a list marker). It edits at the start of the block's own text
+    /// instead: nothing typed or deleted goes into the marker.
+    fn past_generated_items(selections: Vec<Selection>, generated: usize) -> Vec<Selection> {
+        let first_text = u32::try_from(generated).unwrap_or(u32::MAX);
+        if first_text == 0 {
+            return selections;
+        }
+        let clamp = |c: TextCursor| {
+            if c.cluster_id.source_run < first_text {
+                TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: first_text,
+                        start_byte_in_run: 0,
+                    },
+                    affinity: CursorAffinity::Leading,
+                }
+            } else {
+                c
+            }
+        };
+        selections
+            .into_iter()
+            .map(|sel| match sel {
+                Selection::Cursor(c) => Selection::Cursor(clamp(c)),
+                Selection::Range(r) => Selection::Range(SelectionRange {
+                    start: clamp(r.start),
+                    end: clamp(r.end),
+                }),
+            })
+            .collect()
+    }
+
     /// The caret expressed as a STRUCTURAL position inside `node`: the index
     /// of the direct child the caret sits in (walking up from the caret's
     /// node to the direct child), plus the byte inside it iff that child is
@@ -3881,15 +3992,14 @@ impl LayoutWindow {
 
         // Text kept from the FIRST block: everything before the range start
         // (affinity-aware byte offsets — a Trailing cursor cuts AFTER its
-        // grapheme).
+        // grapheme). Read in the carets' own run numbering
+        // (`caret_block_content`): a list item's text is run 1 behind its
+        // marker, and the DOM's text alone kept a first item whole and
+        // dropped a last item's tail.
         use crate::text3::edit::cursor_byte_offset_in_run;
         let cut_run = first_range.start.cluster_id.source_run;
         let mut first_kept = String::new();
-        for (i, c) in self
-            .get_text_before_textinput(dom_id, first)
-            .iter()
-            .enumerate()
-        {
+        for (i, c) in self.caret_block_content(dom_id, first).0.iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
                 match i.cmp(&cut_run) {
@@ -3908,11 +4018,7 @@ impl LayoutWindow {
         // Text kept from the LAST block: everything after the range end.
         let cut_run = last_range.end.cluster_id.source_run;
         let mut last_kept = String::new();
-        for (i, c) in self
-            .get_text_before_textinput(dom_id, last)
-            .iter()
-            .enumerate()
-        {
+        for (i, c) in self.caret_block_content(dom_id, last).0.iter().enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
                 match i.cmp(&cut_run) {
@@ -17104,15 +17210,18 @@ impl LayoutWindow {
         // children through the per-node overlay.
         let node_id = self.caret_text_target(dom_id, node_id);
 
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
-        if content.is_empty() {
+        // The content the carets index: the block's text behind the items
+        // the layout numbers first (a list item's marker), see
+        // `caret_block_content`.
+        let (mut content, generated) = self.caret_block_content(dom_id, node_id);
+        if content.len() == generated {
             let style_node = self.seed_style_node(dom_id, node_id);
-            content = vec![InlineContent::Text(StyledRun {
+            content.push(InlineContent::Text(StyledRun {
                 text: Arc::from(""),
                 style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
                 logical_start_byte: 0,
                 source_node_id: style_node,
-            })];
+            }));
         }
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
@@ -17153,9 +17262,10 @@ impl LayoutWindow {
                 affinity: CursorAffinity::Leading,
             })]
         };
+        let current_selection = Self::past_generated_items(current_selection, generated);
 
         // Capture pre-state for undo/redo BEFORE mutation
-        let old_text = self.extract_text_from_inline_content(&content);
+        let old_text = self.extract_text_from_inline_content(&content[generated..]);
         let old_cursor = current_selection.first().and_then(|sel| {
             if let Selection::Cursor(c) = sel {
                 Some(*c)
@@ -17241,8 +17351,14 @@ impl LayoutWindow {
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
         // the REAL styled content instead of rebuilding with
-        // StyleProperties::default() (which stripped all styling).
-        let pre_content_snapshot = content;
+        // StyleProperties::default() (which stripped all styling). The
+        // snapshots and the overlay hold the block's TEXT: the generated
+        // prefix is the layout's, and the reshape puts it back.
+        let pre_content_snapshot = content.split_off(generated);
+        let new_content = {
+            let mut with_prefix = new_content;
+            with_prefix.split_off(generated)
+        };
         let post_content_snapshot = new_content.clone();
 
         // A committed edit supersedes any composition on the same node: the
@@ -17961,51 +18077,20 @@ impl LayoutWindow {
         // 2. Get the cached constraints from the existing inline layout result.
         // We need to find the IFC root node. The layout tree uses its own indices
         // (different from DOM node IDs), so we must go through dom_to_layout.
-        // The IFC may be on this node OR a child — search all mapped layout nodes
-        // and their children for one with inline_layout_result.
+        // The IFC may be on this node OR a child (text children of a
+        // contenteditable) — caret-owning block first, then document order:
+        // `ifc_layout_index_for_edit`, the search the edit paths read the
+        // block's generated prefix through as well.
         let (mut constraints, ifc_layout_index) = {
-            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            let Some(ifc_idx) = self.ifc_layout_index_for_edit(dom_id, node_id) else {
                 return;
             };
-
-            // Find the layout node with inline_layout_result via dom_to_layout
-            let mut found: Option<(usize, &CachedInlineLayout)> = None;
-
-            // First check layout nodes mapped to this DOM node
-            if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
-                for &idx in layout_indices {
-                    if let Some(w) = layout_result.layout_tree.warm(idx) {
-                        if let Some(ref cached) = w.inline_layout_result {
-                            found = Some((idx.index(), cached));
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // If not found on this node, check child DOM nodes (text children of
-            // contenteditable) — caret-owning block first, then document order.
-            if found.is_none() {
-                for child_id in self.ifc_candidate_children(dom_id, node_id) {
-                    if let Some(child_indices) =
-                        layout_result.layout_tree.dom_to_layout.get(&child_id)
-                    {
-                        for &idx in child_indices {
-                            if let Some(w) = layout_result.layout_tree.warm(idx) {
-                                if let Some(ref cached) = w.inline_layout_result {
-                                    found = Some((idx.index(), cached));
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if found.is_some() {
-                        break;
-                    }
-                }
-            }
-
-            let Some((ifc_idx, cached_layout)) = found else {
+            let Some(cached_layout) = self
+                .layout_results
+                .get(&dom_id)
+                .and_then(|lr| lr.layout_tree.warm(LayoutNodeId::new(ifc_idx)))
+                .and_then(|w| w.inline_layout_result.as_deref())
+            else {
                 return;
             };
 
@@ -18014,6 +18099,27 @@ impl LayoutWindow {
                 None => {
                     return;
                 }
+            }
+        };
+
+        // A list item's `::marker` leads its layout content (`solver3::fc`
+        // pushes it first) and the carets the layout mints are numbered with
+        // it; the content that arrives here is the edit model's - the DOM's
+        // text, with no marker. Put the generated items back in front, or
+        // the first keystroke in a list item erased its bullet and
+        // renumbered every caret in it (see `caret_block_content`).
+        let new_inline_content = if matches!(
+            new_inline_content.first(),
+            Some(InlineContent::Marker { .. })
+        ) {
+            new_inline_content
+        } else {
+            let mut with_prefix = self.generated_ifc_prefix(dom_id, ifc_layout_index);
+            if with_prefix.is_empty() {
+                new_inline_content
+            } else {
+                with_prefix.extend(new_inline_content);
+                with_prefix
             }
         };
 
@@ -20788,6 +20894,11 @@ impl LayoutWindow {
         let host = target.node.into_crate_internal()?;
         let node_id = self.caret_text_target(dom_id, host);
 
+        // The content the carets index: the block's text behind the items the
+        // layout numbers first (a list item's marker), see
+        // `caret_block_content`.
+        let (mut content, generated) = self.caret_block_content(dom_id, node_id);
+
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
         let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
             mc.to_selections()
@@ -20796,8 +20907,8 @@ impl LayoutWindow {
         } else {
             return None;
         };
+        let current_selections = Self::past_generated_items(current_selections, generated);
 
-        let content = self.get_text_before_textinput(dom_id, node_id);
         let edit = if forward {
             crate::text3::edit::TextEdit::DeleteForward
         } else {
@@ -20816,9 +20927,23 @@ impl LayoutWindow {
                 } => (content, selections),
                 crate::text3::edit::EditOutcome::NoOp(_) => return None,
             };
+        // The generated prefix is not text. Backspace before a list item's
+        // first character removes "the item in front of the caret" - its
+        // marker - and that is no edit of the item's text at all.
+        if new_content.get(..generated) != content.get(..generated) {
+            return None;
+        }
         // What the delete did to the text, taken while `content` is still
         // ours - it is moved into the undo record below (U3-a).
         let peer_changes = crate::text3::edit::run_text_diff(&content, &new_content);
+
+        // The undo snapshots and the overlay hold the block's TEXT: the
+        // generated prefix is the layout's, and the reshape puts it back.
+        let content = content.split_off(generated);
+        let new_content = {
+            let mut with_prefix = new_content;
+            with_prefix.split_off(generated)
+        };
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
