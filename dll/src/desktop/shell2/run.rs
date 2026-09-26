@@ -688,6 +688,53 @@ pub fn run(
         );
     }
 
+    // X11 on this Mac. `AZ_BACKEND=x11` / `AZ_WINDOW=x11` in a build with the
+    // `x11-macos` feature runs the SAME window loop Linux runs, against
+    // XQuartz - NSApplication, the menu bar and the Dock below are never
+    // touched. Any other windowing request opens AppKit windows, and says so
+    // when it asked for something this build or this host cannot do.
+    match super::common::x11_host::host_windowing_from_env() {
+        super::common::x11_host::HostWindowing::Native => {}
+        super::common::x11_host::HostWindowing::X11 => {
+            #[cfg(az_x11)]
+            {
+                crate::plog_info!(
+                    "[macOS] X11 requested - running the X11 backend against DISPLAY={:?}",
+                    std::env::var("DISPLAY").ok()
+                );
+                super::common::x11_host::activate();
+                // Anything memoised before this line is AppKit's monitor list;
+                // from here on the X11 windows read the X server's.
+                crate::desktop::display::invalidate_display_cache();
+                return run_linux_windows(
+                    app_data,
+                    undo_manager,
+                    config,
+                    fc_cache,
+                    font_registry,
+                    root_window,
+                    tray,
+                    font_manager,
+                    app_icon,
+                    debug_request_rx,
+                    component_map,
+                );
+            }
+            #[cfg(not(az_x11))]
+            eprintln!(
+                "[azul] AZ_BACKEND=x11 / AZ_WINDOW=x11 asks for the X11 backend, but this build \
+                 has no `x11-macos` feature, so it does NOTHING (opening an AppKit window). \
+                 Rebuild with: cargo build -p azul-dll --features build-dll,x11-macos"
+            );
+        }
+        super::common::x11_host::HostWindowing::Unsupported(value) => {
+            eprintln!(
+                "[azul] AZ_WINDOW / AZ_BACKEND asks for the {value:?} windowing backend, which \
+                 macOS does not have - opening an AppKit window"
+            );
+        }
+    }
+
     use azul_core::{icon::SharedIconProvider, resources::AppTerminationBehavior};
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
@@ -2003,6 +2050,49 @@ pub fn run(
             component_map,
         );
     }
+    run_linux_windows(
+        app_data,
+        undo_manager,
+        config,
+        fc_cache,
+        font_registry,
+        root_window,
+        tray,
+        font_manager,
+        app_icon,
+        debug_request_rx,
+        component_map,
+    )
+}
+
+/// The X11 / Wayland window loop: create the root window, then pump every
+/// window's events, open the windows callbacks queued, drop the ones that
+/// closed, and park until something is owed - until the last window is gone.
+///
+/// Linux's `run()` ends here. So does the macOS `run()` when a build with the
+/// `x11-macos` feature is asked for X11 (`AZ_BACKEND=x11`): it is the SAME
+/// loop, not a port of it, so what reproduces against XQuartz is what ships on
+/// Linux. Off Linux the loop has X11 windows only; Wayland, the D-Bus tray and
+/// the `_NET_WM_ICON` app icon are the Linux desktop's, not the X protocol's.
+#[cfg(az_x11)]
+// With the one `LinuxWindow` variant a non-Linux host has, the loop's
+// `if let LinuxWindow::X11(..)` are irrefutable there.
+#[cfg_attr(not(target_os = "linux"), allow(irrefutable_let_patterns))]
+fn run_linux_windows(
+    app_data: RefAny,
+    undo_manager: SharedUndoManager,
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
+    root_window: WindowCreateOptions,
+    tray: Option<azul_core::tray::TrayIconData>,
+    font_manager: Option<
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
+    app_icon: Option<azul_css::AzString>,
+    debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
+    component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
+) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;
@@ -2053,6 +2143,7 @@ pub fn run(
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
         match &mut window {
             LinuxWindow::X11(w) => debug_server::register_debug_timer(w, rx, cm),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => debug_server::register_debug_timer(w, rx, cm),
         }
     }
@@ -2064,6 +2155,7 @@ pub fn run(
     let (window_id, _display_ptr) = unsafe {
         match &*window_ptr {
             LinuxWindow::X11(x11_window) => (x11_window.window as u64, x11_window.display),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(wayland_window) => {
                 // Use wl_surface pointer as window ID (unique per window).
                 // wl_display is a process-global singleton and would collide.
@@ -2093,6 +2185,7 @@ pub fn run(
     // threads; blocking on `request_fonts` here is the same wait the first
     // layout does). This block existed only in the macOS run() before — on
     // Linux, set_tray / set_app_icon were accepted and silently dropped.
+    #[cfg(target_os = "linux")]
     if tray.is_some() || app_icon.is_some() {
         let own = resources.font_manager.as_ref().map(|fm| {
             let mut fm = fm.clone_shared();
@@ -2129,6 +2222,17 @@ pub fn run(
                 );
             }
         }
+    }
+
+    // X11 on a macOS host: the tray is an NSStatusItem and the app icon the
+    // Dock tile, both of which need the NSApplication this process never runs
+    // while X11 draws its windows - and neither is X11 behaviour to reproduce.
+    #[cfg(not(target_os = "linux"))]
+    if tray.is_some() || app_icon.is_some() {
+        crate::plog_warn!(
+            "[X11] App::set_tray / App::set_app_icon are not applied while the X11 backend \
+             draws this macOS process's windows"
+        );
     }
 
     // Main event loop with multi-window support
@@ -2176,6 +2280,7 @@ pub fn run(
                                 }
                             }
                         }
+                        #[cfg(target_os = "linux")]
                         LinuxWindow::Wayland(w) => {
                             for cb in tray_callbacks {
                                 if !matches!(
@@ -2314,6 +2419,7 @@ pub fn run(
                             }
                         }
                     }
+                    #[cfg(target_os = "linux")]
                     LinuxWindow::Wayland(wayland_window) => {
                         while let Some(pending_create) = wayland_window.pending_window_creates.pop()
                         {
@@ -2483,7 +2589,7 @@ pub fn run(
 ///
 /// This is more efficient than sleeping as it wakes immediately when events arrive.
 /// Uses a 16ms timeout to ensure timers fire even without window events.
-#[cfg(target_os = "linux")]
+#[cfg(az_x11)]
 fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     use super::linux::{registry, LinuxWindow};
 
@@ -2498,6 +2604,7 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
         };
         let fd = match unsafe { &*wptr } {
             LinuxWindow::X11(w) => unsafe { (w.xlib.XConnectionNumber)(w.display) },
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => w.display_fd(),
         };
         if fd >= 0 {

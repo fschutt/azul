@@ -32,7 +32,8 @@ pub mod layout;
 pub mod log_gate;
 pub mod seats;
 pub mod transient;
-/// The X11 backend on a non-Linux host (`x11-macos`): library names per host.
+/// The X11 backend on a non-Linux host (`x11-macos`): library names per host,
+/// the macOS windowing request, and the "X11 drives this process" flag.
 pub mod x11_host;
 
 // Re-exports for convenience

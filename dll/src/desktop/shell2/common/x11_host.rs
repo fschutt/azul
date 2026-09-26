@@ -16,6 +16,11 @@
 //! a file whose tests never run on the machine that has no backend:
 //!
 //! - [`library_candidates`]: where each library of the X11 stack is found.
+//! - [`host_windowing`]: whether the environment asks a macOS build for X11.
+//! - [`active`]: whether X11 drives THIS process's windows on a non-Linux host - what the few
+//!   window-system policies above the backend consult instead of `target_os`.
+
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // ============================================================================
 // Library names
@@ -133,9 +138,94 @@ pub(crate) fn candidates(lib: X11Lib) -> &'static [&'static str] {
     library_candidates(lib, LibHost::current())
 }
 
+// ============================================================================
+// Which windowing system a macOS build was asked for
+// ============================================================================
+
+/// What the environment asks a macOS build to open its windows with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HostWindowing {
+    /// AppKit: the default, and the answer to `auto` or to nothing at all.
+    Native,
+    /// The X11 backend, against XQuartz. Needs the `x11-macos` feature.
+    X11,
+    /// A windowing value this host cannot honour (`wayland`, or an `AZ_WINDOW`
+    /// that names no windowing system). Carried for the warning; the window
+    /// still opens natively.
+    Unsupported(String),
+}
+
+/// Read the windowing request the way `LinuxWindow::select_backend` does on
+/// Linux: `AZ_WINDOW` wins, then the legacy `AZ_BACKEND=x11|wayland`, whose
+/// RENDER values (`cpu`, `gpu`, `auto`, `headless`, `web://...`) are a
+/// different axis and are skipped. Matching ignores case and nothing else -
+/// no trimming, an empty `AZ_WINDOW` is still an `AZ_WINDOW` - so whenever
+/// this answers `X11`, `select_backend` in the X11 loop it hands over to
+/// answers `X11` too.
+///
+/// What is deliberately missing is Linux's auto-detection. Linux picks X11
+/// when `DISPLAY` is set; on a Mac with XQuartz installed its launchd agent
+/// exports `DISPLAY` to every process in the login session, so it says nothing
+/// about what this app wants. Only an explicit `x11` leaves AppKit.
+#[must_use]
+pub(crate) fn host_windowing(az_window: Option<&str>, az_backend: Option<&str>) -> HostWindowing {
+    let legacy =
+        az_backend.filter(|v| v.eq_ignore_ascii_case("x11") || v.eq_ignore_ascii_case("wayland"));
+    match az_window.or(legacy) {
+        None => HostWindowing::Native,
+        Some(v) if v.eq_ignore_ascii_case("auto") => HostWindowing::Native,
+        Some(v) if v.eq_ignore_ascii_case("x11") => HostWindowing::X11,
+        Some(v) => HostWindowing::Unsupported(v.to_owned()),
+    }
+}
+
+/// [`host_windowing`] over this process's environment.
+pub(crate) fn host_windowing_from_env() -> HostWindowing {
+    let az_window = std::env::var("AZ_WINDOW").ok();
+    let az_backend = std::env::var("AZ_BACKEND").ok();
+    host_windowing(az_window.as_deref(), az_backend.as_deref())
+}
+
+// ============================================================================
+// Is X11 driving this process?
+// ============================================================================
+
+/// Set once, by the macOS `run()`, when it hands the process to the X11 loop.
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Hand this process's windows to the X11 backend on a non-Linux host.
+///
+/// Called before the first window exists: the monitor list, the frame rules
+/// and the menu bar of that very first window already read [`active`].
+pub(crate) fn activate() {
+    ACTIVE.store(true, Ordering::Release);
+}
+
+/// Is X11 drawing this process's windows on a host whose native toolkit is
+/// something else?
+///
+/// A handful of choices above the backend are made per `target_os` but are
+/// really about the WINDOW SYSTEM: which monitor list sizes a window
+/// (`display.rs`), whether a frame can show its controls without a title
+/// (`csd.rs`), whether the window carries a software menu bar (`layout.rs`).
+/// Those ask this instead, so an X11 window on a Mac gets the X11 answer.
+///
+/// Constant `false` on Linux, where X11 is native and the Linux answers are
+/// compiled in, and in every build without the backend.
+pub(crate) fn active() -> bool {
+    cfg!(all(az_x11, not(target_os = "linux"))) && ACTIVE.load(Ordering::Acquire)
+}
+
+/// Do this process's windows follow the Linux desktop's window rules - X11's
+/// and Wayland's frames, the software menu bar? Always on Linux; elsewhere
+/// exactly while [`active`].
+pub(crate) fn linux_window_rules() -> bool {
+    cfg!(target_os = "linux") || active()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{library_candidates, LibHost, X11Lib};
+    use super::{host_windowing, library_candidates, HostWindowing, LibHost, X11Lib};
 
     const ALL: [X11Lib; 11] = [
         X11Lib::X11,
@@ -226,5 +316,78 @@ mod tests {
     fn gtk_is_not_loaded_on_macos() {
         assert!(library_candidates(X11Lib::Gtk3, LibHost::MacOs).is_empty());
         assert!(!library_candidates(X11Lib::Gtk3, LibHost::Linux).is_empty());
+    }
+
+    #[test]
+    fn nothing_set_opens_appkit() {
+        assert_eq!(host_windowing(None, None), HostWindowing::Native);
+        assert_eq!(host_windowing(None, Some("cpu")), HostWindowing::Native);
+        assert_eq!(host_windowing(Some("auto"), None), HostWindowing::Native);
+    }
+
+    /// The vocabulary is Linux's: `AZ_BACKEND=x11` is the legacy spelling,
+    /// `AZ_WINDOW=x11` the current one, and case does not matter.
+    #[test]
+    fn x11_is_asked_for_by_either_variable() {
+        assert_eq!(host_windowing(None, Some("x11")), HostWindowing::X11);
+        assert_eq!(host_windowing(None, Some("X11")), HostWindowing::X11);
+        assert_eq!(host_windowing(Some("x11"), None), HostWindowing::X11);
+    }
+
+    /// `AZ_WINDOW` wins, as on Linux: an explicit `auto` keeps AppKit even
+    /// when the legacy variable says `x11`, and the two axes combine - X11
+    /// windows with a GPU render request.
+    #[test]
+    fn az_window_wins_over_the_legacy_variable() {
+        assert_eq!(
+            host_windowing(Some("auto"), Some("x11")),
+            HostWindowing::Native
+        );
+        assert_eq!(host_windowing(Some("x11"), Some("gpu")), HostWindowing::X11);
+    }
+
+    /// `AZ_BACKEND`'s render values say nothing about windowing; they are not
+    /// a request for anything this function decides.
+    #[test]
+    fn a_render_value_is_not_a_windowing_request() {
+        for render in ["cpu", "gpu", "auto", "headless", "web://127.0.0.1:8080"] {
+            assert_eq!(
+                host_windowing(None, Some(render)),
+                HostWindowing::Native,
+                "{render}"
+            );
+        }
+    }
+
+    /// Wayland is the Linux desktop's protocol: asked for on a Mac, it is
+    /// named in the warning and the window opens natively.
+    #[test]
+    fn wayland_and_unknown_values_are_reported_not_honoured() {
+        assert_eq!(
+            host_windowing(None, Some("wayland")),
+            HostWindowing::Unsupported("wayland".into())
+        );
+        assert_eq!(
+            host_windowing(Some("cocoa"), None),
+            HostWindowing::Unsupported("cocoa".into())
+        );
+        // Parsed exactly as `select_backend` parses it, where an empty or
+        // padded `AZ_WINDOW` is an invalid request too - never an X11 one.
+        assert_eq!(
+            host_windowing(Some(""), Some("x11")),
+            HostWindowing::Unsupported(String::new())
+        );
+        assert_eq!(
+            host_windowing(Some(" x11 "), None),
+            HostWindowing::Unsupported(" x11 ".into())
+        );
+    }
+
+    /// Nothing activates the flag in a test process, and on Linux it is
+    /// compiled to `false`: the Linux rules come from `target_os` there.
+    #[test]
+    fn the_flag_is_off_until_the_run_loop_raises_it() {
+        assert!(!super::active());
+        assert_eq!(super::linux_window_rules(), cfg!(target_os = "linux"));
     }
 }
