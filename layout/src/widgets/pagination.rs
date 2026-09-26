@@ -35,9 +35,9 @@ use azul_css::{
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
-            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutJustifyContent, LayoutMinWidth, LayoutPaddingBottom, LayoutPaddingLeft,
-            LayoutPaddingRight, LayoutPaddingTop,
+            LayoutAlignItems, LayoutAlignSelf, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
         },
         property::{CssProperty, *},
         style::{
@@ -220,7 +220,12 @@ fn build_button_style(
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
-        // Keep single-digit page buttons from collapsing too narrow.
+        // Keep single-digit page buttons from collapsing too narrow: 36px for
+        // the WHOLE button. Under content-box sizing the minimum measured the
+        // content alone and a "3" came out 36 + 24 padding + 1 border = 61px.
+        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
+            LayoutBoxSizing::BorderBox,
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             36,
         ))),
