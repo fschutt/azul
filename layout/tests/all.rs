@@ -138,6 +138,8 @@ mod abs_pos_anomalies;
 mod abspos_in_flex_containing_block;
 #[path = "anonymous_nodes.rs"]
 mod anonymous_nodes;
+#[path = "azul_widgets_demo_follows_the_theme.rs"]
+mod azul_widgets_demo_follows_the_theme;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
