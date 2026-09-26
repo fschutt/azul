@@ -863,8 +863,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
         .with_css(
-            "font-family: sans-serif; background-color: #f2f4f7; display: flex; flex-direction: \
-             column; height: 100%;",
+            "margin: 0; font-family: sans-serif; background-color: #f2f4f7; display: flex; \
+             flex-direction: column; height: 100%;",
         )
         .with_child(titlebar)
         .with_child(
