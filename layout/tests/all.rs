@@ -276,6 +276,8 @@ mod an_svg_without_a_viewbox;
 mod a_mask_clip_on_a_half_pixel;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
+#[path = "pagination_fits_its_card.rs"]
+mod pagination_fits_its_card;
 #[path = "patched_opacity_reaches_the_paint.rs"]
 mod patched_opacity_reaches_the_paint;
 #[path = "pagination_perf.rs"]
