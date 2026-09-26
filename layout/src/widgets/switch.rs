@@ -182,7 +182,9 @@ pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
             LayoutFlexDirection::Row,
         )),
         CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Center)),
+        // `start`, like Segmented and Pagination: the parent decides where a
+        // fixed-size widget goes. `center` centred it HORIZONTALLY in a column.
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
