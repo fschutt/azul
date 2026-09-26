@@ -70,3 +70,48 @@ User on the integrated build (dark mode): "the azwidgets demo now doesn't have t
 'dark text on dark mode' for the title". The agent is rebasing onto the PR branch
 and making the demo use the system palette directly (both themes), with a RED
 contrast test for the heading/titlebar title.
+
+## Follow-up done: branch rebased onto fix/input-bugs-2026-09-19 (39a96b9bc), UNCOMPILED
+
+```
+dcc171ca4 fix(examples): the widgets demo paints from the system palette directly
+e15e43bea test(examples): the widgets demo paints from the system palette directly   <- RED
+c957af93c fix(css): a child inherits the declaration that won on its parent
+9e797cb1a test(css): the text inside paints the colour that won on its parent         <- RED
+dc5d05081 .. 843dfa788  (the 7 system-colour commits above, rebased without conflicts)
+```
+
+**"Dark text on dark mode for the title" - root cause (a regression EXPOSED by
+4d3ba32fe):** in `CssPropertyCache::restyle` (core/src/prop_cache.rs, inheritance
+step 2) a child inherits its parent's stylesheet declarations BEFORE they are
+deduplicated; the parent's list holds every matching declaration in order
+(`color: #101828`, then the dark twin `system:text`) and the child's insert keeps
+the FIRST per property -> the text node inherits #101828. The div itself is right
+(its own list is last-wins), the compact tier is right (inherits the parent's
+compact value) - which is why `get_style_properties` harnesses stayed green - but
+`compute_inherited_values` lets the wrong inherited value win and the display
+list's live text colour re-resolve paints it. Before 4d3ba32fe the dark block came
+first, so first-wins picked the twin by accident. Fix c957af93c: dedupe the
+parent's list last-wins per property before the child sees it (as the inline step
+already does). RED 9e797cb1a: `inline_media_follows_source_order::the_text_inside_
+paints_the_declaration_that_won` (dark: #ff0000 instead of #0000ff; block-then-plain:
+#0000ff instead of #00ff00) and `azul_widgets_demo_follows_the_theme::the_page_and_
+titlebar_titles_are_legible_in_both_themes` (dark: #101828 on (44,44,46)/(28,28,30)
+~1.3:1).
+
+**Demo on the system palette:** "system:ui" is azul's `font-family: system:ui`
+(no CSS `system-ui` generic support found). RED e15e43bea
+(`the_demo_paints_from_the_system_palette_directly`: ~40 fixed colours + 27 twins
+today). dcc171ca4: one `system:` value per colour, no twins - page
+`system:background`; cards/titlebar/dock panel/active tab/pane
+`system:window-background`; drop zones + context box `system:control-background`;
+text `system:text` / `secondary-text` / `tertiary-text`; rules/borders
+`system:separator`; file-hover `system:accent` on `system:text-selection-background`;
+body `font-family: system:ui; color: system:text`; code spans `system:monospace`.
+Only non-system colour: the dock panel shadow `rgba(0,0,0,0.1)` - the old
+`rgba(16, 24, 40, 0.1)` never worked (the shadow parser splits at spaces and
+dropped the declaration: a separate parser bug to fix).
+
+Least sure to compile: the new demo-theme test's literal-index lookup (assumes
+the demo's current style order), `NodeId::new(<literal>)`. Not checked: whether
+any core test depended on first-wins inheritance (none found by grep).
