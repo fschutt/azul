@@ -4902,15 +4902,35 @@ pub trait PlatformWindow {
                 _ => return false,
             }
         };
-        let Some(mailbox) = self
-            .get_layout_window()
-            .and_then(super::transient::keyboard_owner_mailbox)
-        else {
-            return false;
+        // A popup that holds the keyboard takes every key. An open LIST
+        // popup (a combobox's options) leaves focus with its invoker, so it
+        // takes only the keys that walk and pick from a list; the rest keep
+        // editing the field.
+        let (mailbox, whole_keyboard) = {
+            let Some(lw) = self.get_layout_window() else {
+                return false;
+            };
+            if let Some(m) = super::transient::keyboard_owner_mailbox(lw) {
+                (m, true)
+            } else if let Some(m) = super::transient::list_popup_mailbox(lw) {
+                (m, false)
+            } else {
+                return false;
+            }
         };
+        if !whole_keyboard {
+            let key = keyboard
+                .current_virtual_keycode
+                .into_option()
+                .or_else(|| previous_key.into_option());
+            if !key.is_some_and(super::transient::is_list_navigation_key) {
+                return false;
+            }
+        }
         // The text this key typed was recorded against THIS window's focused
-        // node (the invoker) by the backend's key handler: move it over.
-        let text = self.get_layout_window_mut().and_then(|lw| {
+        // node (the invoker) by the backend's key handler: move it over. (A
+        // list navigation key types none.)
+        let text = self.get_layout_window_mut().filter(|_| whole_keyboard).and_then(|lw| {
             let mut typed = String::new();
             lw.text_input_manager.pending_changesets.retain_mut(|q| {
                 let from_this_key = q.source == TextInputSource::Keyboard
@@ -4941,6 +4961,71 @@ pub trait PlatformWindow {
         self.consume_keyboard_delta("transient.key_forwarded");
         self.deliver_forwarded_keys();
         true
+    }
+
+    /// `<transient-window>`, popup side: a popup that leaves focus on its
+    /// invoker (a combobox's list) takes the keyboard on the first
+    /// NAVIGATION key it gets while nothing in it is focused - Down, PageDown
+    /// or Home onto its first control, Up, PageUp or End onto its last - and
+    /// that key is spent on getting there. From then on arrows walk the list
+    /// and Enter picks, like in any focused popup. Without this a list that
+    /// did not autofocus would be unreachable from the keyboard: an arrow
+    /// with no focused node only scrolls.
+    fn focus_list_popup_on_navigation(&mut self) -> ProcessEventResult {
+        use azul_core::{callbacks::FocusTarget, window::VirtualKeyCode as K};
+        use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+
+        let state = self.get_current_window_state();
+        if super::transient::mailbox_of(state).is_none()
+            || super::transient::popup_takes_focus(state)
+        {
+            return ProcessEventResult::DoNothing;
+        }
+        if self
+            .get_layout_window()
+            .is_none_or(|lw| lw.focus_manager.get_focused_node().is_some())
+        {
+            return ProcessEventResult::DoNothing;
+        }
+        let fresh_key = {
+            let current = self
+                .get_current_window_state()
+                .keyboard_state
+                .current_virtual_keycode
+                .into_option();
+            let previous = self
+                .get_previous_window_state()
+                .as_ref()
+                .and_then(|p| p.keyboard_state.current_virtual_keycode.into_option());
+            current.filter(|k| Some(*k) != previous)
+        };
+        let target = match fresh_key {
+            Some(K::Down | K::PageDown | K::Home) => FocusTarget::First,
+            Some(K::Up | K::PageUp | K::End) => FocusTarget::Last,
+            _ => return ProcessEventResult::DoNothing,
+        };
+        let node = self.get_layout_window().and_then(|lw| {
+            match resolve_focus_target(
+                &target,
+                &lw.layout_results,
+                None,
+                &lw.focus_out_of_scope_doms(),
+            ) {
+                Ok(FocusResolution::Resolved(n)) => Some(n),
+                _ => None,
+            }
+        });
+        let Some(node) = node else {
+            return ProcessEventResult::DoNothing;
+        };
+        focus_trace!("list popup takes the keyboard on {fresh_key:?}: focus {node:?}");
+        let r = self.apply_system_change(&SystemChange::SetFocus {
+            new_focus: Some(node),
+            old_focus: None,
+            visible: true,
+        });
+        self.consume_keyboard_delta("transient.list_navigation_entered");
+        r
     }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
@@ -10113,6 +10198,12 @@ pub trait PlatformWindow {
             }
         }
 
+        // A list popup (no autofocus) takes the keyboard on its first
+        // navigation key - one the OS delivered to it directly.
+        if depth == 0 {
+            restored = restored.max(self.focus_list_popup_on_navigation());
+        }
+
         let mut result = self.process_window_events_inner(depth).max(restored);
 
         // FORWARDED KEYS, popup side: replay every key the parent received
@@ -10144,6 +10235,9 @@ pub trait PlatformWindow {
                         let _ = lw.record_text_input(text);
                     }
                 }
+                // ...and the same entry into a list popup for a forwarded
+                // navigation key (the parent kept every other one).
+                result = result.max(self.focus_list_popup_on_navigation());
                 result = result.max(self.process_window_events_inner(depth));
             }
         }

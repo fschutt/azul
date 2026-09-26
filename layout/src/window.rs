@@ -5485,6 +5485,24 @@ impl LayoutWindow {
             })
     }
 
+    /// The open popup that LEAVES focus on its invoker (a combobox's list),
+    /// if any - the other half of [`Self::transient_keyboard_owner`]. Its
+    /// invoker keeps focus and ring; only the NAVIGATION keys this window
+    /// receives while it is open are the list's (the shell forwards those).
+    #[must_use]
+    pub fn transient_list_popup(&self) -> Option<&crate::transient::OpenTransientWindow> {
+        let root = &self.layout_results.get(&DomId::ROOT_ID)?.styled_dom;
+        self.transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| {
+                !w.is_inline()
+                    && w.torn.is_none()
+                    && !crate::transient::transient_takes_focus(root, w.source_node)
+            })
+    }
+
     /// Rebuild the display list that carries (or should carry) the focus
     /// ring, after something OUTSIDE a display-list build changed what the
     /// ring gate answers - a popup taking or handing back the keyboard. The

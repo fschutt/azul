@@ -240,6 +240,35 @@ pub fn keyboard_owner_mailbox(lw: &LayoutWindow) -> Option<RefAny> {
     }
 }
 
+/// The mailbox of the open popup that leaves focus on its invoker (a
+/// combobox's list, see `LayoutWindow::transient_list_popup`), once its
+/// window exists.
+#[must_use]
+pub fn list_popup_mailbox(lw: &LayoutWindow) -> Option<RefAny> {
+    match &lw.transient_list_popup()?.surface {
+        OptionRefAny::Some(m) => Some(m.clone()),
+        OptionRefAny::None => None,
+    }
+}
+
+/// The keys that belong to an open LIST popup even though its invoker keeps
+/// focus: the ones that walk a list and pick from it. Everything else - the
+/// text, Backspace, the caret keys Left / Right - keeps editing the field.
+#[must_use]
+pub const fn is_list_navigation_key(key: VirtualKeyCode) -> bool {
+    matches!(
+        key,
+        VirtualKeyCode::Up
+            | VirtualKeyCode::Down
+            | VirtualKeyCode::PageUp
+            | VirtualKeyCode::PageDown
+            | VirtualKeyCode::Home
+            | VirtualKeyCode::End
+            | VirtualKeyCode::Return
+            | VirtualKeyCode::NumpadEnter
+    )
+}
+
 /// Parent side: hand one keyboard transition to the popup behind `mailbox`,
 /// which replays it on its next pass ([`take_forwarded_keys`]). Returns
 /// whether the mailbox took it - a popup the parent already closed takes
