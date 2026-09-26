@@ -296,6 +296,8 @@ mod pagination_fits_its_card;
 mod shaping_cache_keeps_the_run_it_is_hit_from;
 #[path = "caret_in_an_inline_editing_host.rs"]
 mod caret_in_an_inline_editing_host;
+#[path = "inline_media_follows_source_order.rs"]
+mod inline_media_follows_source_order;
 #[path = "fixed_size_widgets_sit_at_the_start.rs"]
 mod fixed_size_widgets_sit_at_the_start;
 #[path = "patched_opacity_reaches_the_paint.rs"]
