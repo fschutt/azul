@@ -1515,3 +1515,521 @@ mod chrome_text_is_not_selectable {
         );
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+mod theme_contrast {
+    //! Every widget follows the theme it is rendered in.
+    //!
+    //! The widget demo on a dark desktop painted a dark text field on a white
+    //! card: the flat theme's fields had dark twins, most other widgets kept
+    //! their light colours, and nothing noticed - every widget test asks for
+    //! the widget's DECLARATIONS, none asks what a user sees.
+    //!
+    //! This asks the user's question. Each widget is styled under the macOS
+    //! light and dark presets the way a window does it (the cascade runs
+    //! under the window's context from the first pass), and for every visible
+    //! text node the text colour is composited over the stack of backgrounds
+    //! behind it, down to the window canvas. Two findings, both "this widget
+    //! did not follow the theme":
+    //!
+    //! * CONTRAST below 2:1 - dark text on a dark surface, or light on light;
+    //! * in the DARK theme, text on a light NEUTRAL surface (relative luminance
+    //!   above 0.45, chroma below 0.25) - a light island: legible, and exactly
+    //!   the white card on the dark page. A saturated surface (an accent
+    //!   button, a yellow warning badge) is the widget's own colour in both
+    //!   themes and does not count.
+    //!
+    //! The 2:1 floor separates "follows the theme" from "does not"; it is not
+    //! a WCAG grade, because light values never move and some light-theme
+    //! greys are deliberately quiet.
+    use std::sync::Arc;
+
+    use azul_core::{
+        dom::{Dom, NodeId, NodeType},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{
+        dynamic_selector::DynamicSelectorContext,
+        props::{
+            basic::{
+                color::{ColorOrSystem, ColorU, SystemColorRef},
+                PhysicalSize,
+            },
+            layout::LayoutDisplay,
+            style::StyleBackgroundContent,
+        },
+        system::{defaults, SystemStyle, Theme},
+        AzString,
+    };
+
+    use crate::solver3::getters;
+
+    /// One theme to render under: its preset and the context a window
+    /// builds from it.
+    struct Probe {
+        theme: Theme,
+        style: Arc<SystemStyle>,
+        ctx: DynamicSelectorContext,
+    }
+
+    fn probe(theme: Theme) -> Probe {
+        let style = Arc::new(match theme {
+            Theme::Light => defaults::macos_modern_light(),
+            Theme::Dark => defaults::macos_modern_dark(),
+        });
+        let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
+        Probe { theme, style, ctx }
+    }
+
+    type Rgb = [f32; 3];
+
+    fn rgb(c: ColorU) -> Rgb {
+        [f32::from(c.r), f32::from(c.g), f32::from(c.b)]
+    }
+
+    fn to_color(c: Rgb) -> ColorU {
+        ColorU {
+            r: c[0].round() as u8,
+            g: c[1].round() as u8,
+            b: c[2].round() as u8,
+            a: 255,
+        }
+    }
+
+    /// `top` (straight alpha) over an opaque `base`.
+    fn over(top: ColorU, base: Rgb) -> Rgb {
+        let a = f32::from(top.a) / 255.0;
+        let t = rgb(top);
+        [
+            t[0] * a + base[0] * (1.0 - a),
+            t[1] * a + base[1] * (1.0 - a),
+            t[2] * a + base[2] * (1.0 - a),
+        ]
+    }
+
+    /// WCAG 2 relative luminance of an sRGB colour.
+    fn luminance(c: Rgb) -> f32 {
+        let lin = |v: f32| {
+            let v = v / 255.0;
+            if v <= 0.040_45 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+    }
+
+    fn contrast(a: Rgb, b: Rgb) -> f32 {
+        let (la, lb) = (luminance(a), luminance(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    fn chroma(c: Rgb) -> f32 {
+        let max = c[0].max(c[1]).max(c[2]);
+        let min = c[0].min(c[1]).min(c[2]);
+        (max - min) / 255.0
+    }
+
+    /// The colour one background layer contributes. A gradient counts as the
+    /// average of its stops; an image is unknowable here and contributes
+    /// nothing.
+    fn layer_color(layer: &StyleBackgroundContent, p: &Probe) -> Option<ColorU> {
+        let stop = |c: &ColorOrSystem| match c {
+            ColorOrSystem::Color(c) => *c,
+            ColorOrSystem::System(r) => p.ctx.system_color(*r),
+        };
+        let average = |colors: Vec<ColorU>| -> Option<ColorU> {
+            if colors.is_empty() {
+                return None;
+            }
+            let n = colors.len() as f32;
+            let sum = colors.iter().fold([0.0_f32; 4], |acc, c| {
+                [
+                    acc[0] + f32::from(c.r),
+                    acc[1] + f32::from(c.g),
+                    acc[2] + f32::from(c.b),
+                    acc[3] + f32::from(c.a),
+                ]
+            });
+            Some(ColorU {
+                r: (sum[0] / n).round() as u8,
+                g: (sum[1] / n).round() as u8,
+                b: (sum[2] / n).round() as u8,
+                a: (sum[3] / n).round() as u8,
+            })
+        };
+        match layer {
+            StyleBackgroundContent::Color(c) => Some(*c),
+            StyleBackgroundContent::SystemColor(r) => Some(p.ctx.system_color(*r)),
+            StyleBackgroundContent::LinearGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::RadialGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::ConicGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::Image(_) => None,
+        }
+    }
+
+    /// `node` and its ancestors, root first.
+    fn root_path(sd: &StyledDom, node: NodeId) -> Vec<NodeId> {
+        let hierarchy = sd.node_hierarchy.as_container();
+        let mut path = vec![node];
+        let mut cur = hierarchy[node].parent_id();
+        while let Some(n) = cur {
+            path.push(n);
+            cur = hierarchy[n].parent_id();
+        }
+        path.reverse();
+        path
+    }
+
+    /// Nothing on `path` is `display: none` or fully transparent.
+    fn is_visible(sd: &StyledDom, path: &[NodeId]) -> bool {
+        let states = sd.styled_nodes.as_container();
+        path.iter().all(|&n| {
+            !matches!(
+                getters::get_display_property(sd, Some(n)),
+                getters::MultiValue::Exact(LayoutDisplay::None)
+            ) && getters::get_opacity(sd, n, &states[n].styled_node_state) > 0.0
+        })
+    }
+
+    /// `body > dom`, cascaded under the probe's context from the first pass.
+    fn styled(dom: Dom, p: &Probe) -> StyledDom {
+        StyledDom::create_from_dom_with_context(
+            Dom::create_body().with_child(dom),
+            Some(p.ctx.clone()),
+        )
+    }
+
+    /// What a user sees at a text node: the composited ink and background.
+    fn seen(sd: &StyledDom, text: NodeId, p: &Probe) -> (Rgb, Rgb) {
+        let states = sd.styled_nodes.as_container();
+        let mut bg = rgb(p.ctx.system_color(SystemColorRef::WindowBackground));
+        for n in root_path(sd, text) {
+            for layer in getters::get_background_contents(sd, n, &states[n].styled_node_state) {
+                if let Some(c) = layer_color(&layer, p) {
+                    bg = over(c, bg);
+                }
+            }
+        }
+        let ink = getters::get_style_properties(
+            sd,
+            text,
+            Some(&p.style),
+            PhysicalSize::new(800.0, 600.0),
+        )
+        .color;
+        (over(ink, bg), bg)
+    }
+
+    /// Every finding for one widget under one theme, as messages.
+    fn findings(name: &str, dom: Dom, p: &Probe) -> Vec<String> {
+        let sd = styled(dom, p);
+        let nodes = sd.node_data.as_container();
+        let mut out = Vec::new();
+        for i in 0..nodes.len() {
+            let id = NodeId::new(i);
+            let NodeType::Text(text) = nodes[id].get_node_type() else {
+                continue;
+            };
+            let label = text.as_str();
+            if label.trim().is_empty() || !is_visible(&sd, &root_path(&sd, id)) {
+                continue;
+            }
+            let (fg, bg) = seen(&sd, id, p);
+            let ratio = contrast(fg, bg);
+            if ratio < 2.0 {
+                out.push(format!(
+                    "{name} ({:?}): {label:?} reads {ratio:.2}:1 - ink {:?} on {:?}",
+                    p.theme,
+                    to_color(fg),
+                    to_color(bg),
+                ));
+            } else if p.theme == Theme::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
+                out.push(format!(
+                    "{name} (Dark): {label:?} sits on the light surface {:?} - a light island",
+                    to_color(bg),
+                ));
+            }
+        }
+        out
+    }
+
+    fn assert_follow_the_theme(widgets: Vec<(&'static str, Dom)>) {
+        let (light, dark) = (probe(Theme::Light), probe(Theme::Dark));
+        let mut bad = Vec::new();
+        for (name, dom) in widgets {
+            bad.extend(findings(name, dom.clone(), &light));
+            bad.extend(findings(name, dom, &dark));
+        }
+        assert!(
+            bad.is_empty(),
+            "{} widget text(s) do not follow the theme:\n  {}",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// The manifest widgets named in `names`.
+    fn manifest(names: &[&str]) -> Vec<(&'static str, Dom)> {
+        super::all_widget_doms_for_lint()
+            .into_iter()
+            .filter(|(n, _)| names.contains(n))
+            .collect()
+    }
+
+    /// Feedback and tags: the widgets with a semantic colour per kind.
+    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner"];
+    /// Surfaces that hold the application's own content.
+    const CONTAINERS: &[&str] = &[
+        "accordion",
+        "card",
+        "divider",
+        "frame",
+        "modal",
+        "popover",
+        "split_pane",
+        "tabs (content)",
+        "tooltip",
+    ];
+    /// Controls a user types into, picks from or toggles.
+    const INPUTS: &[&str] = &[
+        "avatar",
+        "button",
+        "check_box",
+        "color_input",
+        "combobox",
+        "date_picker",
+        "drop_down",
+        "file_input",
+        "label",
+        "number_input",
+        "progressbar",
+        "radio_group",
+        "segmented",
+        "slider",
+        "switch",
+        "text_area",
+        "text_input",
+        "time_picker",
+    ];
+    /// Navigation and application chrome.
+    const CHROME: &[&str] = &[
+        "backstage",
+        "breadcrumb",
+        "list_view",
+        "map",
+        "menubar",
+        "node_graph",
+        "pagination",
+        "quick_access",
+        "ribbon",
+        "statusbar",
+        "stepper",
+        "tabs (header)",
+        "titlebar",
+        "tree_view",
+    ];
+
+    /// A widget added to the manifest must land in a group, or it is simply
+    /// not checked.
+    #[test]
+    fn every_manifest_widget_is_checked_by_exactly_one_group() {
+        for (name, _) in super::all_widget_doms_for_lint() {
+            let groups = [STATUS, CONTAINERS, INPUTS, CHROME]
+                .iter()
+                .filter(|g| g.contains(&name))
+                .count();
+            assert_eq!(groups, 1, "{name} is in {groups} theme-contrast group(s)");
+        }
+    }
+
+    #[test]
+    fn status_widgets_follow_the_theme() {
+        use super::{
+            alert::{Alert, AlertKind},
+            badge::{Badge, BadgeKind},
+            chip::{Chip, ChipKind},
+            toast::{Toast, ToastKind},
+        };
+
+        let mut widgets = manifest(STATUS);
+        for (name, kind) in [
+            ("alert success", AlertKind::Success),
+            ("alert warning", AlertKind::Warning),
+            ("alert danger", AlertKind::Danger),
+        ] {
+            widgets.push((
+                name,
+                Alert::with_kind(AzString::from("Message"), kind)
+                    .with_dismissible(true)
+                    .dom(),
+            ));
+        }
+        for (name, kind) in [
+            ("badge primary", BadgeKind::Primary),
+            ("badge success", BadgeKind::Success),
+            ("badge danger", BadgeKind::Danger),
+            ("badge warning", BadgeKind::Warning),
+            ("badge info", BadgeKind::Info),
+        ] {
+            widgets.push((name, Badge::with_kind(AzString::from("New"), kind).dom()));
+        }
+        for (name, kind) in [
+            ("chip primary", ChipKind::Primary),
+            ("chip success", ChipKind::Success),
+            ("chip danger", ChipKind::Danger),
+            ("chip warning", ChipKind::Warning),
+            ("chip info", ChipKind::Info),
+        ] {
+            widgets.push((
+                name,
+                Chip::with_kind(AzString::from("Rust"), kind)
+                    .with_removable(true)
+                    .dom(),
+            ));
+        }
+        for (name, kind) in [
+            ("toast success", ToastKind::Success),
+            ("toast warning", ToastKind::Warning),
+            ("toast danger", ToastKind::Danger),
+        ] {
+            widgets.push((
+                name,
+                Toast::with_kind(AzString::from("Saved"), kind)
+                    .with_dismissible(true)
+                    .dom(),
+            ));
+        }
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn container_widgets_follow_the_theme() {
+        use super::{
+            accordion::{Accordion, AccordionSection, AccordionSectionVec},
+            card::Card,
+            frame::Frame,
+            modal::Modal,
+            popover::Popover,
+            split_pane::{SplitDirection, SplitPane},
+            tabs::TabContent,
+        };
+
+        // The manifest's containers hold an empty div; the application's own
+        // text is what shows whether the SURFACE followed the theme.
+        let body = || Dom::create_p_with_text("Body text");
+        let mut widgets = manifest(CONTAINERS);
+        widgets.push(("card + text", Card::create(body()).dom()));
+        widgets.push((
+            "frame + text",
+            Frame::create(AzString::from("Frame title"), body()).dom(),
+        ));
+        widgets.push((
+            "modal + text",
+            Modal::create(body())
+                .with_title(AzString::from("Dialog"))
+                .with_open(true)
+                .dom(),
+        ));
+        widgets.push((
+            "popover + text",
+            Popover::new(Dom::create_p_with_text("Anchor"), body())
+                .with_open(true)
+                .dom(),
+        ));
+        widgets.push((
+            "split_pane + text",
+            SplitPane::create(SplitDirection::Horizontal, body(), body()).dom(),
+        ));
+        widgets.push(("tabs (content) + text", TabContent::new(body()).dom()));
+        widgets.push((
+            "accordion + text",
+            Accordion::new(AccordionSectionVec::from_vec(vec![
+                AccordionSection::new("Open section", body()).with_open(true),
+                AccordionSection::new("Closed section", body()),
+            ]))
+            .dom(),
+        ));
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn input_widgets_follow_the_theme() {
+        use super::button::{Button, ButtonType};
+
+        let mut widgets = manifest(INPUTS);
+        for (name, kind) in [
+            ("button primary", ButtonType::Primary),
+            ("button secondary", ButtonType::Secondary),
+            ("button success", ButtonType::Success),
+            ("button danger", ButtonType::Danger),
+            ("button warning", ButtonType::Warning),
+            ("button info", ButtonType::Info),
+            ("button link", ButtonType::Link),
+        ] {
+            widgets.push((name, Button::with_type(AzString::from("Go"), kind).dom()));
+        }
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn chrome_widgets_follow_the_theme() {
+        assert_follow_the_theme(manifest(CHROME));
+    }
+
+    /// The text fields the demo showed dark-on-white: in the dark theme they
+    /// sit on the desktop's FIELD colour and write in its LABEL colour, like
+    /// the native fields around them - not on a hand-picked bluish grey that
+    /// agrees with nothing else on the page.
+    #[test]
+    fn the_flat_fields_take_the_system_palette_in_the_dark_theme() {
+        use super::{number_input::NumberInput, text_area::TextArea, text_input::TextInput};
+
+        let p = probe(Theme::Dark);
+        let field = p.ctx.system_color(SystemColorRef::ControlBackground);
+        let label = p.ctx.system_color(SystemColorRef::Text);
+        for (name, dom) in [
+            (
+                "text_input",
+                TextInput::create().with_text(AzString::from("abc")).dom(),
+            ),
+            ("number_input", NumberInput::create(4.0).dom()),
+            (
+                "text_area",
+                TextArea::create().with_text(AzString::from("abc")).dom(),
+            ),
+        ] {
+            let sd = styled(dom, &p);
+            let states = sd.styled_nodes.as_container();
+            let nodes = sd.node_data.as_container();
+            // The field is the first node under the body that paints a
+            // surface; the ink is its first text.
+            let surface = (1..nodes.len())
+                .map(NodeId::new)
+                .map(|n| getters::get_background_color(&sd, n, &states[n].styled_node_state))
+                .find(|c| c.a > 0);
+            assert_eq!(surface, Some(field), "{name}: the field surface in the dark theme");
+            let ink = (1..nodes.len())
+                .map(NodeId::new)
+                .find(|n| matches!(nodes[*n].get_node_type(), NodeType::Text(_)))
+                .map(|n| {
+                    getters::get_style_properties(
+                        &sd,
+                        n,
+                        Some(&p.style),
+                        PhysicalSize::new(800.0, 600.0),
+                    )
+                    .color
+                });
+            assert_eq!(ink, Some(label), "{name}: the field's text in the dark theme");
+        }
+    }
+}
