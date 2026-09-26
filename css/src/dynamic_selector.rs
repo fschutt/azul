@@ -4472,6 +4472,24 @@ mod autotest_generated {
         ));
     }
 
+    /// `:backdrop` is a property of the WINDOW (GTK: the toplevel is not
+    /// focused), not of a node: nothing sets a node's `backdrop` flag, so a
+    /// matcher that reads only the node state can never match, and the
+    /// titlebar's inactive dimming (`TitleBar::background_inactive`) never
+    /// applied on any platform.
+    #[test]
+    fn backdrop_matches_when_the_window_is_unfocused() {
+        let backdrop = DynamicSelector::PseudoState(PseudoStateType::Backdrop);
+        let mut ctx = DynamicSelectorContext::default();
+        assert!(ctx.window_focused, "premise: a context defaults to focused");
+        assert!(!backdrop.matches(&ctx), "a focused window is not :backdrop");
+        ctx.window_focused = false;
+        assert!(
+            backdrop.matches(&ctx),
+            "an unfocused window matches :backdrop, whatever the node state"
+        );
+    }
+
     #[test]
     fn match_pseudo_state_agrees_with_has_state_for_every_state() {
         let flags = PseudoStateFlags {

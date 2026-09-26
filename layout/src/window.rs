@@ -27193,6 +27193,27 @@ mod window_theme_context {
         assert_eq!(ctx.viewport_height, ws.size.dimensions.height);
     }
 
+    /// `window_focused` is the flag EVERY backend writes on activation
+    /// (macOS, X11, Wayland and Win32); `flags.has_focus` only Win32 does.
+    /// The cascade has to see a deactivation reported through either, or
+    /// `:backdrop` can only ever match on Windows.
+    #[test]
+    fn the_context_sees_a_deactivation_reported_through_window_focused() {
+        let lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let ws = FullWindowState {
+            window_focused: false,
+            ..Default::default()
+        };
+        assert!(
+            ws.flags.has_focus,
+            "premise: only window_focused says the window is inactive"
+        );
+        assert!(
+            !lw.dynamic_selector_context(&ws).window_focused,
+            "a window its backend reported inactive is not focused for the cascade"
+        );
+    }
+
     /// `body > p > "5"` with no `color` declared anywhere: the text takes the
     /// UA's inherited default, and the UA's default depends on the theme —
     /// black on a light window, near-white on a dark one. This is the whole
