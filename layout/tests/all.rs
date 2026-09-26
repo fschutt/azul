@@ -322,6 +322,8 @@ mod seat_text_session;
 mod selection_handles;
 #[path = "session_regression.rs"]
 mod session_regression;
+#[path = "single_block_copy.rs"]
+mod single_block_copy;
 #[path = "stale_document_selection.rs"]
 mod stale_document_selection;
 #[path = "statusbar_live_label.rs"]
