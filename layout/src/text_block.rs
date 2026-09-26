@@ -31,7 +31,8 @@ use alloc::{collections::BTreeSet, sync::Arc};
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     selection::{
-        CursorAffinity, GraphemeClusterId, MultiCursorState, SelectionRange, TextBlock, TextCursor,
+        CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, SelectionRange, TextBlock,
+        TextCursor,
     },
     spaces::ScrolledContentPoint,
     styled_dom::{NodeHierarchyItem, NodeHierarchyItemId},
@@ -709,6 +710,22 @@ impl LayoutWindow {
             return false;
         };
         self.open_session(block, range);
+        true
+    }
+
+    /// The app's `SetSelection` and `SetSelectAllRange`
+    /// (`CallbackChange::SetSelection`, `CallbackChange::SetSelectAllRange`):
+    /// `selection` as the editing session's one selection, for both hosts.
+    /// Returns whether there was a session to set it in.
+    pub fn set_app_selection(&mut self, node: DomNodeId, selection: Selection) -> bool {
+        let _ = node;
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        match selection {
+            Selection::Cursor(cursor) => mc.set_single_cursor(cursor),
+            Selection::Range(range) => mc.set_single_range(range),
+        }
         true
     }
 

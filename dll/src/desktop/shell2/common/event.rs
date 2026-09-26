@@ -6367,23 +6367,16 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::SetSelection {
-                dom_id: _,
-                node_id: _,
+                dom_id,
+                node_id,
                 selection,
             } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    match selection {
-                        azul_core::selection::Selection::Cursor(cursor) => {
-                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                                mc.set_single_cursor(*cursor);
-                            }
-                        }
-                        azul_core::selection::Selection::Range(range) => {
-                            if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                                mc.set_single_range(*range);
-                            }
-                        }
-                    }
+                    let node = azul_core::dom::DomNodeId {
+                        dom: *dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                    };
+                    lw.set_app_selection(node, *selection);
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -6440,9 +6433,7 @@ pub trait PlatformWindow {
 
             CallbackChange::SetSelectAllRange { target, range } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        mc.set_single_range(*range);
-                    }
+                    lw.set_app_selection(*target, azul_core::selection::Selection::Range(*range));
                 }
                 ProcessEventResult::DoNothing
             }

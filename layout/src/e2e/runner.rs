@@ -2683,17 +2683,15 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetSelection {
-                dom_id: _,
-                node_id: _,
+                dom_id,
+                node_id,
                 selection,
             } => {
-                use azul_core::selection::Selection;
-                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
-                    match selection {
-                        Selection::Cursor(cursor) => mc.set_single_cursor(*cursor),
-                        Selection::Range(range) => mc.set_single_range(*range),
-                    }
-                }
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.set_app_selection(node, *selection);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetTextChangeset { changeset } => {
@@ -2749,10 +2747,9 @@ impl Runner {
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
-            CallbackChange::SetSelectAllRange { target: _, range } => {
-                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
-                    mc.set_single_range(*range);
-                }
+            CallbackChange::SetSelectAllRange { target, range } => {
+                self.layout_window
+                    .set_app_selection(*target, azul_core::selection::Selection::Range(*range));
                 ProcessEventResult::DoNothing
             }
             CallbackChange::ProcessTextSelectionClick { position, time_ms } => {
