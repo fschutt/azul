@@ -10396,6 +10396,37 @@ impl LayoutWindow {
             .get_inline_layout_for_node(layout_index.index())
     }
 
+    /// Where the primary caret goes when the key for (`direction`, `step`)
+    /// goes to `target` - the caret the keyboard path
+    /// ([`Self::apply_selection_op`]) moves it to, without moving it: the
+    /// block the key acts in ([`Self::keyboard_text_target`]), its
+    /// materialized layout and dense view. `None` when that block is not the
+    /// session's (no caret there to move) or there is no caret.
+    ///
+    /// What `CallbackInfo::inspect_move_cursor_*` preview, so a preview and
+    /// the move it previews cannot disagree.
+    #[must_use]
+    pub fn caret_after_step(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        let text_target =
+            self.keyboard_text_target(azul_core::window::PRIMARY_POINTER_SEAT, target)?;
+        if self.text_edit_manager.get_editing_block() != Some(text_target.block) {
+            return None;
+        }
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        Some(Self::resolve_step_with(
+            text_target.dense.as_deref(),
+            &text_target.layout,
+            &cursor,
+            direction,
+            step,
+        ))
+    }
+
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
     /// view is retained (verify-A/B'd against the sparse one under
     /// `AZ_DENSE_TEXT=verify`), sparse fallback otherwise. Associated (no

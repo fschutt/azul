@@ -75,7 +75,7 @@ use crate::{
         undo_redo::{UndoRedoManager, UndoableOperation},
         virtual_view::VirtualViewManager,
     },
-    text3::cache::{TextShapingCache as TextLayoutCache, UnifiedLayout},
+    text3::cache::TextShapingCache as TextLayoutCache,
     thread::{CreateThreadCallback, Thread},
     timer::Timer,
     window::{DomLayoutResult, LayoutWindow},
@@ -3249,40 +3249,6 @@ impl CallbackInfo {
         self.get_layout_window()
             .query_pagination(styled_dom, page_size, page_config, &ImageCache::default())
             .into()
-    }
-
-    /// Internal helper: Get the inline text layout for a given node
-    ///
-    /// This efficiently looks up the text layout by following the chain:
-    /// `LayoutWindow` -> `layout_results` -> `LayoutTree` -> `dom_to_layout` -> `LayoutNode` ->
-    /// `inline_layout_result`
-    ///
-    /// Returns None if:
-    /// - The DOM doesn't exist in `layout_results`
-    /// - The node doesn't have a layout node mapping
-    /// - The layout node doesn't have inline text layout
-    fn get_inline_layout_for_node(&self, node_id: &DomNodeId) -> Option<&Arc<UnifiedLayout>> {
-        let layout_window = self.get_layout_window();
-
-        // Get the layout result for this DOM
-        let layout_result = layout_window.layout_results.get(&node_id.dom)?;
-
-        // Convert NodeHierarchyItemId to NodeId
-        let dom_node_id = node_id.node.into_crate_internal()?;
-
-        // Look up the layout node index(es) for this DOM node
-        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&dom_node_id)?;
-
-        // Get the first layout node (a DOM node can generate multiple layout nodes,
-        // but for text we typically only care about the first one)
-        let layout_index = *layout_indices.first()?;
-
-        // Get the layout node's inline layout result (warm data)
-        let warm_node = layout_result.layout_tree.warm(layout_index)?;
-        warm_node
-            .inline_layout_result
-            .as_ref()
-            .map(|b| b.get_layout())
     }
 
     // Public query Api
@@ -6718,6 +6684,35 @@ impl CallbackInfo {
 
     // Cursor Movement Inspection/Override Methods
 
+    /// The caret the key for (`direction`, `step`) going to `target` would
+    /// leave: [`LayoutWindow::caret_after_step`], the keyboard path's own
+    /// resolution - the block the key acts in (the session's, inside
+    /// `target`), its materialized layout. Each preview below is one key.
+    fn caret_after_key(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        self.get_layout_window()
+            .caret_after_step(target, direction, step)
+    }
+
+    /// [`Self::caret_after_key`], `None` when the caret would not move.
+    fn caret_after_moving_key(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        let cursor = self
+            .get_layout_window()
+            .text_edit_manager
+            .get_primary_cursor()?;
+        self.caret_after_key(target, direction, step)
+            .filter(|moved| *moved != cursor)
+    }
+
     /// Inspect where the cursor would move when pressing left arrow
     ///
     /// Returns the new cursor position that would result from moving left.
@@ -6725,149 +6720,90 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `target` - The node containing the cursor
+    #[must_use]
     pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_left(cursor, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Character,
+        )
     }
 
     /// Inspect where the cursor would move when pressing right arrow
     ///
     /// Returns the new cursor position that would result from moving right.
     /// Returns None if the cursor is already at the end of the document.
+    #[must_use]
     pub fn inspect_move_cursor_right(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_right(cursor, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Character,
+        )
     }
 
     /// Inspect where the cursor would move when pressing up arrow
     ///
     /// Returns the new cursor position that would result from moving up one line.
     /// Returns None if the cursor is already on the first line.
+    #[must_use]
     pub fn inspect_move_cursor_up(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_up(cursor, &mut None, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::VisualLine,
+        )
     }
 
     /// Inspect where the cursor would move when pressing down arrow
     ///
     /// Returns the new cursor position that would result from moving down one line.
     /// Returns None if the cursor is already on the last line.
+    #[must_use]
     pub fn inspect_move_cursor_down(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_down(cursor, &mut None, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::VisualLine,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Home key
     ///
     /// Returns the cursor position at the start of the current line.
+    #[must_use]
     pub fn inspect_move_cursor_to_line_start(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_start(cursor, &mut None);
-
-        // Always return the result (might be same as input if already at line start)
-        Some(new_cursor)
+        // Always the result (the caret itself when already at the line start).
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Line,
+        )
     }
 
     /// Inspect where the cursor would move when pressing End key
     ///
     /// Returns the cursor position at the end of the current line.
+    #[must_use]
     pub fn inspect_move_cursor_to_line_end(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_end(cursor, &mut None);
-
-        // Always return the result (might be same as input if already at line end)
-        Some(new_cursor)
+        // Always the result (the caret itself when already at the line end).
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Line,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Ctrl+Home
     ///
     /// Returns the cursor position at the start of the document.
     #[must_use]
-    pub const fn inspect_move_cursor_to_document_start(
-        &self,
-        target: DomNodeId,
-    ) -> Option<TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
-
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })
+    pub fn inspect_move_cursor_to_document_start(&self, target: DomNodeId) -> Option<TextCursor> {
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Document,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Ctrl+End
@@ -6875,17 +6811,11 @@ impl CallbackInfo {
     /// Returns the cursor position at the end of the document.
     #[must_use]
     pub fn inspect_move_cursor_to_document_end(&self, target: DomNodeId) -> Option<TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
-
-        let text_len = self.get_node_text_length(target)?;
-
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: u32::try_from(text_len).unwrap_or(u32::MAX),
-            },
-            affinity: CursorAffinity::Leading,
-        })
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Document,
+        )
     }
 
     /// Inspect what text would be deleted by backspace (including Shift+Backspace)
