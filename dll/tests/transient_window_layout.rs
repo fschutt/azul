@@ -2093,3 +2093,162 @@ fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
         "the graft survives identical rebuilds"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The keyboard across the picker popup (focus and arrows, 2026-09-26)
+// ---------------------------------------------------------------------------
+
+use azul_core::{dom::DomNodeId, window::OptionVirtualKeyCode};
+use azul_layout::widgets::color_input::{ColorPickerData, Hsv};
+
+/// `key` goes down while `held` are already down, through the real pass.
+fn key_down(window: &mut HeadlessWindow, key: VirtualKeyCode, held: &[VirtualKeyCode], site: &str) {
+    window.snapshot_window_state_baseline(site);
+    {
+        let ks = window.common.keyboard_state_mut();
+        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        ks.pressed_virtual_keycodes = pressed.into();
+        ks.current_virtual_keycode = OptionVirtualKeyCode::Some(key);
+        ks.sync_modifiers();
+    }
+    let _ = window.process_window_events(0);
+}
+
+/// Every key comes back up, through the real pass.
+fn keys_up(window: &mut HeadlessWindow, site: &str) {
+    window.snapshot_window_state_baseline(site);
+    {
+        let ks = window.common.keyboard_state_mut();
+        ks.pressed_virtual_keycodes = Vec::<VirtualKeyCode>::new().into();
+        ks.current_virtual_keycode = OptionVirtualKeyCode::None;
+        ks.sync_modifiers();
+    }
+    let _ = window.process_window_events(0);
+}
+
+/// The platform's primary shortcut modifier, the one the picker's large step
+/// uses: Cmd on a Mac, Ctrl everywhere else.
+fn primary_modifier() -> VirtualKeyCode {
+    if azul_core::window::mac_shortcut_conventions() {
+        VirtualKeyCode::LWin
+    } else {
+        VirtualKeyCode::LControl
+    }
+}
+
+/// The first node whose classes contain `class`, in `window`'s root dom.
+fn node_with_class(window: &HeadlessWindow, class: &str) -> DomNodeId {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    let n = nodes
+        .linear_iter()
+        .find(|n| {
+            nodes
+                .get(*n)
+                .is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains(class))
+        })
+        .unwrap_or_else(|| panic!("no node with class {class}"));
+    DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+    }
+}
+
+/// The node `window` focuses, if any.
+fn focused(window: &HeadlessWindow) -> Option<DomNodeId> {
+    window
+        .get_layout_window()
+        .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+}
+
+/// The colour the picker holds, as HSV, read through the plane's own
+/// callback: the one `RefAny` the parent's swatch and the popup's controls
+/// share. Read off the RGB colour, so a 1% step shows up within rounding.
+fn picker_hsv(window: &HeadlessWindow) -> Hsv {
+    let plane = node_with_class(window, "color_picker_plane");
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    let mut data = nodes
+        .get(plane.node.into_crate_internal().unwrap())
+        .unwrap()
+        .get_callbacks()
+        .as_ref()[0]
+        .refany
+        .clone();
+    let picker = data
+        .downcast_ref::<ColorPickerData>()
+        .expect("the plane's callback carries the picker state");
+    Hsv::from_color(picker.current_color())
+}
+
+/// The showcase's ColorInput with its picker opened by a click on the
+/// swatch, plus the popup window the run loop would create for it, after the
+/// popup's first pass (the one that autofocuses its first control).
+fn open_picker_by_click() -> (HeadlessWindow, HeadlessWindow) {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_widget_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let swatch = rect_of_class(&parent, "native_color_input");
+    click_at(
+        &mut parent,
+        LogicalPosition::new(
+            swatch.origin.x + swatch.size.width / 2.0,
+            swatch.origin.y + swatch.size.height / 2.0,
+        ),
+    );
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    (parent, popup)
+}
+
+/// P0-0: the engine half of "arrows move the colour". A key delivered to the
+/// POPUP (what macOS, Win32 and Wayland do: the popup holds the keyboard)
+/// reaches the autofocused plane's `Focus(VirtualKeyDown)` handler: Right
+/// adds 1% saturation, the primary modifier + Right adds 10%. The widget's
+/// own unit test only re-implemented the arithmetic; this drives the real
+/// pass end to end.
+#[test]
+fn an_arrow_in_the_picker_popup_moves_saturation_by_one_percent() {
+    let (_parent, mut popup) = open_picker_by_click();
+    let plane = node_with_class(&popup, "color_picker_plane");
+    assert_eq!(
+        focused(&popup),
+        Some(plane),
+        "premise: the popup autofocused its first control, the plane"
+    );
+
+    let s0 = picker_hsv(&popup).s;
+    key_down(&mut popup, VirtualKeyCode::Right, &[], "t.right");
+    keys_up(&mut popup, "t.right.up");
+    let s1 = picker_hsv(&popup).s;
+    assert!(
+        (s1 - s0 - 0.01).abs() < 0.005,
+        "Right in the popup adds 1% saturation: {s0} -> {s1}"
+    );
+
+    key_down(
+        &mut popup,
+        VirtualKeyCode::Right,
+        &[primary_modifier()],
+        "t.primary_right",
+    );
+    keys_up(&mut popup, "t.primary_right.up");
+    let s2 = picker_hsv(&popup).s;
+    assert!(
+        (s2 - s1 - 0.10).abs() < 0.005,
+        "the primary modifier + Right in the popup adds 10% saturation: {s1} -> {s2}"
+    );
+}
