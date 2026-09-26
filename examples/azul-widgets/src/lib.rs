@@ -50,13 +50,22 @@ fn strs(items: &[&str]) -> Vec<azul::str::String> {
     items.iter().map(|s| (*s).into()).collect()
 }
 
+// Every colour on this page keeps its light value and names a `system:`
+// colour for the dark theme (`@media (prefers-color-scheme: dark) { .. }`):
+// in dark mode the page is the desktop's own palette - the same one the
+// widgets take their dark surfaces from - so a field never sits on a card of
+// the other theme. Surfaces: the page is `system:background`, a card
+// `system:window-background`, a drop zone `system:control-background`; text
+// is `system:text` / `system:secondary-text` / `system:tertiary-text`, rules
+// are `system:separator`.
+
 fn labelled(label: &str, widget: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
-        .with_child(
-            Dom::create_span_with_text(label)
-                .with_css("font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px;"),
-        )
+        .with_child(Dom::create_span_with_text(label).with_css(
+            "font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px; \
+             @media (prefers-color-scheme: dark) { color: system:secondary-text; }",
+        ))
         .with_child(widget.with_accessibility_name(label))
 }
 
@@ -65,10 +74,12 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
         Dom::create_div()
             .with_css(
                 "display: flex; flex-direction: column; background-color: #ffffff; border-radius: \
-                 10px; padding: 18px; margin-bottom: 20px;",
+                 10px; padding: 18px; margin-bottom: 20px; @media (prefers-color-scheme: dark) { \
+                 background-color: system:window-background; }",
             )
             .with_child(Dom::create_div_with_text(title).with_css(
-                "font-size: 18px; font-weight: bold; color: #1d2939; margin-bottom: 14px;",
+                "font-size: 18px; font-weight: bold; color: #1d2939; margin-bottom: 14px; \
+                 @media (prefers-color-scheme: dark) { color: system:text; }",
             ));
     for it in items {
         col = col.with_child(it);
@@ -86,7 +97,9 @@ fn dock_zones() -> Dom {
             .with_ids_and_classes(vec![IdOrClass::class("dock-zone")])
             .with_css(
                 "flex: 1; min-height: 160px; border: 1px dashed #98a2b3; border-radius: 8px; \
-                 padding: 6px; background-color: #f9fafb;",
+                 padding: 6px; background-color: #f9fafb; @media (prefers-color-scheme: dark) { \
+                 border-color: system:tertiary-text; background-color: \
+                 system:control-background; }",
             );
         if let Some(c) = child {
             z = z.with_child(c);
@@ -108,29 +121,34 @@ fn dock_zones() -> Dom {
     ])
     .with_css(
         "display: flex; flex-direction: column; background-color: #ffffff; border: 1px solid \
-         #d0d5dd; border-radius: 6px; box-shadow: 0px 1px 3px rgba(16, 24, 40, 0.1);",
+         #d0d5dd; border-radius: 6px; box-shadow: 0px 1px 3px rgba(16, 24, 40, 0.1); \
+         @media (prefers-color-scheme: dark) { background-color: system:window-background; \
+         border-color: system:separator; }",
     )
     .with_child(
         Dom::create_div()
             .with_css(
                 "display: flex; flex-direction: row; align-items: center; justify-content: \
                  center; height: 18px; background-color: #eaecf0; border-radius: 6px 6px 0px 0px; \
-                 cursor: grab; -azul-app-region: drag;",
+                 cursor: grab; -azul-app-region: drag; @media (prefers-color-scheme: dark) { \
+                 background-color: system:selection-background-inactive; }",
             )
             .with_child(Dom::create_div().with_css(
-                "width: 36px; height: 4px; border-radius: 2px; background-color: #98a2b3;",
+                "width: 36px; height: 4px; border-radius: 2px; background-color: #98a2b3; \
+                 @media (prefers-color-scheme: dark) { background-color: system:tertiary-text; }",
             )),
     )
     .with_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: column; gap: 6px; padding: 10px;")
-            .with_child(
-                Dom::create_span_with_text("Tools").with_css("font-weight: bold; color: #1d2939;"),
-            )
-            .with_child(
-                Dom::create_span_with_text("Drag the grip bar.")
-                    .with_css("font-size: 12px; color: #475467;"),
-            )
+            .with_child(Dom::create_span_with_text("Tools").with_css(
+                "font-weight: bold; color: #1d2939; @media (prefers-color-scheme: dark) { \
+                 color: system:text; }",
+            ))
+            .with_child(Dom::create_span_with_text("Drag the grip bar.").with_css(
+                "font-size: 12px; color: #475467; @media (prefers-color-scheme: dark) { color: \
+                 system:secondary-text; }",
+            ))
             .with_child(Button::create("A tool button").dom()),
     );
     Dom::create_div()
@@ -190,7 +208,9 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
         .with_css(
             "display: flex; align-items: center; justify-content: center; height: 80px; border: \
              1px dashed #98a2b3; border-radius: 8px; background-color: #f9fafb; color: #475467; \
-             cursor: context-menu;",
+             cursor: context-menu; @media (prefers-color-scheme: dark) { border-color: \
+             system:tertiary-text; background-color: system:control-background; color: \
+             system:secondary-text; }",
         )
         .with_child(Dom::create_span_with_text(
             "Right-click me for a context menu",
@@ -202,11 +222,29 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
             labelled("Context menu", box_),
             labelled(
                 "Status",
-                Dom::create_span_with_text(status).with_css("color: #1d2939;"),
+                Dom::create_span_with_text(status).with_css(
+                    "color: #1d2939; @media (prefers-color-scheme: dark) { color: system:text; }",
+                ),
             ),
         ],
     )
 }
+
+/// The drop zone at rest, and while files hover over it. Two whole styles
+/// rather than one `format!` template, so each keeps its dark twin next to
+/// the colours it replaces.
+const DROP_ZONE_IDLE_CSS: &str =
+    "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+     min-height: 90px; border: 2px dashed #98a2b3; border-radius: 8px; background-color: \
+     #f9fafb; color: #475467; padding: 12px; @media (prefers-color-scheme: dark) { \
+     border-color: system:tertiary-text; background-color: system:control-background; color: \
+     system:secondary-text; }";
+const DROP_ZONE_HOVER_CSS: &str =
+    "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+     min-height: 90px; border: 2px dashed #2970ff; border-radius: 8px; background-color: \
+     #eef4ff; color: #475467; padding: 12px; @media (prefers-color-scheme: dark) { \
+     border-color: system:accent; background-color: system:text-selection-background; color: \
+     system:text; }";
 
 extern "C" fn on_file_hover(mut data: RefAny, info: CallbackInfo) -> Update {
     let hovering = info.is_file_drag_active();
@@ -233,14 +271,12 @@ extern "C" fn on_file_drop(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -> Dom {
-    let bg = if hovering { "#eef4ff" } else { "#f9fafb" };
-    let border = if hovering { "#2970ff" } else { "#98a2b3" };
     let mut zone = Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: column; align-items: center; justify-content: center; \
-             min-height: 90px; border: 2px dashed {border}; border-radius: 8px; background-color: \
-             {bg}; color: #475467; padding: 12px;",
-        ))
+        .with_css(if hovering {
+            DROP_ZONE_HOVER_CSS
+        } else {
+            DROP_ZONE_IDLE_CSS
+        })
         .with_child(Dom::create_span_with_text(if hovering {
             "Release to drop"
         } else {
@@ -265,16 +301,16 @@ fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -
     let mut list = Dom::create_div()
         .with_css("display: flex; flex-direction: column; gap: 2px; margin-top: 8px;");
     if dropped.is_empty() {
-        list = list.with_child(
-            Dom::create_span_with_text("(nothing dropped yet)")
-                .with_css("color: #98a2b3; font-size: 12px;"),
-        );
+        list = list.with_child(Dom::create_span_with_text("(nothing dropped yet)").with_css(
+            "color: #98a2b3; font-size: 12px; @media (prefers-color-scheme: dark) { color: \
+             system:tertiary-text; }",
+        ));
     } else {
         for f in dropped {
-            list = list.with_child(
-                Dom::create_span_with_text(f.as_str())
-                    .with_css("font-size: 12px; color: #1d2939; font-family: monospace;"),
-            );
+            list = list.with_child(Dom::create_span_with_text(f.as_str()).with_css(
+                "font-size: 12px; color: #1d2939; font-family: monospace; @media \
+                 (prefers-color-scheme: dark) { color: system:text; }",
+            ));
         }
     }
     section(
@@ -349,25 +385,36 @@ extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// The selected document tab: the pane's own surface, so the two read as one
+/// sheet.
+const TAB_ACTIVE_CSS: &str =
+    "display: flex; align-items: center; padding: 8px 16px; cursor: grab; background-color: \
+     #ffffff; color: #1d2939; font-weight: bold; border-radius: 6px 6px 0px 0px; \
+     -azul-user-select: none; @media (prefers-color-scheme: dark) { background-color: \
+     system:window-background; color: system:text; }";
+/// A document tab in the background: recessed between the strip and the pane.
+const TAB_IDLE_CSS: &str =
+    "display: flex; align-items: center; padding: 8px 16px; cursor: grab; background-color: \
+     #e4e7ec; color: #475467; font-weight: normal; border-radius: 6px 6px 0px 0px; \
+     -azul-user-select: none; @media (prefers-color-scheme: dark) { background-color: \
+     system:under-page-background; color: system:secondary-text; }";
+
 fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom {
     let mut strip = Dom::create_div().with_css(
         "display: flex; flex-direction: row; gap: 2px; border-bottom: 1px solid #d0d5dd; \
-         background-color: #f2f4f7; border-radius: 8px 8px 0px 0px; padding: 4px 4px 0px 4px;",
+         background-color: #f2f4f7; border-radius: 8px 8px 0px 0px; padding: 4px 4px 0px 4px; \
+         @media (prefers-color-scheme: dark) { border-bottom-color: system:separator; \
+         background-color: system:background; }",
     );
     for (i, label) in tabs.iter().enumerate() {
         let is_active = i == active;
-        let (bg, color, weight) = if is_active {
-            ("#ffffff", "#1d2939", "bold")
-        } else {
-            ("#e4e7ec", "#475467", "normal")
-        };
         let mut tab = Dom::create_div()
             .with_attributes(vec![AttributeType::draggable(true)])
-            .with_css(format!(
-                "display: flex; align-items: center; padding: 8px 16px; cursor: grab; \
-                 background-color: {bg}; color: {color}; font-weight: {weight}; \
-                 border-radius: 6px 6px 0px 0px; -azul-user-select: none;",
-            ))
+            .with_css(if is_active {
+                TAB_ACTIVE_CSS
+            } else {
+                TAB_IDLE_CSS
+            })
             .with_child(Dom::create_span_with_text(label.as_str()));
         tab.add_callback(
             EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -399,11 +446,15 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
     let pane = Dom::create_div()
         .with_css(
             "min-height: 90px; padding: 16px; background-color: #ffffff; border: 1px solid \
-             #d0d5dd; border-top: none; border-radius: 0px 0px 8px 8px; color: #475467; \
-             font-family: monospace;",
+             #d0d5dd; border-top-style: none; border-radius: 0px 0px 8px 8px; color: #475467; \
+             font-family: monospace; @media (prefers-color-scheme: dark) { background-color: \
+             system:window-background; border-color: system:separator; color: \
+             system:secondary-text; }",
         )
         .with_child(
-            Dom::create_span_with_text(format!("// {active_label}")).with_css("color: #1d2939;"),
+            Dom::create_span_with_text(format!("// {active_label}")).with_css(
+                "color: #1d2939; @media (prefers-color-scheme: dark) { color: system:text; }",
+            ),
         );
 
     let strip_and_pane = Dom::create_div()
@@ -831,8 +882,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    let heading = Dom::create_div_with_text("Azul Widget Showcase")
-        .with_css("font-size: 26px; font-weight: bold; color: #101828; margin-bottom: 4px;");
+    let heading = Dom::create_div_with_text("Azul Widget Showcase").with_css(
+        "font-size: 26px; font-weight: bold; color: #101828; margin-bottom: 4px; @media \
+         (prefers-color-scheme: dark) { color: system:text; }",
+    );
     let subtitle = Dom::create_div_with_text(
         format!(
             "Every built-in widget (callbacks fired so far: {})",
@@ -840,7 +893,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         )
         .as_str(),
     )
-    .with_css("font-size: 13px; color: #667085; margin-bottom: 20px;");
+    .with_css(
+        "font-size: 13px; color: #667085; margin-bottom: 20px; @media (prefers-color-scheme: \
+         dark) { color: system:secondary-text; }",
+    );
 
     let titlebar = Dom::create_div()
         .with_css(
@@ -848,23 +904,27 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
              flex-direction: row; align-items: center; padding-left: 82px; \
              padding-right: 12px; background-color: #ffffff; \
              border-bottom: 1px solid #e4e7ec; cursor: grab; \
-             user-select: none; -azul-app-region: drag;",
+             user-select: none; -azul-app-region: drag; \
+             @media (prefers-color-scheme: dark) { background-color: \
+             system:window-background; border-bottom-color: system:separator; }",
         )
         .with_child(
             Dom::create_div_with_text("Azul Widget Showcase").with_css(
-                "font-size: 13px; font-weight: bold; color: #101828; flex-grow: 1;",
+                "font-size: 13px; font-weight: bold; color: #101828; flex-grow: 1; @media \
+                 (prefers-color-scheme: dark) { color: system:text; }",
             ),
         )
-        .with_child(
-            Dom::create_div_with_text("custom titlebar")
-                .with_css("font-size: 11px; color: #98a2b3; -azul-app-region: no-drag;"),
-        );
+        .with_child(Dom::create_div_with_text("custom titlebar").with_css(
+            "font-size: 11px; color: #98a2b3; -azul-app-region: no-drag; @media \
+             (prefers-color-scheme: dark) { color: system:tertiary-text; }",
+        ));
 
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
         .with_css(
             "margin: 0; font-family: sans-serif; background-color: #f2f4f7; display: flex; \
-             flex-direction: column; height: 100%;",
+             flex-direction: column; height: 100%; @media (prefers-color-scheme: dark) { \
+             background-color: system:background; }",
         )
         .with_child(titlebar)
         .with_child(
