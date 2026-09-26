@@ -10879,51 +10879,12 @@ impl LayoutWindow {
 
     /// The plain text under seat `seat_id`'s selection (a seat's Copy / Cut,
     /// 9b-ii-a-i-d-ii-b-i); `None` when the seat has no selection (a bare
-    /// caret copies nothing, as the primary's does).
+    /// caret copies nothing, as the primary's does). The plain half of
+    /// [`Self::seat_selected_content_for_clipboard`].
     #[must_use]
     pub fn seat_selected_text(&self, seat_id: u64) -> Option<String> {
-        let caret = self.text_edit_manager.seat_caret(seat_id)?;
-        let Selection::Range(range) = caret.selection() else {
-            return None;
-        };
-        let node_id = caret.node.node.into_crate_internal()?;
-        let content = self.get_text_before_textinput(caret.node.dom, node_id);
-        let runs: Vec<&str> = content
-            .iter()
-            .map(|c| match c {
-                InlineContent::Text(r) => &*r.text,
-                _ => "",
-            })
-            .collect();
-        let at = |c: &TextCursor| -> (usize, usize) {
-            let run = (c.cluster_id.source_run as usize).min(runs.len().saturating_sub(1));
-            let byte = crate::text3::edit::cursor_byte_offset_in_run(runs[run], c);
-            (run, byte)
-        };
-        if runs.is_empty() {
-            return None;
-        }
-        let (mut a, mut b) = (at(&range.start), at(&range.end));
-        if a > b {
-            core::mem::swap(&mut a, &mut b);
-        }
-        let mut out = String::new();
-        for (run, text) in runs.iter().enumerate().take(b.0 + 1).skip(a.0) {
-            let lo = if run == a.0 { a.1.min(text.len()) } else { 0 };
-            let hi = if run == b.0 {
-                b.1.min(text.len())
-            } else {
-                text.len()
-            };
-            if lo < hi && text.is_char_boundary(lo) && text.is_char_boundary(hi) {
-                out.push_str(&text[lo..hi]);
-            }
-        }
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        self.seat_selected_content_for_clipboard(seat_id)
+            .map(|content| content.plain_text.as_str().to_string())
     }
 
     /// The non-primary half of `apply_selection_op_for_seat` (9b-ii-a-i-d-ii-b).
@@ -19287,32 +19248,35 @@ impl LayoutWindow {
     /// against, by construction (the same reason `DenseText` stopped mapping
     /// through `content.get(source_run)`), so this table cannot drift from
     /// the cursors the way the DOM vector does.
+    ///
+    /// `node_id` is whichever node of the block a selection sits on: the IFC
+    /// root (a click), a text leaf inside it (a focus-opened session, a
+    /// seat's caret), text under a `<span>` - resolved through
+    /// [`Self::get_node_inline_layout`], and through the parent for a text
+    /// leaf that has no box of its own. The layout is the MATERIALIZED one:
+    /// under the default dense path the stored sparse layout is the empty
+    /// retirement sentinel.
     fn selection_runs_for_node(
         &self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> {
+        let layout = self.get_node_inline_layout(dom_id, node_id).or_else(|| {
+            let parent = self
+                .layout_results
+                .get(&dom_id)?
+                .styled_dom
+                .node_hierarchy
+                .as_container()
+                .get(node_id)?
+                .parent_id()?;
+            self.get_node_inline_layout(dom_id, parent)
+        });
         let mut out: BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)> = BTreeMap::new();
-        // Dense-first: under the default `AZ_DENSE_TEXT` the sparse half may
-        // be the retirement sentinel.
-        if let Some(dense) = self.get_dense_for_node(dom_id, node_id) {
-            for run in &dense.runs {
-                out.entry(run.source_run)
-                    .or_insert_with(|| (run.text.clone(), run.style.clone()));
-            }
-        }
-        if out.is_empty() {
-            // The MATERIALIZED layout, never the raw sparse one: under the
-            // default dense path `get_inline_layout_for_node` hands back the
-            // shared empty retirement sentinel, which has no clusters and so
-            // would leave this table empty for every node.
-            if let Some(layout) = self.materialized_inline_layout_for_node(dom_id, node_id) {
-                for item in &layout.items {
-                    if let ShapedItem::Cluster(c) = &item.item {
-                        out.entry(c.source_cluster_id.source_run)
-                            .or_insert_with(|| (c.source_text.clone(), c.style.clone()));
-                    }
-                }
+        for item in layout.iter().flat_map(|l| l.items.iter()) {
+            if let ShapedItem::Cluster(c) = &item.item {
+                out.entry(c.source_cluster_id.source_run)
+                    .or_insert_with(|| (c.source_text.clone(), c.style.clone()));
             }
         }
         out
@@ -20974,83 +20938,10 @@ impl LayoutWindow {
         Some(vec![target])
     }
 
-    /// Extract clipboard content from the current selection
-    ///
-    /// This method extracts both plain text and styled text from the selection ranges.
-    /// It iterates through all selected text, extracts the actual characters, and
-    /// preserves styling information from each source `StyledRun`'s `StyleProperties`.
-    ///
-    /// This is NOT reading from the system clipboard - use `clipboard_manager.get_paste_content()`
-    /// for that. This extracts content FROM the selection TO be copied.
-    ///
-    /// The styled runs are what the platform clipboard transports fan out as
-    /// RTF and HTML (see `dll/src/desktop/shell2/common/clipboard.rs`), so a
-    /// copy out of azul pastes into Word or `LibreOffice` with its formatting
-    /// intact rather than as a flat string.
-    ///
-    /// ## Arguments
-    /// * `dom_id` - The DOM to extract selection from
-    ///
-    /// ## Returns
-    /// * `Some(ClipboardContent)` - If there is a selection with text
-    /// * `None` - If no selection or no text layouts found
-    /// The styled runs under `ranges` of `content` (9b-ii-a-i-d-ii-b-iii): a
-    /// single-run range takes its slice, a multi-run range the tail of the
-    /// first run, every middle run and the head of the last - one run per
-    /// differently-styled span. Shared by the primary's and a seat's copy.
-    #[must_use]
-    pub fn extract_clipboard_ranges(
-        content: &[InlineContent],
-        ranges: &[SelectionRange],
-    ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-        let mut acc = ClipboardExtract::default();
-        for r in ranges {
-            let sr = r.start.cluster_id.source_run as usize;
-            let er = r.end.cluster_id.source_run as usize;
-            if sr == er {
-                if let Some(InlineContent::Text(run)) = content.get(sr) {
-                    let a = cursor_byte_offset_in_run(&run.text, &r.start);
-                    let b = cursor_byte_offset_in_run(&run.text, &r.end);
-                    let (lo, hi) = (a.min(b), a.max(b));
-                    if hi <= run.text.len() && lo < hi {
-                        acc.push(&run.text[lo..hi], &run.style);
-                    }
-                }
-            } else {
-                // Multi-run: walk runs in document order, taking the tail of the
-                // first run, all middle runs, and the head of the last. This is
-                // the branch that carries real formatting — one run per
-                // differently-styled span.
-                let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
-                    (sr, r.start, er, r.end)
-                } else {
-                    (er, r.end, sr, r.start)
-                };
-                for ri in first_idx..=last_idx {
-                    if let Some(InlineContent::Text(run)) = content.get(ri) {
-                        if ri == first_idx {
-                            let off = cursor_byte_offset_in_run(&run.text, &first_cur)
-                                .min(run.text.len());
-                            acc.push(&run.text[off..], &run.style);
-                        } else if ri == last_idx {
-                            let off =
-                                cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
-                            acc.push(&run.text[..off], &run.style);
-                        } else {
-                            acc.push(&run.text, &run.style);
-                        }
-                    }
-                }
-            }
-        }
-
-        acc.finish()
-    }
-
     /// Seat `seat_id`'s selection as styled clipboard content
     /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, with
-    /// the runs' formatting like the primary's. `None` for a bare caret.
+    /// the runs' formatting like the primary's - read from the same layout
+    /// runs the primary's copy reads. `None` for a bare caret.
     #[must_use]
     pub fn seat_selected_content_for_clipboard(
         &self,
@@ -21061,15 +20952,10 @@ impl LayoutWindow {
             return None;
         };
         let node_id = caret.node.node.into_crate_internal()?;
-        let mut content = self.get_text_before_textinput(caret.node.dom, node_id);
-        if content.is_empty() {
-            if let Some(host) = self.find_contenteditable_host(caret.node.dom, node_id) {
-                if host != node_id {
-                    content = self.get_text_before_textinput(caret.node.dom, host);
-                }
-            }
-        }
-        Self::extract_clipboard_ranges(&content, &[range])
+        let runs = self.selection_runs_for_node(caret.node.dom, node_id);
+        let mut acc = ClipboardExtract::default();
+        Self::push_layout_range(&mut acc, &runs, &range);
+        acc.finish()
     }
 
     /// Push the text `range` covers onto `acc`, read from `runs` - the
@@ -21105,6 +20991,14 @@ impl LayoutWindow {
         }
     }
 
+    /// The current selection as clipboard content: plain text plus styled
+    /// runs, which the platform clipboard transports fan out as RTF and HTML
+    /// (`dll/src/desktop/shell2/common/clipboard.rs`), so a copy out of azul
+    /// pastes into Word or `LibreOffice` with its formatting intact.
+    ///
+    /// This is NOT reading from the system clipboard - use
+    /// `clipboard_manager.get_paste_content()` for that. `None` when there is
+    /// no selection, or it covers no text.
     pub fn get_selected_content_for_clipboard(
         &self,
         dom_id: &DomId,
@@ -21194,75 +21088,24 @@ impl LayoutWindow {
 
         // The runs the ranges' own cursors are numbered against: the layout's
         // `source_run -> shaped text` table, exactly as the multi-block copy
-        // above reads it. The DOM-child walk below is a different vector - no
-        // `::marker` (a list item's text is run 1 to the cursor and run 0 to
-        // the walk, so it copied nothing) and raw, uncollapsed white space
-        // (so "c" of "a   b c", byte 4 of the SHAPED "a b c", copied "b").
+        // above reads it - whatever the edits so far did to the block, since
+        // every edit re-shapes it. (The DOM-child walk this used to index has
+        // no `::marker` - a list item's text is run 1 to the cursor and run 0
+        // to the walk, so it copied nothing - and raw, uncollapsed white
+        // space: "c" of "a   b c", byte 4 of the SHAPED "a b c", copied "b".)
         let runs = self.selection_runs_for_node(*dom_id, node_id);
-        if !runs.is_empty() {
-            let mut acc = ClipboardExtract::default();
-            for range in &ranges {
-                Self::push_layout_range(&mut acc, &runs, range);
-            }
-            copy_trace(|| {
-                format!(
-                    "[copy] extracting from {:?}/{:?}: {} range(s) against {} layout run(s)",
-                    dom_id,
-                    node_id,
-                    ranges.len(),
-                    runs.len()
-                )
-            });
-            return acc.finish();
+        let mut acc = ClipboardExtract::default();
+        for range in &ranges {
+            Self::push_layout_range(&mut acc, &runs, range);
         }
-
-        // No shaped runs to read (the session sits on a node no layout
-        // resolves): the DOM walk. Most editables are a single text run (the
-        // whole string, newlines and all), so source_run is 0 and the
-        // single-run branch handles everything. Byte offsets are
-        // affinity-aware (cursor_byte_offset_in_run), so a select-all whose end
-        // cursor is Trailing on the last cluster copies the full text —
-        // matching the affinity fix in delete_range.
-        let mut content = self.get_text_before_textinput(*dom_id, node_id);
-        if content.is_empty() {
-            // Dual text path: a block whose committed styled_dom carries no
-            // text children (a blank document's seeded first run, a
-            // VV-regenerated block mid-edit) keeps its LIVE buffer in the
-            // content overlay of the contenteditable HOST, not of the block
-            // the cursors anchor on — read the host's flattened buffer, which
-            // is the same content the ranges' run indices were computed
-            // against.
-            if let Some(host) = self.find_contenteditable_host(*dom_id, node_id) {
-                if host != node_id {
-                    content = self.get_text_before_textinput(*dom_id, host);
-                    copy_trace(|| {
-                        format!(
-                            "[copy] block {:?}/{:?} had no inline content — fell back to \
-                             contenteditable host {:?} ({} run(s))",
-                            dom_id,
-                            node_id,
-                            host,
-                            content.len()
-                        )
-                    });
-                }
-            }
-        }
-        copy_trace(|| {
-            format!(
-                "[copy] extracting from {:?}/{:?}: {} range(s), {} inline run(s)",
-                dom_id,
-                node_id,
-                ranges.len(),
-                content.len()
-            )
-        });
-        let out = Self::extract_clipboard_ranges(&content, &ranges);
+        let out = acc.finish();
         if out.is_none() {
             copy_trace(|| {
                 format!(
-                    "[copy] every range resolved to zero bytes against {dom_id:?}/{node_id:?}'s \
-                     inline content — the ranges and the runs disagree (dual text path?)"
+                    "[copy] {} range(s) on {dom_id:?}/{node_id:?} cover no text of the {} layout \
+                     run(s) they index",
+                    ranges.len(),
+                    runs.len()
                 )
             });
         }

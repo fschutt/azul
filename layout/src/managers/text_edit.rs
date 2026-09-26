@@ -1349,29 +1349,20 @@ impl TextEditManager {
     /// Cross-block selection (spans multiple IFC roots), precomputed by
     /// `LayoutWindow::set_cross_block_selection` — the manager stores it
     /// render-ready because computing the per-IFC ranges needs layout/text
-    /// access the manager does not have. Cleared by any single-node cursor
-    /// interaction. When set, it wins over `multi_cursor` for rendering.
+    /// access the manager does not have. Ended by every new caret
+    /// ([`Self::initialize_editing`]) and by [`Self::clear_editing`]. When
+    /// set, it wins over `multi_cursor` for rendering.
     pub fn set_cross_block_selection(&mut self, sel: azul_core::selection::TextSelection) {
         self.cross_block = Some(sel);
         self.display_list_dirty = true;
     }
 
-    /// Clear the cross-block selection (single-node interactions do this).
+    /// Clear the cross-block selection (single-node interactions do this;
+    /// a delete or paste over it once its edit is recorded).
     pub fn clear_cross_block_selection(&mut self) {
         if self.cross_block.take().is_some() {
             self.display_list_dirty = true;
         }
-    }
-
-    /// Take the cross-block selection (delete/apply flows consume it).
-    pub const fn take_cross_block_selection(
-        &mut self,
-    ) -> Option<azul_core::selection::TextSelection> {
-        let s = self.cross_block.take();
-        if s.is_some() {
-            self.display_list_dirty = true;
-        }
-        s
     }
 
     /// The active cross-block selection, if any.
