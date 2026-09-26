@@ -11678,9 +11678,7 @@ impl LayoutWindow {
             return false;
         }
         let now = Instant::now();
-        let dt = self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
-            now.duration_since(prev).as_millis_u64() as f32 / 1000.0
-        });
+        let dt = self.animation_step_at(&now);
         self.last_anim_tick = Some(now);
         let still_animating = self.tick_animations(dt);
         // The tick that settles the last animation clears the stamp itself.
@@ -11691,6 +11689,24 @@ impl LayoutWindow {
             self.last_anim_tick = None;
         }
         still_animating
+    }
+
+    /// The step, in seconds, [`Self::tick_animations_now`] takes at `now`:
+    /// the real time since the previous tick at the clock's full resolution,
+    /// or one 60 Hz frame when there is no previous tick (the first tick after
+    /// an idle period).
+    ///
+    /// Whole milliseconds are not a frame clock. The step used to be
+    /// truncated to them while the stamp still moved to `now`, so a pass
+    /// 0.6 ms after the previous tick advanced nothing and lost its 0.6 ms for
+    /// good, and a 1.5 ms pass advanced one. X11 and Wayland tick on every
+    /// loop pass, and their glides dragged. The shell's CSS driver asks this
+    /// too, so the keyframe tracks it samples step by the same amount.
+    #[must_use]
+    pub fn animation_step_at(&self, now: &Instant) -> f32 {
+        self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
+            (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32
+        })
     }
 
     /// Advance layout animations by `dt` seconds and publish the result to the

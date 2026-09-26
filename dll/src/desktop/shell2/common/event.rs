@@ -4165,15 +4165,9 @@ pub trait PlatformWindow {
                 return ProcessEventResult::DoNothing;
             };
             let had_work = lw.needs_animation_frame();
-            // The same step `tick_animations_now` takes: real time since the
-            // previous tick, a 16 ms frame after an idle period.
-            #[allow(clippy::cast_precision_loss)] // milliseconds between two frames
-            let dt = lw.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
-                azul_core::task::Instant::now()
-                    .duration_since(prev)
-                    .as_millis_u64() as f32
-                    / 1000.0
-            });
+            // The same step `tick_animations_now` is about to take: real time
+            // since the previous tick, a 16 ms frame after an idle period.
+            let dt = lw.animation_step_at(&azul_core::task::Instant::now());
             lw.tick_animations_now();
             (had_work, dt)
         };
