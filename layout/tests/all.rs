@@ -346,6 +346,8 @@ mod svg_tessellation;
 mod switch_animation;
 #[path = "synthetic_events.rs"]
 mod synthetic_events;
+#[path = "system_colour_keywords.rs"]
+mod system_colour_keywords;
 #[path = "table_cell_width.rs"]
 mod table_cell_width;
 #[path = "table_cell_width_diag.rs"]
