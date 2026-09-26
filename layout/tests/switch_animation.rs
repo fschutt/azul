@@ -280,3 +280,48 @@ fn a_zero_length_tick_owes_no_relayout() {
          owe a relayout"
     );
 }
+
+/// A frame shorter than a millisecond advances a glide by its real length.
+///
+/// `tick_animations_now` measured its step in WHOLE milliseconds and then
+/// moved its stamp to now regardless. A pass 0.6 ms after the previous one
+/// stepped by zero and its 0.6 ms were lost for good; a 1.5 ms pass stepped by
+/// one. The X11 and Wayland loops tick on every pass, so there the knob lost an
+/// uneven share of every frame and dragged through its 150 ms glide.
+#[test]
+fn sub_millisecond_frames_advance_a_glide_by_their_real_length() {
+    let (mut lw, knob) = switch_window();
+    azul_core::task::reset_test_clock();
+    azul_core::task::freeze_test_clock();
+    let _ = lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: DomId::ROOT_ID,
+        node_id: knob,
+        props: vec![CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+            16,
+        ))],
+        override_only: false,
+    });
+
+    // Ten frames of 1.5 ms each. The test clock only moves in whole
+    // milliseconds, so it stays frozen and each tick's previous stamp is put
+    // 1.5 ms before `now` by hand.
+    let now = azul_core::task::Instant::now().into_std_instant();
+    let frame = std::time::Duration::from_micros(1500);
+    for _ in 0..10 {
+        lw.last_anim_tick = Some(azul_core::task::Instant::from(now - frame));
+        lw.tick_animations_now();
+    }
+    let t = lw
+        .css_transitions
+        .iter()
+        .find(|tr| tr.node == knob && tr.prop_type == CssPropertyType::MarginLeft)
+        .map(|tr| tr.t);
+    azul_core::task::reset_test_clock();
+
+    let t = t.expect("15 ms into a 150 ms glide the knob is still moving");
+    assert!(
+        (t - 0.1).abs() < 0.002,
+        "ten 1.5 ms frames are 15 ms of the knob's 150 ms glide, so its progress must be 0.1; it \
+         is {t}"
+    );
+}
