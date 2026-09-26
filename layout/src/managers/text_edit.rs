@@ -957,6 +957,14 @@ impl TextEditManager {
             dom_node_id,
             contenteditable_key,
         ));
+        // A new caret IS a new selection: whatever document selection was
+        // standing beside the old session ends here. It lives in its own slot
+        // and wins paint, copy and delete while it exists, so leaving it meant
+        // a click inside a dragged P1..P3 selection - or a Tab into another
+        // field - kept it painted, and the next Backspace deleted all of it.
+        // (The one caller that re-seats the session INSIDE a live document
+        // selection, the selection-handle grab, puts it back itself.)
+        self.cross_block = None;
         // The tween now tracks THIS node's caret. The previously rendered
         // geometry is kept on purpose — that is what makes the caret glide
         // from where it was to where it landed.
@@ -991,12 +999,16 @@ impl TextEditManager {
         let had_blink = self.blink.is_visible
             || self.blink.last_input_time.is_some()
             || self.blink.blink_timer_active;
+        // The document selection is the session's too: with the caret gone
+        // nothing can extend it any more, and a later Backspace in some other
+        // field must not find it still standing.
+        let had_document_selection = self.cross_block.take().is_some();
 
         self.multi_cursor = None;
         self.blink.clear();
         let had_preedit = self.clear_preedit_returning_changed();
 
-        if had_cursor || had_blink || had_preedit {
+        if had_cursor || had_blink || had_preedit || had_document_selection {
             self.mark_dirty();
         }
     }

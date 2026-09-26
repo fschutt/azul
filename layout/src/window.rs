@@ -9812,8 +9812,20 @@ impl LayoutWindow {
                 .is_some_and(|(dom, node)| {
                     !self.is_node_contenteditable_inherited_internal(dom, node)
                 });
+            // The same holds for a selection over static text that spans
+            // BLOCKS: it lives in `cross_block`, beside a session that is only
+            // its anchor caret (a collapsed Cursor, so the Range test above
+            // does not see it). `clear_editing` ends a document selection, so
+            // one over static text has to be recognised here to survive.
+            let static_document_selection =
+                self.text_edit_manager.cross_block.as_ref().is_some_and(|cb| {
+                    !self.is_node_contenteditable_inherited_internal(
+                        cb.dom_id,
+                        cb.anchor.ifc_root_node_id,
+                    )
+                });
 
-            if non_editable_selection {
+            if non_editable_selection || static_document_selection {
                 let had_blink = self.text_edit_manager.blink.is_visible
                     || self.text_edit_manager.blink.blink_timer_active;
                 self.text_edit_manager.blink.clear();
@@ -10371,6 +10383,58 @@ impl LayoutWindow {
         self.node_is_self_or_descendant(edom, enode, fnode)
     }
 
+    /// Collapse `dom_id`'s document selection onto ONE caret for a plain
+    /// (non-extending) move: its document-order start for a character step
+    /// backward, its end for one forward, its focus for any other step - the
+    /// rule `MultiCursorState::move_all_cursors_with` applies to a range inside
+    /// one block. The session is re-seated there, which ends the document
+    /// selection. `false` when there was none to collapse.
+    fn collapse_document_selection_for_move(
+        &mut self,
+        dom_id: DomId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        use azul_core::events::{SelectionDirection, SelectionStep};
+
+        let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+            return false;
+        };
+        if cb.dom_id != dom_id {
+            return false;
+        }
+        let anchor = (cb.anchor.ifc_root_node_id, cb.anchor.cursor);
+        let focus = (cb.focus.ifc_root_node_id, cb.focus.cursor);
+        let (start, end) = if cb.is_forward {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        let (block, caret) = match (op.step, op.direction) {
+            (SelectionStep::Character, SelectionDirection::Backward) => start,
+            (SelectionStep::Character, SelectionDirection::Forward) => end,
+            _ => focus,
+        };
+        let key = self.contenteditable_session_key(dom_id, block);
+        self.text_edit_manager.initialize_editing(caret, dom_id, block, key);
+        true
+    }
+
+    /// Whether the document selection belongs to the host `target` - the one
+    /// whose key was pressed: same DOM, and `target` contains one of its two
+    /// ends. A selection anywhere else is a leftover, never this key's to
+    /// delete or replace.
+    fn document_selection_belongs_to(&self, target: DomNodeId) -> bool {
+        let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+            return false;
+        };
+        let Some(host) = target.node.into_crate_internal() else {
+            return false;
+        };
+        cb.dom_id == target.dom
+            && (self.node_is_self_or_descendant(target.dom, cb.anchor.ifc_root_node_id, host)
+                || self.node_is_self_or_descendant(target.dom, cb.focus.ifc_root_node_id, host))
+    }
+
     /// Apply a unified selection operation (navigation, extend, or delete).
     ///
     /// Single entry point that replaces the separate `ArrowKeyNavigation` and
@@ -10399,6 +10463,23 @@ impl LayoutWindow {
         let Some(node_id) = target.node.into_crate_internal() else {
             return false;
         };
+
+        // A plain arrow key over a DOCUMENT selection collapses it. That
+        // selection is not the session's own range - it sits beside the
+        // session in `cross_block`, which paint, copy and delete prefer - so
+        // moving the session's caret (below) left it painted, and still the
+        // thing the next Backspace deleted. A character step lands on the
+        // edge it points at and stops there; any other step moves on from
+        // where the collapse put the caret.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+            && matches!(op.mode, SelectionMode::Move)
+        {
+            let collapsed = self.collapse_document_selection_for_move(dom_id, op);
+            if collapsed && matches!(op.step, SelectionStep::Character) {
+                self.regenerate_display_list_for_dom(dom_id);
+                return true;
+            }
+        }
 
         // The keyboard selection/delete op targets the focused editable HOST,
         // but a widget like TextInput / TextArea keeps its inline layout on a
@@ -13111,12 +13192,19 @@ impl LayoutWindow {
                 .as_ref()
                 .is_some_and(|mc| mc.node_id == anchor_block);
             if !already_there {
+                // `initialize_editing` ends any document selection - a new
+                // caret is a new selection everywhere else. Here the caret
+                // moves to the selection's OTHER end so the handle can extend
+                // it, and the selection stays painted until the first move
+                // rebuilds it.
+                let kept = self.text_edit_manager.cross_block.take();
                 self.text_edit_manager.initialize_editing(
                     anchor,
                     anchor_block.dom,
                     anchor_node,
                     key,
                 );
+                self.text_edit_manager.cross_block = kept;
             } else if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
                 mc.set_single_cursor(anchor);
             }
@@ -16783,6 +16871,27 @@ impl LayoutWindow {
             return empty;
         }
 
+        // Typing over a DOCUMENT selection replaces it, through the same
+        // atomic replace-merge a paste over it uses. The insert below acts on
+        // the session's caret, which sits at the selection's ANCHOR: the text
+        // landed there, the selection stayed painted, and the next Backspace
+        // deleted every block it spanned.
+        if is_primary_seat && self.text_edit_manager.get_cross_block_selection().is_some() {
+            if self.document_selection_belongs_to(changeset.node)
+                && self
+                    .replace_cross_block_selection(changeset.inserted_text.as_str())
+                    .is_some()
+            {
+                return TextChangesetResult {
+                    dirty_nodes: vec![changeset.node],
+                    needs_relayout: true,
+                };
+            }
+            // Another field's leftover, or one that could not be replaced:
+            // it ends here, and the text goes in at the caret.
+            self.text_edit_manager.clear_cross_block_selection();
+        }
+
         // The buffer this edit splices into.
         //
         // `text3::edit::insert_text` writes into `content[cursor.source_run]`,
@@ -17522,6 +17631,25 @@ impl LayoutWindow {
         node_id: NodeId,
         new_inline_content: Vec<InlineContent>,
     ) {
+        // A document selection's ranges are MEASURED against the text of the
+        // blocks it spans (`set_cross_block_selection` precomputes them). A
+        // commit into one of those blocks - an undo, a redo, another seat's
+        // keystroke - moves the text under them, and a delete would then cut
+        // at offsets that name different characters. The selection ends.
+        let spans_edited_node = self
+            .text_edit_manager
+            .get_cross_block_selection()
+            .is_some_and(|cb| {
+                cb.dom_id == dom_id
+                    && cb.affected_nodes.keys().any(|&block| {
+                        self.node_is_self_or_descendant(dom_id, block, node_id)
+                            || self.node_is_self_or_descendant(dom_id, node_id, block)
+                    })
+            });
+        if spans_edited_node {
+            self.text_edit_manager.clear_cross_block_selection();
+        }
+
         // 1. Store the new content in dirty_text_nodes for tracking.
         // This is the ONE overlay text writer, so the revision bump lives
         // here: every committed character-level edit advances the document
@@ -20459,21 +20587,30 @@ impl LayoutWindow {
         // other selected block untouched (Backspace over a multi-paragraph
         // selection deleted inside one of them). Copy and Cut already go
         // through the cross-block path; every delete does now.
+        //
+        // ...but only a selection inside `target`, the host whose key was
+        // pressed. One anywhere else is a leftover no path ended (it used to
+        // be deleted from here regardless: Backspace in one field wiped the
+        // paragraphs of another). The caret in `target` is what this key
+        // acts on, so the stray selection ends instead.
         if self.text_edit_manager.get_cross_block_selection().is_some() {
-            let affected: Vec<DomNodeId> = self
-                .text_edit_manager
-                .get_cross_block_selection()
-                .map(|sel| {
-                    sel.affected_nodes
-                        .keys()
-                        .map(|n| DomNodeId {
-                            dom: dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(*n)),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            return self.delete_cross_block_selection().map(|_| affected);
+            if self.document_selection_belongs_to(target) {
+                let affected: Vec<DomNodeId> = self
+                    .text_edit_manager
+                    .get_cross_block_selection()
+                    .map(|sel| {
+                        sel.affected_nodes
+                            .keys()
+                            .map(|n| DomNodeId {
+                                dom: dom_id,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(*n)),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return self.delete_cross_block_selection().map(|_| affected);
+            }
+            self.text_edit_manager.clear_cross_block_selection();
         }
         // `target` is the focused HOST (the undo stack's key); the content
         // is keyed to the caret's IFC owner, exactly like typing is. Keying
