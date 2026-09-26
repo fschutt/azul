@@ -5417,9 +5417,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn fast_path_ineligible_for_a_nested_frame() {
-        // Inner clip_bounds are in the OUTER frame's content space → memmove
-        // would shift the wrong region.
+    fn fast_path_for_a_nested_frame_holds_while_nothing_around_it_is_scrolled() {
+        // A scroll box inside another scroll frame - on a page taller than
+        // its window, every scroll box sits inside the PAGE's frame. Inner
+        // clip_bounds are in the OUTER frame's content space; the caller
+        // hands the clip over where it is ON SCREEN (`collect_scroll_shifts`).
         let list = dlist(vec![
             push_scroll(1, 0.0, 0.0, 100.0, 100.0),
             push_scroll(2, 0.0, 0.0, 50.0, 50.0),
@@ -5427,9 +5429,18 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PopScrollFrame,
         ]);
+        // Nothing around it scrolled: the clip on screen IS the display-list
+        // clip, every coordinate the check reads is on screen, and the
+        // memmove moves the right region.
         assert!(
-            !scroll_fast_path_eligible(&list, 2, &lr(0.0, 0.0, 50.0, 50.0), (0.0, 0.0), (0.0, 0.0)),
-            "a nested frame must fall back to a full repaint"
+            scroll_fast_path_eligible(&list, 2, &lr(0.0, 0.0, 50.0, 50.0), (0.0, 0.0), (0.0, 0.0)),
+            "a frame nested in an unscrolled one keeps the fast path"
+        );
+        // The outer frame scrolled by 20: the content around the inner frame
+        // is placed by an offset this check does not know - full repaint.
+        assert!(
+            !scroll_fast_path_eligible(&list, 2, &lr(0.0, -20.0, 50.0, 50.0), (0.0, 0.0), (0.0, 0.0)),
+            "a frame nested in a scrolled one must fall back to a full repaint"
         );
         assert!(
             scroll_fast_path_eligible(
