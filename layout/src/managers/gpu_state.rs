@@ -333,12 +333,20 @@ impl GpuStateManager {
                 // Use the visual width from the scrollbar style — same value used
                 // by display_list.rs to paint the scrollbar. For overlay scrollbars,
                 // visual_width_px is non-zero (e.g. 8.0) even though the layout-
-                // reserved width (scrollbar_height) is 0.0.
-                let is_overlay = scrollbar_info.scrollbar_height == 0.0;
+                // reserved width is 0.0.
+                //
+                // A VERTICAL bar is an overlay when it reserves no WIDTH:
+                // `scrollbar_width` is the vertical bar's reservation,
+                // `scrollbar_height` the horizontal one's. Asking the latter
+                // measured every vertical-only classic bar as an overlay without
+                // arrow buttons, while it is painted and hit-tested with them:
+                // the thumb ran the whole track and overshot into the bottom
+                // button by 2 x button x (1 - ratio).
+                let is_overlay = scrollbar_info.scrollbar_width == 0.0;
                 let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
                     scrollbar_info.visual_width_px
                 } else if !is_overlay {
-                    scrollbar_info.scrollbar_height
+                    scrollbar_info.scrollbar_width
                 } else {
                     DEFAULT_SCROLLBAR_WIDTH_PX
                 };
@@ -375,11 +383,13 @@ impl GpuStateManager {
             }
 
             if scrollbar_info.needs_horizontal {
-                let is_overlay = scrollbar_info.scrollbar_width == 0.0;
+                // A HORIZONTAL bar is an overlay when it reserves no HEIGHT -
+                // see the vertical bar above.
+                let is_overlay = scrollbar_info.scrollbar_height == 0.0;
                 let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
                     scrollbar_info.visual_width_px
                 } else if !is_overlay {
-                    scrollbar_info.scrollbar_width
+                    scrollbar_info.scrollbar_height
                 } else {
                     DEFAULT_SCROLLBAR_WIDTH_PX
                 };
