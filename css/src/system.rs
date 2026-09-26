@@ -600,6 +600,19 @@ pub struct SystemColors {
     pub sidebar_background: OptionColorU,
     /// Selected row in sidebar
     pub sidebar_selection: OptionColorU,
+
+    // === Editable controls (APPENDED 2026-09-26 for ABI stability) ===
+    /// Background of editable controls and content lists - a text field, a
+    /// list or table view (`NSColor.controlBackgroundColor` on macOS,
+    /// `COLOR_WINDOW` on Windows, `Colors:View` `BackgroundNormal` on KDE).
+    /// Distinct from `background` on the platforms that tell the two apart.
+    pub control_background: OptionColorU,
+    /// The prompt shown in an empty field (`NSColor.placeholderTextColor`)
+    pub placeholder_text: OptionColorU,
+    /// Background of selected TEXT (`NSColor.selectedTextBackgroundColor`),
+    /// as opposed to `selection_background`, the selected-content (row,
+    /// item) colour.
+    pub text_selection_background: OptionColorU,
 }
 
 /// Common system font settings.
@@ -1557,7 +1570,10 @@ impl SystemStyle {
     "grid": {},
     "find_highlight": {},
     "sidebar_background": {},
-    "sidebar_selection": {}
+    "sidebar_selection": {},
+    "control_background": {},
+    "placeholder_text": {},
+    "text_selection_background": {}
   }},
   "fonts": {{
     "ui_font": {},
@@ -1662,6 +1678,9 @@ impl SystemStyle {
             opt_color(self.colors.find_highlight),
             opt_color(self.colors.sidebar_background),
             opt_color(self.colors.sidebar_selection),
+            opt_color(self.colors.control_background),
+            opt_color(self.colors.placeholder_text),
+            opt_color(self.colors.text_selection_background),
             // fonts
             opt_str(&self.fonts.ui_font),
             opt_f32(self.fonts.ui_font_size),

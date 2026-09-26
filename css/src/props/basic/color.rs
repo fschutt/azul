@@ -1476,6 +1476,41 @@ pub enum SystemColorRef {
     SelectionBackground,
     /// Text color when selected
     SelectionText,
+    // --- APPENDED 2026-09-26 (discriminants 9..): one keyword per remaining
+    // `SystemColors` slot, so the existing discriminants stay put. ---
+    /// Less prominent text: captions, field labels (`system:secondary-text`)
+    SecondaryText,
+    /// Least prominent text (`system:tertiary-text`)
+    TertiaryText,
+    /// Text of a disabled control (`system:disabled-text`)
+    DisabledText,
+    /// The canvas behind documents and pages (`system:under-page-background`)
+    UnderPageBackground,
+    /// Selected content while the window is not focused
+    /// (`system:selection-background-inactive`)
+    SelectionBackgroundInactive,
+    /// Text on [`Self::SelectionBackgroundInactive`] (`system:selection-text-inactive`)
+    SelectionTextInactive,
+    /// Hyperlinks (`system:link`)
+    Link,
+    /// Separators and dividers (`system:separator`)
+    Separator,
+    /// Table and grid lines (`system:grid`)
+    Grid,
+    /// Find-in-page highlight (`system:find-highlight`)
+    FindHighlight,
+    /// Sidebar surface (`system:sidebar-background`)
+    SidebarBackground,
+    /// Selected row in a sidebar (`system:sidebar-selection`)
+    SidebarSelection,
+    /// Editable controls and content lists: a text field, a list view
+    /// (`system:control-background`)
+    ControlBackground,
+    /// The prompt in an empty field (`system:placeholder-text`)
+    PlaceholderText,
+    /// Selected TEXT, as opposed to a selected row or item
+    /// (`system:text-selection-background`)
+    TextSelectionBackground,
 }
 
 /// Red channel of a system-colour token (`'S'`), see [`SystemColorRef::to_color_token`].
@@ -1485,7 +1520,7 @@ const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
 
 impl SystemColorRef {
     /// Every reference, in declaration (= discriminant) order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 24] = [
         Self::Text,
         Self::Background,
         Self::Accent,
@@ -1495,6 +1530,21 @@ impl SystemColorRef {
         Self::WindowBackground,
         Self::SelectionBackground,
         Self::SelectionText,
+        Self::SecondaryText,
+        Self::TertiaryText,
+        Self::DisabledText,
+        Self::UnderPageBackground,
+        Self::SelectionBackgroundInactive,
+        Self::SelectionTextInactive,
+        Self::Link,
+        Self::Separator,
+        Self::Grid,
+        Self::FindHighlight,
+        Self::SidebarBackground,
+        Self::SidebarSelection,
+        Self::ControlBackground,
+        Self::PlaceholderText,
+        Self::TextSelectionBackground,
     ];
 
     /// The slot of `colors` this reference names - `None` when the platform
@@ -1511,6 +1561,21 @@ impl SystemColorRef {
             Self::WindowBackground => colors.window_background,
             Self::SelectionBackground => colors.selection_background,
             Self::SelectionText => colors.selection_text,
+            Self::SecondaryText => colors.secondary_text,
+            Self::TertiaryText => colors.tertiary_text,
+            Self::DisabledText => colors.disabled_text,
+            Self::UnderPageBackground => colors.under_page_background,
+            Self::SelectionBackgroundInactive => colors.selection_background_inactive,
+            Self::SelectionTextInactive => colors.selection_text_inactive,
+            Self::Link => colors.link,
+            Self::Separator => colors.separator,
+            Self::Grid => colors.grid,
+            Self::FindHighlight => colors.find_highlight,
+            Self::SidebarBackground => colors.sidebar_background,
+            Self::SidebarSelection => colors.sidebar_selection,
+            Self::ControlBackground => colors.control_background,
+            Self::PlaceholderText => colors.placeholder_text,
+            Self::TextSelectionBackground => colors.text_selection_background,
         }
     }
 
@@ -1562,6 +1627,31 @@ impl SystemColorRef {
             (Self::WindowBackground, true) => c(50, 50, 50, 255),
             (Self::SelectionBackground, false) => c(0, 100, 225, 255),
             (Self::SelectionBackground, true) => c(0, 88, 208, 255),
+            (Self::SecondaryText, false) => c(0, 0, 0, 128),
+            (Self::SecondaryText, true) => c(255, 255, 255, 140),
+            (Self::TertiaryText, false) => c(0, 0, 0, 66),
+            (Self::TertiaryText, true) => c(255, 255, 255, 64),
+            (Self::DisabledText | Self::PlaceholderText, false) => c(0, 0, 0, 64),
+            (Self::DisabledText | Self::PlaceholderText, true) => c(255, 255, 255, 64),
+            (Self::UnderPageBackground, false) => c(225, 225, 225, 255),
+            (Self::UnderPageBackground, true) => c(40, 40, 40, 255),
+            (Self::SelectionBackgroundInactive, false) => c(220, 220, 220, 255),
+            (Self::SelectionBackgroundInactive, true) => c(70, 70, 70, 255),
+            (Self::SelectionTextInactive, false) => c(0, 0, 0, 255),
+            (Self::SelectionTextInactive, true) => c(255, 255, 255, 255),
+            (Self::Link, false) => c(0, 104, 218, 255),
+            (Self::Link, true) => c(65, 156, 255, 255),
+            (Self::Separator | Self::SidebarSelection, false) => c(0, 0, 0, 26),
+            (Self::Separator | Self::SidebarSelection, true) => c(255, 255, 255, 26),
+            (Self::Grid, false) => c(230, 230, 230, 255),
+            (Self::Grid, true) => c(26, 26, 26, 255),
+            (Self::FindHighlight, _) => c(255, 255, 0, 255),
+            (Self::SidebarBackground, false) => c(232, 232, 232, 255),
+            (Self::SidebarBackground, true) => c(40, 40, 40, 255),
+            (Self::ControlBackground, false) => c(255, 255, 255, 255),
+            (Self::ControlBackground, true) => c(30, 30, 30, 255),
+            (Self::TextSelectionBackground, false) => c(179, 215, 255, 255),
+            (Self::TextSelectionBackground, true) => c(63, 99, 139, 255),
         }
     }
 
@@ -1578,6 +1668,21 @@ impl SystemColorRef {
             Self::WindowBackground => "system:window-background",
             Self::SelectionBackground => "system:selection-background",
             Self::SelectionText => "system:selection-text",
+            Self::SecondaryText => "system:secondary-text",
+            Self::TertiaryText => "system:tertiary-text",
+            Self::DisabledText => "system:disabled-text",
+            Self::UnderPageBackground => "system:under-page-background",
+            Self::SelectionBackgroundInactive => "system:selection-background-inactive",
+            Self::SelectionTextInactive => "system:selection-text-inactive",
+            Self::Link => "system:link",
+            Self::Separator => "system:separator",
+            Self::Grid => "system:grid",
+            Self::FindHighlight => "system:find-highlight",
+            Self::SidebarBackground => "system:sidebar-background",
+            Self::SidebarSelection => "system:sidebar-selection",
+            Self::ControlBackground => "system:control-background",
+            Self::PlaceholderText => "system:placeholder-text",
+            Self::TextSelectionBackground => "system:text-selection-background",
         }
     }
 
@@ -1639,6 +1744,21 @@ impl SystemColorRef {
             6 => Some(Self::WindowBackground),
             7 => Some(Self::SelectionBackground),
             8 => Some(Self::SelectionText),
+            9 => Some(Self::SecondaryText),
+            10 => Some(Self::TertiaryText),
+            11 => Some(Self::DisabledText),
+            12 => Some(Self::UnderPageBackground),
+            13 => Some(Self::SelectionBackgroundInactive),
+            14 => Some(Self::SelectionTextInactive),
+            15 => Some(Self::Link),
+            16 => Some(Self::Separator),
+            17 => Some(Self::Grid),
+            18 => Some(Self::FindHighlight),
+            19 => Some(Self::SidebarBackground),
+            20 => Some(Self::SidebarSelection),
+            21 => Some(Self::ControlBackground),
+            22 => Some(Self::PlaceholderText),
+            23 => Some(Self::TextSelectionBackground),
             _ => None,
         }
     }
@@ -2412,6 +2532,9 @@ mod tests {
             find_highlight: OptionColorU::None,
             sidebar_background: OptionColorU::None,
             sidebar_selection: OptionColorU::None,
+            control_background: OptionColorU::None,
+            placeholder_text: OptionColorU::None,
+            text_selection_background: OptionColorU::None,
         };
 
         // Test resolution of system colors

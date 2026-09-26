@@ -389,25 +389,47 @@ fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
 }
 
 fn format_color_or_system(c: ColorOrSystem) -> String {
-    use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
+    use crate::props::basic::color::ColorOrSystem;
     match c {
         ColorOrSystem::Color(color) => {
             format!("ColorOrSystem::Color({})", format_color_value(&color))
         }
         ColorOrSystem::System(system_ref) => {
-            let variant = match system_ref {
-                SystemColorRef::Text => "Text",
-                SystemColorRef::Background => "Background",
-                SystemColorRef::Accent => "Accent",
-                SystemColorRef::AccentText => "AccentText",
-                SystemColorRef::ButtonFace => "ButtonFace",
-                SystemColorRef::ButtonText => "ButtonText",
-                SystemColorRef::WindowBackground => "WindowBackground",
-                SystemColorRef::SelectionBackground => "SelectionBackground",
-                SystemColorRef::SelectionText => "SelectionText",
-            };
+            let variant = system_color_ref_variant(system_ref);
             format!("ColorOrSystem::System(SystemColorRef::{variant})")
         }
+    }
+}
+
+/// The Rust variant name of a `SystemColorRef` - the ONE table the
+/// gradient-stop and the background-layer formatters share.
+const fn system_color_ref_variant(r: crate::props::basic::color::SystemColorRef) -> &'static str {
+    use crate::props::basic::color::SystemColorRef;
+    match r {
+        SystemColorRef::Text => "Text",
+        SystemColorRef::Background => "Background",
+        SystemColorRef::Accent => "Accent",
+        SystemColorRef::AccentText => "AccentText",
+        SystemColorRef::ButtonFace => "ButtonFace",
+        SystemColorRef::ButtonText => "ButtonText",
+        SystemColorRef::WindowBackground => "WindowBackground",
+        SystemColorRef::SelectionBackground => "SelectionBackground",
+        SystemColorRef::SelectionText => "SelectionText",
+        SystemColorRef::SecondaryText => "SecondaryText",
+        SystemColorRef::TertiaryText => "TertiaryText",
+        SystemColorRef::DisabledText => "DisabledText",
+        SystemColorRef::UnderPageBackground => "UnderPageBackground",
+        SystemColorRef::SelectionBackgroundInactive => "SelectionBackgroundInactive",
+        SystemColorRef::SelectionTextInactive => "SelectionTextInactive",
+        SystemColorRef::Link => "Link",
+        SystemColorRef::Separator => "Separator",
+        SystemColorRef::Grid => "Grid",
+        SystemColorRef::FindHighlight => "FindHighlight",
+        SystemColorRef::SidebarBackground => "SidebarBackground",
+        SystemColorRef::SidebarSelection => "SidebarSelection",
+        SystemColorRef::ControlBackground => "ControlBackground",
+        SystemColorRef::PlaceholderText => "PlaceholderText",
+        SystemColorRef::TextSelectionBackground => "TextSelectionBackground",
     }
 }
 
@@ -964,18 +986,7 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
             format!("StyleBackgroundContent::Color({})", format_color_value(c))
         }
         StyleBackgroundContent::SystemColor(s) => {
-            use crate::props::basic::color::SystemColorRef;
-            let variant = match s {
-                SystemColorRef::Text => "Text",
-                SystemColorRef::Background => "Background",
-                SystemColorRef::Accent => "Accent",
-                SystemColorRef::AccentText => "AccentText",
-                SystemColorRef::ButtonFace => "ButtonFace",
-                SystemColorRef::ButtonText => "ButtonText",
-                SystemColorRef::WindowBackground => "WindowBackground",
-                SystemColorRef::SelectionBackground => "SelectionBackground",
-                SystemColorRef::SelectionText => "SelectionText",
-            };
+            let variant = system_color_ref_variant(*s);
             format!("StyleBackgroundContent::SystemColor(SystemColorRef::{variant})")
         }
     }
