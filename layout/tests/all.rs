@@ -278,6 +278,8 @@ mod a_mask_clip_on_a_half_pixel;
 mod pagination_dom_breaks;
 #[path = "pagination_fits_its_card.rs"]
 mod pagination_fits_its_card;
+#[path = "fixed_size_widgets_sit_at_the_start.rs"]
+mod fixed_size_widgets_sit_at_the_start;
 #[path = "patched_opacity_reaches_the_paint.rs"]
 mod patched_opacity_reaches_the_paint;
 #[path = "pagination_perf.rs"]
