@@ -10202,66 +10202,21 @@ impl LayoutWindow {
             return true;
         }
 
-        // Now we can safely get the text layout (layout pass has completed).
-        //
-        // A bare TEXT LEAF usually generates no layout node of its own - the
-        // inline layout (and the DENSE view) live on its IFC ROOT (the value
-        // `<p>`) - so looking either up by the leaf alone returns None for
-        // every FILLED field, and the seed fell through to the (0, 0)
-        // fallback below: the caret landing at the wrong end of "42" when
-        // tabbing into a NumberInput (device report, 2026-08-31). Resolve
-        // the owning node ONCE and use it for BOTH views: with dense text
-        // active the sparse `items` are the retirement sentinel (empty), so
-        // fixing only the sparse lookup still yielded no cluster.
-        let layout_node = {
-            let mut n = pending.text_node_id;
-            loop {
-                if self.get_inline_layout_for_node(pending.dom_id, n).is_some()
-                    || self.get_dense_for_node(pending.dom_id, n).is_some()
-                {
-                    break n;
-                }
-                let Some(parent) = self.layout_results.get(&pending.dom_id).and_then(|lr| {
-                    lr.styled_dom
-                        .node_hierarchy
-                        .as_container()
-                        .get(n)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-                }) else {
-                    break pending.text_node_id;
-                };
-                n = parent;
-            }
+        // Now we can safely read the layout (the layout pass has completed):
+        // the text block the seed's text is in, with its MATERIALIZED layout
+        // (`TextTarget`). A bare TEXT LEAF owns no inline layout - it (and the
+        // DENSE view) live on its IFC root, the value `<p>` - and under dense
+        // text the stored sparse layout is the empty retirement sentinel, so a
+        // lookup by the leaf alone found no cluster for every FILLED field and
+        // the caret landed at the wrong end of "42" when tabbing into a
+        // NumberInput (device report, 2026-08-31).
+        let seed_node = DomNodeId {
+            dom: pending.dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
         };
-        let text_layout = self
-            .get_inline_layout_for_node(pending.dom_id, layout_node)
-            .cloned();
-
-        // Initialize cursor at end of text
-        // Get the last cluster cursor from text layout
-        // (d4) Dense-first: the last dense cluster IS the last cluster the
-        // sparse rev-scan finds (both skip trailing non-clusters). Under
-        // AZ_DENSE_TEXT=verify the two are asserted equal.
-        let dense_cursor = self
-            .get_dense_for_node(pending.dom_id, layout_node)
-            .and_then(|d| d.last_cluster_cursor());
-        let sparse_cursor = text_layout.as_ref().and_then(|layout| {
-            layout.items.iter().rev().find_map(|item| {
-                if let ShapedItem::Cluster(c) = &item.item {
-                    Some(TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    })
-                } else {
-                    None
-                }
-            })
-        });
-        if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
-            if let (Some(d), Some(s)) = (&dense_cursor, &sparse_cursor) {
-                assert_eq!(d, s, "d4 verify: last-cluster cursor diverged");
-            }
-        }
+        let seed_target = self.text_target_at_node(seed_node);
+        // The caret goes to the end of the text: Trailing on the last cluster.
+        let last_cluster = seed_target.as_ref().and_then(|t| t.last_cluster_caret());
         // No layout for this node YET (the node is not in the layout tree at
         // all) is not the same as "the node has no clusters": seeding cluster
         // (0,0) there produces a caret at the start of a text nobody has
@@ -10303,16 +10258,12 @@ impl LayoutWindow {
         // MID-TEXT ('4|2') when tabbing into the filled NumberInput. Absence
         // is transient, not a failed attempt: re-arm for the post-layout
         // finalize without spending a retry.
-        if dense_cursor.is_none()
-            && sparse_cursor.is_none()
-            && !self.layout_results.contains_key(&pending.dom_id)
-        {
+        if last_cluster.is_none() && !self.layout_results.contains_key(&pending.dom_id) {
             self.focus_manager
                 .rearm_pending_contenteditable_focus_transient(pending);
             return false;
         }
-        if dense_cursor.is_none()
-            && sparse_cursor.is_none()
+        if last_cluster.is_none()
             && !node_has_layout
             && self
                 .focus_manager
@@ -10326,7 +10277,7 @@ impl LayoutWindow {
         // which paints a caret MID-TEXT ("4|2") and looks like a positioning
         // bug rather than a fallback. Leading is the honest answer when no
         // cluster could be resolved.
-        let cursor = dense_cursor.or(sparse_cursor).unwrap_or(TextCursor {
+        let cursor = last_cluster.unwrap_or(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -10339,14 +10290,10 @@ impl LayoutWindow {
                  (had_layout={})",
                 pending.text_node_id,
                 cursor,
-                text_layout.is_some()
+                seed_target.is_some()
             );
         }
         let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
-        let seed_node = DomNodeId {
-            dom: pending.dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
-        };
         // Crossing into a different focusable makes the caret JUMP, not glide.
         let scope = self.find_focusable_ancestor(seed_node);
         self.text_edit_manager.enter_focus_scope(scope);
@@ -10357,7 +10304,7 @@ impl LayoutWindow {
         // selection after Tab had no highlight), and an edit walked up from
         // the leaf to the nearest boxed element: a `<b>` holding the last
         // word, whose one run the caret's run 1 missed.
-        let Some(block) = self.text_block_of(seed_node) else {
+        let Some(block) = seed_target.map(|t| t.block) else {
             // A seed in no text block - a node this layout never laid out,
             // once the retries are spent - has no line a caret could stand
             // on: the request is used up, and no session opens.
@@ -10505,7 +10452,7 @@ impl LayoutWindow {
     /// directly holds an inline layout, otherwise the first IFC-bearing
     /// descendant (caret-owner first, via [`Self::ifc_candidate_children`], the
     /// same descent `reshape_text_node` / `get_text_before_textinput` use).
-    fn resolve_ifc_layout_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    pub(crate) fn resolve_ifc_layout_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         if self.get_inline_layout_for_node(dom_id, node_id).is_some() {
             return Some(node_id);
         }
@@ -10652,40 +10599,26 @@ impl LayoutWindow {
         // The keyboard selection/delete op targets the focused editable HOST,
         // but a widget like TextInput / TextArea keeps its inline layout on a
         // value CHILD (`container[contenteditable] > p.value`), not on the host
-        // block — so `get_inline_layout_for_node(host)` is None and this whole op
-        // used to bail before deleting or moving anything. That made keyboard
-        // Backspace / Delete / arrow keys DEAD inside every text widget: the real
-        // keystroke routes KeyDown(Back) → ApplySelectionOp here, and mouse
-        // editing only worked because hit-testing resolves the child directly.
-        // Resolve the node that actually holds the IFC and read layout + dense
-        // from THERE. `delete_selection` still targets the host node: it edits
-        // through the content overlay + recursive text fetch, which resolve the
-        // container's value child on their own.
-        let ifc_node = self
-            .resolve_ifc_layout_node(dom_id, node_id)
-            .unwrap_or(node_id);
-
-        let layout = match self.get_inline_layout_for_node(dom_id, ifc_node) {
-            Some(l) => l.clone(),
-            None => return false,
+        // block — reading the host's layout made keyboard Backspace / Delete /
+        // arrow keys DEAD inside every text widget. The block the key acts in
+        // is the seat's caret block inside the host, else the block below it
+        // (`keyboard_text_target`). `delete_selection` still targets the host
+        // node: the undo stack is keyed there.
+        let Some(text_target) = self.keyboard_text_target(seat_id, target) else {
+            return false;
         };
         // (d6f) Hoisted (and Arc-cloned, severing the `self` borrow)
         // before `text_edit_manager` is borrowed mutably — the closures
         // below can then resolve without touching `self`.
-        let dense = self.get_dense_for_node(dom_id, ifc_node).cloned();
+        let layout = text_target.layout.clone();
+        let dense = text_target.dense.clone();
 
         if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-            let Some(block) = self.text_block_of(DomNodeId {
-                dom: dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(ifc_node)),
-            }) else {
-                return false;
-            };
             return self.apply_seat_selection_op(
                 seat_id,
                 target,
                 node_id,
-                block,
+                text_target.block,
                 op,
                 &layout,
                 dense.as_deref(),
@@ -10788,28 +10721,17 @@ impl LayoutWindow {
         true
     }
 
-    /// The first caret of text block `block`, or with `end` its last: on its
-    /// first/last cluster of the MATERIALIZED layout (the sparse one is the
-    /// empty retirement sentinel under dense text), or on a blank editable
-    /// line the one position it owns ([`Self::empty_editing_host_caret`]).
+    /// The first caret of text block `block`, or with `end` its last - on a
+    /// blank editable line the one position it owns ([`TextTarget`]).
+    ///
+    /// [`TextTarget`]: crate::text_block::TextTarget
     fn block_edge_caret(&self, block: TextBlock, end: bool) -> Option<TextCursor> {
-        let layout_result = self.layout_results.get(&block.dom())?;
-        let root = layout_result.layout_tree.text_block_root(block.key())?;
-        let layout = layout_result
-            .layout_tree
-            .materialized_inline_layout_for_node(root)?;
-        let edge = if end {
-            layout.get_last_cluster_cursor()
+        let target = self.text_target(block)?;
+        if end {
+            target.last_caret()
         } else {
-            layout.get_first_cluster_cursor()
-        };
-        edge.or_else(|| {
-            Self::empty_editing_host_caret(
-                &layout_result.styled_dom,
-                block.container(),
-                layout.as_ref(),
-            )
-        })
+            target.first_caret()
+        }
     }
 
     /// The text blocks Ctrl+A covers for a focus on `node_id`, in document
@@ -10863,37 +10785,22 @@ impl LayoutWindow {
             return false;
         }
         let dom_id = target.dom;
-        let Some(node_id) = target.node.into_crate_internal() else {
+        let Some(text_target) = self.keyboard_text_target(seat_id, target) else {
             return false;
         };
-        let ifc_node = self
-            .resolve_ifc_layout_node(dom_id, node_id)
-            .unwrap_or(node_id);
-        let Some(block) = self.text_block_of(DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_node)),
-        }) else {
+        let (Some(first), Some(last)) = (
+            text_target.first_cluster_caret(),
+            text_target.last_cluster_caret(),
+        ) else {
             return false;
         };
-        let (first, last) = {
-            let dense = self.get_dense_for_node(dom_id, ifc_node);
-            if let Some(d) = dense {
-                (d.first_cluster_cursor(), d.last_cluster_cursor())
-            } else {
-                let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
-                    return false;
-                };
-                (
-                    layout.get_first_cluster_cursor(),
-                    layout.get_last_cluster_cursor(),
-                )
-            }
-        };
-        let (Some(first), Some(last)) = (first, last) else {
-            return false;
-        };
-        self.text_edit_manager
-            .set_seat_selection(seat_id, target, block, last, Some(first));
+        self.text_edit_manager.set_seat_selection(
+            seat_id,
+            target,
+            text_target.block,
+            last,
+            Some(first),
+        );
         self.regenerate_display_list_for_dom(dom_id);
         true
     }
@@ -16483,46 +16390,29 @@ impl LayoutWindow {
                                 .any(|attr| matches!(attr, AttributeType::ContentEditable(_)));
 
                         if is_contenteditable {
-                            // Get inline layout for cursor positioning
-                            // Clone the Arc to avoid borrow conflict
-                            let inline_layout =
-                                self.get_inline_layout_for_node(dom_id, node_id).cloned();
-                            if let Some(ref layout) = inline_layout {
-                                // (d4) Dense-first, sparse fallback — same
-                                // semantics as the finalize path.
-                                let cursor = self
-                                    .get_dense_for_node(dom_id, node_id)
-                                    .and_then(|d| d.last_cluster_cursor())
-                                    .or_else(|| {
-                                        layout.items.iter().rev().find_map(|item| {
-                                            if let ShapedItem::Cluster(c) = &item.item {
-                                                Some(TextCursor {
-                                                    cluster_id: c.source_cluster_id,
-                                                    affinity: CursorAffinity::Trailing,
-                                                })
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                    })
-                                    .unwrap_or(TextCursor {
-                                        cluster_id: GraphemeClusterId {
-                                            source_run: 0,
-                                            start_byte_in_run: 0,
-                                        },
-                                        affinity: CursorAffinity::Trailing,
-                                    });
+                            // The node's OWN text block (a flat editable),
+                            // with its materialized layout (`TextTarget`).
+                            let own_block = self
+                                .text_target_at_node(dom_node_id)
+                                .filter(|t| t.block.element() == Some(node_id));
+                            if let Some(target) = own_block {
+                                // The caret goes to the end of the text, as a
+                                // keyboard focus seeds it; a blank line's one
+                                // position otherwise.
+                                let cursor = target.last_caret().unwrap_or(TextCursor {
+                                    cluster_id: GraphemeClusterId {
+                                        source_run: 0,
+                                        start_byte_in_run: 0,
+                                    },
+                                    affinity: CursorAffinity::Leading,
+                                });
                                 let ce_key = self.contenteditable_session_key(dom_id, node_id);
                                 // Crossing into a different focusable makes the
                                 // caret JUMP, not glide.
                                 let scope = self.find_focusable_ancestor(dom_node_id);
                                 self.text_edit_manager.enter_focus_scope(scope);
-                                // The node owns an inline layout (checked above),
-                                // so it names a text block.
-                                if let Some(block) = self.text_block_of(dom_node_id) {
-                                    self.text_edit_manager
-                                        .initialize_editing(cursor, block, ce_key);
-                                }
+                                self.text_edit_manager
+                                    .initialize_editing(cursor, target.block, ce_key);
 
                                 // Reveal the caret the way a keyboard focus does:
                                 // the canonical session-anchored path, which knows
@@ -19900,45 +19790,6 @@ impl LayoutWindow {
         ))
     }
 
-    /// The one caret position an EMPTY editable line owns.
-    ///
-    /// `layout_ifc` keeps a strut line box for an IFC root with no inline
-    /// content when it is (inside) a `contenteditable` host, precisely so a
-    /// caret can stand there. But `UnifiedLayout::hittest_cursor` answers
-    /// `None` for a layout with no clusters — there is no glyph to measure
-    /// against — so a click on that line found nothing, and
-    /// `process_mouse_click_for_selection` fell through to its "the press hit
-    /// no selectable text" branch. A brand-new document is made of exactly one
-    /// such line, so it could not be clicked into at all.
-    ///
-    /// There is no ambiguity to resolve on an empty line: the caret goes at
-    /// offset 0, leading. Returns `None` for anything that HAS clusters (the
-    /// real hit test answers those) and for non-editable empty IFCs (an empty
-    /// `<div>` is not something you put a caret in).
-    fn empty_editing_host_caret(
-        styled_dom: &StyledDom,
-        ifc_root_node_id: NodeId,
-        layout: &UnifiedLayout,
-    ) -> Option<TextCursor> {
-        if layout
-            .items
-            .iter()
-            .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
-        {
-            return None;
-        }
-        if !solver3::getters::is_node_contenteditable_inherited(styled_dom, ifc_root_node_id) {
-            return None;
-        }
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })
-    }
-
     /// Process mouse click for text selection.
     ///
     /// This method handles:
@@ -20044,45 +19895,43 @@ impl LayoutWindow {
                         continue;
                     };
 
-                    // Get the IFC layout, its root NodeId AND its layout index.
-                    // Selection must be stored on the IFC root, not on text
-                    // nodes — and the index is needed because the hit node and
-                    // the IFC root are different boxes whenever an inline box
+                    // The IFC root's NodeId AND its layout index. Selection
+                    // must be stored on the IFC root, not on text nodes — and
+                    // the index is needed because the hit node and the IFC
+                    // root are different boxes whenever an inline box
                     // (`<span>`, `<b>`) is what the pointer landed on.
-                    let (cached_layout, ifc_root_node_id, ifc_root_layout_idx) =
-                        if let Some(ref cached) = warm_node.inline_layout_result {
+                    let (ifc_root_node_id, ifc_root_layout_idx) =
+                        if warm_node.inline_layout_result.is_some() {
                             // This node IS an IFC root - use its own NodeId
-                            (cached, *node_id, layout_node_idx)
+                            (*node_id, layout_node_idx)
                         } else if let Some(ref membership) = warm_node.ifc_membership {
-                            // This node participates in an IFC - get layout and NodeId from IFC
-                            // root
+                            // This node participates in an IFC - its root
                             let root_idx = membership.ifc_root_layout_index;
-                            match tree.warm(LayoutNodeId::new(root_idx)) {
-                                Some(ifc_root_warm) => match (
-                                    ifc_root_warm.inline_layout_result.as_ref(),
-                                    tree.get(LayoutNodeId::new(root_idx))
-                                        .and_then(|n| n.dom_node_id),
-                                ) {
-                                    (Some(cached), Some(root_dom_id)) => {
-                                        (cached, root_dom_id, root_idx)
-                                    }
-                                    _ => continue,
-                                },
-                                None => continue,
+                            let root_owns_ifc = tree
+                                .warm(LayoutNodeId::new(root_idx))
+                                .is_some_and(|w| w.inline_layout_result.is_some());
+                            match tree
+                                .get(LayoutNodeId::new(root_idx))
+                                .and_then(|n| n.dom_node_id)
+                            {
+                                Some(root_dom_id) if root_owns_ifc => (root_dom_id, root_idx),
+                                _ => continue,
                             }
                         } else {
                             // No IFC involvement - not a text node
                             continue;
                         };
 
-                    // Under the default AZ_DENSE_TEXT=1, retire_sparse swaps
-                    // `cached.layout` for a shared, permanently-EMPTY sentinel
-                    // and keeps only the dense arrays. Reading it directly made
-                    // hittest_cursor return None for every node, so clicking to
-                    // place a caret or start a selection did nothing at all.
-                    // The two sibling hittest paths were fixed with d6h; these
-                    // three were missed.
-                    let layout = Self::materialized_inline_layout(cached_layout);
+                    // The block under the pointer, with its materialized
+                    // layout and the blank-line caret built in (`TextTarget`):
+                    // the sparse layout is the empty retirement sentinel under
+                    // dense text, and a hit test on it placed no caret at all.
+                    let Some(text_target) = self.text_target_at_layout_index(
+                        *dom_id,
+                        LayoutNodeId::new(ifc_root_layout_idx),
+                    ) else {
+                        continue;
+                    };
 
                     // THE canonical conversion — see `ifc_local_point`. It is
                     // the only place a hit-test result becomes a point the
@@ -20102,22 +19951,12 @@ impl LayoutWindow {
                         continue;
                     };
 
-                    // Hit-test the cursor in this text layout
-                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
-                        Self::empty_editing_host_caret(
-                            &layout_result.styled_dom,
-                            ifc_root_node_id,
-                            layout.as_ref(),
-                        )
-                    });
-                    let Some(block) = tree.text_block_at(*dom_id, ifc_root_layout_idx) else {
-                        continue;
-                    };
-                    if let Some(cursor) = hit_cursor {
+                    // Hit-test the cursor in this text block
+                    if let Some(cursor) = text_target.hittest(local_pos) {
                         // Store the selection's TEXT BLOCK, not the hit text node
                         found_selection = Some((
                             *dom_id,
-                            block,
+                            text_target.block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
@@ -20205,23 +20044,16 @@ impl LayoutWindow {
                         .to_content_box_local(tree.content_inset(idx))
                         .scrolled_by(own_scroll);
 
-                    let layout = Self::materialized_inline_layout(cached_layout);
-
-                    // Hit-test the cursor in this text layout
-                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
-                        Self::empty_editing_host_caret(
-                            &layout_result.styled_dom,
-                            node_id,
-                            layout.as_ref(),
-                        )
-                    });
-                    let Some(block) = tree.text_block_at(*dom_id, node_idx) else {
+                    let Some(text_target) = self.text_target_at_layout_index(*dom_id, idx)
+                    else {
                         continue;
                     };
-                    if let Some(cursor) = hit_cursor {
+
+                    // Hit-test the cursor in this text block
+                    if let Some(cursor) = text_target.hittest(local_pos) {
                         found_selection = Some((
                             *dom_id,
-                            block,
+                            text_target.block,
                             SelectionRange {
                                 start: cursor,
                                 end: cursor,
@@ -20277,19 +20109,9 @@ impl LayoutWindow {
         // (timestamps + positions), no mutable click state needed.
         let click_count = self.gesture_drag_manager.detect_click_count();
 
-        // Get the text layout again for word/paragraph selection
+        // The clicked block's layout again, for word/paragraph selection
         let final_range = if click_count > 1 {
-            // Use layout_results for the correct DOM's tree
-            let layout_result = self.layout_results.get(&dom_id)?;
-            let tree = &layout_result.layout_tree;
-
-            // The block's IFC root - the node that carries its inline layout.
-            let layout_idx = tree.text_block_root(block.key())?;
-            let cached_layout = tree
-                .warm(LayoutNodeId::new(layout_idx))?
-                .inline_layout_result
-                .as_ref()?;
-            let layout = Self::materialized_inline_layout(cached_layout);
+            let layout = self.text_target(block)?.layout;
 
             match click_count {
                 2 => select_word_at_cursor(&initial_range.start, layout.as_ref())
@@ -20438,11 +20260,6 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
         let layout_idx = tree.text_block_root(block.key())?;
-        // (the anchor node's cached inline layout is re-borrowed below,
-        // after the cross-block branch may have taken &mut self)
-        tree.warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
 
         // The pointer in the anchor IFC's own space. This used to be spelled
         // out here as `current - node_pos + self_inclusive_scroll`, which is
@@ -20488,24 +20305,11 @@ impl LayoutWindow {
             }
         }
 
-        // Re-borrow after the possible &mut use above.
-        let layout_result = self.layout_results.get(&dom_id)?;
-        let tree = &layout_result.layout_tree;
-        let cached = tree
-            .warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
-        // (d6h) Materialized: sentinel-safe click hittest, with the same
-        // empty-line fallback - dragging BACK onto a blank line inside the
-        // anchor block is the same question as arriving on one.
-        let materialized = Self::materialized_inline_layout(cached);
-        let focus = materialized.hittest_point(local_pos).or_else(|| {
-            Self::empty_editing_host_caret(
-                &layout_result.styled_dom,
-                block.container(),
-                materialized.as_ref(),
-            )
-        })?;
+        // The anchor block again, after the possible &mut use above: its
+        // materialized layout, with the blank-line caret built in - dragging
+        // BACK onto a blank line inside the anchor block is the same question
+        // as arriving on one.
+        let focus = self.text_target(block)?.hittest(local_pos)?;
 
         // Compared as ids, `Trailing` on a grapheme and `Leading` on the next
         // made a range of nothing out of a drag that moved nowhere.
@@ -20597,11 +20401,7 @@ impl LayoutWindow {
                 best = Some((dy, dx, node_dom_id, idx));
             }
         }
-        let (_, _, node_dom_id, layout_idx) = best?;
-        let cached = tree
-            .warm(LayoutNodeId::new(layout_idx))?
-            .inline_layout_result
-            .as_ref()?;
+        let (_, _, _, layout_idx) = best?;
         // The winning block's own space, via the one conversion chain (this
         // used to be spelled out inline and skipped the content inset).
         let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
@@ -20626,19 +20426,15 @@ impl LayoutWindow {
             size.width - inset.left - right,
             size.height - inset.top - bottom,
         );
-        // (d6h) Materialized: sentinel-safe drag hittest.
-        let layout = Self::materialized_inline_layout(cached);
-        // ... and the same empty-line fallback BOTH branches of the click path
-        // take. A block with no clusters has no glyph to measure a point
-        // against, so `hittest_point` answers `None` - and on an editing host
-        // that block is a real, standable line kept by `layout_ifc` precisely
-        // so a caret can go there. Without this, a selection dragged across a
-        // blank paragraph stopped at the paragraph before it, and a document
-        // that is ONE blank line could not be dragged in at all.
-        let cursor = layout.hittest_point(clamped).or_else(|| {
-            Self::empty_editing_host_caret(&layout_result.styled_dom, node_dom_id, layout.as_ref())
-        })?;
-        Some((tree.text_block_at(dom_id, layout_idx)?, cursor))
+        // The block's materialized layout and blank-line caret (`TextTarget`),
+        // the same the click resolves: a block with no clusters has no glyph
+        // to measure a point against, and on an editing host that block is a
+        // real, standable line kept by `layout_ifc` precisely so a caret can go
+        // there. Without it, a selection dragged across a blank paragraph
+        // stopped at the paragraph before it.
+        let target = self.text_target_at_layout_index(dom_id, LayoutNodeId::new(layout_idx))?;
+        let cursor = target.hittest(clamped)?;
+        Some((target.block, cursor))
     }
 
     /// Delete the currently selected text or one character at the cursor

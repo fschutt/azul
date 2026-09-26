@@ -2,7 +2,7 @@
 //!
 //! `layout_ifc` keeps a strut line box for an IFC root with no inline content
 //! when it is (inside) a `contenteditable` host, precisely so a caret can stand
-//! there - and `empty_editing_host_caret` is the fallback that turns a point
+//! there - and the blank-line caret (`TextTarget::blank_line_caret`) turns a point
 //! on that line into offset 0. The CLICK path calls it (both of its
 //! branches); the DRAG path did not, on either of its two resolvers. So a
 //! selection dragged across a blank paragraph - the shape a new document is

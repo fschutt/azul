@@ -12,6 +12,11 @@
 //! display-list builder, which has the tree but no window, resolves the block
 //! it paints exactly as the editing paths resolve the block they edit.
 //!
+//! [`TextTarget`] is the choke point on top: one block, resolved once with its
+//! materialized layout, its blank-line caret and its `user-select` /
+//! editability - what the click, the drag, the keyboard, Ctrl+A and the focus
+//! seed all resolve through.
+//!
 //! Beside it, the [`EditHost`]: the contenteditable host a key or a focus
 //! lands on. The two used to be the same bare `NodeId` in different places -
 //! the host passed where a block was needed (every keyboard op in a text
@@ -21,13 +26,25 @@
 //! [`LayoutTree::owning_ifc_root`]: crate::solver3::layout_tree::LayoutTree::owning_ifc_root
 //! [`LayoutTree::text_block_at`]: crate::solver3::layout_tree::LayoutTree::text_block_at
 
+use alloc::sync::Arc;
+
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
-    selection::{MultiCursorState, SelectionRange, TextBlock, TextCursor},
+    selection::{
+        CursorAffinity, GraphemeClusterId, MultiCursorState, SelectionRange, TextBlock, TextCursor,
+    },
+    spaces::ScrolledContentPoint,
     styled_dom::{NodeHierarchyItem, NodeHierarchyItemId},
 };
 
-use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
+use crate::{
+    solver3::{getters, layout_tree::LayoutNodeId},
+    text3::{
+        cache::{ShapedItem, UnifiedLayout},
+        dense::DenseText,
+    },
+    window::LayoutWindow,
+};
 
 /// How far [`LayoutWindow::text_block_of`] walks up the DOM from a node that
 /// generated no box before giving up.
@@ -71,7 +88,196 @@ impl EditHost {
     }
 }
 
+/// ONE text block, resolved once with everything a text operation on it
+/// needs - the choke point every pointer, keyboard and selection path goes
+/// through instead of re-deriving it:
+///
+/// - the IFC root and its inline layout, MATERIALIZED: under the default dense text path the
+///   stored sparse layout is the empty retirement sentinel, and every caller that forgot to
+///   expand it found no cluster and did nothing (a click placed no caret, Ctrl+A selected
+///   nothing);
+/// - the one caret a blank editable line owns, BUILT IN: a line with no cluster has no glyph to
+///   hit or to start/end on, and each path that did not carry its own copy of that fallback could
+///   not reach a blank line;
+/// - whether the block's text is selectable (`user-select`) and editable, read off the element
+///   whose box holds it (an anonymous block's container).
+#[derive(Debug, Clone)]
+pub struct TextTarget {
+    /// The block.
+    pub block: TextBlock,
+    /// The editing host the block is edited through, if any.
+    pub host: Option<EditHost>,
+    /// The layout node that owns the block's inline layout.
+    pub layout_index: LayoutNodeId,
+    /// The block's inline layout, materialized.
+    pub layout: Arc<UnifiedLayout>,
+    /// The dense view, when retained.
+    pub dense: Option<Arc<DenseText>>,
+    /// `user-select` lets the block's text be selected.
+    pub selectable: bool,
+    /// The block's text is editable (an inherited `contenteditable`).
+    pub editable: bool,
+}
+
+impl TextTarget {
+    /// Whether the block has no cluster at all: a blank line.
+    fn is_blank(&self) -> bool {
+        !self
+            .layout
+            .items
+            .iter()
+            .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+    }
+
+    /// The one caret position a blank EDITABLE line owns: offset 0, leading.
+    ///
+    /// `layout_ifc` keeps a strut line box for an empty editable IFC so a caret
+    /// can stand there, but there is no glyph to hit-test or to take a first or
+    /// last cluster from. `None` for a block with text, and for a blank block
+    /// that is not editable (an empty `<div>` is not something you put a caret
+    /// in).
+    #[must_use]
+    pub fn blank_line_caret(&self) -> Option<TextCursor> {
+        (self.editable && self.is_blank()).then_some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
+    /// Leading on the block's first cluster.
+    #[must_use]
+    pub fn first_cluster_caret(&self) -> Option<TextCursor> {
+        self.layout.get_first_cluster_cursor()
+    }
+
+    /// Trailing on the block's last cluster.
+    #[must_use]
+    pub fn last_cluster_caret(&self) -> Option<TextCursor> {
+        self.layout.get_last_cluster_cursor()
+    }
+
+    /// The block's first caret: on its first cluster, or on a blank editable
+    /// line the one position it owns.
+    #[must_use]
+    pub fn first_caret(&self) -> Option<TextCursor> {
+        self.first_cluster_caret()
+            .or_else(|| self.blank_line_caret())
+    }
+
+    /// The block's last caret: on its last cluster, or on a blank editable
+    /// line the one position it owns.
+    #[must_use]
+    pub fn last_caret(&self) -> Option<TextCursor> {
+        self.last_cluster_caret()
+            .or_else(|| self.blank_line_caret())
+    }
+
+    /// The caret at `point`, in the block's own (scrolled content) space, or
+    /// on a blank editable line the one position it owns.
+    #[must_use]
+    pub fn hittest(&self, point: ScrolledContentPoint) -> Option<TextCursor> {
+        self.layout
+            .hittest_point(point)
+            .or_else(|| self.blank_line_caret())
+    }
+}
+
 impl LayoutWindow {
+    /// The [`TextTarget`] of `block`, or `None` when it is not laid out.
+    #[must_use]
+    pub fn text_target(&self, block: TextBlock) -> Option<TextTarget> {
+        let root = self
+            .layout_results
+            .get(&block.dom())?
+            .layout_tree
+            .text_block_root(block.key())?;
+        self.text_target_with_root(block, root)
+    }
+
+    /// The [`TextTarget`] of the text block `node`'s text is in
+    /// ([`Self::text_block_of`]).
+    #[must_use]
+    pub fn text_target_at_node(&self, node: DomNodeId) -> Option<TextTarget> {
+        self.text_target(self.text_block_of(node)?)
+    }
+
+    /// The [`TextTarget`] whose IFC root is the layout node `ifc_root` of
+    /// `dom` - the one a pointer hit or a candidate scan found.
+    #[must_use]
+    pub fn text_target_at_layout_index(
+        &self,
+        dom: DomId,
+        ifc_root: LayoutNodeId,
+    ) -> Option<TextTarget> {
+        let block = self.text_block_at_layout_index(dom, ifc_root)?;
+        self.text_target_with_root(block, ifc_root.index())
+    }
+
+    /// The [`TextTarget`] of the editing session.
+    #[must_use]
+    pub fn session_text_target(&self) -> Option<TextTarget> {
+        self.text_target(self.text_edit_manager.get_editing_block()?)
+    }
+
+    /// The block a KEY that went to `scope` (the focused node of seat
+    /// `seat_id`: its editing host, or a node inside one) acts in: the seat's
+    /// caret block when it lies inside `scope` (the primary's editing session
+    /// for seat 0); else the block `scope`'s own text is in; else the first
+    /// block below `scope` - a `TextInput`'s value paragraph under its host -
+    /// found by the candidate scan the edit paths use.
+    #[must_use]
+    pub fn keyboard_text_target(&self, seat_id: u64, scope: DomNodeId) -> Option<TextTarget> {
+        let scope_node = scope.node.into_crate_internal()?;
+        let caret_block = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.get_editing_block()
+        } else {
+            self.text_edit_manager.seat_caret(seat_id).map(|c| c.block)
+        };
+        let in_scope = caret_block.filter(|block| {
+            block.dom() == scope.dom
+                && self.node_is_self_or_descendant(scope.dom, block.first_node(), scope_node)
+        });
+        if let Some(target) = in_scope.and_then(|block| self.text_target(block)) {
+            return Some(target);
+        }
+        let ifc_node = self
+            .resolve_ifc_layout_node(scope.dom, scope_node)
+            .unwrap_or(scope_node);
+        self.text_target_at_node(DomNodeId {
+            dom: scope.dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_node)),
+        })
+    }
+
+    fn text_target_with_root(&self, block: TextBlock, root: usize) -> Option<TextTarget> {
+        let layout_result = self.layout_results.get(&block.dom())?;
+        let tree = &layout_result.layout_tree;
+        let layout = tree.materialized_inline_layout_for_node(root)?;
+        let dense = tree.get_dense_for_node(root).cloned();
+        let styled_dom = &layout_result.styled_dom;
+        // An anonymous block has no style of its own: its container's.
+        let style_node = block.container();
+        let selectable = styled_dom
+            .styled_nodes
+            .as_container()
+            .get(style_node)
+            .is_some_and(|n| getters::is_text_selectable(styled_dom, style_node, &n.styled_node_state));
+        let editable = style_node.index() < styled_dom.node_data.as_container().len()
+            && getters::is_node_contenteditable_inherited(styled_dom, style_node);
+        Some(TextTarget {
+            block,
+            host: self.find_contenteditable_host(block.container_dom_node()),
+            layout_index: LayoutNodeId::new(root),
+            layout,
+            dense,
+            selectable,
+            editable,
+        })
+    }
+
     /// The editing host of `node`: the nearest self-or-ancestor with the
     /// `contenteditable` flag. `None` outside any.
     #[must_use]
