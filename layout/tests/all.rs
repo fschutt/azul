@@ -308,6 +308,8 @@ mod radio_group_geometry;
 mod regression_font_size_bugs;
 #[path = "resize_relayout_bug.rs"]
 mod resize_relayout_bug;
+#[path = "restored_caret_lands_in_its_text.rs"]
+mod restored_caret_lands_in_its_text;
 #[path = "ribbon_group_overlap.rs"]
 mod ribbon_group_overlap;
 #[path = "ribbon_tab_whitespace.rs"]
