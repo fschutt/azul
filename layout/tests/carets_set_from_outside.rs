@@ -11,7 +11,9 @@
 use azul_core::{
     dom::{AccessibilityAction, Dom, DomId, DomNodeId, IdOrClass, NodeId, TextSelectionStartEnd},
     resources::RendererResources,
-    selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextBlock, TextCursor},
+    selection::{
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextBlock, TextCursor,
+    },
     styled_dom::{NodeHierarchyItemId, StyledDom},
     task::Instant,
 };
@@ -295,6 +297,78 @@ fn an_app_cursor_naming_the_host_joins_its_session() {
             .map(|mc| mc.selections.len()),
         Some(2),
         "a node that contains the session's block means that session"
+    );
+}
+
+#[test]
+fn an_app_selection_in_another_paragraph_moves_the_session_there() {
+    let mut lw = two_paragraphs();
+    open_session_in(&mut lw, 1);
+
+    let range = SelectionRange {
+        start: start(),
+        end: at(2, CursorAffinity::Trailing),
+    };
+    assert!(lw.set_app_selection(dnid(3), Selection::Range(range)));
+
+    assert_eq!(
+        editing_block(&lw),
+        Some(block_of(&lw, 3)),
+        "a range made for \"two\" must not be laid over the session in \"one\""
+    );
+}
+
+#[test]
+fn an_app_selection_opens_a_session() {
+    let mut lw = two_paragraphs();
+
+    assert!(
+        lw.set_app_selection(dnid(3), Selection::Cursor(start())),
+        "a selection set where no session is open opens one"
+    );
+
+    assert_eq!(editing_block(&lw), Some(block_of(&lw, 3)));
+}
+
+#[test]
+fn an_app_selection_naming_the_host_sets_its_session() {
+    // `body(0) > div.p[contenteditable](1) > div.p(2) > "hello"(3)`
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("p"))
+                .with_contenteditable(true)
+                .with_child(para("p", "hello")),
+        ),
+    );
+    open_session_in(&mut lw, 2);
+
+    let range = SelectionRange {
+        start: start(),
+        end: at(1, CursorAffinity::Trailing),
+    };
+    assert!(lw.set_app_selection(dnid(1), Selection::Range(range)));
+
+    assert_eq!(editing_block(&lw), Some(block_of(&lw, 2)));
+    assert_eq!(lw.focused_selection_byte_range(), Some((0, 2)));
+}
+
+#[test]
+fn an_app_caret_move_into_another_paragraph_moves_the_session_there() {
+    let mut lw = two_paragraphs();
+    open_session_in(&mut lw, 1);
+
+    lw.handle_cursor_movement(
+        DomId::ROOT_ID,
+        NodeId::new(3),
+        at(1, CursorAffinity::Leading),
+        false,
+    );
+
+    assert_eq!(
+        editing_block(&lw),
+        Some(block_of(&lw, 3)),
+        "`MoveCursor` naming \"two\" puts the caret in \"two\""
     );
 }
 
