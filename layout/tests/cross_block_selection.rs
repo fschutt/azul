@@ -35,6 +35,19 @@ fn node_id(n: usize) -> NodeId {
     NodeId::new(n)
 }
 
+/// The text runs directly inside `block` - its inline content, joined.
+fn text_children(block: &Dom) -> String {
+    block
+        .children
+        .as_ref()
+        .iter()
+        .filter_map(|c| match c.root.get_node_type() {
+            azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn layout_three_paragraphs() -> LayoutWindow {
     const CSS: &str = r#"
         * { margin: 0; padding: 0; }
@@ -265,22 +278,20 @@ fn selection_spanning_delete_merges_into_one_replace_changeset() {
                 (0, 3),
                 "replaces the whole spanned block range"
             );
-            let merged: String = r
-                .content
-                .children
-                .as_ref()
-                .iter()
-                .filter_map(|c| match c.root.get_node_type() {
-                    azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
-                    _ => None,
-                })
-                .collect();
+            // The payload is a FRAGMENT: `document_edit::apply_replace` and the
+            // overlay preview both insert its CHILDREN and ignore its root. So
+            // the merged paragraph is its one child - not the root, which an
+            // app applying the edit drops, leaving a bare text run where the
+            // paragraph was.
+            let blocks = r.content.children.as_ref();
+            assert_eq!(blocks.len(), 1, "ONE merged paragraph replaces the three");
             assert_eq!(
-                merged, "first paragraph",
+                text_children(&blocks[0]),
+                "first paragraph",
                 "merged text = 'first ' + 'paragraph' (kept head + kept tail)"
             );
             assert!(
-                format!("{:?}", r.content.root.get_node_type()).contains("Div"),
+                format!("{:?}", blocks[0].root.get_node_type()).contains("Div"),
                 "the merged block keeps the FIRST paragraph's element"
             );
         }
@@ -411,17 +422,10 @@ fn cross_block_copy_joins_paragraphs_and_paste_replaces_atomically() {
     let edit = lw.get_pending_document_edit().expect("changeset pending");
     match &edit.operation {
         azul_layout::managers::changeset::DocumentOperation::ReplaceChildren(r) => {
-            let merged: String = r
-                .content
-                .children
-                .as_ref()
-                .iter()
-                .filter_map(|c| match c.root.get_node_type() {
-                    azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
-                    _ => None,
-                })
-                .collect();
-            assert_eq!(merged, "first PASTEDparagraph");
+            // A fragment: its one child is the merged paragraph.
+            let blocks = r.content.children.as_ref();
+            assert_eq!(blocks.len(), 1, "ONE merged paragraph replaces the three");
+            assert_eq!(text_children(&blocks[0]), "first PASTEDparagraph");
         }
         other => panic!("expected ReplaceChildren, got {other:?}"),
     }
@@ -511,6 +515,78 @@ fn deleting_a_document_selection_trims_every_block_it_spans() {
         lw.text_edit_manager.get_cross_block_selection().is_none(),
         "the selection is consumed by the delete"
     );
+}
+
+/// Deleting a DOCUMENT selection whose two ends sit in DIFFERENT containers.
+///
+/// `replace_cross_block_selection` still carried the sibling rule that
+/// `set_cross_block_selection` dropped: it took the selection off the
+/// manager, found that the two ends' parents differ and returned `None`. So
+/// Backspace, Cut and Paste over such a selection did nothing at all - and
+/// the selection they were aimed at was gone too.
+///
+/// The edit is ONE `ReplaceChildren` on the ends' nearest common ancestor,
+/// over its children that hold them: the first keeps what comes before the
+/// selection plus the merged paragraph, the second keeps what comes after it
+/// and goes entirely when the selection emptied it.
+#[test]
+fn deleting_a_selection_across_containers_joins_its_ends() {
+    // body(0) > div.box(1) > [p(2)>text(3), p(4)>text(5)], div.box(6) > p(7)>text(8)
+    const FIRST_P: usize = 2;
+    const THIRD_P: usize = 7;
+    let mut lw = layout_paragraphs_in_two_boxes();
+    assert!(lw.set_cross_block_selection(
+        DomId::ROOT_ID,
+        node_id(FIRST_P),
+        cursor(6), // after "first "
+        node_id(THIRD_P),
+        cursor(6), // after "third "
+    ));
+
+    let id = lw.delete_cross_block_selection();
+    assert!(
+        id.is_some(),
+        "a selection across two containers deletes like any other"
+    );
+
+    let edit = lw
+        .get_pending_document_edit()
+        .expect("structural changeset pending");
+    match &edit.operation {
+        azul_layout::managers::changeset::DocumentOperation::ReplaceChildren(r) => {
+            assert_eq!(
+                r.parent.node.into_crate_internal(),
+                Some(node_id(0)),
+                "the ends' nearest common ancestor is the body"
+            );
+            assert_eq!((r.start, r.end), (0, 2), "both containers are replaced");
+            let boxes = r.content.children.as_ref();
+            assert_eq!(
+                boxes.len(),
+                1,
+                "the second container held nothing but the selection's end, so it goes"
+            );
+            let paras = boxes[0].children.as_ref();
+            assert_eq!(
+                paras.len(),
+                1,
+                "the first container keeps the merged paragraph and loses the one the selection \
+                 covered"
+            );
+            assert_eq!(
+                text_children(&paras[0]),
+                "first paragraph",
+                "'first ' + 'paragraph' (kept head + kept tail)"
+            );
+        }
+        other => panic!("expected ReplaceChildren, got {other:?}"),
+    }
+    assert!(
+        lw.text_edit_manager.get_cross_block_selection().is_none(),
+        "the selection is consumed by the delete"
+    );
+    let pos = format!("{:?}", edit.resume.position);
+    assert!(pos.contains('6'), "caret resumes at the join byte: {pos}");
 }
 
 /// A BLOCK THAT HOLDS MORE THAN PLAIN TEXT STILL COPIES.
