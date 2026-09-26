@@ -4386,6 +4386,12 @@ pub trait PlatformWindow {
             if !lifecycle_wants_pass && !docks_changed {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
+                // A rebuild is not animation time: a glide that ticked just
+                // before it resumes where it stood instead of jumping by the
+                // rebuild's duration.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.forget_animation_stall();
+                }
                 self.arm_animation_drivers_if_needed();
                 // A layout callback may have started a request; its result must not wait for input.
                 self.sync_capability_pump_timer();
@@ -4409,6 +4415,9 @@ pub trait PlatformWindow {
         }
         self.refill_a11y_tree_after_regeneration();
         self.flush_a11y_tree_update();
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.forget_animation_stall();
+        }
         self.arm_animation_drivers_if_needed();
         self.sync_capability_pump_timer();
         // Hitting the cap means the lifecycle loop never converged — every one

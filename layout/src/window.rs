@@ -11715,6 +11715,32 @@ impl LayoutWindow {
         })
     }
 
+    /// Forget a stall longer than one frame: the next animation step then
+    /// counts as one frame, exactly like the first step after an idle period.
+    ///
+    /// A DOM rebuild stops the frames without stopping the clock. When a frame
+    /// ticked just BEFORE the rebuild — X11 runs the timer pass at the top of
+    /// its loop turn, ahead of the frame path that rebuilds; Wayland can do
+    /// the same while the rebuild waits for a frame callback — the next step
+    /// measured the whole rebuild, and the switch knob covered a large part of
+    /// its 150 ms glide in one frame on every toggle. Nothing was shown in
+    /// between, so there is nothing to catch up on: the glide resumes where
+    /// it stood. A stamp younger than a frame is kept, and the step after it
+    /// stays real time.
+    ///
+    /// The clock is read only while a stamp exists, i.e. while something
+    /// animates — see [`Self::tick_animations_now`] for why that matters.
+    pub fn forget_animation_stall(&mut self) {
+        const FRAME_NS: u128 = 1_000_000_000 / 60;
+        let stalled = self
+            .last_anim_tick
+            .as_ref()
+            .is_some_and(|prev| Instant::now().duration_since(prev).as_nanos() > FRAME_NS);
+        if stalled {
+            self.last_anim_tick = None;
+        }
+    }
+
     /// Whether a pass of the CSS animation driver at `now` is a FRAME — owes
     /// the animations a step — or falls between two frames.
     ///
