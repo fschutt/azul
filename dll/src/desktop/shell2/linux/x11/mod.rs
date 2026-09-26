@@ -1890,15 +1890,17 @@ pub(super) struct SeatXkb {
 
 impl X11Window {
     /// The xkb state of master keyboard `deviceid`, built from the device on
-    /// first use (9b-ii-a-i-a-i). `None` without libxkbcommon-x11 / libX11-xcb
-    /// or when the server refuses - the caller then uses the core keymap.
+    /// first use (9b-ii-a-i-a-i). `None` without libxkbcommon(-x11) /
+    /// libX11-xcb or when the server refuses - the caller then uses the core
+    /// keymap.
     fn seat_xkb_state(&mut self, deviceid: c_int) -> Option<*mut defines::xkb_state> {
         if let Some(entry) = self.seat_keymaps.get(&deviceid) {
             return Some(entry.state);
         }
         let x11 = self.xkb_x11.clone()?;
+        let xkb = self.xkb.clone()?;
         if self.seat_xkb_context.is_null() {
-            self.seat_xkb_context = unsafe { (self.xkb.xkb_context_new)(0) };
+            self.seat_xkb_context = unsafe { (xkb.xkb_context_new)(0) };
             if self.seat_xkb_context.is_null() {
                 return None;
             }
@@ -1915,7 +1917,7 @@ impl X11Window {
             }
             let state = (x11.xkb_x11_state_new_from_device)(keymap, conn, deviceid);
             if state.is_null() {
-                (self.xkb.xkb_keymap_unref)(keymap);
+                (xkb.xkb_keymap_unref)(keymap);
                 return None;
             }
             (keymap, state)
@@ -1930,9 +1932,13 @@ impl X11Window {
     /// rebuilds the map from the server (9b-ii-a-i-a-i-a).
     fn drop_seat_keymap(&mut self, deviceid: c_int) {
         if let Some(entry) = self.seat_keymaps.remove(&deviceid) {
+            // An entry exists only if libxkbcommon built it.
+            let Some(xkb) = self.xkb.as_ref() else {
+                return;
+            };
             unsafe {
-                (self.xkb.xkb_state_unref)(entry.state);
-                (self.xkb.xkb_keymap_unref)(entry.keymap);
+                (xkb.xkb_state_unref)(entry.state);
+                (xkb.xkb_keymap_unref)(entry.keymap);
             }
         }
     }
@@ -1963,9 +1969,13 @@ impl X11Window {
     /// (`XI_HierarchyChanged`), so a cached map may describe another keyboard.
     fn drop_seat_keymaps(&mut self) {
         for (_, entry) in std::mem::take(&mut self.seat_keymaps) {
+            // An entry exists only if libxkbcommon built it.
+            let Some(xkb) = self.xkb.as_ref() else {
+                continue;
+            };
             unsafe {
-                (self.xkb.xkb_state_unref)(entry.state);
-                (self.xkb.xkb_keymap_unref)(entry.keymap);
+                (xkb.xkb_state_unref)(entry.state);
+                (xkb.xkb_keymap_unref)(entry.keymap);
             }
         }
     }
@@ -2028,8 +2038,8 @@ impl X11Window {
         // modifier and group state applied to a keymap built from the
         // device, so a seat on another layout is not translated through
         // the primary's. The core keymap below is the fallback.
-        let per_device = self.seat_xkb_state(ev.deviceid).map(|xkb_state| {
-            let xkb = self.xkb.clone();
+        let per_device = self.seat_xkb_state(ev.deviceid).zip(self.xkb.clone());
+        let per_device = per_device.map(|(xkb_state, xkb)| {
             unsafe {
                 // The virtual keycode comes from the UNMODIFIED symbol of
                 // the seat's group; the text from the full state.
@@ -2754,8 +2764,15 @@ pub struct X11Window {
     pub swipe_accumulated: (f32, f32),
 
     pub xlib: Rc<Xlib>,
-    pub egl: Rc<Egl>,
-    pub xkb: Rc<Xkb>,
+    /// Always `Some` on Linux, where libEGL is required. Off Linux (XQuartz
+    /// ships none) `None` means the GPU path is never tried: the window
+    /// renders on the CPU, which is the default anyway.
+    pub egl: Option<Rc<Egl>>,
+    /// Always `Some` on Linux, where libxkbcommon is required. Off Linux
+    /// (XQuartz ships none) `None` loses the no-XIM compose table and the
+    /// per-seat keymaps of a second master keyboard; keysyms and typed text
+    /// come from the core `XLookupString` / XIM path either way.
+    pub xkb: Option<Rc<Xkb>>,
     /// libxkbcommon-x11, when present (9b-ii-a-i-a-i): per-master-keyboard
     /// keymaps for the other seats.
     xkb_x11: Option<Rc<dlopen::XkbX11>>,
@@ -3434,11 +3451,36 @@ impl X11Window {
 
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
-        let egl = Egl::new()
-            .map_err(|e| WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e)))?;
-        let xkb = Xkb::new().map_err(|e| {
+        #[cfg(target_os = "linux")]
+        let egl =
+            Some(Egl::new().map_err(|e| {
+                WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e))
+            })?);
+        #[cfg(target_os = "linux")]
+        let xkb = Some(Xkb::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
-        })?;
+        })?);
+        // Off Linux - XQuartz, which ships neither library - both are
+        // optional. Without EGL the window renders on the CPU (the default,
+        // and what `AZ_BACKEND=gpu` falls back to below). Without xkbcommon
+        // the core `XLookupString` / XIM path still yields every keysym and
+        // every typed character; see the `xkb` field for what is lost.
+        #[cfg(not(target_os = "linux"))]
+        let egl = Egl::new()
+            .map_err(|e| {
+                crate::plog_info!("[X11] libEGL not loaded ({:?}) - CPU rendering only", e);
+            })
+            .ok();
+        #[cfg(not(target_os = "linux"))]
+        let xkb = Xkb::new()
+            .map_err(|e| {
+                crate::plog_info!(
+                    "[X11] libxkbcommon not loaded ({:?}) - keys go through core Xlib, no \
+                     compose table without an input method",
+                    e
+                );
+            })
+            .ok();
 
         // Set custom X11 error handler to prevent application crashes
         // The default handler terminates the app on any X protocol error
@@ -3926,13 +3968,20 @@ impl X11Window {
                 None.into(),
             )
         } else {
-            match gl::GlContext::new(&xlib, &egl, display, window_handle) {
+            // Only a host other than Linux arrives here without libEGL (it is
+            // required above on Linux), and a missing EGL is a GL failure like
+            // any other: the Err arm below renders on the CPU instead.
+            let gl_init = match egl.as_ref() {
+                Some(egl) => gl::GlContext::new(&xlib, egl, display, window_handle),
+                None => Err(WindowError::PlatformError("libEGL is not loaded".into())),
+            };
+            match gl_init {
                 Ok(gl_context) => 'gpu: {
                     gl_context.make_current();
                     gl_context.configure_vsync(options.window_state.renderer_options.vsync);
                     // ANY failure past this point falls back to CPU rendering in THIS
                     // window — "GPU init failed" must never mean "no window".
-                    let gl_functions = match GlFunctions::initialize(&egl) {
+                    let gl_functions = match GlFunctions::initialize(&gl_context.egl) {
                         Ok(f) => f,
                         Err(e) => {
                             crate::plog_warn!(
@@ -4108,7 +4157,7 @@ impl X11Window {
         };
 
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
-        let xkb_for_compose = Rc::clone(&xkb);
+        let xkb_for_compose = xkb.clone();
         let mut common = event::CommonWindowState::new(
             FullWindowState {
                 title: options.window_state.title.clone(),
@@ -4185,11 +4234,13 @@ impl X11Window {
             compose: if ime_manager.is_some() {
                 None
             } else {
-                xkb_for_compose.compose_fns().and_then(|fns| {
-                    crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
-                        fns,
-                        xkb_for_compose.clone(),
-                    )
+                xkb_for_compose.and_then(|xkb| {
+                    xkb.compose_fns().and_then(|fns| {
+                        crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
+                            fns,
+                            xkb.clone(),
+                        )
+                    })
                 })
             },
             ime_manager,
@@ -8440,7 +8491,10 @@ impl Drop for X11Window {
     fn drop(&mut self) {
         self.drop_seat_keymaps();
         if !self.seat_xkb_context.is_null() {
-            unsafe { (self.xkb.xkb_context_unref)(self.seat_xkb_context) };
+            // Only ever created through libxkbcommon, so it is loaded.
+            if let Some(xkb) = self.xkb.as_ref() {
+                unsafe { (xkb.xkb_context_unref)(self.seat_xkb_context) };
+            }
             self.seat_xkb_context = std::ptr::null_mut();
         }
         // Close all timerfd's
