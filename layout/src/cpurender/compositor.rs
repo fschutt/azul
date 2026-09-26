@@ -5512,6 +5512,35 @@ mod autotest_generated {
         }
     }
 
+    /// A scroll frame whose clip only changed SIZE paints nothing by itself.
+    ///
+    /// The rasteriser does not clip at a scroll frame - the `PushClip` in
+    /// front of an ordinary one does, and damages its own size change as
+    /// strips - it only offsets what is inside, and those items carry their
+    /// own damage. The page's frame (the viewport's) has no `PushClip` and a
+    /// clip as large as the window, so on every resize it damaged the whole
+    /// window, where the window's newly exposed strip is all that changed
+    /// (and the resize damage already covers it).
+    #[test]
+    fn a_scroll_frame_that_only_resized_damages_nothing_by_itself() {
+        set_dl_diff_refinements(true);
+        let list = |width: f32| {
+            dlist(vec![
+                push_scroll(1, 0.0, 0.0, width, 300.0),
+                opaque_rect(0.0, 0.0, 10.0, 10.0),
+                DisplayListItem::PopScrollFrame,
+            ])
+        };
+        let none = ScrollOffsetMap::new();
+        let damage = compute_display_list_damage(&list(400.0), &list(440.0), &none, &none)
+            .expect("the two lists pair item by item");
+        assert!(
+            damage.is_empty(),
+            "only the frame's clip grew (400 -> 440 wide) and nothing inside moved, yet the \
+             damage is {damage:?}"
+        );
+    }
+
     /// Damage is consumed in VIEWPORT space, and a GPU value change inside a
     /// scrolled frame repaints pixels the frame moved: a moved reference frame
     /// (a transition, a drag) and a moved or fading scrollbar thumb - a
