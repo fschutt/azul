@@ -37,6 +37,8 @@ use azul_core::{
     styled_dom::{NodeHierarchyItem, NodeHierarchyItemId},
 };
 
+use azul_core::styled_dom::StyledDom;
+
 use crate::{
     solver3::{getters, layout_tree::LayoutNodeId},
     text3::{
@@ -86,6 +88,44 @@ impl EditHost {
             node: NodeHierarchyItemId::from_crate_internal(Some(self.node)),
         }
     }
+}
+
+/// Which text blocks a walk in document order yields
+/// ([`LayoutWindow::text_block_roots`]).
+///
+/// There used to be five "document orders" - `NodeId` index, layout index,
+/// a DOM depth-first walk, a caret-owner-first breadth-first walk and
+/// on-screen distance - and each walk filtered differently: the painter
+/// skipped `user-select: none` text, the selection that it painted did not.
+/// One walk, and the filters said out loud.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockFilter {
+    /// Only blocks whose text `user-select` lets be selected.
+    pub selectable_only: bool,
+    /// Anonymous block boxes too.
+    pub include_anonymous: bool,
+    /// Only blocks inside this node's subtree (its own block included).
+    pub within: Option<DomNodeId>,
+}
+
+impl BlockFilter {
+    /// Every text block with an element of its own.
+    pub const ALL: Self = Self {
+        selectable_only: false,
+        include_anonymous: false,
+        within: None,
+    };
+}
+
+/// Whether `user-select` lets `block`'s text be selected - read off the
+/// element that holds it (an anonymous block has no style of its own).
+fn block_is_selectable(styled_dom: &StyledDom, block: TextBlock) -> bool {
+    let style_node = block.container();
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(style_node)
+        .is_some_and(|n| getters::is_text_selectable(styled_dom, style_node, &n.styled_node_state))
 }
 
 /// ONE text block, resolved once with everything a text operation on it
@@ -260,11 +300,7 @@ impl LayoutWindow {
         let styled_dom = &layout_result.styled_dom;
         // An anonymous block has no style of its own: its container's.
         let style_node = block.container();
-        let selectable = styled_dom
-            .styled_nodes
-            .as_container()
-            .get(style_node)
-            .is_some_and(|n| getters::is_text_selectable(styled_dom, style_node, &n.styled_node_state));
+        let selectable = block_is_selectable(styled_dom, block);
         let editable = style_node.index() < styled_dom.node_data.as_container().len()
             && getters::is_node_contenteditable_inherited(styled_dom, style_node);
         Some(TextTarget {
@@ -379,19 +415,50 @@ impl LayoutWindow {
             .map(LayoutNodeId::new)
     }
 
-    /// Every text block of `dom_id`, in DOCUMENT order.
+    /// THE document-order walk: every text block of `dom_id` that `filter`
+    /// lets through, with the layout node that owns its inline layout.
     ///
     /// The layout tree is built in pre-order, so its own order IS document
-    /// order. Anonymous blocks are left out (nothing selects in them yet).
+    /// order - the same order `TextBlock`'s `Ord` gives.
     #[must_use]
-    pub fn text_blocks_in_document_order(&self, dom_id: DomId) -> Vec<TextBlock> {
+    pub fn text_block_roots(
+        &self,
+        dom_id: DomId,
+        filter: BlockFilter,
+    ) -> Vec<(TextBlock, LayoutNodeId)> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
+        let scope = match filter.within {
+            None => None,
+            Some(within) if within.dom == dom_id => match within.node.into_crate_internal() {
+                Some(node) => Some(node),
+                None => return Vec::new(),
+            },
+            // A scope in another DOM holds nothing of this one.
+            Some(_) => return Vec::new(),
+        };
         let tree = &layout_result.layout_tree;
         (0..tree.nodes.len())
-            .filter_map(|idx| tree.text_block_at(dom_id, idx))
-            .filter(|block| !block.is_anonymous())
+            .filter_map(|idx| Some((tree.text_block_at(dom_id, idx)?, LayoutNodeId::new(idx))))
+            .filter(|(block, _)| filter.include_anonymous || !block.is_anonymous())
+            .filter(|(block, _)| {
+                scope.is_none_or(|scope| {
+                    self.node_is_self_or_descendant(dom_id, block.first_node(), scope)
+                })
+            })
+            .filter(|(block, _)| {
+                !filter.selectable_only || block_is_selectable(&layout_result.styled_dom, *block)
+            })
+            .collect()
+    }
+
+    /// [`Self::text_block_roots`] without the layout nodes.
+    #[must_use]
+    pub fn text_blocks(&self, dom_id: DomId, filter: BlockFilter) -> Vec<TextBlock> {
+        self.text_block_roots(dom_id, filter)
+            .into_iter()
+            .map(|(block, _)| block)
             .collect()
     }
 
@@ -399,13 +466,13 @@ impl LayoutWindow {
     /// it is one - in document order.
     #[must_use]
     pub fn text_blocks_within(&self, node: DomNodeId) -> Vec<TextBlock> {
-        let Some(node_id) = node.node.into_crate_internal() else {
-            return Vec::new();
-        };
-        self.text_blocks_in_document_order(node.dom)
-            .into_iter()
-            .filter(|block| self.node_is_self_or_descendant(node.dom, block.first_node(), node_id))
-            .collect()
+        self.text_blocks(
+            node.dom,
+            BlockFilter {
+                within: Some(node),
+                ..BlockFilter::ALL
+            },
+        )
     }
 
     /// The text block an app-facing call naming `node` means: the block

@@ -3828,7 +3828,7 @@ impl LayoutWindow {
         // The direction is read off the SAME order the middles are sliced
         // from: two definitions of "document order" in one function made a
         // reversed slice (and a panic) possible wherever they disagreed.
-        let blocks = self.text_blocks_in_document_order(dom_id);
+        let blocks = self.text_blocks(dom_id, crate::text_block::BlockFilter::ALL);
         let index_of = |b: TextBlock| blocks.iter().position(|&x| x == b);
         let (Some(i_anchor), Some(i_focus)) = (index_of(anchor), index_of(focus)) else {
             return false; // an end that is not a text block of this dom
@@ -20351,20 +20351,24 @@ impl LayoutWindow {
         dom_id: DomId,
         position: LogicalPosition,
     ) -> Option<(TextBlock, TextCursor)> {
+        self.hittest_text_block(dom_id, position, crate::text_block::BlockFilter::ALL)
+    }
+
+    /// [`Self::hittest_text_position_global`] over the text blocks `filter`
+    /// lets through (the document-order walk, `text_block_roots`).
+    #[must_use]
+    pub fn hittest_text_block(
+        &self,
+        dom_id: DomId,
+        position: LogicalPosition,
+        filter: crate::text_block::BlockFilter,
+    ) -> Option<(TextBlock, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        // (vertical distance, horizontal distance, node, layout index)
-        let mut best: Option<(f32, f32, NodeId, usize)> = None;
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            let Some(node_dom_id) = node.dom_node_id else {
-                continue;
-            };
-            let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else {
-                continue;
-            };
-            if warm.inline_layout_result.is_none() {
-                continue;
-            }
+        // (vertical distance, horizontal distance, layout index)
+        let mut best: Option<(f32, f32, usize)> = None;
+        for (_, root) in self.text_block_roots(dom_id, filter) {
+            let idx = root.index();
             // Rank against where the candidate actually IS on screen
             // (`static - ANCESTOR scroll`), not against its unscrolled
             // position: with a scrolled container the two differ by the whole
@@ -20393,15 +20397,15 @@ impl LayoutWindow {
             };
             let better = match &best {
                 None => true,
-                Some((best_dy, best_dx, _, _)) => {
+                Some((best_dy, best_dx, _)) => {
                     dy < *best_dy || (dy - *best_dy).abs() < f32::EPSILON && dx < *best_dx
                 }
             };
             if better {
-                best = Some((dy, dx, node_dom_id, idx));
+                best = Some((dy, dx, idx));
             }
         }
-        let (_, _, _, layout_idx) = best?;
+        let (_, _, layout_idx) = best?;
         // The winning block's own space, via the one conversion chain (this
         // used to be spelled out inline and skipped the content inset).
         let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
