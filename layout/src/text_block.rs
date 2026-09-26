@@ -40,6 +40,7 @@ use azul_core::{
 use azul_core::styled_dom::StyledDom;
 
 use crate::{
+    callbacks::CallbackChange,
     solver3::{getters, layout_tree::LayoutNodeId},
     text3::{
         cache::{ShapedItem, UnifiedLayout},
@@ -708,6 +709,109 @@ impl LayoutWindow {
             return false;
         };
         self.open_session(block, range);
+        true
+    }
+
+    /// The app's caret moves - `CallbackChange::MoveCursorLeft`, `Right`,
+    /// `Up`, `Down`, `ToLineStart`, `ToLineEnd`, `ToDocumentStart`,
+    /// `ToDocumentEnd` - for both hosts (the desktop event loop and the E2E
+    /// runner). `false` when `change` is none of them.
+    pub fn apply_app_cursor_move(&mut self, change: &CallbackChange) -> bool {
+        let (dom_id, node_id, extend_selection) = match change {
+            CallbackChange::MoveCursorLeft {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorRight {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorUp {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorDown {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorToLineStart {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorToLineEnd {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorToDocumentStart {
+                dom_id,
+                node_id,
+                extend_selection,
+            }
+            | CallbackChange::MoveCursorToDocumentEnd {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => (*dom_id, *node_id, *extend_selection),
+            _ => return false,
+        };
+        let new_cursor = match change {
+            // Document start/end read the first/last cluster straight off the
+            // inline layout.
+            CallbackChange::MoveCursorToDocumentStart { .. } => self
+                .get_inline_layout_for_node(dom_id, node_id)
+                .and_then(|layout| layout.items.first().and_then(|i| i.item.as_cluster()))
+                .map(|c| TextCursor {
+                    cluster_id: c.source_cluster_id,
+                    affinity: CursorAffinity::Leading,
+                }),
+            CallbackChange::MoveCursorToDocumentEnd { .. } => self
+                .get_inline_layout_for_node(dom_id, node_id)
+                .and_then(|layout| layout.items.last().and_then(|i| i.item.as_cluster()))
+                .map(|c| TextCursor {
+                    cluster_id: c.source_cluster_id,
+                    affinity: CursorAffinity::Trailing,
+                }),
+            CallbackChange::MoveCursorLeft { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_left(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorRight { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_right(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorUp { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_up(*cursor, &mut None, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorDown { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_down(*cursor, &mut None, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorToLineStart { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_to_line_start(*cursor, &mut None)
+                })
+            }
+            CallbackChange::MoveCursorToLineEnd { .. } => {
+                self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                    layout.move_cursor_to_line_end(*cursor, &mut None)
+                })
+            }
+            _ => None,
+        };
+        if let Some(new_cursor) = new_cursor {
+            self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+        }
         true
     }
 

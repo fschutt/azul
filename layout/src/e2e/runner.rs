@@ -2704,87 +2704,15 @@ impl Runner {
             }
 
             // === Cursor movement ===
-            CallbackChange::MoveCursorLeft {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_left(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorRight {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_right(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorUp {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_up(*cursor, &mut None, &mut None)
-            }),
-            CallbackChange::MoveCursorDown {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_down(*cursor, &mut None, &mut None)
-            }),
-            CallbackChange::MoveCursorToLineStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_to_line_start(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorToLineEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_to_line_end(*cursor, &mut None)
-            }),
-            // Document start/end are NOT a `move_cursor_in_node` movement in the
-            // DLL either — they read the first/last cluster straight off the
-            // inline layout.
-            CallbackChange::MoveCursorToDocumentStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                use azul_core::selection::{CursorAffinity, TextCursor};
-                let lw = &mut self.layout_window;
-                let first = lw
-                    .get_inline_layout_for_node(*dom_id, *node_id)
-                    .and_then(|layout| layout.items.first().and_then(|i| i.item.as_cluster()))
-                    .map(|c| TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Leading,
-                    });
-                if let Some(doc_start) = first {
-                    lw.handle_cursor_movement(*dom_id, *node_id, doc_start, *extend_selection);
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-            CallbackChange::MoveCursorToDocumentEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                use azul_core::selection::{CursorAffinity, TextCursor};
-                let lw = &mut self.layout_window;
-                let last = lw
-                    .get_inline_layout_for_node(*dom_id, *node_id)
-                    .and_then(|layout| layout.items.last().and_then(|i| i.item.as_cluster()))
-                    .map(|c| TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    });
-                if let Some(doc_end) = last {
-                    lw.handle_cursor_movement(*dom_id, *node_id, doc_end, *extend_selection);
-                }
+            CallbackChange::MoveCursorLeft { .. }
+            | CallbackChange::MoveCursorRight { .. }
+            | CallbackChange::MoveCursorUp { .. }
+            | CallbackChange::MoveCursorDown { .. }
+            | CallbackChange::MoveCursorToLineStart { .. }
+            | CallbackChange::MoveCursorToLineEnd { .. }
+            | CallbackChange::MoveCursorToDocumentStart { .. }
+            | CallbackChange::MoveCursorToDocumentEnd { .. } => {
+                self.layout_window.apply_app_cursor_move(change);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -3448,25 +3376,6 @@ impl Runner {
         }
         lw.text_edit_manager.blink.reset_blink_on_input(now);
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-    }
-
-    /// Shared body of the eight `MoveCursor*` arms (port of the DLL's, which are
-    /// the same call with a different closure).
-    fn move_cursor(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        extend_selection: bool,
-        f: impl FnOnce(
-            &azul_layout::text3::cache::UnifiedLayout,
-            &azul_core::selection::TextCursor,
-        ) -> azul_core::selection::TextCursor,
-    ) -> ProcessEventResult {
-        let lw = &mut self.layout_window;
-        if let Some(new_cursor) = lw.move_cursor_in_node(dom_id, node_id, f) {
-            lw.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
-        }
-        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
     /// Record a `CallbackChange` this host cannot apply faithfully, and FAIL the

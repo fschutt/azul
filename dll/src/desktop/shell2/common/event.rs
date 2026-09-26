@@ -6396,156 +6396,16 @@ pub trait PlatformWindow {
             }
 
             // === Cursor Movement ===
-            CallbackChange::MoveCursorLeft {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
+            CallbackChange::MoveCursorLeft { .. }
+            | CallbackChange::MoveCursorRight { .. }
+            | CallbackChange::MoveCursorUp { .. }
+            | CallbackChange::MoveCursorDown { .. }
+            | CallbackChange::MoveCursorToLineStart { .. }
+            | CallbackChange::MoveCursorToLineEnd { .. }
+            | CallbackChange::MoveCursorToDocumentStart { .. }
+            | CallbackChange::MoveCursorToDocumentEnd { .. } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_left(*cursor, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorRight {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_right(*cursor, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorUp {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_up(*cursor, &mut None, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorDown {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_down(*cursor, &mut None, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorToLineStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_to_line_start(*cursor, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorToLineEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(new_cursor) =
-                        lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
-                            layout.move_cursor_to_line_end(*cursor, &mut None)
-                        })
-                    {
-                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorToDocumentStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout) = lw.get_inline_layout_for_node(*dom_id, *node_id) {
-                        if let Some(first_cluster) =
-                            layout.items.first().and_then(|item| item.item.as_cluster())
-                        {
-                            let doc_start = azul_core::selection::TextCursor {
-                                cluster_id: first_cluster.source_cluster_id,
-                                affinity: azul_core::selection::CursorAffinity::Leading,
-                            };
-                            lw.handle_cursor_movement(
-                                *dom_id,
-                                *node_id,
-                                doc_start,
-                                *extend_selection,
-                            );
-                        }
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            CallbackChange::MoveCursorToDocumentEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout) = lw.get_inline_layout_for_node(*dom_id, *node_id) {
-                        if let Some(last_cluster) =
-                            layout.items.last().and_then(|item| item.item.as_cluster())
-                        {
-                            let doc_end = azul_core::selection::TextCursor {
-                                cluster_id: last_cluster.source_cluster_id,
-                                affinity: azul_core::selection::CursorAffinity::Trailing,
-                            };
-                            lw.handle_cursor_movement(
-                                *dom_id,
-                                *node_id,
-                                doc_end,
-                                *extend_selection,
-                            );
-                        }
-                    }
+                    lw.apply_app_cursor_move(change);
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
