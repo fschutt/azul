@@ -246,6 +246,8 @@ mod inline_gradient_border;
 mod integration_test_registry_is_exhaustive;
 #[path = "keycode_table_manifest_is_exhaustive.rs"]
 mod keycode_table_manifest_is_exhaustive;
+#[path = "list_item_editing.rs"]
+mod list_item_editing;
 #[path = "list_marker_counter.rs"]
 mod list_marker_counter;
 #[path = "loaded_font_introspection.rs"]
