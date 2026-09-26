@@ -328,6 +328,8 @@ mod scrollbar_fade_during_drag;
 mod seat_text_session;
 #[path = "selection_handles.rs"]
 mod selection_handles;
+#[path = "selection_skips_unselectable_text.rs"]
+mod selection_skips_unselectable_text;
 #[path = "session_regression.rs"]
 mod session_regression;
 #[path = "single_block_copy.rs"]
