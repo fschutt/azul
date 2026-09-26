@@ -3874,6 +3874,22 @@ pub trait PlatformWindow {
         self.set_previous_window_state(current);
     }
 
+    /// SANCTIONED SWALLOW of the KEYBOARD half of the pending delta only: a
+    /// key some shell-level rule already acted on (an Escape that closed a
+    /// popup, a key forwarded to the popup that holds the keyboard) must not
+    /// also become this window's KeyDown / KeyUp - while a pointer or window
+    /// transition in the same delta still does. Same audit rule as
+    /// [`Self::discard_input_delta`]: every call site is an explicit exception.
+    fn consume_keyboard_delta(&mut self, _site: &str) {
+        let Some(mut previous) = self.get_previous_window_state().clone() else {
+            return;
+        };
+        let current = self.get_current_window_state();
+        previous.keyboard_state = current.keyboard_state.clone();
+        previous.keyboard_seats = current.keyboard_seats.clone();
+        self.set_previous_window_state(previous);
+    }
+
     // Resource Access
 
     /// Get mutable access to renderer resources
@@ -4813,13 +4829,23 @@ pub trait PlatformWindow {
             return;
         }
 
-        let dismissed_any = match self.get_layout_window_mut() {
-            Some(lw) => {
-                dismiss_outside_on_press(&previous, &current, lw)
-                    | super::transient::dismiss_on_escape(&previous, &current, lw)
-            }
-            None => false,
+        let (by_press, by_escape) = match self.get_layout_window_mut() {
+            Some(lw) => (
+                dismiss_outside_on_press(&previous, &current, lw),
+                super::transient::dismiss_on_escape(&previous, &current, lw),
+            ),
+            None => (false, false),
         };
+        if by_escape {
+            // The Escape that closed the popups is SPENT - the parent-side
+            // twin of the popup's own `discard_input_delta` above. Left in the
+            // delta, the same KeyDown also ran the parent's default action,
+            // `ClearFocus`: the invoker blurred in this pass and was focused
+            // again by the owed restore in the next (X11, where the popup
+            // never has the keyboard and every Escape lands here).
+            self.consume_keyboard_delta("transient.escape_dismissed");
+        }
+        let dismissed_any = by_press || by_escape;
         if dismissed_any {
             log_debug!(
                 super::debug_server::LogCategory::Window,
