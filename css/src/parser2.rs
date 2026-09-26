@@ -1834,15 +1834,39 @@ fn new_from_str_inner<'a>(
                     // wraps its string in `* { .. }`). Its declarations
                     // belong to the PARENT's selectors under the @-rule's
                     // conditions, so it gets a level of its own with the
-                    // parent's paths, and the parent's declarations so far
-                    // are set aside until the `}`. Without this level the
-                    // block wrote into the parent's declaration map (a
-                    // repeated property overwrote the plain value), its `}`
-                    // emitted the PARENT's level under the @-rule's
-                    // conditions, and what followed the block was dropped.
+                    // parent's paths.
+                    //
+                    // SOURCE ORDER (CSS Nesting's nested declarations): the
+                    // parent's declarations so far come BEFORE the block, so
+                    // they are emitted here, under the parent's own
+                    // conditions (the stack below the @-rule just pushed);
+                    // what follows the block is emitted at the parent's `}`,
+                    // after it. The cascade takes the LAST matching
+                    // declaration of equal specificity, so the block
+                    // overrides the value before it and is overridden by one
+                    // after it. Set aside and emitted at the parent's `}`
+                    // instead, every plain declaration came after the block:
+                    // `color: #202020; @media (dark) { color: system:text; }`
+                    // stayed light under a dark theme.
+                    let parent_paths = get_parent_paths(&nesting_stack);
+                    let before = std::mem::take(&mut current_declarations);
+                    if !parent_paths.is_empty() && !before.is_empty() {
+                        let parent_conditions: Vec<DynamicSelector> = at_rule_stack
+                            .iter()
+                            .filter(|(_, level)| *level < block_nesting)
+                            .flat_map(|(conds, _)| conds.iter().cloned())
+                            .collect();
+                        css_blocks.extend(parent_paths.iter().map(|path| UnparsedCssRuleBlock {
+                            path: CssPath {
+                                selectors: path.clone().into(),
+                            },
+                            declarations: before.clone(),
+                            conditions: parent_conditions.clone(),
+                        }));
+                    }
                     nesting_stack.push(NestingLevel {
-                        paths: get_parent_paths(&nesting_stack),
-                        declarations: std::mem::take(&mut current_declarations),
+                        paths: parent_paths,
+                        declarations: Default::default(),
                         depth: block_nesting,
                     });
                 }
@@ -4223,7 +4247,7 @@ mod autotest_generated {
     /// the SAME selector under the block's condition; the ones around it stay
     /// unconditional.
     #[test]
-    fn an_at_rule_nested_in_a_rule_keeps_the_declarations_around_it_unconditional() {
+    fn an_at_rule_nested_in_a_rule_sits_between_the_declarations_around_it() {
         let css = crate::css::Css::parse_inline(
             "color: red; @media (prefers-color-scheme: dark) { color: blue; } width: 5px;",
         );
@@ -4239,23 +4263,25 @@ mod autotest_generated {
         };
         let rules: Vec<_> = css.rules.as_slice().iter().map(describe).collect();
 
-        let plain: Vec<_> = rules.iter().filter(|(c, _)| c.is_empty()).collect();
-        let dark: Vec<_> = rules
-            .iter()
-            .filter(|(c, _)| c.contains(&DynamicSelector::Theme(ThemeCondition::Dark)))
-            .collect();
-        assert_eq!(
-            plain.len(),
-            1,
-            "one unconditional rule for `color: red; width: 5px`, got {rules:#?}"
+        // In SOURCE order: `color: red`, then the dark block, then `width:
+        // 5px` - the cascade takes the last matching declaration, so the
+        // block must come after what precedes it and before what follows it.
+        let dark = |c: &Vec<DynamicSelector>| {
+            c.contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+        };
+        assert_eq!(rules.len(), 3, "before, block, after: got {rules:#?}");
+        assert!(
+            rules[0].0.is_empty() && rules[0].1.len() == 1 && rules[0].1[0].contains("#ff0000"),
+            "first the plain `color: red`, got {rules:#?}"
         );
-        assert_eq!(
-            plain[0].1.len(),
-            2,
-            "both plain declarations survive, got {rules:#?}"
+        assert!(
+            dark(&rules[1].0) && rules[1].1.len() == 1,
+            "then the dark block's own `color: blue`, got {rules:#?}"
         );
-        assert_eq!(dark.len(), 1, "one dark rule for `color: blue`, got {rules:#?}");
-        assert_eq!(dark[0].1.len(), 1, "only the block's own declaration, got {rules:#?}");
+        assert!(
+            rules[2].0.is_empty() && rules[2].1.len() == 1,
+            "then the plain `width: 5px` that followed the block, got {rules:#?}"
+        );
     }
 
     #[test]
