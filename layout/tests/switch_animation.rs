@@ -242,3 +242,41 @@ fn a_glide_after_an_idle_period_starts_from_a_fresh_frame() {
         lw.css_transitions.len()
     );
 }
+
+/// A tick that moves no transition owes no layout.
+///
+/// The X11 and Wayland loops service the CSS driver on every pass, not once
+/// per timer period, and a pass in the same instant as the last tick steps by
+/// zero. The knob's transition then shows exactly what the last tick wrote,
+/// yet the tick restyled it and flagged a relayout, so the shell laid the
+/// whole window out again for a frame that could not differ from the one on
+/// screen.
+#[test]
+fn a_zero_length_tick_owes_no_relayout() {
+    let (mut lw, knob) = switch_window();
+    let _ = lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: DomId::ROOT_ID,
+        node_id: knob,
+        props: vec![CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+            16,
+        ))],
+        override_only: false,
+    });
+    relayout(&mut lw);
+
+    lw.tick_animations(0.016);
+    assert!(
+        lw.take_transition_relayout(),
+        "harness: a real step of the knob's margin-left owes a relayout"
+    );
+    relayout(&mut lw);
+
+    let before = margin_left(&lw, knob);
+    lw.tick_animations(0.0);
+    let after = margin_left(&lw, knob);
+    assert!(
+        !lw.take_transition_relayout(),
+        "a zero-length tick moved nothing (margin-left {before:?} -> {after:?}), so it must not \
+         owe a relayout"
+    );
+}
