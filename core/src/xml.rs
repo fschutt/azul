@@ -5955,14 +5955,24 @@ fn apply_xml_node_attributes(
             LayoutInsetBottom::const_px(0),
         )));
 
+        // Both attributes take a `system:` colour keyword exactly like
+        // their CSS spellings do: the fill as an unresolved `SystemColor`
+        // layer, the stroke as the border colour's token - the background
+        // and border getters resolve them against the cascade's theme.
         if let Some(fill) = xml_node.attributes.get_key("fill") {
             let fill = fill.as_str().trim();
             if fill != "none" {
-                if let Ok(color) = azul_css::props::basic::color::parse_css_color(fill) {
+                use azul_css::props::{
+                    basic::color::{parse_color_or_system, ColorOrSystem},
+                    style::StyleBackgroundContent,
+                };
+                if let Ok(color) = parse_color_or_system(fill) {
+                    let layer = match color {
+                        ColorOrSystem::Color(c) => StyleBackgroundContent::Color(c),
+                        ColorOrSystem::System(r) => StyleBackgroundContent::SystemColor(r),
+                    };
                     intrinsic_props.push(simple(CssProperty::const_background_content(
-                        azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![
-                            azul_css::props::style::StyleBackgroundContent::Color(color),
-                        ]),
+                        azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![layer]),
                     )));
                 }
             }
@@ -5976,7 +5986,9 @@ fn apply_xml_node_attributes(
         if let Some(stroke) = xml_node.attributes.get_key("stroke") {
             let stroke = stroke.as_str().trim();
             if stroke != "none" {
-                if let Ok(color) = azul_css::props::basic::color::parse_css_color(stroke) {
+                if let Ok(color) =
+                    azul_css::props::basic::color::parse_color_or_system_token(stroke)
+                {
                     use azul_css::props::style::{
                         StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
                         StyleBorderTopColor,
