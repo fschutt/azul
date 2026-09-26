@@ -9,7 +9,13 @@ on any desktop session.
 
 Commands: reset | moveto X Y | at X Y | move DX DY | down|up|click|dblclick
 [left|right|middle] | key NAME | type TEXT | sleep SECS | wheel N | pixwheel
-DY [DX] | path X1 Y1 X2 Y2 STEPS | activate PID | windows PID | shot FILE PID.
+DY [DX] | path X1 Y1 X2 Y2 STEPS | activate PID | windows PID | shot FILE PID |
+guard PID.
+
+`guard PID` makes every later `key` / `type` check that PID's app is the
+frontmost one first (activating it once if not) and ABORT otherwise: keys go
+to whatever app is in front, and an Escape meant for the app under test must
+never land in the terminal that runs the test.
 
 Positions are GLOBAL display points (top-left origin, what CGWindowList
 reports), not backing pixels. `windows PID` prints the app's windows as
@@ -147,6 +153,26 @@ def windows(pid):
     return out
 
 
+GUARD = {"pid": None}
+
+
+def frontmost_pid():
+    import AppKit
+    app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+    return int(app.processIdentifier()) if app is not None else None
+
+
+def check_guard():
+    pid = GUARD["pid"]
+    if pid is None:
+        return
+    if frontmost_pid() == pid:
+        return
+    activate(pid)
+    if frontmost_pid() != pid:
+        raise SystemExit(f"refusing to send keys: pid {pid} is not the frontmost app (front: {frontmost_pid()})")
+
+
 def activate(pid):
     import AppKit
     app = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
@@ -194,10 +220,15 @@ def main(argv):
                 p.button(b, True, 2)
                 p.button(b, False, 2)
         elif c == "key":
+            check_guard()
             key(argv[i])
             i += 1
         elif c == "type":
+            check_guard()
             type_text(argv[i])
+            i += 1
+        elif c == "guard":
+            GUARD["pid"] = int(argv[i])
             i += 1
         elif c == "sleep":
             time.sleep(float(argv[i]))
