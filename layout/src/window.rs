@@ -3002,8 +3002,8 @@ impl LayoutWindow {
         focused_node: Option<DomNodeId>,
     ) -> Option<crate::default_actions::EditingQueryState> {
         let focus = focused_node?;
-        let node_id = focus.node.into_crate_internal()?;
-        let host = self.find_contenteditable_host(focus.dom, node_id)?;
+        let host = self.find_contenteditable_host(focus)?;
+        let host_node = host.node();
 
         // Plain-text editing contexts: a `<textarea>`, or a host whose AUTHOR
         // chose a newline-preserving `white-space` for it. There `"\n"` is the
@@ -3018,7 +3018,7 @@ impl LayoutWindow {
 
             use crate::solver3::getters::{get_white_space_property, MultiValue};
             let node_data = lr.styled_dom.node_data.as_container();
-            let Some(host_data) = node_data.get(host) else {
+            let Some(host_data) = node_data.get(host_node) else {
                 return false;
             };
             if matches!(host_data.node_type, NodeType::TextArea) {
@@ -3026,7 +3026,7 @@ impl LayoutWindow {
             }
             let author_declared = lr.styled_dom.get_css_property_cache().has_own_declaration(
                 host_data,
-                &host,
+                &host_node,
                 &CssPropertyType::WhiteSpace,
             );
             author_declared
@@ -3034,10 +3034,14 @@ impl LayoutWindow {
                     .styled_dom
                     .styled_nodes
                     .as_container()
-                    .get(host)
+                    .get(host_node)
                     .is_some_and(|n| {
                         matches!(
-                            get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
+                            get_white_space_property(
+                                &lr.styled_dom,
+                                host_node,
+                                &n.styled_node_state
+                            ),
                             MultiValue::Exact(
                                 StyleWhiteSpace::Pre
                                     | StyleWhiteSpace::PreWrap
@@ -3060,16 +3064,18 @@ impl LayoutWindow {
                 .multi_cursor
                 .as_ref()
                 .filter(|mc| !document_selection && mc.block.dom() == focus.dom)
-                .and_then(|mc| Some((mc.block.element(), mc.get_primary()?.selection)))
+                .and_then(|mc| Some((mc.block, mc.get_primary()?.selection)))
         } else {
             self.text_edit_manager
                 .seat_caret(seat_id)
                 .filter(|c| c.node.dom == focus.dom)
-                .map(|c| (c.node.node.into_crate_internal(), c.selection()))
+                .map(|c| (c.block, c.selection()))
         };
-        let (at_start, at_end) = session.map_or((false, false), |(caret_node, selection)| {
-            let block = self.text_target_of(focus.dom, host, caret_node);
-            let (content, generated) = self.caret_block_content(focus.dom, block);
+        let (at_start, at_end) = session.map_or((false, false), |(caret_block, selection)| {
+            let Some(element) = self.edit_element(host.dom_node(), Some(caret_block)) else {
+                return (false, false);
+            };
+            let (content, generated) = self.caret_block_content(focus.dom, element);
             let caret = match selection {
                 Selection::Cursor(c) => Some(c),
                 Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&content, &r),
@@ -3197,8 +3203,11 @@ impl LayoutWindow {
     /// carried two different session identities.
     fn contenteditable_session_key(&self, dom_id: DomId, node_id: NodeId) -> u64 {
         let anchor = self
-            .find_contenteditable_host(dom_id, node_id)
-            .unwrap_or(node_id);
+            .find_contenteditable_host(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            })
+            .map_or(node_id, crate::text_block::EditHost::node);
         self.layout_results.get(&dom_id).map_or(0, |lr| {
             let node_data = lr.styled_dom.node_data.as_ref();
             // A focus request can name a node this generation's DOM does not
@@ -3214,28 +3223,6 @@ impl LayoutWindow {
                 anchor,
             )
         })
-    }
-
-    /// The nearest self-or-ancestor node with `contenteditable` (the editing
-    /// host), if any.
-    #[must_use]
-    pub fn find_contenteditable_host(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
-        let lr = self.layout_results.get(&dom_id)?;
-        let node_data = lr.styled_dom.node_data.as_container();
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let mut current = Some(node_id);
-        while let Some(nid) = current {
-            if node_data
-                .get(nid)
-                .is_some_and(azul_core::dom::NodeData::is_contenteditable)
-            {
-                return Some(nid);
-            }
-            current = hierarchy
-                .get(nid)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        None
     }
 
     /// The ONE commit point for a text-mutating edit: stores the styled
@@ -3489,84 +3476,6 @@ impl LayoutWindow {
             direct
         } else {
             host
-        }
-    }
-
-    /// The node a CHARACTER edit belongs to: walking up from the caret's
-    /// session node, the first ancestor (at or below `host`) that OWNS an
-    /// inline layout — the IFC root whose runs the caret's cluster ids
-    /// index. `host` itself when the session is absent, in another dom,
-    /// outside `host`, or when nothing below `host` owns an inline layout
-    /// (a flat editable: the host IS the IFC root).
-    ///
-    /// EVERY commit that replaces a node's inline content has to key it here
-    /// (typing, Backspace/Delete, multi-cursor paste, undo/redo): the cursor
-    /// coordinates are per-IFC, a host-keyed blob painted the whole editable
-    /// as one line, and the app's text-sync API (`get_unsynced_text_edits`)
-    /// can only map an edit to its block when the node IS the block's IFC.
-    pub fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
-        let caret = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .filter(|mc| mc.block.dom() == dom_id)
-            .and_then(|mc| mc.block.element());
-        self.text_target_of(dom_id, host, caret)
-    }
-
-    /// [`Self::caret_text_target`] for a caret on `caret` - any seat's, not
-    /// only the primary session's.
-    fn text_target_of(&self, dom_id: DomId, host: NodeId, caret: Option<NodeId>) -> NodeId {
-        let Some(caret) = caret else {
-            return host;
-        };
-        if caret == host {
-            return host;
-        }
-        // Containment first: a caret outside the host's subtree keeps the host.
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return host;
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        {
-            let mut cur = caret;
-            loop {
-                match hierarchy
-                    .get(cur)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-                {
-                    Some(p) if p == host => break,
-                    Some(p) => cur = p,
-                    None => return host,
-                }
-            }
-        }
-        // The shape-able owner: the nearest NON-TEXT ancestor with a layout
-        // node — the element whose IFC the edit re-shapes (`p` in the
-        // word-processor shape, the value node in a text widget). A bare
-        // text leaf is skipped even when a layout lookup resolves through
-        // it: `update_text_cache_after_edit` shapes at the ELEMENT, and a
-        // leaf-keyed entry painted nothing.
-        let node_data = lr.styled_dom.node_data.as_container();
-        let mut n = caret;
-        loop {
-            let is_text = node_data
-                .get(n)
-                .is_some_and(|d| matches!(d.get_node_type(), NodeType::Text(_)));
-            let has_layout = lr.layout_tree.dom_to_layout.contains_key(&n);
-            if !is_text && has_layout {
-                return n;
-            }
-            if n == host {
-                return host;
-            }
-            match hierarchy
-                .get(n)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-            {
-                Some(p) => n = p,
-                None => return host,
-            }
         }
     }
 
@@ -4387,7 +4296,8 @@ impl LayoutWindow {
         let lr = self.layout_results.get(&target.dom)?;
         let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
         let anchor = self
-            .find_contenteditable_host(target.dom, node_id)
+            .find_contenteditable_host(target)
+            .map(crate::text_block::EditHost::node)
             .or_else(|| {
                 hierarchy_c
                     .get(node_id)
@@ -10910,8 +10820,11 @@ impl LayoutWindow {
     /// skipping text children (pretty-printing whitespace is not a block).
     fn select_all_blocks(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
         let sel_root = self
-            .find_contenteditable_host(dom_id, node_id)
-            .unwrap_or(node_id);
+            .find_contenteditable_host(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            })
+            .map_or(node_id, crate::text_block::EditHost::node);
         if self.get_inline_layout_for_node(dom_id, sel_root).is_some() {
             return vec![sel_root];
         }
@@ -17236,7 +17149,10 @@ impl LayoutWindow {
         // caret-less session keeps the recorded node. Host-level readback
         // stays correct either way: `collect_text_from_children` composes
         // children through the per-node overlay.
-        let node_id = self.caret_text_target(dom_id, node_id);
+        let session_block = self.text_edit_manager.get_editing_block();
+        let node_id = self
+            .edit_element(changeset.node, session_block)
+            .unwrap_or(node_id);
 
         // In the carets' numbering (behind a list item's marker).
         let (mut content, generated) = self.caret_block_content(dom_id, node_id);
@@ -20845,10 +20761,9 @@ impl LayoutWindow {
             .focused_node
             .filter(|f| f.dom == dom_id)
             .unwrap_or_else(|| session_block.container_dom_node());
-        let Some(host_id) = target.node.into_crate_internal() else {
+        let Some(node_id) = self.edit_element(target, Some(session_block)) else {
             return false;
         };
-        let node_id = self.caret_text_target(dom_id, host_id);
         let content = self.get_text_before_textinput(dom_id, node_id);
         let (new_content, new_selections) =
             crate::text3::edit::edit_text_multi(&content, &selections, &lines);
@@ -20945,8 +20860,8 @@ impl LayoutWindow {
         // deletions to the host spliced the host-flattened blob at per-IFC
         // cursor offsets and handed the app an edit node it could not map
         // to any block (the word count froze on Backspace).
-        let host = target.node.into_crate_internal()?;
-        let node_id = self.caret_text_target(dom_id, host);
+        let node_id =
+            self.edit_element(target, self.text_edit_manager.get_editing_block())?;
 
         // In the carets' numbering (behind a list item's marker).
         let (mut content, generated) = self.caret_block_content(dom_id, node_id);

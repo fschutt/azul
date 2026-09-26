@@ -1,5 +1,5 @@
 //! Every commit that replaces a node's inline content is keyed to the caret's
-//! IFC OWNER (`LayoutWindow::caret_text_target`), never to the focused host.
+//! TEXT BLOCK (`LayoutWindow::edit_element`), never to the focused host.
 //!
 //! Typing has been keyed that way since the Enter fix; Backspace/Delete
 //! (`delete_selection`) still keyed its commit to the HOST. Two consequences:

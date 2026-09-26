@@ -12,13 +12,19 @@
 //! display-list builder, which has the tree but no window, resolves the block
 //! it paints exactly as the editing paths resolve the block they edit.
 //!
+//! Beside it, the [`EditHost`]: the contenteditable host a key or a focus
+//! lands on. The two used to be the same bare `NodeId` in different places -
+//! the host passed where a block was needed (every keyboard op in a text
+//! widget read the host's inline layout, which it has none of), a block or a
+//! leaf passed where the host was.
+//!
 //! [`LayoutTree::owning_ifc_root`]: crate::solver3::layout_tree::LayoutTree::owning_ifc_root
 //! [`LayoutTree::text_block_at`]: crate::solver3::layout_tree::LayoutTree::text_block_at
 
 use azul_core::{
-    dom::{DomId, DomNodeId},
+    dom::{DomId, DomNodeId, NodeId},
     selection::{MultiCursorState, SelectionRange, TextBlock, TextCursor},
-    styled_dom::NodeHierarchyItem,
+    styled_dom::{NodeHierarchyItem, NodeHierarchyItemId},
 };
 
 use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
@@ -27,7 +33,97 @@ use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
 /// generated no box before giving up.
 const BOXLESS_ANCESTOR_WALK_LIMIT: usize = 64;
 
+/// The contenteditable HOST of an edit: the nearest self-or-ancestor of a node
+/// that carries the `contenteditable` flag.
+///
+/// What focus lands on, what a keyboard edit's reach is bounded by, and what
+/// the session key and a structural edit's resume point are anchored to - but
+/// never what an edit of TEXT is keyed to: that is the caret's [`TextBlock`]
+/// ([`LayoutWindow::edit_element`]).
+///
+/// Minted only by [`LayoutWindow::find_contenteditable_host`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EditHost {
+    dom: DomId,
+    node: NodeId,
+}
+
+impl EditHost {
+    /// The DOM the host is in.
+    #[must_use]
+    pub const fn dom(self) -> DomId {
+        self.dom
+    }
+
+    /// The host element.
+    #[must_use]
+    pub const fn node(self) -> NodeId {
+        self.node
+    }
+
+    /// The host element as a `DomNodeId`.
+    #[must_use]
+    pub fn dom_node(self) -> DomNodeId {
+        DomNodeId {
+            dom: self.dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(self.node)),
+        }
+    }
+}
+
 impl LayoutWindow {
+    /// The editing host of `node`: the nearest self-or-ancestor with the
+    /// `contenteditable` flag. `None` outside any.
+    #[must_use]
+    pub fn find_contenteditable_host(&self, node: DomNodeId) -> Option<EditHost> {
+        let node_id = node.node.into_crate_internal()?;
+        let layout_result = self.layout_results.get(&node.dom)?;
+        let node_data = layout_result.styled_dom.node_data.as_container();
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        while let Some(nid) = current {
+            if node_data
+                .get(nid)
+                .is_some_and(azul_core::dom::NodeData::is_contenteditable)
+            {
+                return Some(EditHost {
+                    dom: node.dom,
+                    node: nid,
+                });
+            }
+            current = hierarchy.get(nid).and_then(NodeHierarchyItem::parent_id);
+        }
+        None
+    }
+
+    /// The element an edit made through `scope` - the node a key went to:
+    /// its editing host, or a node inside one - is keyed to.
+    ///
+    /// The caret's text block, when it lies inside `scope`: its ELEMENT owns
+    /// the runs the caret's cluster ids index, so typing, Backspace/Delete,
+    /// paste and the undo snapshots all splice that element's content.
+    /// Otherwise `scope` itself (a flat editable is its own block). An
+    /// anonymous block has no element; there too `scope` stays.
+    ///
+    /// Keying an edit to the focused host stored one flattened blob of every
+    /// paragraph, spliced at per-block cursor indices; keying it to the
+    /// nearest boxed element above a text LEAF picked a `<b>` whose one run
+    /// the caret's run 1 missed. The block is the only key the caret agrees
+    /// with.
+    #[must_use]
+    pub fn edit_element(&self, scope: DomNodeId, caret: Option<TextBlock>) -> Option<NodeId> {
+        let scope_node = scope.node.into_crate_internal()?;
+        Some(
+            caret
+                .filter(|block| {
+                    block.dom() == scope.dom
+                        && self.node_is_self_or_descendant(scope.dom, block.first_node(), scope_node)
+                })
+                .and_then(|block| block.element())
+                .unwrap_or(scope_node),
+        )
+    }
+
     /// THE resolver: the text block that holds `node`'s text.
     ///
     /// `node` may be the block's own element, a text leaf in it, an inline
@@ -123,12 +219,12 @@ impl LayoutWindow {
         &mut self,
         cursor: TextCursor,
         dom: DomId,
-        node: azul_core::dom::NodeId,
+        node: NodeId,
         contenteditable_key: u64,
     ) -> bool {
         let Some(block) = self.text_block_named_by(DomNodeId {
             dom,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
+            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
         }) else {
             return false;
         };
