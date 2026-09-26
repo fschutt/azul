@@ -7598,7 +7598,12 @@ impl LayoutWindow {
         // worst case (no tick — see `needs_animation_frame`) is exactly the
         // snap this path did before, never a property that fails to change.
         let seeded: Vec<CssTransition> = {
+            use azul_css::dynamic_selector::ResolveSystemColors;
             let cache = &layout_result.styled_dom.css_property_cache.ptr;
+            // The endpoints are what the frames SHOW, so a `system:` colour
+            // keyword in either is resolved against the cascade's theme: an
+            // interpolation between two tokens is no colour at all.
+            let sys_ctx = cache.dynamic_context.as_deref();
             let node_data = layout_result.styled_dom.node_data.as_container();
             let states = layout_result.styled_dom.styled_nodes.as_container();
             let (Some(nd), Some(state)) = (node_data.get(node_id), states.get(node_id)) else {
@@ -7651,8 +7656,8 @@ impl LayoutWindow {
                         Some(CssTransition {
                             node: node_id,
                             prop_type: ty,
-                            from,
-                            to: prop.clone(),
+                            from: from.resolve_system_colors(sys_ctx),
+                            to: prop.clone().resolve_system_colors(sys_ctx),
                             t: 0.0,
                             duration_s: anim.duration.millis() as f32 / 1000.0,
                             delay_s: anim.delay.millis() as f32 / 1000.0,
@@ -11426,17 +11431,30 @@ impl LayoutWindow {
                                 anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str()
                             });
                             if let (Some(anim), false) = (winner, meta) {
+                                use azul_css::dynamic_selector::ResolveSystemColors;
+                                // Endpoints with their `system:` colours
+                                // resolved, each against its own cascade's
+                                // theme: the frames interpolate colours,
+                                // never keyword tokens.
                                 captured_transitions.push(CssTransition {
                                     node: m.new_node_id,
                                     prop_type: *ty,
-                                    from: before.map_or_else(
-                                        || azul_css::props::property::CssProperty::auto(*ty),
-                                        Clone::clone,
-                                    ),
-                                    to: after.map_or_else(
-                                        || azul_css::props::property::CssProperty::auto(*ty),
-                                        Clone::clone,
-                                    ),
+                                    from: before
+                                        .map_or_else(
+                                            || azul_css::props::property::CssProperty::auto(*ty),
+                                            Clone::clone,
+                                        )
+                                        .resolve_system_colors(
+                                            old_cache.dynamic_context.as_deref(),
+                                        ),
+                                    to: after
+                                        .map_or_else(
+                                            || azul_css::props::property::CssProperty::auto(*ty),
+                                            Clone::clone,
+                                        )
+                                        .resolve_system_colors(
+                                            new_cache.dynamic_context.as_deref(),
+                                        ),
                                     t: 0.0,
                                     duration_s: anim.duration.millis() as f32 / 1000.0,
                                     delay_s: anim.delay.millis() as f32 / 1000.0,
