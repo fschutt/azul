@@ -4642,13 +4642,6 @@ impl LayoutWindow {
             },
         );
 
-        let cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: byte,
-            },
-            affinity: CursorAffinity::Leading,
-        };
         // The session lives on the text block the caret node's text is in; a
         // boundary on a node with no block of its own (a container of blocks)
         // opens it on the first block inside that node.
@@ -4659,6 +4652,19 @@ impl LayoutWindow {
         let block = self
             .text_block_of(dom_node)
             .or_else(|| self.text_blocks_within(dom_node).first().copied())?;
+        // The byte indexes the caret node's OWN run in the block, which is run
+        // 0 only for the block's first text: `(run 0, byte)` put a caret
+        // meant for the text after a `<b>` or a `<br>` into the paragraph's
+        // first run. A node with no laid-out text keeps the block's start.
+        let cursor = self
+            .caret_at_node_byte(block, caret_node, byte)
+            .unwrap_or(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity: CursorAffinity::Leading,
+            });
         self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
             block,

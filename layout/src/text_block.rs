@@ -871,6 +871,47 @@ impl LayoutWindow {
         true
     }
 
+    /// The caret in `block` at byte `byte` of the DOM text node `node` - in
+    /// `node`'s run of the block's layout, not run 0 - or, when `node` is an
+    /// element, at the start of the first text laid out inside it. `None` when
+    /// none of `node`'s text is laid out in `block`.
+    #[must_use]
+    pub fn caret_at_node_byte(
+        &self,
+        block: TextBlock,
+        node: NodeId,
+        byte: u32,
+    ) -> Option<TextCursor> {
+        let target = self.text_target(block)?;
+        let dom = block.dom();
+        let cluster = target
+            .layout
+            .items
+            .iter()
+            .find_map(|item| match &item.item {
+                ShapedItem::Cluster(cluster)
+                    if cluster
+                        .source_node_id
+                        .is_some_and(|n| self.node_is_self_or_descendant(dom, n, node)) =>
+                {
+                    Some(cluster)
+                }
+                _ => None,
+            })?;
+        let start_byte_in_run = if cluster.source_node_id == Some(node) {
+            byte
+        } else {
+            cluster.source_cluster_id.start_byte_in_run
+        };
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: cluster.source_cluster_id.source_run,
+                start_byte_in_run,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
     /// The text block whose IFC root is the layout node `ifc_root` of `dom`.
     #[must_use]
     pub fn text_block_at_layout_index(
