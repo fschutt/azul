@@ -10920,15 +10920,17 @@ impl LayoutWindow {
         }
     }
 
-    /// Helper: Handle cursor movement with optional selection extension.
+    /// The app's `MoveCursor` (`CallbackChange::MoveCursor`): the caret to
+    /// `new_cursor`, in the block `node_id` names, with optional selection
+    /// extension, and a display list regeneration.
     ///
-    /// Updates the primary selection in `TextEditManager.multi_cursor` to the
-    /// given position and triggers a display list regeneration.
-    ///
-    /// `node_id` is accepted for call-site symmetry and deliberately NOT used
-    /// to re-target the session: callers pass the FOCUSED node, while the
-    /// editing session is keyed on the IFC root inside it, so gating on
-    /// equality would drop every movement in a nested editable.
+    /// `node_id` may be the FOCUSED node - a field's host - while the session
+    /// is on the text block inside it: a node that contains the session's
+    /// block means that session
+    /// ([`Self::names_session_block`](Self::names_session_block)). A node the
+    /// session is not in gets the session, opened on its block as a click
+    /// opens it: `new_cursor` indexes that block, and set into another
+    /// block's session it put the caret at an unrelated place.
     pub fn handle_cursor_movement(
         &mut self,
         dom_id: DomId,
@@ -10936,7 +10938,23 @@ impl LayoutWindow {
         new_cursor: TextCursor,
         extend_selection: bool,
     ) {
-        let _ = node_id;
+        let named = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+        if !self.names_session_block(named) {
+            if let Some(block) = self.text_block_named_by(named) {
+                self.open_session(
+                    block,
+                    SelectionRange {
+                        start: new_cursor,
+                        end: new_cursor,
+                    },
+                );
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+            return;
+        }
 
         // Update multi_cursor with the new cursor position
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {

@@ -651,7 +651,7 @@ impl LayoutWindow {
     /// Whether an app call naming `node` means the editing session's block:
     /// `node`'s text is in it, or the block lies inside `node` (its host, a
     /// container of blocks).
-    fn names_session_block(&self, node: DomNodeId) -> bool {
+    pub(crate) fn names_session_block(&self, node: DomNodeId) -> bool {
         let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
@@ -715,17 +715,39 @@ impl LayoutWindow {
 
     /// The app's `SetSelection` and `SetSelectAllRange`
     /// (`CallbackChange::SetSelection`, `CallbackChange::SetSelectAllRange`):
-    /// `selection` as the editing session's one selection, for both hosts.
-    /// Returns whether there was a session to set it in.
+    /// `selection` as the one selection, in the block `node` names, for both
+    /// hosts.
+    ///
+    /// In the editing session when `node` means its block
+    /// ([`Self::names_session_block`]); otherwise the session opens in the
+    /// block `node` names, as a click opens it - the selection indexes THAT
+    /// block, and laid over another block's session it selected an unrelated
+    /// span there. Either way it replaces a document selection. Returns
+    /// whether anything was selected.
     pub fn set_app_selection(&mut self, node: DomNodeId, selection: Selection) -> bool {
-        let _ = node;
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+        let range = match selection {
+            Selection::Cursor(cursor) => SelectionRange {
+                start: cursor,
+                end: cursor,
+            },
+            Selection::Range(range) => range,
+        };
+        if self.names_session_block(node) {
+            self.text_edit_manager.clear_cross_block_selection();
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                if range.start == range.end {
+                    mc.set_single_cursor(range.start);
+                } else {
+                    mc.set_single_range(range);
+                }
+            }
+            self.text_edit_manager.mark_dirty();
+            return true;
+        }
+        let Some(block) = self.text_block_named_by(node) else {
             return false;
         };
-        match selection {
-            Selection::Cursor(cursor) => mc.set_single_cursor(cursor),
-            Selection::Range(range) => mc.set_single_range(range),
-        }
+        self.open_session(block, range);
         true
     }
 
