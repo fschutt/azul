@@ -10630,6 +10630,14 @@ impl LayoutWindow {
 
         match op.mode {
             SelectionMode::Move | SelectionMode::Extend => {
+                // The session's cursors index the SESSION's block: a move that
+                // resolved another block (the key or the app named a node the
+                // session is not in) has no caret there to move, and stepping
+                // the session's cursors over that block's layout put them at
+                // unrelated places.
+                if self.text_edit_manager.get_editing_block() != Some(text_target.block) {
+                    return false;
+                }
                 let extend = matches!(op.mode, SelectionMode::Extend);
                 // Only a CHARACTER step collapses an active range to its edge
                 // (the Left/Right rule). Word, visual-line, Home/End and
@@ -10909,28 +10917,6 @@ impl LayoutWindow {
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
-        }
-    }
-
-    pub fn move_cursor_in_node<F>(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        movement_fn: F,
-    ) -> Option<TextCursor>
-    where
-        F: FnOnce(&UnifiedLayout, &TextCursor) -> TextCursor,
-    {
-        let current_cursor = self.text_edit_manager.get_primary_cursor()?;
-        let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
-
-        let new_cursor = movement_fn(layout, &current_cursor);
-
-        // Only return if cursor actually moved
-        if new_cursor == current_cursor {
-            None
-        } else {
-            Some(new_cursor)
         }
     }
 
