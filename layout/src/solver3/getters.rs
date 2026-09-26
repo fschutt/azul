@@ -10,6 +10,7 @@ use azul_core::{
 };
 use azul_css::{
     css::CssPropertyValue,
+    dynamic_selector::ResolveSystemColors,
     props::{
         basic::{
             font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
@@ -2113,7 +2114,7 @@ pub fn get_background_color(
             .and_then(|bg_vec| bg_vec.get(0).cloned())
             // A `system:` colour is a solid colour too, once resolved against
             // the theme the cascade evaluated.
-            .map(|first_bg| resolve_system_background(first_bg, ctx))
+            .map(|first_bg| first_bg.resolve_system_colors(ctx))
             .and_then(|first_bg| match &first_bg {
                 azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
                 azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
@@ -2174,103 +2175,27 @@ pub fn get_background_color(
     })
 }
 
-/// Every `system:` colour in a background layer, resolved against the
-/// cascade's own context `ctx`: a `SystemColor` layer becomes the colour it
-/// names, a colour token becomes its colour, and a gradient's `system:`
-/// stops become concrete stops.
+/// THE layout-side resolution point for `system:` colour keywords.
 ///
-/// Backgrounds meet the palette HERE, in the two getters every reader goes
-/// through (the display list, the opaque-cover checks, the probes), so no
-/// renderer is ever handed an unresolved keyword - a `SystemColor` layer used
-/// to paint nothing at all, and a `system:` gradient stop painted grey on the
-/// GPU path. Resolving against the CASCADE's context (not the desktop's
-/// style) is what keeps a keyword in the same theme as the text on it.
-fn resolve_system_background(
-    layer: azul_css::props::style::StyleBackgroundContent,
-    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
-) -> azul_css::props::style::StyleBackgroundContent {
-    use azul_css::{
-        dynamic_selector::resolve_system_color_token,
-        props::{
-            basic::color::{ColorOrSystem, SystemColorRef},
-            style::{
-                NormalizedLinearColorStop, NormalizedRadialColorStop, StyleBackgroundContent as B,
-            },
-        },
-        system::SystemColors,
-    };
-
-    let named = |r: SystemColorRef| -> ColorU {
-        ctx.map_or_else(
-            || r.resolve_for_theme(&SystemColors::default(), false),
-            |c| c.system_color(r),
-        )
-    };
-    let stop_color = |c: ColorOrSystem| -> ColorOrSystem {
-        match c {
-            ColorOrSystem::System(r) => ColorOrSystem::Color(named(r)),
-            ColorOrSystem::Color(c) => ColorOrSystem::Color(c),
-        }
-    };
-    let is_system = |c: &ColorOrSystem| matches!(c, ColorOrSystem::System(_));
-
-    match layer {
-        B::SystemColor(r) => B::Color(named(r)),
-        B::Color(c) => B::Color(resolve_system_color_token(c, ctx)),
-        B::LinearGradient(mut g) => {
-            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
-                g.stops = g
-                    .stops
-                    .as_ref()
-                    .iter()
-                    .map(|s| NormalizedLinearColorStop {
-                        offset: s.offset,
-                        color: stop_color(s.color),
-                    })
-                    .collect::<Vec<_>>()
-                    .into();
-            }
-            B::LinearGradient(g)
-        }
-        B::RadialGradient(mut g) => {
-            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
-                g.stops = g
-                    .stops
-                    .as_ref()
-                    .iter()
-                    .map(|s| NormalizedLinearColorStop {
-                        offset: s.offset,
-                        color: stop_color(s.color),
-                    })
-                    .collect::<Vec<_>>()
-                    .into();
-            }
-            B::RadialGradient(g)
-        }
-        B::ConicGradient(mut g) => {
-            if g.stops.as_ref().iter().any(|s| is_system(&s.color)) {
-                g.stops = g
-                    .stops
-                    .as_ref()
-                    .iter()
-                    .map(|s| NormalizedRadialColorStop {
-                        angle: s.angle,
-                        color: stop_color(s.color),
-                    })
-                    .collect::<Vec<_>>()
-                    .into();
-            }
-            B::ConicGradient(g)
-        }
-        other @ B::Image(_) => other,
-    }
+/// Every getter that hands a colour-valued property to a renderer - the
+/// display list, the opaque-cover checks, the text pipeline, the probes -
+/// passes the value through here (or, where it already holds the context,
+/// through [`ResolveSystemColors`] directly), against the context the
+/// cascade evaluated. A keyword therefore follows the same theme as the
+/// rest of the cascade - resolving against the DESKTOP's style instead used
+/// to leave a keyword light on a dark card - and no colour property can
+/// reach a painter as the transparent token (a `SystemColor` background
+/// used to paint nothing, a `system:` gradient stop grey on the GPU path).
+#[must_use]
+pub fn system_colors_resolved<T: ResolveSystemColors>(styled_dom: &StyledDom, value: T) -> T {
+    value.resolve_system_colors(styled_dom.css_property_cache.ptr.dynamic_context.as_deref())
 }
 
 /// Returns all background content layers for a node (colors, gradients, images).
 /// This is used for rendering backgrounds that may include linear/radial/conic gradients.
 ///
 /// Every `system:` colour is already resolved against the cascade's context
-/// (see `resolve_system_background`): the layers handed back are concrete.
+/// (see [`system_colors_resolved`]): the layers handed back are concrete.
 ///
 /// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
 /// For HTML documents, if the root `<html>` element has no background (transparent with no image),
@@ -2281,10 +2206,9 @@ pub fn get_background_contents(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    let ctx = styled_dom.css_property_cache.ptr.dynamic_context.as_deref();
     background_contents_as_declared(styled_dom, node_id, node_state)
         .into_iter()
-        .map(|layer| resolve_system_background(layer, ctx))
+        .map(|layer| system_colors_resolved(styled_dom, layer))
         .collect()
 }
 
@@ -2564,41 +2488,11 @@ fn resolve_system_border_colors(
     colors: crate::solver3::display_list::StyleBorderColors,
     styled_dom: &StyledDom,
 ) -> crate::solver3::display_list::StyleBorderColors {
-    use azul_css::{
-        dynamic_selector::resolve_system_color_token,
-        props::style::border::{
-            StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
-            StyleBorderTopColor,
-        },
-    };
-
-    let ctx = styled_dom.css_property_cache.ptr.dynamic_context.as_deref();
-    let r = |c: ColorU| resolve_system_color_token(c, ctx);
     crate::solver3::display_list::StyleBorderColors {
-        top: colors.top.map(|v| match v {
-            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderTopColor {
-                inner: r(c.inner),
-            }),
-            other => other,
-        }),
-        right: colors.right.map(|v| match v {
-            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderRightColor {
-                inner: r(c.inner),
-            }),
-            other => other,
-        }),
-        bottom: colors.bottom.map(|v| match v {
-            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderBottomColor {
-                inner: r(c.inner),
-            }),
-            other => other,
-        }),
-        left: colors.left.map(|v| match v {
-            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(StyleBorderLeftColor {
-                inner: r(c.inner),
-            }),
-            other => other,
-        }),
+        top: system_colors_resolved(styled_dom, colors.top),
+        right: system_colors_resolved(styled_dom, colors.right),
+        bottom: system_colors_resolved(styled_dom, colors.bottom),
+        left: system_colors_resolved(styled_dom, colors.left),
     }
 }
 
@@ -2814,12 +2708,14 @@ pub fn get_selection_style(
             a: 128, // Semi-transparent
         });
 
+    // A `system:` keyword in either colour resolves against the cascade's
+    // theme (the defaults below are concrete already).
     let bg_color = styled_dom
         .css_property_cache
         .ptr
         .get_selection_background_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().copied())
-        .map_or(default_bg, |c| c.inner);
+        .map_or(default_bg, |c| system_colors_resolved(styled_dom, c).inner);
 
     // Try to get selection text color from CSS, otherwise use system color
     let default_text = system_style.and_then(|ss| ss.colors.selection_text.as_option().copied());
@@ -2829,7 +2725,7 @@ pub fn get_selection_style(
         .ptr
         .get_selection_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().copied())
-        .map(|c| c.inner)
+        .map(|c| system_colors_resolved(styled_dom, c).inner)
         .or(default_text);
 
     let radius = styled_dom
@@ -2902,12 +2798,10 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
                 .get_text_color_or_default(node_data, &node_id, node_state)
                 .inner
         }, |c| c.inner);
-    // `currentColor` may be a `system:` keyword's token: the caret takes the
-    // colour the text itself is painted in.
-    let color = azul_css::dynamic_selector::resolve_system_color_token(
-        color,
-        styled_dom.css_property_cache.ptr.dynamic_context.as_deref(),
-    );
+    // `caret-color: system:<slot>` - and `currentColor`, which may be a
+    // `system:` keyword's token too - resolve against the cascade's theme:
+    // the caret takes the colour the text itself is painted in.
+    let color = system_colors_resolved(styled_dom, color);
 
     let width = styled_dom
         .css_property_cache
@@ -3405,10 +3299,7 @@ pub fn get_style_properties_for_state(
     });
     // `color: system:<slot>` arrives as a token (inherited like any colour);
     // this is where it becomes the colour of the theme the cascade evaluated.
-    let color = azul_css::dynamic_selector::resolve_system_color_token(
-        color,
-        cache.dynamic_context.as_deref(),
-    );
+    let color = system_colors_resolved(styled_dom, color);
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {
@@ -5945,14 +5836,20 @@ pub fn get_scrollbar_style(
     }
     let mut result = result;
 
-    // Step 2: Check individual scrollbar part backgrounds
+    // Step 2: Check individual scrollbar part backgrounds. A part is a
+    // background layer, so `system:<slot>` arrives as a `SystemColor` layer
+    // (or a token) and is resolved against the context the UA pass above
+    // evaluated - the cascade's own, when the DOM has one.
+    let part_color = |part: &azul_css::props::style::background::StyleBackgroundContent| {
+        extract_color_from_background(&part.clone().resolve_system_colors(Some(&ctx)))
+    };
     if let Some(track) = styled_dom
         .css_property_cache
         .ptr
         .get_scrollbar_track(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.track_color = extract_color_from_background(track);
+        result.track_color = part_color(track);
     }
     if let Some(thumb) = styled_dom
         .css_property_cache
@@ -5960,7 +5857,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_thumb(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.thumb_color = extract_color_from_background(thumb);
+        result.thumb_color = part_color(thumb);
     }
     if let Some(button) = styled_dom
         .css_property_cache
@@ -5968,7 +5865,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_button(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.button_color = extract_color_from_background(button);
+        result.button_color = part_color(button);
     }
     if let Some(corner) = styled_dom
         .css_property_cache
@@ -5976,7 +5873,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_corner(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.corner_color = extract_color_from_background(corner);
+        result.corner_color = part_color(corner);
     }
 
     // Step 3: Check for scrollbar-width (overrides width only, not overlay)
@@ -6005,7 +5902,8 @@ pub fn get_scrollbar_style(
         .get_scrollbar_color(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        match scrollbar_color {
+        // `system:` keywords resolve against the same context as the parts.
+        match (*scrollbar_color).resolve_system_colors(Some(&ctx)) {
             StyleScrollbarColor::Auto => { /* keep */ }
             StyleScrollbarColor::Custom(custom) => {
                 result.thumb_color = custom.thumb;
@@ -6742,7 +6640,8 @@ pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledN
         .map_or(1.0, |v| v.inner.normalized())
 }
 
-/// Get filter property. Returns Option with cloned filter list.
+/// Get filter property. Returns Option with cloned filter list, its
+/// `system:` colours (`flood()`, `drop-shadow()`) resolved.
 #[must_use]
 pub fn get_filter(
     styled_dom: &StyledDom,
@@ -6763,9 +6662,11 @@ pub fn get_filter(
         .get_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
+        .map(|filters| system_colors_resolved(styled_dom, filters))
 }
 
-/// Get backdrop-filter property. Returns Option with cloned filter list.
+/// Get backdrop-filter property. Returns Option with cloned filter list, its
+/// `system:` colours resolved.
 #[must_use]
 pub fn get_backdrop_filter(
     styled_dom: &StyledDom,
@@ -6786,6 +6687,7 @@ pub fn get_backdrop_filter(
         .get_backdrop_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
+        .map(|filters| system_colors_resolved(styled_dom, filters))
 }
 
 /// Compact-cache negative fast path for all 4 box-shadow sides.
@@ -6805,7 +6707,8 @@ fn box_shadow_fast_bail(
     false
 }
 
-/// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_left(
     styled_dom: &StyledDom,
@@ -6821,10 +6724,11 @@ pub fn get_box_shadow_left(
         .ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_right(
     styled_dom: &StyledDom,
@@ -6840,10 +6744,11 @@ pub fn get_box_shadow_right(
         .ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_top(
     styled_dom: &StyledDom,
@@ -6859,10 +6764,11 @@ pub fn get_box_shadow_top(
         .ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_bottom(
     styled_dom: &StyledDom,
@@ -6878,10 +6784,11 @@ pub fn get_box_shadow_bottom(
         .ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
+/// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_text_shadow(
     styled_dom: &StyledDom,
@@ -6901,7 +6808,7 @@ pub fn get_text_shadow(
         .ptr
         .get_text_shadow(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
 /// Get transform property. Returns Option (non-empty transform list, cloned).

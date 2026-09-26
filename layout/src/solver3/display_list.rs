@@ -4844,7 +4844,8 @@ where
                 pushed_opacity = true;
             }
 
-            // Filter
+            // Filter. `flood()` / `drop-shadow()` may carry a `system:`
+            // keyword: the renderers get the theme's colour, never the token.
             if let Some(filter_vec_value) = self
                 .ctx
                 .styled_dom
@@ -4853,7 +4854,11 @@ where
                 .get_filter(node_data, &dom_id, node_state)
             {
                 if let Some(filter_vec) = filter_vec_value.get_property() {
-                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    let filters: Vec<_> = filter_vec
+                        .as_ref()
+                        .iter()
+                        .map(|f| super::getters::system_colors_resolved(self.ctx.styled_dom, *f))
+                        .collect();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushFilter {
                             bounds: node_bounds.into(),
@@ -4873,7 +4878,11 @@ where
                 .get_backdrop_filter(node_data, &dom_id, node_state)
             {
                 if let Some(filter_vec) = backdrop_filter_value.get_property() {
-                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    let filters: Vec<_> = filter_vec
+                        .as_ref()
+                        .iter()
+                        .map(|f| super::getters::system_colors_resolved(self.ctx.styled_dom, *f))
+                        .collect();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushBackdropFilter {
                             bounds: node_bounds.into(),
@@ -6931,7 +6940,14 @@ where
                     .get_text_shadow(node_data, &dom_id, node_state)
                 {
                     if let Some(shadow) = shadow_val.get_property() {
-                        builder.push_item(DisplayListItem::PushTextShadow { shadow: (**shadow) });
+                        // A `system:` shadow colour resolved against the
+                        // cascade's theme, like every other colour handed on.
+                        builder.push_item(DisplayListItem::PushTextShadow {
+                            shadow: super::getters::system_colors_resolved(
+                                self.ctx.styled_dom,
+                                **shadow,
+                            ),
+                        });
                         pushed_text_shadow = true;
                     }
                 }
@@ -8096,15 +8112,8 @@ where
             // `color: system:<slot>` is a token until here: resolve it
             // against the context the cascade evaluated, the same way the
             // baked run colour was.
-            let live_color = azul_css::dynamic_selector::resolve_system_color_token(
-                live_color,
-                self.ctx
-                    .styled_dom
-                    .css_property_cache
-                    .ptr
-                    .dynamic_context
-                    .as_deref(),
-            );
+            let live_color =
+                super::getters::system_colors_resolved(self.ctx.styled_dom, live_color);
             match &selection_recolour {
                 Some((rects, selected_color)) => {
                     // A glyph's `point` is its pen position ON THE BASELINE at
