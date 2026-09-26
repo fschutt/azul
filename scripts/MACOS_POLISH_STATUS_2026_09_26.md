@@ -83,3 +83,41 @@ AzWidgets with `AZ_LINK_PATH=$PWD/target/azul-lib`, run the batteries
 - Verified headless on AzWidgets: Tab order TextInput -> NumberInput ->
   TextArea -> ColorInput -> Slider -> Switch -> CheckBox, Shift+Tab back, Esc
   blurs the TextArea.
+
+## Integration round 2026-09-26 (evening): ALL branches in, ONE build, all green
+
+Cherry-picked onto the PR branch: wt/viewport-scroll-frame (14), wt/selection-bugs
+(17), wt/system-colours (16), wt/x11-on-macos (10, + x11-macos in build-dll),
+wt/selection-newtypes (33); api.json synced by autofix (757e0145e).
+
+Compile: everything compiled with ONE fix (the scroll-frame test's
+`initialize_editing` call ported to the TextBlock API).
+
+Failures found at the tip, each root-caused with a RED test first:
+- 5d6054ac3 / 3bcf15114 fix(text3): the per-item SHAPING CACHE re-stamped a hit by
+  equality of `source_content_index`; a text shaped where it was run 0 and hit
+  where it is run 1 kept the OTHER paragraph's run and TEXT NODE (carets,
+  selection, hit test, damage in the wrong run/node). Now paired by position.
+- dc6ec1433 / 7f1eddfe2 fix(selection): `caret_editable_is_focused` and
+  `paint_cursor` asked the caret's BLOCK; an inline editing host
+  (`<p>Name: <span contenteditable>`) never painted its caret. Now they ask the
+  caret's own text (`caret_text_node`).
+- ee4d9fa0b / 4d3ba32fe fix(css): Css::parse_inline emitted a nested `@media` block
+  BEFORE the plain declarations around it, so the light value always won the
+  cascade - every `color: X; @media (dark) { color: Y }` stayed light. Source
+  order now (CSS Nesting).
+- cd1c0a60c / 4ace6fcbe tests: three layer tests used a frame covering the whole
+  root, which is now the page's own frame (painted in place).
+
+Batteries at 4ace6fcbe: azul-core 2856, azul-css 2887, azul-layout --lib 7787,
+--test all 1227 (+5 ignored), azul-dll --lib 2386 (+9 ignored) - ALL GREEN.
+
+Combined RED pass (fix commits reverse-applied with `git apply -R`, newest
+first, atomic per patch): 21 of 33 agent fixes reversed; 12 skipped (rewritten
+by later commits - mostly the early selection fixes the newtype refactor
+superseded). With the 21 reversed: 32 integration + 12 lib tests fail, exactly
+the predicted REDs (the GPU-damage RED is a compile error, as predicted); dll
+stays green (no dll-side RED among them). Tree restored by explicit path.
+
+Running: system colours in EVERY colour property (user ruling: "parse_color_or
+_system_token ... should be used everywhere") -> wt/system-colours-everywhere.
