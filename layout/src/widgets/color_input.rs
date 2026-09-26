@@ -3390,44 +3390,334 @@ mod autotest_generated {
             CallbackChange::SetTransientWindowOpen { open: true, .. }
         ));
     }
-    /// KEYBOARD COLOUR CONTROL (2026-09-01 request): the picker must be
-    /// usable with no mouse at all - arrows nudge by 1%, Ctrl+arrows by 10%.
-    ///
-    /// Pins the pure decision (`nudge_hsv`'s arithmetic) via the public
-    /// state: a keyboard change must go through the SAME `set_hsv` a drag
-    /// uses, so the two can never drift apart.
-    #[test]
-    fn arrow_steps_are_one_percent_and_ctrl_steps_are_ten() {
-        // Saturation from a known midpoint, fine then coarse.
-        let mid = Hsv {
-            h: 200.0,
-            s: 0.50,
-            v: 0.50,
+    // ==================================================================
+    // KEYBOARD COLOUR CONTROL, through the real key handlers
+    // ==================================================================
+    //
+    // The picker must be usable with no mouse at all. These drive the
+    // widget's own `Focus(VirtualKeyDown)` handlers with a real keyboard
+    // state; the test they replace re-implemented `(s + step).clamp(..)`
+    // and never called the handler.
+
+    /// The colour the key tests start from: h ~11deg, s 0.8, v 1.0.
+    const KEY_START: ColorU = ColorU {
+        r: 255,
+        g: 87,
+        b: 51,
+        a: 255,
+    };
+
+    /// Like `with_info`, with `ks` as the window's live keyboard state - what
+    /// a key handler reads through `get_current_keyboard_state`.
+    fn with_info_keys<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        ks: azul_core::window::KeyboardState,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        layout_window
+            .layout_results
+            .insert(DomId::ROOT_ID, layout_result(styled_dom));
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let mut current_window_state = FullWindowState::default();
+        current_window_state.keyboard_state = ks;
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(system::SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
         };
 
-        let stepped = |s0: f32, step: f32| (s0 + step).clamp(0.0, 1.0);
-        assert!(
-            (stepped(mid.s, 0.01) - 0.51).abs() < 1e-6,
-            "fine step is 1%"
-        );
-        assert!(
-            (stepped(mid.s, 0.10) - 0.60).abs() < 1e-6,
-            "coarse step is 10%"
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
         );
 
-        // Clamping at both ends, so holding an arrow cannot walk out of range.
-        assert!((stepped(1.0, 0.10) - 1.0).abs() < 1e-6);
-        assert!((stepped(0.0, -0.10) - 0.0).abs() < 1e-6);
+        let r = f(&mut info);
+        let pushed = info.take_changes();
+        (r, pushed)
+    }
 
-        // Hue WRAPS instead of clamping - it is an angle.
-        let hue_after = |h: f32, d: f32| (h + d * 360.0).rem_euclid(360.0);
+    /// A keyboard with `key` just pressed while `held` are down.
+    fn keys(
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> azul_core::window::KeyboardState {
+        let mut ks = azul_core::window::KeyboardState::default();
+        let mut pressed: Vec<azul_core::window::VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        ks.pressed_virtual_keycodes = pressed.into();
+        ks.current_virtual_keycode = Some(key).into();
+        ks.sync_modifiers();
+        ks
+    }
+
+    /// The rendered widget, the state its controls share, and the node of
+    /// the picker control carrying `class` (plane / hue / alpha).
+    fn picker_control(color: ColorU, class: &str) -> (StyledDom, RefAny, DomNodeId) {
+        let dom = ColorInput::create(color).dom();
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let styled = StyledDom::create_from_dom(dom);
+        let idx = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| {
+                n.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+            })
+            .expect("the picker control is in the widget's dom");
+        (styled, state, node(idx))
+    }
+
+    /// One key press on `control`, through the handler the widget registered
+    /// for `axis`. Returns what the handler pushed.
+    fn press_key(
+        styled: StyledDom,
+        state: &RefAny,
+        control: DomNodeId,
+        axis: NudgeAxis,
+        ks: azul_core::window::KeyboardState,
+    ) -> Vec<CallbackChange> {
+        let (_, changes) = with_info_keys(styled, control, ks, |info| match axis {
+            NudgeAxis::Plane => on_plane_key(state.clone(), *info),
+            NudgeAxis::Hue => on_hue_key(state.clone(), *info),
+            NudgeAxis::Alpha => on_alpha_key(state.clone(), *info),
+        });
+        changes
+    }
+
+    fn hsv_of(state: &RefAny) -> Hsv {
+        let mut state = state.clone();
+        let picker = state
+            .downcast_ref::<ColorPickerData>()
+            .expect("the widget state changed type");
+        picker.hsv
+    }
+
+    /// Whether the handler claimed the key (no default action after it).
+    fn claimed(changes: &[CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::PreventDefault))
+    }
+
+    /// THE MODIFIER RULE, both conventions pinned on any host (user ruling,
+    /// 2026-09-26): a plain arrow is 1%; the large step (10%) is the
+    /// platform's PRIMARY modifier - Cmd on a Mac, Ctrl everywhere else -
+    /// or Shift (the design-tool convention, reserved by no OS). Alt and the
+    /// OTHER command modifier are not the picker's and fall through, so OS
+    /// and app shortcuts survive (a stock Mac gives Ctrl+arrow to Mission
+    /// Control; Windows gives Win+arrow to window snapping).
+    #[test]
+    fn the_large_step_is_the_platforms_primary_modifier_or_shift() {
+        use azul_core::window::VirtualKeyCode as K;
+        for mac in [true, false] {
+            assert_eq!(
+                picker_step(&keys(K::Right, &[]), mac),
+                Some(FINE_STEP),
+                "a plain arrow is 1% (mac={mac})"
+            );
+            assert_eq!(
+                picker_step(&keys(K::Right, &[K::LShift]), mac),
+                Some(COARSE_STEP),
+                "Shift is the large step on every platform (mac={mac})"
+            );
+            assert_eq!(
+                picker_step(&keys(K::Right, &[K::LAlt]), mac),
+                None,
+                "Alt+arrow falls through (mac={mac})"
+            );
+        }
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LWin]), true),
+            Some(COARSE_STEP),
+            "Cmd is the Mac's large step"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LControl]), true),
+            None,
+            "Ctrl+arrow belongs to the OS on a Mac"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LControl]), false),
+            Some(COARSE_STEP),
+            "Ctrl is the large step everywhere else"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LWin]), false),
+            None,
+            "the Super key's arrows belong to the OS everywhere else"
+        );
+    }
+
+    /// Guard: a plain Right on the plane adds 1% saturation through the
+    /// same `set_hsv` a drag uses, and claims the key (no scroll under it).
+    #[test]
+    fn right_on_the_plane_adds_one_percent_saturation() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let s0 = hsv_of(&state).s;
+        let changes = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::Right, &[]));
         assert!(
-            (hue_after(355.0, 0.10) - 31.0).abs() < 1e-4,
-            "hue wraps past 360"
+            (hsv_of(&state).s - (s0 + FINE_STEP)).abs() < 1e-4,
+            "{s0} -> {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes), "the arrow is the plane's");
+    }
+
+    #[test]
+    fn shift_right_on_the_plane_is_the_large_step() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let s0 = hsv_of(&state).s;
+        let changes = press_key(
+            styled,
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Right, &[K::LShift]),
         );
         assert!(
-            (hue_after(5.0, -0.10) - 329.0).abs() < 1e-4,
-            "and wraps below 0"
+            (hsv_of(&state).s - (s0 + COARSE_STEP)).abs() < 1e-4,
+            "Shift+Right adds 10% saturation: {s0} -> {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes));
+    }
+
+    /// WAI-ARIA slider "large step": PageUp / PageDown move the plane's
+    /// y-axis (brightness) by 10%.
+    #[test]
+    fn page_up_and_down_on_the_plane_step_brightness_by_ten_percent() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let v0 = hsv_of(&state).v;
+        let changes = press_key(
+            styled.clone(),
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::PageDown, &[]),
+        );
+        assert!(
+            (hsv_of(&state).v - (v0 - COARSE_STEP)).abs() < 1e-4,
+            "PageDown darkens by 10%: {v0} -> {}",
+            hsv_of(&state).v
+        );
+        assert!(claimed(&changes), "PageDown is the plane's, not a page scroll");
+        let _ = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::PageUp, &[]));
+        assert!(
+            (hsv_of(&state).v - v0).abs() < 1e-4,
+            "PageUp brightens it back"
+        );
+    }
+
+    /// Home / End go to the ends of the plane's x-axis: no saturation, full.
+    #[test]
+    fn home_and_end_on_the_plane_go_to_the_saturation_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let changes = press_key(
+            styled.clone(),
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Home, &[]),
+        );
+        assert!(
+            hsv_of(&state).s.abs() < 1e-4,
+            "Home is zero saturation, got {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes));
+        let _ = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::End, &[]));
+        assert!(
+            (hsv_of(&state).s - 1.0).abs() < 1e-4,
+            "End is full saturation"
+        );
+    }
+
+    /// The hue and alpha bars: Home / End are their minimum / maximum.
+    #[test]
+    fn home_and_end_on_the_hue_and_alpha_bars_go_to_their_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, hue) = picker_control(KEY_START, COLOR_PICKER_HUE_CLASS);
+        let _ = press_key(styled.clone(), &state, hue, NudgeAxis::Hue, keys(K::Home, &[]));
+        assert!(hsv_of(&state).h.abs() < 1e-3, "Home is hue 0");
+        let _ = press_key(styled, &state, hue, NudgeAxis::Hue, keys(K::End, &[]));
+        assert!(hsv_of(&state).h > 359.0, "End is the top of the hue bar");
+
+        let (styled, state, alpha) = picker_control(KEY_START, COLOR_PICKER_ALPHA_CLASS);
+        let _ = press_key(
+            styled.clone(),
+            &state,
+            alpha,
+            NudgeAxis::Alpha,
+            keys(K::Home, &[]),
+        );
+        assert_eq!(state_color(&state).a, 0, "Home is fully transparent");
+        let _ = press_key(styled, &state, alpha, NudgeAxis::Alpha, keys(K::End, &[]));
+        assert_eq!(state_color(&state).a, 255, "End is fully opaque");
+    }
+
+    /// Alt+arrow is not the picker's: nothing moves and the key is not
+    /// claimed, so an app or OS shortcut on it still runs.
+    #[test]
+    fn alt_arrow_is_not_consumed_by_the_picker() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let before = hsv_of(&state);
+        let changes = press_key(
+            styled,
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Right, &[K::LAlt]),
+        );
+        assert_eq!(hsv_of(&state), before, "Alt+Right changed the colour");
+        assert!(!claimed(&changes), "Alt+Right must fall through");
+    }
+
+    /// The hue is an angle: stepping past either end wraps.
+    #[test]
+    fn the_hue_bar_wraps_around() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, hue) = picker_control(KEY_START, COLOR_PICKER_HUE_CLASS);
+        let h0 = hsv_of(&state).h;
+        let _ = press_key(styled, &state, hue, NudgeAxis::Hue, keys(K::Left, &[K::LShift]));
+        let expected = (h0 - COARSE_STEP * 360.0).rem_euclid(360.0);
+        assert!(
+            (hsv_of(&state).h - expected).abs() < 1e-3,
+            "Shift+Left from {h0} wraps below 0 to {expected}, got {}",
+            hsv_of(&state).h
         );
     }
 }
