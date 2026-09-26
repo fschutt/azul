@@ -328,6 +328,8 @@ mod scroll_shift_ghost;
 mod scrollbar_fade_during_drag;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
+#[path = "select_all_covers_its_host.rs"]
+mod select_all_covers_its_host;
 #[path = "selection_handles.rs"]
 mod selection_handles;
 #[path = "selection_skips_unselectable_text.rs"]
