@@ -292,6 +292,8 @@ mod a_mask_clip_on_a_half_pixel;
 mod pagination_dom_breaks;
 #[path = "pagination_fits_its_card.rs"]
 mod pagination_fits_its_card;
+#[path = "shaping_cache_keeps_the_run_it_is_hit_from.rs"]
+mod shaping_cache_keeps_the_run_it_is_hit_from;
 #[path = "fixed_size_widgets_sit_at_the_start.rs"]
 mod fixed_size_widgets_sit_at_the_start;
 #[path = "patched_opacity_reaches_the_paint.rs"]
