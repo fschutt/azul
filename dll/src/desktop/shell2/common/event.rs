@@ -160,7 +160,6 @@ use azul_layout::{
     callbacks::{Callback as LayoutCallback, CallbackInfo, ExternalSystemCallbacks},
     event_determination::determine_all_events,
     hit_test::FullHitTest,
-    managers::selection::{ClipboardContent, StyledTextRunVec},
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{self, FullWindowState},
 };
@@ -551,73 +550,6 @@ extern "C" fn auto_scroll_timer_callback(
         should_update: azul_core::callbacks::Update::DoNothing,
         should_terminate: TerminateTimer::Continue,
     }
-}
-
-/// Record ONE undoable entry for a multi-cursor edit that neither recording
-/// site covers.
-///
-/// `apply_text_changeset` records typing (changeset ids counting UP from 0)
-/// and `delete_selection` records deletions (ids counting DOWN from
-/// `usize::MAX`). A smart paste distributes N clipboard lines over N cursors
-/// through `edit_text_multi` and reaches neither, so Ctrl+Z after one used to
-/// undo whatever edit came before it.
-///
-/// The restore itself runs off the styled pre/post content snapshots keyed by
-/// changeset id, so the operation kind and range recorded here are
-/// informational — they are what the C-API `inspect_*` fns read. Ids come
-/// from `LayoutWindow::record_text_edit_undo`'s single monotonic counter
-/// (shared with typing and deletion).
-fn record_multi_edit_undo(
-    lw: &mut LayoutWindow,
-    target: azul_core::dom::DomNodeId,
-    node_id: NodeId,
-    pre_content: &[azul_layout::text3::cache::InlineContent],
-    post_content: &[azul_layout::text3::cache::InlineContent],
-    pre_selections: &[azul_core::selection::Selection],
-) {
-    use azul_core::{selection::Selection, window::CursorPosition};
-    use azul_layout::managers::{
-        changeset::{TextOpPaste, TextOperation},
-        undo_redo::NodeStateSnapshot,
-    };
-
-    let pre_text = lw.extract_text_from_inline_content(pre_content);
-    let old_cursor = pre_selections.first().and_then(|sel| match sel {
-        Selection::Cursor(c) => Some(*c),
-        Selection::Range(_) => None,
-    });
-    let old_range = pre_selections.first().and_then(|sel| match sel {
-        Selection::Range(r) => Some(*r),
-        Selection::Cursor(_) => None,
-    });
-    let timestamp = azul_core::task::Instant::now();
-
-    let pre_state = NodeStateSnapshot {
-        node_id,
-        text_content: pre_text.into(),
-        cursor_position: old_cursor.into(),
-        selection_range: old_range.into(),
-        timestamp,
-    };
-    // A smart paste bypasses the text-input record pipeline, so the commit
-    // queues the host's Input notification.
-    lw.record_text_edit_undo(
-        target,
-        pre_state,
-        pre_content.to_vec(),
-        post_content.to_vec(),
-        TextOperation::Paste(TextOpPaste {
-            content: ClipboardContent {
-                plain_text: lw.extract_text_from_inline_content(post_content).into(),
-                styled_runs: StyledTextRunVec::from_const_slice(&[]),
-            },
-            position: CursorPosition::Uninitialized,
-            new_cursor: CursorPosition::Uninitialized,
-        }),
-        azul_layout::window::TextEditNotify::QueueInput,
-        azul_core::window::PRIMARY_POINTER_SEAT, /* the smart paste is the primary's
-                                                  * (9b-ii-a-i-d-ii-d) */
-    );
 }
 
 // Focus Restyle Helper
@@ -7627,72 +7559,10 @@ pub trait PlatformWindow {
                         layout_window
                             .clipboard_manager
                             .set_paste_content(clipboard_content);
-                        // Smart paste: if N lines == N cursors, paste one line per cursor
-                        let cursor_count = layout_window
-                            .text_edit_manager
-                            .multi_cursor
-                            .as_ref()
-                            // Carets the LOCAL user types into (U3): a peer's
-                            // caret must not receive a line of the paste.
-                            .map(|mc| mc.local_len())
-                            .unwrap_or(0);
-                        let lines: Vec<&str> = clipboard_text.lines().collect();
-
-                        if cursor_count > 1 && lines.len() == cursor_count {
-                            // N lines → N cursors: use edit_text_multi
-                            let session = layout_window
-                                .text_edit_manager
-                                .multi_cursor
-                                .as_ref()
-                                .map(|mc| (mc.block, mc.to_selections()));
-                            if let Some((session_block, selections)) = session {
-                                let dom_id = session_block.dom();
-                                // Keyed like every other commit: the undo
-                                // stack on the focused HOST, the content on
-                                // the caret's text block.
-                                let target = layout_window
-                                    .focus_manager
-                                    .focused_node
-                                    .filter(|f| f.dom == dom_id)
-                                    .unwrap_or_else(|| session_block.container_dom_node());
-                                if let Some(host_id) = target.node.into_crate_internal() {
-                                    let node_id = layout_window.caret_text_target(dom_id, host_id);
-                                    let content =
-                                        layout_window.get_text_before_textinput(dom_id, node_id);
-                                    let (new_content, new_sels) =
-                                        azul_layout::text3::edit::edit_text_multi(
-                                            &content,
-                                            &selections,
-                                            &lines,
-                                        );
-                                    // Smart paste is an EDIT and has to be
-                                    // undoable: it bypasses both recording
-                                    // sites (apply_text_changeset for typing,
-                                    // delete_selection for deletions), so
-                                    // Ctrl+Z after a multi-cursor paste used
-                                    // to undo whatever came before it instead.
-                                    record_multi_edit_undo(
-                                        layout_window,
-                                        target,
-                                        node_id,
-                                        &content,
-                                        &new_content,
-                                        &selections,
-                                    );
-                                    if let Some(ref mut mc) =
-                                        layout_window.text_edit_manager.multi_cursor
-                                    {
-                                        mc.update_from_edit_result(&new_sels);
-                                    }
-                                    layout_window.update_text_cache_after_edit(
-                                        dom_id,
-                                        node_id,
-                                        new_content,
-                                    );
-                                    layout_window.text_edit_manager.mark_dirty();
-                                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                                }
-                            }
+                        // Smart paste: N lines onto N carets, one line each
+                        // (`LayoutWindow::paste_one_line_per_caret`).
+                        if layout_window.paste_one_line_per_caret(&clipboard_text) {
+                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                         }
 
                         // Default: broadcast paste text to all cursors

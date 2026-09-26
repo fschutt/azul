@@ -20810,6 +20810,110 @@ impl LayoutWindow {
         );
     }
 
+    /// The smart paste: `text` has exactly one line per LOCAL caret of the
+    /// session (a peer's caret gets none), and each caret receives its own
+    /// line (`text3::edit::edit_text_multi`). `false` - nothing done - when
+    /// the counts differ or there are fewer than two carets; the caller then
+    /// pastes the whole text at every caret.
+    ///
+    /// Keyed like every other commit: the undo stack on the focused HOST, the
+    /// content on the carets' text block. It is an EDIT and has to be
+    /// undoable: it bypasses both recording sites (`apply_text_changeset` for
+    /// typing, `delete_selection` for deletions), so Ctrl+Z after a
+    /// multi-cursor paste used to undo whatever came before it instead.
+    pub fn paste_one_line_per_caret(&mut self, text: &str) -> bool {
+        let caret_count = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map_or(0, azul_core::selection::MultiCursorState::local_len);
+        let lines: Vec<&str> = text.lines().collect();
+        if caret_count < 2 || lines.len() != caret_count {
+            return false;
+        }
+        let Some((session_block, selections)) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| (mc.block, mc.to_selections()))
+        else {
+            return false;
+        };
+        let dom_id = session_block.dom();
+        let target = self
+            .focus_manager
+            .focused_node
+            .filter(|f| f.dom == dom_id)
+            .unwrap_or_else(|| session_block.container_dom_node());
+        let Some(host_id) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let node_id = self.caret_text_target(dom_id, host_id);
+        let content = self.get_text_before_textinput(dom_id, node_id);
+        let (new_content, new_selections) =
+            crate::text3::edit::edit_text_multi(&content, &selections, &lines);
+        self.record_paste_undo(target, node_id, &content, &new_content, &selections);
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&new_selections);
+        }
+        self.update_text_cache_after_edit(dom_id, node_id, new_content);
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// The undo record of [`Self::paste_one_line_per_caret`].
+    fn record_paste_undo(
+        &mut self,
+        target: DomNodeId,
+        node_id: NodeId,
+        pre_content: &[InlineContent],
+        post_content: &[InlineContent],
+        pre_selections: &[Selection],
+    ) {
+        use crate::managers::{
+            changeset::{TextOpPaste, TextOperation},
+            selection::{ClipboardContent, StyledTextRunVec},
+            undo_redo::NodeStateSnapshot,
+        };
+
+        let pre_text = self.extract_text_from_inline_content(pre_content);
+        let old_cursor = pre_selections.first().and_then(|sel| match sel {
+            Selection::Cursor(c) => Some(*c),
+            Selection::Range(_) => None,
+        });
+        let old_range = pre_selections.first().and_then(|sel| match sel {
+            Selection::Range(r) => Some(*r),
+            Selection::Cursor(_) => None,
+        });
+        let pre_state = NodeStateSnapshot {
+            node_id,
+            text_content: pre_text.into(),
+            cursor_position: old_cursor.into(),
+            selection_range: old_range.into(),
+            timestamp: Instant::now(),
+        };
+        let pasted = self.extract_text_from_inline_content(post_content);
+        // A smart paste bypasses the text-input record pipeline, so the commit
+        // queues the host's Input notification.
+        let _ = self.record_text_edit_undo(
+            target,
+            pre_state,
+            pre_content.to_vec(),
+            post_content.to_vec(),
+            TextOperation::Paste(TextOpPaste {
+                content: ClipboardContent {
+                    plain_text: pasted.into(),
+                    styled_runs: StyledTextRunVec::from_const_slice(&[]),
+                },
+                position: CursorPosition::Uninitialized,
+                new_cursor: CursorPosition::Uninitialized,
+            }),
+            TextEditNotify::QueueInput,
+            // The smart paste is the primary's (9b-ii-a-i-d-ii-d).
+            azul_core::window::PRIMARY_POINTER_SEAT,
+        );
+    }
+
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
         // A DOCUMENT selection spans several text blocks and is held beside
