@@ -11313,6 +11313,33 @@ pub trait PlatformWindow {
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
 
+        // AZ_FOCUS_TRACE, KEY ROUTING: which window a key reached (a popup or
+        // not), which node it was aimed at, what was focused, and whether a
+        // callback claimed it. "Arrows do nothing in the picker" was not
+        // answerable from a device log without this: the popup/autofocus
+        // lines said where focus WAS, not where the key WENT.
+        if focus_trace_enabled() {
+            let is_popup =
+                super::transient::mailbox_of(self.get_current_window_state()).is_some();
+            let key = self
+                .get_current_window_state()
+                .keyboard_state
+                .current_virtual_keycode
+                .into_option();
+            for e in pre_filter
+                .user_events
+                .iter()
+                .filter(|e| e.event_type == azul_core::events::EventType::KeyDown)
+            {
+                eprintln!(
+                    "[focus] KeyDown {key:?} reached window {} (popup={is_popup}): target={:?} \
+                     focused={old_focus:?} prevented={prevent_default}",
+                    self.registry_window_id(),
+                    e.target
+                );
+            }
+        }
+
         // THE RULE FOR PER-PASS INPUT THAT CALLBACKS READ LIVE: clear it AFTER
         // dispatch, never during determination.
         //
@@ -11846,6 +11873,10 @@ pub trait PlatformWindow {
                         keyboard_state, focused_node, layout_results, prevent_default,
                         editing_state.as_ref(),
                     );
+                        focus_trace!(
+                            "key default action (seat {key_seat}, focused {focused_node:?}): {:?}",
+                            default_action_result.action
+                        );
 
                         if default_action_result.has_action() {
                             use azul_core::events::DefaultAction;
