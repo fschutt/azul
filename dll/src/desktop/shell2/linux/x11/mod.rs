@@ -5135,12 +5135,18 @@ impl X11Window {
         // Process event with V2 handlers
         let result = match unsafe { event.type_ } {
             defines::Expose => {
-                // A real (WM) or synthetic Expose means "repaint now". Render
-                // directly — the previous code re-posted ANOTHER Expose here
-                // (request_redraw), so in the blocking idle path the repaint
-                // request ping-ponged and the frame never actually painted
-                // (resize/timer/caret repaints appeared frozen). This now
-                // matches poll_event's Expose arm.
+                // A REAL Expose (the server's, send_event == 0) means the
+                // window's content is undefined: render now. A SYNTHETIC one
+                // is our own `request_redraw` wake-up, and the flag it raised
+                // is what owes the frame — it is drawn by the PACED render
+                // gate every dispatch of this event is followed by
+                // (`poll_event`, or `wait_for_events` returning to it). This
+                // arm used to render synthetic Exposes on the spot too, which
+                // bypassed the frame pacer: every internally requested repaint
+                // presented at once, and a timer frame whose redraw had
+                // already been drawn by the gate was drawn a second time.
+                // (It must never re-post an Expose instead of rendering: the
+                // request then ping-ponged and the frame never painted.)
                 let (count, synthetic) = {
                     let ex = unsafe { &event.expose };
                     (ex.count, ex.send_event != 0)
@@ -5164,7 +5170,7 @@ impl X11Window {
                 // a full render_and_present per sub-rect. needs_redraw stays
                 // raised in between, so even a (protocol-impossible) missing
                 // final event is mopped up by poll_event's gate.
-                if count == 0 {
+                if count == 0 && !synthetic {
                     if let Err(e) = self.render_and_present() {
                         log_warn!(
                             LogCategory::Rendering,
@@ -8894,8 +8900,15 @@ impl X11Window {
     /// so that scroll offsets / GPU values are sent to WebRender.
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event::PlatformWindow;
+        // Mark the frame, do not post a synthetic Expose: both callers are
+        // followed by the paced render gate (`poll_event` runs it right
+        // after this; `wait_for_events` returns into it), which draws a
+        // raised `needs_redraw`. The Expose `request_redraw` posts only
+        // exists to wake a loop parked in `poll`, and this runs INSIDE the
+        // loop. Posting it made every timer frame - each step of a CSS
+        // animation - wake the loop once more, and cost a second render.
         if self.process_timers_and_threads() {
-            self.request_redraw();
+            self.needs_redraw.raise();
         }
 
         // A runtime light/dark switch. The system style was read once at window
@@ -8916,7 +8929,7 @@ impl X11Window {
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);
-            self.request_redraw();
+            self.needs_redraw.raise();
         }
     }
 
