@@ -199,12 +199,15 @@ impl CpuBackend {
         let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
         let (gpu_transforms, gpu_opacities) =
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        // In VIEWPORT space, like the shell's: an item inside a scrolled frame
+        // is repainted where the frame paints it.
         let gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
             &gpu_transforms,
             &gpu_opacities,
+            &scroll_offsets,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {

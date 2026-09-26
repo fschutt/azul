@@ -1954,6 +1954,18 @@ pub struct GpuValueDamage {
 /// this channel, the `ScrollBarStyled` equality arm would freeze the thumb
 /// (missed damage); with it, an idle window reaches `FrameDamage::None` even
 /// with scrollbars present.
+///
+/// The rects are in VIEWPORT space, where the backends consume damage: each
+/// is moved by the current `scroll_offsets` of the scroll frames around its
+/// item - the offsets the frame is rendered with - the same projection the
+/// display-list diff (`compute_display_list_damage`) and
+/// `collect_scroll_shifts` apply. An item inside a scrolled frame is painted
+/// that far above its display-list bounds; damaged at those bounds, the band
+/// that changed stayed stale - a scroll box's thumb on a scrolled PAGE (whose
+/// frame is the viewport's) did not follow its box, and an animated node on
+/// it left trails. A frame that scrolled this frame as well repaints its own
+/// content through its scroll shift; these rects land where the change is
+/// now.
 #[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
 #[must_use]
 pub fn gpu_value_damage(
@@ -1962,6 +1974,7 @@ pub fn gpu_value_damage(
     old_opacities: &HashMap<usize, f32>,
     new_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     new_opacities: &HashMap<usize, f32>,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
     use std::collections::HashSet;
 
@@ -2045,8 +2058,28 @@ pub fn gpu_value_damage(
         ],
     };
     let items = &display_list.items;
+    // The offsets of the scroll frames open at each item, accumulated: an
+    // item is painted this far up and left of its display-list bounds.
+    let mut frames: Vec<(f32, f32)> = Vec::new();
+    let mut scrolled = (0.0_f32, 0.0_f32);
+    let on_screen = |r: LogicalRect, by: (f32, f32)| {
+        LogicalRect::new(
+            LogicalPosition::new(r.origin.x - by.0, r.origin.y - by.1),
+            r.size,
+        )
+    };
     for (idx, item) in items.iter().enumerate() {
         match item {
+            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                frames.push(offset);
+                scrolled = (scrolled.0 + offset.0, scrolled.1 + offset.1);
+            }
+            DisplayListItem::PopScrollFrame => {
+                if let Some(offset) = frames.pop() {
+                    scrolled = (scrolled.0 - offset.0, scrolled.1 - offset.1);
+                }
+            }
             DisplayListItem::PushReferenceFrame {
                 transform_key,
                 bounds,
@@ -2087,8 +2120,8 @@ pub fn gpu_value_damage(
                     affine_rect_about(new_m, bounds.inner().origin, content),
                 ) {
                     (Some(a), Some(b)) => {
-                        out.rects.push(a);
-                        out.rects.push(b);
+                        out.rects.push(on_screen(a, scrolled));
+                        out.rects.push(on_screen(b, scrolled));
                     }
                     _ => out.needs_full = true,
                 }
@@ -2101,7 +2134,7 @@ pub fn gpu_value_damage(
                 if thumb_moved || faded {
                     // The whole bar bounds cover the thumb's old AND new
                     // position — precise and cheap.
-                    out.rects.push(info.bounds.0);
+                    out.rects.push(on_screen(info.bounds.0, scrolled));
                 }
             }
             DisplayListItem::PushOpacity {
@@ -2113,7 +2146,7 @@ pub fn gpu_value_damage(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    out.rects.push(*bounds.inner());
+                    out.rects.push(on_screen(*bounds.inner(), scrolled));
                 }
             }
             _ => {}
@@ -5522,13 +5555,20 @@ mod autotest_generated {
         t.insert(3, translate(1.0, 1.0));
         let mut o: HashMap<usize, f32> = HashMap::new();
         o.insert(4, 0.5);
-        let d = gpu_value_damage(&list, &t, &o, &t.clone(), &o.clone());
+        let d = gpu_value_damage(&list, &t, &o, &t.clone(), &o.clone(), &ScrollOffsetMap::new());
         assert!(d.rects.is_empty());
         assert!(!d.needs_full);
 
         let empty_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         let empty_o: HashMap<usize, f32> = HashMap::new();
-        let d2 = gpu_value_damage(&list, &empty_t, &empty_o, &empty_t, &empty_o);
+        let d2 = gpu_value_damage(
+            &list,
+            &empty_t,
+            &empty_o,
+            &empty_t,
+            &empty_o,
+            &ScrollOffsetMap::new(),
+        );
         assert!(
             d2.rects.is_empty() && !d2.needs_full,
             "empty maps → no damage"
@@ -5543,7 +5583,7 @@ mod autotest_generated {
         let mut new_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         new_t.insert(3, translate(20.0, 0.0));
         let o: HashMap<usize, f32> = HashMap::new();
-        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o);
+        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o, &ScrollOffsetMap::new());
         // The content extent IS knowable (the frame's items + its own
         // bounds), so a moved frame damages its content at the OLD and the
         // NEW matrix — the previous blanket needs_full made every spring
@@ -5564,7 +5604,7 @@ mod autotest_generated {
         old_t.insert(3, translate(5.0, 5.0));
         let new_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         let o: HashMap<usize, f32> = HashMap::new();
-        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o);
+        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o, &ScrollOffsetMap::new());
         assert!(
             !d.rects.is_empty() || d.needs_full,
             "a key present in old but absent in new is a change (the frame settles to identity, \
@@ -5585,7 +5625,7 @@ mod autotest_generated {
         let old_o: HashMap<usize, f32> = HashMap::new();
         let mut new_o: HashMap<usize, f32> = HashMap::new();
         new_o.insert(88, 0.25);
-        let d = gpu_value_damage(&list, &t, &old_o, &new_t, &new_o);
+        let d = gpu_value_damage(&list, &t, &old_o, &new_t, &new_o, &ScrollOffsetMap::new());
         assert!(
             d.rects.is_empty() && !d.needs_full,
             "a key bound to no item cannot damage"
@@ -5599,7 +5639,7 @@ mod autotest_generated {
         let mut o: HashMap<usize, f32> = HashMap::new();
         o.insert(1, f32::NAN);
         // NaN != NaN → the key reads as "changed"; nothing binds it, so no damage.
-        let d = gpu_value_damage(&list, &t, &o.clone(), &t, &o);
+        let d = gpu_value_damage(&list, &t, &o.clone(), &t, &o, &ScrollOffsetMap::new());
         assert!(d.rects.is_empty() && !d.needs_full);
     }
 

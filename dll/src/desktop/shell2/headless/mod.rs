@@ -713,12 +713,15 @@ impl CpuBackend {
         let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
         let (gpu_transforms, gpu_opacities) =
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
+        // scrolled page) is repainted where the frame paints it.
         let gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
             &gpu_transforms,
             &gpu_opacities,
+            &scroll_offsets,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
