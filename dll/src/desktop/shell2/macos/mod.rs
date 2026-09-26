@@ -1769,12 +1769,17 @@ fn dirty_rows_to_copy(
 /// out inside, from the ones the content view reports.
 ///
 /// `titlebar_band` is how much of the content view the titlebar covers.
+/// `NSView::safeAreaInsets` counts it as unsafe, but a window whose content
+/// runs under its titlebar (`FullSizeContentView`: `NoTitle`,
+/// `NoTitleAutoInject`) asked for exactly that band to draw its own title row
+/// in, so it is not an inset for layout. Whatever is left is real: the camera
+/// housing in fullscreen, where the titlebar is hidden and the band is zero.
 fn layout_safe_area_insets(
     view: (f64, f64, f64, f64),
     titlebar_band: f64,
 ) -> (f64, f64, f64, f64) {
-    let _ = titlebar_band;
-    view
+    let (top, left, bottom, right) = view;
+    ((top - titlebar_band).max(0.0), left, bottom, right)
 }
 
 #[cfg(test)]
