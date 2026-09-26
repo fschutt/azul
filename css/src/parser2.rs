@@ -1746,6 +1746,9 @@ fn new_from_str_inner<'a>(
                     last_error_location = get_error_location(tokenizer);
                     continue;
                 }
+                // Whether this `{` opens an @-rule block (as opposed to a
+                // selector's) - decided before the pending name is consumed.
+                let opens_at_rule = pending_at_rule.is_some();
                 // Process pending @-rule with all collected AtStr parts
                 if let Some(rule_name) = pending_at_rule.take() {
                     let combined_content = pending_at_str_parts.join(" and ");
@@ -1824,6 +1827,24 @@ fn new_from_str_inner<'a>(
                         depth: block_nesting,
                     });
                     current_paths.clear();
+                } else if opens_at_rule && !nesting_stack.is_empty() {
+                    // An @-rule NESTED in a rule block, with declarations
+                    // straight inside it (`div { color: red; @media (..) {
+                    // color: blue; } }`, and every inline style: `with_css`
+                    // wraps its string in `* { .. }`). Its declarations
+                    // belong to the PARENT's selectors under the @-rule's
+                    // conditions, so it gets a level of its own with the
+                    // parent's paths, and the parent's declarations so far
+                    // are set aside until the `}`. Without this level the
+                    // block wrote into the parent's declaration map (a
+                    // repeated property overwrote the plain value), its `}`
+                    // emitted the PARENT's level under the @-rule's
+                    // conditions, and what followed the block was dropped.
+                    nesting_stack.push(NestingLevel {
+                        paths: get_parent_paths(&nesting_stack),
+                        declarations: std::mem::take(&mut current_declarations),
+                        depth: block_nesting,
+                    });
                 }
             }
             Token::Comma => {
