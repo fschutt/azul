@@ -50,7 +50,8 @@ pub enum ButtonType {
     Danger,
     /// Warning button - yellow with BLACK text
     Warning,
-    /// Informational button - teal/cyan with white text
+    /// Informational button - teal/cyan with BLACK text (white on #0dcaf0 reads
+    /// at 1.96:1, which is why Bootstrap and azul's `Badge` put dark text on it)
     Info,
     /// Link-style button - appears as a hyperlink, no background
     Link,
@@ -227,6 +228,7 @@ const fn get_button_text_color(button_type: ButtonType) -> ColorU {
     match button_type {
         ButtonType::Default => ColorU::rgb(33, 37, 41), // Dark text
         ButtonType::Warning => ColorU::BLACK,           // Black text on yellow
+        ButtonType::Info => ColorU::BLACK,              // Black text on cyan (white: 1.96:1)
         ButtonType::Link => ColorU::bootstrap_link(),   // Blue link color
         _ => ColorU::WHITE,                             // White text on colored buttons
     }
@@ -1060,18 +1062,18 @@ mod autotest_generated {
             (ButtonType::Success, WHITE),
             (ButtonType::Danger, WHITE),
             (ButtonType::Warning, BLACK), // doc: "Warning button - yellow with BLACK text"
-            (ButtonType::Info, WHITE),
+            (ButtonType::Info, BLACK),    // doc: "... with BLACK text" (white reads 1.96:1)
             (ButtonType::Link, ColorU::rgb(13, 110, 253)),
         ];
         for (ty, text) in expected {
             assert_eq!(get_button_text_color(ty), text, "{ty:?}: wrong text colour");
         }
-        // The `_ => WHITE` catch-all is easy to widen by accident: only these three
+        // The `_ => WHITE` catch-all is easy to widen by accident: only these four
         // variants may deviate from white.
         for ty in ALL_TYPES {
             let is_special = matches!(
                 ty,
-                ButtonType::Default | ButtonType::Warning | ButtonType::Link
+                ButtonType::Default | ButtonType::Warning | ButtonType::Info | ButtonType::Link
             );
             assert_eq!(
                 get_button_text_color(ty) != WHITE,
@@ -1100,10 +1102,9 @@ mod autotest_generated {
     #[test]
     fn get_button_text_color_stays_readable_on_its_own_background() {
         // The one real invariant of the pair: label must be legible on the fill.
-        // NOTE: `Info` (white on #0dcaf0) is by far the weakest pairing at ~90 luma
-        // of separation — Bootstrap and azul's own `Badge` widget both put *dark*
-        // text on Info. The bound below is the current floor, not an endorsement;
-        // moving Info to dark text raises its separation to ~128 and still passes.
+        // `Info` used to be the exception (white on #0dcaf0, 1.96:1); it now
+        // carries black text like Bootstrap's and azul's own `Badge`, so every
+        // type picks the more readable of the two candidates.
         for ty in ALL_TYPES {
             if ty == ButtonType::Link {
                 continue; // no fill: a link is drawn on the page background
@@ -1119,12 +1120,10 @@ mod autotest_generated {
             // ... and the *more* readable of the two candidates was chosen.
             let alt = if text == WHITE { DARK } else { WHITE };
             let alt_separation = (luma(bg) - luma(alt)).abs();
-            if ty != ButtonType::Info {
-                assert!(
-                    separation >= alt_separation,
-                    "{ty:?}: {alt:?} would be more readable than {text:?} on {bg:?}"
-                );
-            }
+            assert!(
+                separation >= alt_separation,
+                "{ty:?}: {alt:?} would be more readable than {text:?} on {bg:?}"
+            );
         }
     }
 
