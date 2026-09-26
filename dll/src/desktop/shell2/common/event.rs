@@ -13295,12 +13295,17 @@ pub trait PlatformWindow {
         // MWA-A1/B12: the capability-pump and long-press timers' callbacks
         // are inert markers — when either expires, the real work is a full
         // event pass (pump drains channels; detect_long_press finally gets
-        // evaluated for a motionless hold). Detect here; the pass fires
-        // after the normal timer loop below.
-        let capability_pump_fired = expired_timer_ids.iter().any(|t| {
-            *t == azul_core::task::CAPABILITY_PUMP_TIMER_ID
-                || *t == azul_core::task::LONG_PRESS_TIMER_ID
-        });
+        // evaluated for a motionless hold). The pass fires after the normal
+        // timer loop below.
+        let capability_pump_fired = expired_timer_ids
+            .iter()
+            .any(|t| *t == azul_core::task::CAPABILITY_PUMP_TIMER_ID);
+        // The long-press wake-up is due when its OWN schedule runs it — the
+        // loop below sees `Timer::invoke` admit it past its delay — not
+        // whenever a timer pass finds it registered. X11 and Wayland run this
+        // on every loop turn: counting it by registration ran the long-press
+        // pass on the turn right after the press, long before the threshold.
+        let mut long_press_due = false;
 
         // MWA-B8b: a drag-autoscroll frame moves the VIEW; the selection
         // endpoint has to travel with it, which is what every native editor
@@ -13330,6 +13335,11 @@ pub trait PlatformWindow {
             // Prepare borrows fresh for each timer invocation
             let borrows = self.prepare_callback_invocation();
 
+            let runs_before = borrows
+                .layout_window
+                .timers
+                .get(&timer_id)
+                .map(|t| t.run_count);
             let (changes, update) = borrows.layout_window.run_single_timer(
                 timer_id.id,
                 frame_start.clone(),
@@ -13341,6 +13351,18 @@ pub trait PlatformWindow {
                 borrows.current_window_state,
                 borrows.renderer_resources,
             );
+            // Read BEFORE the changes apply: a one-shot that ran has queued
+            // its own `RemoveTimer`, but it is still registered here.
+            if timer_id == azul_core::task::LONG_PRESS_TIMER_ID
+                && borrows
+                    .layout_window
+                    .timers
+                    .get(&timer_id)
+                    .map(|t| t.run_count)
+                    != runs_before
+            {
+                long_press_due = true;
+            }
 
             // Apply changes immediately so inter-timer visibility works
             // (e.g., timer A removes timer B → B shouldn't fire)
@@ -13394,7 +13416,7 @@ pub trait PlatformWindow {
             }
         }
 
-        if capability_pump_fired {
+        if capability_pump_fired || long_press_due {
             let r = self.process_window_events(0);
             changes_result = changes_result.max(r);
         }

@@ -267,6 +267,14 @@ pub fn timer_interval_ms(timer: &azul_layout::timer::Timer) -> Option<u64> {
 /// MWA-B12: one-shot wake-up timer — fires once after `delay_ms`, causing
 /// `invoke_expired_timers` to run an event pass (see LONG_PRESS_TIMER_ID),
 /// then self-terminates via its callback.
+///
+/// The DELAY is what makes it fire after `delay_ms`: `Timer::invoke` admits
+/// a timer that has never run at once unless it has a delay, and this one
+/// used to carry the span as its interval only, so the first timer pass of
+/// any kind ran it — on X11 and Wayland the pass on the loop turn right
+/// after the press. The interval stays the same span so the platform timer
+/// (`Timer::tick_millis`) wakes the loop once, at the deadline, instead of
+/// every 10 ms until then.
 #[must_use]
 pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
     use azul_core::{
@@ -278,16 +286,18 @@ pub fn make_one_shot_pass_timer(delay_ms: u64) -> azul_layout::timer::Timer {
         timer::{Timer, TimerCallbackType},
     };
 
+    let span = AzulDuration::System(SystemTimeDiff {
+        secs: delay_ms / 1000,
+        nanos: ((delay_ms % 1000) * 1_000_000) as u32,
+    });
     let external = ExternalSystemCallbacks::rust_internal();
     Timer::create(
         RefAny::new(()),
         one_shot_pass_marker_callback as TimerCallbackType,
         external.get_system_time_fn,
     )
-    .with_interval(AzulDuration::System(SystemTimeDiff {
-        secs: delay_ms / 1000,
-        nanos: ((delay_ms % 1000) * 1_000_000) as u32,
-    }))
+    .with_delay(span)
+    .with_interval(span)
 }
 
 extern "C" fn one_shot_pass_marker_callback(
