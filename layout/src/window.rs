@@ -26583,6 +26583,53 @@ mod tween_clock_unit_tests {
             "0.9ms into a 1ms focus-ring glide is t = 0.9, got {t}"
         );
     }
+
+    /// How many focus rings the stored list paints around the focused node:
+    /// the `Border` item `apply_text_tweens` inserts at the ring target.
+    fn rings_around_the_focused_node(win: &LayoutWindow) -> usize {
+        let target = ring_target(win);
+        stored_list(win)
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Border { bounds, .. } if bounds.0 == target))
+            .count()
+    }
+
+    /// Focus survives a window deactivation; its INDICATION does not. HTML's
+    /// "currently focused area" is null without system focus, and AppKit,
+    /// GTK and Win32 draw focus only in the key / active window, so an
+    /// inactive window must not paint a ring - or a popup that took the
+    /// keyboard leaves a second, stale ring behind in its parent (report 1).
+    #[test]
+    fn no_focus_ring_while_the_window_is_inactive() {
+        let mut win = recording_ring_window(1);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            1,
+            "premise: keyboard focus in an active window is ringed"
+        );
+
+        win.current_window_state.window_focused = false;
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            0,
+            "an inactive window paints no focus ring"
+        );
+        assert_eq!(
+            win.focus_manager.get_focused_node().copied(),
+            Some(dnid(1)),
+            "focus itself is kept"
+        );
+
+        win.current_window_state.window_focused = true;
+        win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        assert_eq!(
+            rings_around_the_focused_node(&win),
+            1,
+            "the ring comes back, same modality, when the window is active again"
+        );
+    }
 }
 
 /// The `firstRectForRange:` span between two caret rects.
