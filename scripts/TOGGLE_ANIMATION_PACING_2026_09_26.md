@@ -90,3 +90,40 @@ expect ~9-10 `<- incremental_relayout` lines over 150 ms (<= 2 per 16 ms).
 Side finding: `make_one_shot_pass_timer` (long-press marker) uses
 `with_interval` instead of `with_delay`, so any timer pass can fire it before
 the long-press threshold - on Linux on the pass right after mouse-down.
+
+## 3. Follow-up on the same branch (rebased onto fix/input-bugs-2026-09-19, UNCOMPILED)
+
+`git log --oneline fix/input-bugs-2026-09-19..wt/animation-pacing` (13 commits):
+```
+a0fae0a9c fix(x11): a timer frame and our own Expose wait for the frame pacer
+df1032a74 fix(gesture): a press held perfectly still becomes a long press
+f7ee67869 test(gesture): a motionless press fires LongPress once past its threshold
+84a88ab73 fix(gesture): the long-press wake-up fires at its threshold, not on the next timer pass
+57b407cfc test(gesture): a timer pass before the threshold does not spend the long-press wake-up
+17e3d1cb8 fix(animation): a DOM rebuild costs a glide at most one frame, not its duration
+e6631c568 test(animation): a DOM rebuild between two driver frames is not animation time
+cb0de39a9 fix(timer): the CSS animation driver steps once per frame, not once per loop pass
+90823b5a1 test(timer): the CSS animation driver steps once per timer period, not per pass
+a288a7371 fix(animation): the animation clock steps in nanoseconds, not whole milliseconds
+83b388c18 test(animation): sub-millisecond frames advance a glide by their real length
+4e45b7e66 fix(animation): a transition step that moves nothing restyles nothing
+ab44ffafa test(animation): a zero-length tick owes no relayout
+```
+- Long-press early fire confirmed: `make_one_shot_pass_timer` only set an
+  interval, so the marker ran on the first timer pass of any kind; and
+  `invoke_expired_timers` ran the long-press pass just because the marker was
+  registered. Fix: capability_pump.rs:271 (delay + same interval); event.rs runs
+  the long-press pass only if that timer actually ran. RED: timer passes at the
+  same instant and 5 ms later on a frozen clock -> `armed_after_same_instant &&
+  armed_after_5ms` expected false.
+- Second defect: a MOTIONLESS hold was never a long press (`detect_long_press`
+  measures first-to-last sample; a still hold has only the press sample -> 0 ms).
+  Fix: `GestureAndDragManager::record_hold_sample` (gesture.rs), recorded just
+  before the long-press pass. RED: real-time hold on a 30 ms threshold -> 0 instead of 1.
+- X11 (single commit, no RED - needs a live Display): `check_timers_and_threads`
+  only marks a redraw; a synthetic Expose only marks a redraw; real Exposes
+  still render immediately with a full present. Linux check: `AZ_LOG=warn,+window`,
+  count `[X11] render_and_present ... took=` during a switch glide (~1 per refresh).
+- Least sure to compile: `run_count` reads through `borrows.layout_window`
+  around `run_single_timer`; the `drain` in `record_hold_sample`; the test writes
+  the gesture manager's `config` field (must be pub).

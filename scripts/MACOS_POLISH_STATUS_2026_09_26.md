@@ -18,6 +18,7 @@ stage those; `all.rs` is committed by writing HEAD + own lines into the index
 | f701cf0c8 / f9c1ed75c | the canvas background covers the whole window, not the safe-area-inset viewport (the dark rects in the lower corners). `LayoutContext::canvas_rect`, `LayoutWindow::canvas_rect_for`, new `layout_document` parameter. RED: (0,0,1280,722) vs 1280x800. |
 | 09828380c / 069dc8806 | macOS: a `NoTitle`/`NoTitleAutoInject` window (FullSizeContentView) is not inset by its own 28pt titlebar band (`layout_safe_area_insets`); the notch in fullscreen still insets. RED: (28,0,0,0) vs 0. |
 | b93ce00f7 / 3afe7358f | Pagination buttons: `box-sizing: border-box` so `min-width: 36px` is the whole button (was 61px, row 733px). |
+| ef11e00b7 / d94748244 | Switch + Slider tracks `align-self: start` (were `center`: centred horizontally in a column - the Linux ledger's L1). RED: 180/100 vs 0. |
 
 Batteries run after the overflow change: azul-layout `--test all` 1135 green;
 `--lib` 7767 green + the 3 updated tests green (one unrelated failure was the
@@ -27,8 +28,9 @@ other session's in-flight page_breaks test).
 
 | branch | worktree | status | report |
 |---|---|---|---|
-| `wt/viewport-scrollbar` | agent-ad7cf34be0a4bfeec | done, 2 commits | scripts/VIEWPORT_SCROLLBAR_2026_09_26.md |
-| `wt/animation-pacing` | agent-ab0ba1d8799a9fee8 | done, 8 commits | scripts/TOGGLE_ANIMATION_PACING_2026_09_26.md |
+| `wt/viewport-scrollbar` | agent-ad7cf34be0a4bfeec | done, 2 commits (rebased onto 028ecfcfd) | scripts/VIEWPORT_SCROLLBAR_2026_09_26.md |
+| `wt/viewport-scroll-frame` | (new agent, from 358f07ef1) | running: root scroll frame (content moves with the viewport) + classic-bar overshoot | - |
+| `wt/animation-pacing` | agent-ab0ba1d8799a9fee8 | done, 13 commits (rebased) | scripts/TOGGLE_ANIMATION_PACING_2026_09_26.md |
 | `wt/x11-on-macos` | (agent a102b231d7eccb479) | running | XQuartz at /opt/X11, no xkbcommon |
 | `wt/system-colours` | (agent a2050d36f3988c5d7) | running | dark mode / system:* colours / SystemStyle fields; also `margin: 0` on the demo body |
 | `wt/selection-bugs` | (agent a0d97ff9a56c803a7) | running | live bugs #1,#2,#3,#4,#6,#8 of scripts/SELECTION_ARCHITECTURE_REVIEW_2026_09_26.md |
@@ -63,3 +65,21 @@ AzWidgets with `AZ_LINK_PATH=$PWD/target/azul-lib`, run the batteries
   inside its card.
 - Live macOS self-test of typing, selection drag, clipboard, context menu,
   dropdowns, Esc/Tab focus not done yet this session.
+
+## Ledger - back of the queue (user, 2026-09-26)
+
+- **Focus does not leave the main window when it moves into the ColorInput's
+  picker sub-window**: the ring stays on the main window's colour preview ->
+  desync. "There are lots of bugs like this" - architecture first. Analysis
+  agent running -> scripts/FOCUS_SUBWINDOW_AND_ARROW_KEYS_ANALYSIS_2026_09_26.md.
+- **Arrow keys on the picker's gradient do nothing** (ring on the gradient;
+  arrows should move the colour by 1%, Ctrl+arrow by 10%). Same analysis:
+  widget arrow semantics vs arrow-key spatial focus navigation.
+- E2E `get_selection_state` reports `range.end.cluster_id.start_byte_in_run`
+  without the affinity: Cmd+A over "hello world" reads `end: 10` (it is
+  cluster 10 Trailing = all 11 chars). Tooling gap, not a selection bug.
+- Headless E2E pitfall: every `key_down` needs its `key_up`, or the next
+  press of the same key is not a new KeyDown (looked like "Tab is stuck").
+- Verified headless on AzWidgets: Tab order TextInput -> NumberInput ->
+  TextArea -> ColorInput -> Slider -> Switch -> CheckBox, Shift+Tab back, Esc
+  blurs the TextArea.
