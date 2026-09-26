@@ -436,6 +436,8 @@ mod theme_conditional_stylesheet;
 mod token_vs_slicer_differential;
 #[path = "typed_script_font_fallback.rs"]
 mod typed_script_font_fallback;
+#[path = "typing_into_a_formatted_paragraph.rs"]
+mod typing_into_a_formatted_paragraph;
 #[path = "unresolved_family_render.rs"]
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
