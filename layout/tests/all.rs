@@ -322,6 +322,8 @@ mod seat_text_session;
 mod selection_handles;
 #[path = "session_regression.rs"]
 mod session_regression;
+#[path = "stale_document_selection.rs"]
+mod stale_document_selection;
 #[path = "statusbar_live_label.rs"]
 mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
