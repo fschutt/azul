@@ -1766,7 +1766,10 @@ impl DynamicSelector {
             PseudoStateType::CheckedFalse => !node_state.checked,
             PseudoStateType::FocusWithin => node_state.focus_within,
             PseudoStateType::Visited => node_state.visited,
-            PseudoStateType::Backdrop => node_state.backdrop,
+            // A property of the WINDOW (GTK's `:backdrop`: the toplevel is
+            // not focused), so the context's window flag decides; the node
+            // flag is kept as an explicit per-node override.
+            PseudoStateType::Backdrop => node_state.backdrop || !ctx.window_focused,
             PseudoStateType::Dragging => node_state.dragging,
             PseudoStateType::DragOver => node_state.drag_over,
         }

@@ -5397,7 +5397,9 @@ impl LayoutWindow {
         let mut ctx = base
             .with_viewport(dims.width, dims.height)
             .with_safe_area(&self.safe_area_insets);
-        ctx.window_focused = window_state.flags.has_focus;
+        // Both focus flags, read through the one helper: every backend
+        // writes `window_focused`, only Win32 `flags.has_focus`.
+        ctx.window_focused = window_state.is_window_active();
         ctx.theme =
             azul_css::dynamic_selector::theme_pinned_by_env().unwrap_or(match window_state.theme {
                 azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
