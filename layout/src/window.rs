@@ -3828,7 +3828,9 @@ impl LayoutWindow {
         // The direction is read off the SAME order the middles are sliced
         // from: two definitions of "document order" in one function made a
         // reversed slice (and a panic) possible wherever they disagreed.
-        let blocks = self.text_blocks(dom_id, crate::text_block::BlockFilter::ALL);
+        // Selectable blocks only: the painter never highlights the others,
+        // and a selection must not hold (or copy) text it does not show.
+        let blocks = self.text_blocks(dom_id, crate::text_block::BlockFilter::SELECTABLE);
         let index_of = |b: TextBlock| blocks.iter().position(|&x| x == b);
         let (Some(i_anchor), Some(i_focus)) = (index_of(anchor), index_of(focus)) else {
             return false; // an end that is not a text block of this dom
@@ -10681,6 +10683,9 @@ impl LayoutWindow {
         let Some(node_id) = focused.node.into_crate_internal() else {
             return false;
         };
+        // Only the blocks whose text a selection may cover (`user-select`):
+        // Ctrl+A starting or ending on unselectable chrome selected - and
+        // copied - text the painter never highlights.
         let blocks: Vec<TextBlock> = self
             .select_all_blocks(dom_id, node_id)
             .into_iter()
@@ -10690,6 +10695,7 @@ impl LayoutWindow {
                     node: NodeHierarchyItemId::from_crate_internal(Some(n)),
                 })
             })
+            .filter(|block| self.text_target(*block).is_some_and(|t| t.selectable))
             .collect();
         let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
             return false;
@@ -13367,8 +13373,9 @@ impl LayoutWindow {
             let Some(anchor_block) = self.text_edit_manager.get_editing_block() else {
                 return false;
             };
+            let extent = self.selection_extent(anchor_block);
             if let Some((block, cursor)) =
-                self.hittest_text_position_global(anchor_block.dom(), point)
+                self.hittest_text_block(anchor_block.dom(), point, extent)
             {
                 if block == anchor_block && self.same_caret_position(block, cursor, drag.anchor) {
                     return false;
@@ -20294,7 +20301,10 @@ impl LayoutWindow {
                         && current_position.y <= screen.origin.y + screen.size.height
                 });
         if !anchor_rect_contains {
-            let global_hit = self.hittest_text_position_global(dom_id, current_position);
+            // Only where a selection from this anchor may go: selectable text,
+            // inside the anchor's editing host when it has one.
+            let extent = self.selection_extent(block);
+            let global_hit = self.hittest_text_block(dom_id, current_position, extent);
             if let Some((hit_block, hit_cursor)) = global_hit {
                 if hit_block != block
                     && self.set_cross_block_selection(block, anchor, hit_block, hit_cursor)

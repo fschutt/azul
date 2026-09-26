@@ -112,6 +112,14 @@ impl BlockFilter {
         selectable_only: false,
         within: None,
     };
+
+    /// Every block whose text a selection may cover: `user-select` allows it.
+    /// The rule the painter applies, so a selection never holds text it
+    /// does not highlight.
+    pub const SELECTABLE: Self = Self {
+        selectable_only: true,
+        within: None,
+    };
 }
 
 /// Whether `user-select` lets `block`'s text be selected - read off the
@@ -451,6 +459,19 @@ impl LayoutWindow {
                 !filter.selectable_only || block_is_selectable(&layout_result.styled_dom, *block)
             })
             .collect()
+    }
+
+    /// The blocks a selection anchored in `anchor` may extend over: selectable
+    /// text, and - when the anchor is inside an editing host - only that
+    /// host's (a drag that starts in a text field stays in it).
+    #[must_use]
+    pub fn selection_extent(&self, anchor: TextBlock) -> BlockFilter {
+        BlockFilter {
+            within: self
+                .find_contenteditable_host(anchor.container_dom_node())
+                .map(EditHost::dom_node),
+            ..BlockFilter::SELECTABLE
+        }
     }
 
     /// [`Self::text_block_roots`] without the layout nodes.
