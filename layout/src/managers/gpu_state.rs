@@ -2017,21 +2017,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn classic_vertical_scrollbar_overlay_check_reads_the_wrong_reserved_field() {
-        // BUG (characterisation). ScrollbarRequirements documents:
+    fn classic_vertical_scrollbar_is_measured_with_its_arrow_buttons() {
+        // ScrollbarRequirements documents:
         //   scrollbar_width  = layout-reserved width  for a *vertical*   scrollbar
         //   scrollbar_height = layout-reserved height for a *horizontal* scrollbar
-        // but the needs_vertical branch tests `scrollbar_height == 0.0` to decide
-        // whether the *vertical* bar is an overlay, and falls back to
-        // `scrollbar_height` for its width. The two fields are swapped.
-        //
-        // Repro: a classic, space-reserving vertical-only scrollbar --
+        // A classic, space-reserving vertical-only scrollbar --
         //   scrollbar_width  = 16.0  (16px reserved for the vertical bar)
         //   scrollbar_height =  0.0  (no horizontal bar -> nothing reserved)
-        //   visual_width_px  =  0.0  (unset, so the fallback actually runs)
-        // is misread as an overlay: button_size collapses to 0, so the usable
-        // track is 100 instead of 68 and the thumb travels to 68.0 rather than the
-        // correct 36.0 -- the thumb overshoots its own track by ~32px.
+        //   visual_width_px  =  0.0  (unset, so the width fallback runs)
+        // has 16px arrow buttons: the usable track is 100 - 2 x 16 = 68, the
+        // thumb max(68 x 0.1, 32) = 32, and at the bottom it travels to
+        // 68 - 32 = 36.0. Read as an overlay (the `scrollbar_height` check) it
+        // travelled to 68.0 and overshot its own track by 32px.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -2051,16 +2048,17 @@ mod autotest_generated {
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
-            (y - 68.0).abs() < 0.01,
-            "pinning the buggy value; 36.0 once the field swap is fixed, got {y}"
+            (y - 36.0).abs() < 0.01,
+            "a vertical-only classic bar must travel its usable track between the buttons \
+             (36.0), got {y}"
         );
     }
 
     #[test]
-    fn classic_horizontal_scrollbar_overlay_check_reads_the_wrong_reserved_field() {
-        // The mirror image of the above: the needs_horizontal branch tests
-        // `scrollbar_width == 0.0` (the *vertical* bar's reserved width) to decide
-        // whether the *horizontal* bar is an overlay.
+    fn classic_horizontal_scrollbar_is_measured_with_its_arrow_buttons() {
+        // The mirror image of the above: a horizontal-only classic bar reserves
+        // its HEIGHT (`scrollbar_height`) and has arrow buttons, whatever the
+        // vertical bar's `scrollbar_width` says.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -2080,8 +2078,9 @@ mod autotest_generated {
 
         let x = sole_added_x(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
-            (x - 68.0).abs() < 0.01,
-            "pinning the buggy value; 36.0 once the field swap is fixed, got {x}"
+            (x - 36.0).abs() < 0.01,
+            "a horizontal-only classic bar must travel its usable track between the buttons \
+             (36.0), got {x}"
         );
     }
 

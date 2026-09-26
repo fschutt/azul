@@ -130,6 +130,8 @@ mod fakefont;
 
 // --- the registered integration tests, alphabetically ---
 
+#[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
+mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
