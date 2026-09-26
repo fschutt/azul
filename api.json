@@ -47092,7 +47092,8 @@
                             "Clone",
                             "PartialEq",
                             "Copy",
-                            "Eq"
+                            "Eq",
+                            "Hash"
                         ],
                         "struct_fields": [
                             {
@@ -47157,6 +47158,15 @@
                                     "type": "OptionColorU"
                                 },
                                 "sidebar_selection": {
+                                    "type": "OptionColorU"
+                                },
+                                "control_background": {
+                                    "type": "OptionColorU"
+                                },
+                                "placeholder_text": {
+                                    "type": "OptionColorU"
+                                },
+                                "text_selection_background": {
                                     "type": "OptionColorU"
                                 }
                             }
@@ -47848,7 +47858,22 @@
                                 "ButtonText": {},
                                 "WindowBackground": {},
                                 "SelectionBackground": {},
-                                "SelectionText": {}
+                                "SelectionText": {},
+                                "SecondaryText": {},
+                                "TertiaryText": {},
+                                "DisabledText": {},
+                                "UnderPageBackground": {},
+                                "SelectionBackgroundInactive": {},
+                                "SelectionTextInactive": {},
+                                "Link": {},
+                                "Separator": {},
+                                "Grid": {},
+                                "FindHighlight": {},
+                                "SidebarBackground": {},
+                                "SidebarSelection": {},
+                                "ControlBackground": {},
+                                "PlaceholderText": {},
+                                "TextSelectionBackground": {}
                             }
                         ],
                         "repr": "C"
