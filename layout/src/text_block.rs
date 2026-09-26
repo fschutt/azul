@@ -341,8 +341,13 @@ impl LayoutWindow {
     /// The caret's text block, when it lies inside `scope`: its ELEMENT owns
     /// the runs the caret's cluster ids index, so typing, Backspace/Delete,
     /// paste and the undo snapshots all splice that element's content.
-    /// Otherwise `scope` itself (a flat editable is its own block). An
-    /// anonymous block has no element; there too `scope` stays.
+    /// Otherwise `scope` itself (a flat editable is its own block).
+    ///
+    /// `None` - no edit - for a caret in an ANONYMOUS block inside `scope`:
+    /// its text is its container's inline run, not any node's content, and
+    /// falling back to `scope` spliced the scope's whole flattened text at
+    /// the caret and shaped it into the first block below (the paragraph
+    /// beside the loose text).
     ///
     /// Keying an edit to the focused host stored one flattened blob of every
     /// paragraph, spliced at per-block cursor indices; keying it to the
@@ -352,15 +357,14 @@ impl LayoutWindow {
     #[must_use]
     pub fn edit_element(&self, scope: DomNodeId, caret: Option<TextBlock>) -> Option<NodeId> {
         let scope_node = scope.node.into_crate_internal()?;
-        Some(
-            caret
-                .filter(|block| {
-                    block.dom() == scope.dom
-                        && self.node_is_self_or_descendant(scope.dom, block.first_node(), scope_node)
-                })
-                .and_then(|block| block.element())
-                .unwrap_or(scope_node),
-        )
+        let in_scope = caret.filter(|block| {
+            block.dom() == scope.dom
+                && self.node_is_self_or_descendant(scope.dom, block.first_node(), scope_node)
+        });
+        match in_scope {
+            Some(block) => block.element(),
+            None => Some(scope_node),
+        }
     }
 
     /// THE resolver: the text block that holds `node`'s text.

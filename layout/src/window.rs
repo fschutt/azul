@@ -17040,9 +17040,10 @@ impl LayoutWindow {
         // stays correct either way: `collect_text_from_children` composes
         // children through the per-node overlay.
         let session_block = self.text_edit_manager.get_editing_block();
-        let node_id = self
-            .edit_element(changeset.node, session_block)
-            .unwrap_or(node_id);
+        let Some(node_id) = self.edit_element(changeset.node, session_block) else {
+            // A caret in an anonymous block: no element to key the edit to.
+            return empty;
+        };
 
         // In the carets' numbering (behind a list item's marker).
         let (mut content, generated) = self.caret_block_content(dom_id, node_id);
