@@ -34,7 +34,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{callbacks::CallbackInfo, widgets::themes::system_palette};
 
 /// Card border colour (#dee2e6).
 const CARD_BORDER_COLOR: ColorU = ColorU {
@@ -86,6 +86,9 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
         LayoutFlexDirection::Column,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(CARD_BG)),
+    // Dark theme: the card is a panel on the desktop's window surface, so the
+    // application text inside it (which inherits the themed ink) stays legible.
+    system_palette::DARK_WINDOW_BACKGROUND,
     // padding: 12px
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         12,
@@ -144,6 +147,11 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
             inner: CARD_BORDER_COLOR,
         },
     )),
+    // Dark theme: the outline is the desktop's separator.
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // border-radius: 8px
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(8),
@@ -388,6 +396,17 @@ mod autotest_generated {
         dom.root
             .style
             .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// The node's LIGHT face: its declarations that apply in every theme and
+    /// state (the dark-theme twins are left out).
+    fn unconditional_props(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1069,7 +1088,8 @@ mod autotest_generated {
 
     #[test]
     fn dom_carries_the_static_card_geometry() {
-        let props = inline_props(&Card::default().dom());
+        // The light face; the dark-theme twins are pinned separately below.
+        let props = unconditional_props(&Card::default().dom());
 
         let mut paddings = Vec::new();
         let mut border_widths = Vec::new();
@@ -1189,6 +1209,31 @@ mod autotest_generated {
             }
             other => panic!("the card background must be a flat colour, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn dom_gives_the_card_a_dark_theme_surface_and_outline() {
+        // Without these the card stays a white box on a dark page, and the
+        // themed (light) text inside it becomes unreadable.
+        let dark = crate::widgets::theme_probe::dark(&Card::default().dom());
+        assert!(
+            dark.iter()
+                .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+            "the card has no dark-theme surface"
+        );
+        let outlines = dark
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p,
+                    CssProperty::BorderTopColor(_)
+                        | CssProperty::BorderBottomColor(_)
+                        | CssProperty::BorderLeftColor(_)
+                        | CssProperty::BorderRightColor(_)
+                )
+            })
+            .count();
+        assert_eq!(outlines, 4, "every edge needs its dark-theme colour");
     }
 
     #[test]

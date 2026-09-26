@@ -25,8 +25,15 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::flat,
+    widgets::themes::{flat, system_palette},
 };
+
+/// Dark theme: a tab's face is the desktop's recessed surface, one step away
+/// from the content panel it opens onto (`system:window-background`) - the
+/// way the light theme's grey strip sits apart from the white panel.
+const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark_theme(
+    CssProperty::const_background_content(system_palette::UNDER_PAGE_BACKGROUND),
+);
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -72,41 +79,6 @@ const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] 
 ];
 
 const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    //
-    // Thirteen hover rules and their thirteen dark twins, declared in the
-    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
-    // of each pair needs a palette this file cannot see. Declared here they
-    // could only ever name the light-mode blue, which is how a hovered tab
-    // kept its light ring and fill on a dark surface. The widths and styles
-    // are part of the set on purpose: they draw back the edge a seam tab
-    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
-    flat::TAB_HOVER_BORDER_TOP_STYLE,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
-    flat::TAB_HOVER_BORDER_TOP_COLOR,
-    flat::TAB_HOVER_BG,
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
-    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-noleftborder
     CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::None,
@@ -238,6 +210,51 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    // Dark theme, at rest: the tab's face and outline follow the desktop.
+    // Declared AFTER the light values they twin (a twin before its light
+    // value is dead) and BEFORE the hover rules below: a `dark_theme`
+    // declaration matches in every pseudo-state, so after the dark hover
+    // twins it would shadow them and a hovered tab would not light up.
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    TAB_FACE_DARK,
+    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
 ];
 const CSS_MATCH_13824480602841492081: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13824480602841492081_PROPERTIES);
@@ -390,6 +407,13 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    // Dark theme: the active tab's face and outline follow the desktop. Last,
+    // after both of the light backgrounds this style (re)declares.
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    TAB_FACE_DARK,
 ];
 const CSS_MATCH_14575853790110873394: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_14575853790110873394_PROPERTIES);
@@ -424,6 +448,7 @@ const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = 
             },
         }),
     )),
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 const CSS_MATCH_17290739305197504468: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17290739305197504468_PROPERTIES);
@@ -523,6 +548,12 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
         )),
     )),
+    // Dark theme: the panel the active tab opens onto is the desktop's window
+    // surface, outlined with its separator (the top edge stays open).
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_WINDOW_BACKGROUND,
 ];
 const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES);
@@ -554,46 +585,12 @@ const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &
             },
         }),
     )),
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_3088386549906605418_PROPERTIES);
 
 const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    //
-    // Thirteen hover rules and their thirteen dark twins, declared in the
-    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
-    // of each pair needs a palette this file cannot see. Declared here they
-    // could only ever name the light-mode blue, which is how a hovered tab
-    // kept its light ring and fill on a dark surface. The widths and styles
-    // are part of the set on purpose: they draw back the edge a seam tab
-    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
-    flat::TAB_HOVER_BORDER_TOP_STYLE,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
-    flat::TAB_HOVER_BORDER_TOP_COLOR,
-    flat::TAB_HOVER_BG,
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
-    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-norightborder
     CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::None,
@@ -725,6 +722,51 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    // Dark theme, at rest: the tab's face and outline follow the desktop.
+    // Declared AFTER the light values they twin (a twin before its light
+    // value is dead) and BEFORE the hover rules below: a `dark_theme`
+    // declaration matches in every pseudo-state, so after the dark hover
+    // twins it would shadow them and a hovered tab would not light up.
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    TAB_FACE_DARK,
+    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
 ];
 const CSS_MATCH_4415083954137121609: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4415083954137121609_PROPERTIES);
@@ -796,6 +838,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[CssPropertyWithCon
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
         )),
     )),
+    system_palette::DARK_WINDOW_BACKGROUND,
 ];
 const CSS_MATCH_18014909903571752977_NO_PADDING: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(
@@ -818,41 +861,6 @@ const CSS_MATCH_4738503469417034630_NO_PADDING: CssPropertyWithConditionsVec =
 // -- REGULAR_INACTIVE_TAB
 
 const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    //
-    // Thirteen hover rules and their thirteen dark twins, declared in the
-    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
-    // of each pair needs a palette this file cannot see. Declared here they
-    // could only ever name the light-mode blue, which is how a hovered tab
-    // kept its light ring and fill on a dark surface. The widths and styles
-    // are part of the set on purpose: they draw back the edge a seam tab
-    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
-    flat::TAB_HOVER_BORDER_TOP_STYLE,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
-    flat::TAB_HOVER_BORDER_TOP_COLOR,
-    flat::TAB_HOVER_BG,
-    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
-    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
-    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
-    flat::TAB_HOVER_BG_DARK,
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -974,6 +982,51 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    // Dark theme, at rest: the tab's face and outline follow the desktop.
+    // Declared AFTER the light values they twin (a twin before its light
+    // value is dead) and BEFORE the hover rules below: a `dark_theme`
+    // declaration matches in every pseudo-state, so after the dark hover
+    // twins it would shadow them and a hovered tab would not light up.
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    TAB_FACE_DARK,
+    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
+    //
+    // Thirteen hover rules and their thirteen dark twins, declared in the
+    // theme module — `themes::flat::TAB_HOVER_STATES` — because the dark half
+    // of each pair needs a palette this file cannot see. Declared here they
+    // could only ever name the light-mode blue, which is how a hovered tab
+    // kept its light ring and fill on a dark surface. The widths and styles
+    // are part of the set on purpose: they draw back the edge a seam tab
+    // (`-noleftborder` / `-norightborder`) has nulled, so the ring is whole.
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE,
+    flat::TAB_HOVER_BORDER_TOP_STYLE,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR,
+    flat::TAB_HOVER_BORDER_TOP_COLOR,
+    flat::TAB_HOVER_BG,
+    flat::TAB_HOVER_BORDER_BOTTOM_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_TOP_WIDTH_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_TOP_STYLE_DARK,
+    flat::TAB_HOVER_BORDER_BOTTOM_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_LEFT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_RIGHT_COLOR_DARK,
+    flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
+    flat::TAB_HOVER_BG_DARK,
 ];
 const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
@@ -1473,6 +1526,11 @@ mod autotest_generated {
             && conds
                 .iter()
                 .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
+    }
+
+    /// Dark alone, no pseudo-state — a resting colour's dark-theme twin.
+    fn is_dark_resting(conds: &[DynamicSelector]) -> bool {
+        matches!(conds, [DynamicSelector::Theme(ThemeCondition::Dark)])
     }
 
     /// The style vec the widget must pair with a given class combination.
@@ -2230,7 +2288,8 @@ mod autotest_generated {
             "the generic p block (21px) shadows it under last-wins"
         );
 
-        let backgrounds = decls_where(&CSS_MATCH_14575853790110873394, |p| {
+        // The light face only: the dark-theme twin comes after both.
+        let backgrounds = plain_decls_where(&CSS_MATCH_14575853790110873394, |p| {
             matches!(p, CssProperty::BackgroundContent(_))
         });
         assert_eq!(backgrounds.len(), 2);
@@ -2300,6 +2359,11 @@ mod autotest_generated {
                 .iter()
                 .filter(|p| is_dark_hover(p.apply_if.as_ref()))
                 .count();
+            let dark_resting = style
+                .as_ref()
+                .iter()
+                .filter(|p| is_dark_resting(p.apply_if.as_ref()))
+                .count();
             assert_eq!(
                 hover_only, 13,
                 "each inactive-tab style carries exactly the 13 :hover declarations"
@@ -2309,8 +2373,12 @@ mod autotest_generated {
                 "...and one dark twin per :hover declaration, from `themes::flat`"
             );
             assert_eq!(
+                dark_resting, 5,
+                "...and the resting face's dark twins: four edge colours and the fill"
+            );
+            assert_eq!(
                 conditional,
-                hover_only + dark_hover,
+                hover_only + dark_hover + dark_resting,
                 "nothing else in an inactive-tab style is conditional"
             );
         }
@@ -2329,8 +2397,8 @@ mod autotest_generated {
                 style
                     .as_ref()
                     .iter()
-                    .all(|p| p.apply_if.as_ref().is_empty()),
-                "this style must apply unconditionally"
+                    .all(|p| p.apply_if.as_ref().is_empty() || is_dark_resting(p.apply_if.as_ref())),
+                "this style must apply unconditionally, apart from its dark-theme colours"
             );
         }
     }
@@ -2428,12 +2496,24 @@ mod autotest_generated {
                 "tab {i} {cls:?}: the dark twins repeat the light colours"
             );
 
-            // The twins are gated on dark AND hover. A rule gated on dark alone
-            // would restyle the tab at rest, which is not what this section does.
+            // The hover twins are gated on dark AND hover. The only declarations
+            // gated on dark alone are the resting face's colours (fill + four
+            // edges), which is what makes the tab follow the theme at rest.
+            let resting = gated(node, is_dark_resting);
+            assert_eq!(
+                resting.len(),
+                5,
+                "tab {i} {cls:?}: the resting face needs its dark fill and four edge colours"
+            );
+            assert!(
+                resting.iter().all(is_colour),
+                "tab {i} {cls:?}: a resting dark twin restyles something other than a colour"
+            );
             assert_eq!(
                 theme_probe::dark(node).len(),
-                dark.len(),
-                "tab {i} {cls:?}: every dark-mode declaration on a tab is a hover twin"
+                dark.len() + resting.len(),
+                "tab {i} {cls:?}: every dark-mode declaration on a tab is a hover twin or a \
+                 resting colour"
             );
         }
     }

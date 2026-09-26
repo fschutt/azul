@@ -68,7 +68,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static MODAL_BACKDROP_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-modal"))];
@@ -297,6 +300,12 @@ static MODAL_PANEL_STYLE: &[CssPropertyWithConditions] = &[
             inner: PANEL_BORDER_COLOR,
         },
     )),
+    // Dark theme: the dialog is a panel on the desktop's window surface,
+    // outlined with its separator.
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // border-radius: 8px
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(PANEL_RADIUS),
@@ -317,6 +326,7 @@ static MODAL_PANEL_STYLE: &[CssPropertyWithConditions] = &[
             PANEL_BG_COLOR,
         )]),
     )),
+    system_palette::DARK_WINDOW_BACKGROUND,
 ];
 
 /// Title style: larger, bold-ish dark text with a bottom gap; right padding keeps
@@ -327,6 +337,7 @@ static MODAL_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TITLE_COLOR,
     })),
+    system_palette::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(24),
@@ -347,6 +358,7 @@ static MODAL_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: CLOSE_COLOR,
     })),
+    system_palette::DARK_SECONDARY_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
@@ -1694,7 +1706,14 @@ mod autotest_generated {
             ("close", MODAL_CLOSE_STYLE),
             ("content", MODAL_CONTENT_STYLE),
         ] {
-            let types = property_types(&CssPropertyWithConditionsVec::from_const_slice(style));
+            // The light face: a dark-theme twin re-declares a colour under a
+            // theme condition, which is not a duplicate.
+            let light: Vec<CssPropertyWithConditions> = style
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .cloned()
+                .collect();
+            let types = property_types(&CssPropertyWithConditionsVec::from_vec(light));
             for (i, a) in types.iter().enumerate() {
                 for b in &types[i + 1..] {
                     assert_ne!(a, b, "{name}: the same property is declared twice");
@@ -1702,8 +1721,9 @@ mod autotest_generated {
             }
             for p in style {
                 assert!(
-                    p.apply_if.as_ref().is_empty(),
-                    "{name}: {:?} must be unconditional",
+                    p.apply_if.as_ref().is_empty()
+                        || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty()),
+                    "{name}: {:?} must be unconditional or a dark-theme twin",
                     p.property
                 );
             }

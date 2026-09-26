@@ -10,7 +10,7 @@ use azul_css::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::ColorU,
+        basic::{color::SystemColorRef, ColorU},
         layout::{
             LayoutAlignSelf, LayoutDisplay, LayoutFlexGrow, LayoutHeight, LayoutMarginBottom,
             LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutWidth,
@@ -57,6 +57,13 @@ const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Co
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
 
+/// The rule in the dark theme: the desktop's separator colour, the same slot
+/// every other widget draws its dividers and outlines with.
+const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::SystemColor(SystemColorRef::Separator)];
+const DIVIDER_DARK_BG: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);
+
 static DIVIDER_STYLE_HORIZONTAL: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(1))),
@@ -68,6 +75,7 @@ static DIVIDER_STYLE_HORIZONTAL: &[CssPropertyWithConditions] = &[
         LayoutMarginBottom::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
 static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
@@ -83,6 +91,7 @@ static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
         LayoutMarginRight::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
 impl Divider {
@@ -194,8 +203,9 @@ mod autotest_generated {
     const ALL_ORIENTATIONS: [DividerOrientation; 2] =
         [DividerOrientation::Horizontal, DividerOrientation::Vertical];
 
-    /// The number of declarations each built-in style is expected to carry.
-    const DECL_COUNT: usize = 7;
+    /// The number of declarations each built-in style is expected to carry:
+    /// seven for the light rule plus its dark-theme colour.
+    const DECL_COUNT: usize = 8;
 
     /// The declared properties of a style vec, in declaration order.
     fn properties(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
@@ -568,20 +578,31 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_or_the_dark_theme_colour() {
         // A divider is stateless — a declaration gated on `:hover`/`:active`
-        // would simply never paint.
+        // would simply never paint. The one conditional declaration is the
+        // rule's dark-theme colour, gated on the theme alone.
         for o in ALL_ORIENTATIONS {
+            let mut dark = 0;
             for p in Divider::create_with_orientation(o)
                 .resolved_divider_style()
                 .as_ref()
             {
+                if p.apply_if.as_ref().is_empty() {
+                    continue;
+                }
                 assert!(
-                    p.apply_if.as_ref().is_empty(),
+                    p.is_dark_twin() && p.pseudo_state_conditions().is_empty(),
                     "{o:?}: {:?} is conditional on a stateless widget",
                     p.property
                 );
+                assert!(
+                    matches!(p.property, CssProperty::BackgroundContent(_)),
+                    "{o:?}: only the rule colour has a dark-theme value"
+                );
+                dark += 1;
             }
+            assert_eq!(dark, 1, "{o:?}: the rule needs exactly one dark-theme colour");
         }
     }
 
@@ -590,7 +611,15 @@ mod autotest_generated {
         // A duplicated declaration is a last-one-wins ambiguity: two heights or
         // two backgrounds would make one of them silently dead.
         for o in ALL_ORIENTATIONS {
-            let props = properties(&Divider::create_with_orientation(o).resolved_divider_style());
+            // The light rule; its dark-theme colour re-declares the background
+            // under a theme condition, which is not a duplicate.
+            let props: Vec<CssProperty> = Divider::create_with_orientation(o)
+                .resolved_divider_style()
+                .as_ref()
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .map(|p| p.property.clone())
+                .collect();
             let mut seen = HashSet::new();
             for p in &props {
                 assert!(

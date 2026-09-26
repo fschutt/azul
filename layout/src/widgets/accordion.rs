@@ -56,7 +56,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static ACCORDION_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-accordion"))];
@@ -201,6 +204,9 @@ static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    // Dark theme: the titles and every section body inherit this, so the
+    // application content inside the accordion follows the theme too.
+    system_palette::DARK_TEXT,
     // border: 1px solid #dee2e6
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
@@ -246,6 +252,10 @@ static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // rounded corners, clipping the per-section separators
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
@@ -283,6 +293,7 @@ static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 
 static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
@@ -305,6 +316,8 @@ static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(HEADER_BG_VEC)),
+    // Dark theme: the header bar is part of the panel, not a light strip.
+    system_palette::DARK_WINDOW_BACKGROUND,
 ];
 
 static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[

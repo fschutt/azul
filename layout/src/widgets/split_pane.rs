@@ -186,6 +186,14 @@ const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Co
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
 
+/// The divider in the dark theme: the desktop's separator colour, the slot
+/// every other widget draws its dividers with.
+const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+    azul_css::props::basic::color::SystemColorRef::Separator,
+)];
+const DIVIDER_DARK_BG: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);
+
 /// `flex-grow: v` as a runtime `CssProperty` (floating-point ratio).
 fn flex_grow_prop(v: f32) -> CssProperty {
     CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow {
@@ -278,6 +286,9 @@ fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(size_prop),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+        CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+            DIVIDER_DARK_BG,
+        )),
     ])
 }
 
@@ -1371,7 +1382,13 @@ mod autotest_generated {
     fn divider_style_never_grows_or_shrinks_and_is_visible() {
         for dir in BOTH_DIRECTIONS {
             let s = divider_style(dir);
-            assert_eq!(properties(&s).len(), 5, "{dir:?}");
+            // Five for the light bar, plus its dark-theme colour.
+            assert_eq!(properties(&s).len(), 6, "{dir:?}");
+            assert_eq!(
+                s.as_ref().iter().filter(|p| p.is_dark_twin()).count(),
+                1,
+                "{dir:?}: the bar needs exactly one dark-theme colour"
+            );
             // A grow/shrink of anything but 0 would let the divider eat the
             // panes' space and silently change the split ratio.
             assert_eq!(grow(&s), Some(0.0), "{dir:?}");

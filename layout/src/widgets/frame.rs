@@ -70,6 +70,9 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
             inner: BORDER_COLOR,
         }),
     )),
+    // Dark theme: the group-box lines are the desktop's separator.
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before
     CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
         LayoutWidth::Px(PixelValue::const_px(5)),
@@ -213,6 +216,8 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
             inner: BORDER_COLOR,
         }),
     )),
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-after
     CssPropertyWithConditions::simple(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
@@ -321,6 +326,10 @@ const CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         }),
     )),
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
 ];
 
 /// A titled border container widget, similar to an HTML `<fieldset>` or
@@ -1309,7 +1318,15 @@ mod autotest_generated {
         // wins depends on cascade order, so the widget would style differently per node.
         let dom = frame("t", Dom::create_div()).with_flex_grow(1.0).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
-            let props = inline_props(node);
+            // The light face: a dark-theme twin re-declares its colour under a
+            // theme condition, which is not a duplicate.
+            let props: Vec<CssProperty> = node
+                .root
+                .style
+                .iter_inline_properties()
+                .filter(|(_, conds)| conds.as_ref().is_empty())
+                .map(|(p, _)| p.clone())
+                .collect();
             let mut seen = HashSet::new();
             for p in &props {
                 assert!(
@@ -1322,14 +1339,23 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_or_a_dark_theme_colour() {
         // The frame chrome has no :hover/@media/@os variants — a stray condition would
-        // make part of the border render only in one state.
+        // make part of the border render only in one state. The only conditional
+        // declarations are the border colours' dark-theme twins.
         let dom = frame("t", Dom::create_div()).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
             for (p, conditions) in node.root.style.iter_inline_properties() {
+                if conditions.as_ref().is_empty() {
+                    continue;
+                }
                 assert!(
-                    conditions.as_ref().is_empty(),
+                    matches!(
+                        conditions.as_ref(),
+                        [azul_css::dynamic_selector::DynamicSelector::Theme(
+                            azul_css::dynamic_selector::ThemeCondition::Dark
+                        )]
+                    ) && border_color_of(p).is_some(),
                     "node {i} gates {:?} behind a dynamic selector",
                     p.get_type(),
                 );
@@ -1358,9 +1384,13 @@ mod autotest_generated {
     fn every_border_in_the_frame_uses_the_one_border_colour() {
         let dom = frame("t", Dom::create_div()).dom();
         let mut seen = 0_usize;
+        let mut dark = 0_usize;
         for node in all_nodes(&dom) {
-            for p in inline_props(node) {
-                if let Some(c) = border_color_of(&p) {
+            for (p, conds) in node.root.style.iter_inline_properties() {
+                let Some(c) = border_color_of(p) else {
+                    continue;
+                };
+                if conds.as_ref().is_empty() {
                     assert_eq!(
                         c,
                         BORDER_COLOR,
@@ -1368,6 +1398,15 @@ mod autotest_generated {
                         p.get_type()
                     );
                     seen += 1;
+                } else {
+                    // Dark theme: every line is the desktop's separator.
+                    assert_eq!(
+                        c,
+                        crate::widgets::themes::system_palette::SEPARATOR,
+                        "{:?}: the dark-theme line is not the separator",
+                        p.get_type()
+                    );
+                    dark += 1;
                 }
             }
         }
@@ -1377,6 +1416,7 @@ mod autotest_generated {
             seen, 8,
             "the number of coloured borders in the frame changed"
         );
+        assert_eq!(dark, seen, "every coloured border needs its dark-theme twin");
     }
 
     #[test]

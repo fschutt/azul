@@ -276,6 +276,14 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
             StyleBorderBottomRightRadius::const_px(CONTENT_RADIUS),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
+        // Dark theme: the panel floats on the desktop's window surface with
+        // its separator as the outline, so the content inside it - which
+        // inherits the themed ink - stays legible.
+        crate::widgets::themes::system_palette::DARK_WINDOW_BACKGROUND,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     ])
 }
 
@@ -782,7 +790,14 @@ mod autotest_generated {
     #[test]
     fn content_style_has_no_duplicate_property_types() {
         for open in [false, true] {
-            let mut types = prop_types(&build_content_style(open));
+            // The light face: a dark-theme twin re-declares a colour under a
+            // theme condition, which is not a duplicate.
+            let mut types: Vec<CssPropertyType> = build_content_style(open)
+                .as_ref()
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .map(|p| p.property.get_type())
+                .collect();
             let declared = types.len();
             assert!(declared > 0, "the panel style must not be empty");
             types.sort_unstable();
@@ -797,7 +812,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn content_style_is_pure_and_unconditional() {
+    fn content_style_is_pure_and_unconditional_apart_from_its_dark_theme_colours() {
         for open in [false, true] {
             let a = build_content_style(open);
             let b = build_content_style(open);
@@ -806,9 +821,17 @@ mod autotest_generated {
                 "build_content_style must be a pure function of `open`"
             );
             assert!(
-                a.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
+                a.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
                 "the panel style must apply unconditionally — a stray condition would leave the \
                  panel unstyled (open = {open})"
+            );
+            // ...and it does carry the dark-theme surface: a white panel on a
+            // dark page would hide the themed text inside it.
+            assert!(
+                a.as_ref().iter().any(|p| p.is_dark_twin()
+                    && matches!(p.property, CssProperty::BackgroundContent(_))),
+                "the panel has no dark-theme surface (open = {open})"
             );
         }
     }
