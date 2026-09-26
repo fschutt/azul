@@ -228,6 +228,52 @@ impl TextTarget {
             .hittest_point(point)
             .or_else(|| self.blank_line_caret())
     }
+
+    /// The caret at the flat BYTE offset `offset` into the block's text - the
+    /// one converter the byte-offset protocols (the IME's `selectedRange` /
+    /// `firstRectForCharacterRange:`, an accessibility `SetTextSelection`)
+    /// go through, so they cannot drift apart. The dense view when it is
+    /// retained, else the same walk over the materialized layout's clusters
+    /// (the two are pinned equal by `dense_cursor_helpers_agree_with_the_sparse_walks`);
+    /// on a blank editable line, the one position it owns.
+    #[must_use]
+    pub fn caret_at_byte(&self, offset: usize) -> Option<TextCursor> {
+        let offset = u32::try_from(offset).unwrap_or(u32::MAX);
+        self.dense
+            .as_ref()
+            .and_then(|dense| dense.byte_offset_to_cursor(offset))
+            .or_else(|| caret_at_byte_in_layout(&self.layout, offset))
+            .or_else(|| self.blank_line_caret())
+    }
+}
+
+/// [`TextTarget::caret_at_byte`] over the sparse layout: clusters in item
+/// order, each contributing its text's byte length; the first cluster whose
+/// span contains `offset` wins, past the end falls to the last cluster.
+/// `None` for a layout with no cluster.
+fn caret_at_byte_in_layout(layout: &UnifiedLayout, offset: u32) -> Option<TextCursor> {
+    let mut clusters = layout.items.iter().filter_map(|item| match &item.item {
+        ShapedItem::Cluster(cluster) => Some(cluster),
+        _ => None,
+    });
+    let trailing = |cluster: &crate::text3::cache::ShapedCluster| TextCursor {
+        cluster_id: cluster.source_cluster_id,
+        affinity: CursorAffinity::Trailing,
+    };
+    if offset == 0 {
+        return clusters.next().map(trailing);
+    }
+    let mut start = 0u32;
+    let mut last = None;
+    for cluster in clusters {
+        let end = start + u32::try_from(cluster.text().len()).unwrap_or(u32::MAX);
+        if offset >= start && offset <= end {
+            return Some(trailing(cluster));
+        }
+        start = end;
+        last = Some(cluster);
+    }
+    last.map(trailing)
 }
 
 impl LayoutWindow {

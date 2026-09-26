@@ -13071,22 +13071,15 @@ impl LayoutWindow {
     /// rather than on the right character, and a loupe pointed at the middle
     /// of the field.
     ///
-    /// Nothing new had to be computed for it. `byte_offset_to_cursor` and
-    /// `get_cursor_rect` both already existed - they were simply never joined
-    /// up, and `get_focused_cursor_rect` above is the same two calls for the
-    /// one offset the engine happened to be holding.
+    /// Nothing new had to be computed for it: the offset becomes a caret by
+    /// the one converter every byte-offset protocol uses
+    /// ([`TextTarget::caret_at_byte`](crate::text_block::TextTarget::caret_at_byte)),
+    /// and the caret a rect by [`Self::cursor_rect_for`].
     #[must_use]
     pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
-        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
-        let (inline_layout, origin) = self.block_inline_geometry(session_block)?;
-        let cursor = Self::byte_offset_to_cursor(
-            &inline_layout,
-            u32::try_from(byte_offset).unwrap_or(u32::MAX),
-        );
-        let mut rect = inline_layout.get_cursor_rect(&cursor)?;
-        rect.origin.x += origin.x;
-        rect.origin.y += origin.y;
-        Some(rect)
+        let target = self.session_text_target()?;
+        let cursor = target.caret_at_byte(byte_offset)?;
+        self.cursor_rect_for(target.block, &cursor)
     }
 
     /// The rect covering a byte RANGE in the focused editable, in absolute
@@ -13498,10 +13491,10 @@ impl LayoutWindow {
     /// Set the focused editable's selection from a BYTE RANGE (10b-i-b).
     ///
     /// The seam whose absence made `setSelectedTextRange:` a no-op, so a
-    /// dragged selection handle sprang back. `byte_offset_to_cursor` resolves
-    /// each end against the SHAPED LAYOUT rather than by counting characters,
-    /// which is what keeps an offset inside a multi-byte grapheme from landing
-    /// between its bytes.
+    /// dragged selection handle sprang back. `TextTarget::caret_at_byte`
+    /// resolves each end against the SHAPED LAYOUT rather than by counting
+    /// characters, which is what keeps an offset inside a multi-byte grapheme
+    /// from landing between its bytes.
     ///
     /// Returns `false` when there is no live editable to select in - the
     /// caller then leaves the platform's own idea of the selection alone
@@ -13509,10 +13502,7 @@ impl LayoutWindow {
     pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
         use azul_core::selection::SelectionRange;
 
-        let Some(session_block) = self.text_edit_manager.get_editing_block() else {
-            return false;
-        };
-        let Some((inline_layout, _)) = self.block_inline_geometry(session_block) else {
+        let Some(target) = self.session_text_target() else {
             return false;
         };
         let (lo, hi) = if start <= end {
@@ -13520,10 +13510,9 @@ impl LayoutWindow {
         } else {
             (end, start)
         };
-        let from =
-            Self::byte_offset_to_cursor(&inline_layout, u32::try_from(lo).unwrap_or(u32::MAX));
-        let to = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(hi).unwrap_or(u32::MAX));
-        drop(inline_layout);
+        let (Some(from), Some(to)) = (target.caret_at_byte(lo), target.caret_at_byte(hi)) else {
+            return false;
+        };
 
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
             return false;
@@ -16762,62 +16751,23 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetTextSelection(selection) => {
-                // The text block the node's text is in, and its layout.
-                let block = self.text_block_of(DomNodeId {
+                // The text block the node's text is in; its offsets become
+                // carets by the converter every byte-offset protocol uses.
+                let target = self.text_target_at_node(DomNodeId {
                     dom: dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                 });
-                let text_layout = block.and_then(|b| self.block_inline_layout(b));
-
-                if let Some(inline_layout) = text_layout {
-                    // (d4b) Dense-first byte→cursor resolution, sparse
-                    // fallback — the dense twin is pinned against the
-                    // sparse walk at every boundary offset (equivalence
-                    // gate dense_cursor_helpers_agree_with_the_sparse_walks).
-                    let dense = block.and_then(|b| {
-                        let (layout_result, root) = self.block_geometry_node(b)?;
-                        layout_result
-                            .layout_tree
-                            .get_dense_for_node(root.index())
-                            .cloned()
-                    });
-                    let start_cursor = dense
-                        .as_ref()
-                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_start as u32))
-                        .unwrap_or_else(|| {
-                            Self::byte_offset_to_cursor(
-                                inline_layout.as_ref(),
-                                selection.selection_start as u32,
-                            )
-                        });
-                    let end_cursor = dense
-                        .as_ref()
-                        .and_then(|d| d.byte_offset_to_cursor(selection.selection_end as u32))
-                        .unwrap_or_else(|| {
-                            Self::byte_offset_to_cursor(
-                                inline_layout.as_ref(),
-                                selection.selection_end as u32,
-                            )
-                        });
-
-                    {
-                        let (start, end) = (start_cursor, end_cursor);
-                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-                        let dom_node_id = DomNodeId {
-                            dom: dom_id,
-                            node: hierarchy_id,
-                        };
-
-                        // A collapsed selection (start == end) and a ranged one
-                        // both place the cursor at the selection start.
-                        let _ = end;
-                        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-                            mc.set_single_cursor(start);
-                        }
+                let start = target
+                    .as_ref()
+                    .and_then(|t| t.caret_at_byte(selection.selection_start));
+                if let Some(start) = start {
+                    // A collapsed selection (start == end) and a ranged one
+                    // both place the cursor at the selection start.
+                    if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                        mc.set_single_cursor(start);
                     }
-                } else {
-                    // No text layout available for node - silently ignore
                 }
+                // No laid-out text for the node: silently ignored.
             }
 
             // Tooltip actions
@@ -19448,85 +19398,6 @@ impl LayoutWindow {
                 height: size.height as isize,
             },
         })
-    }
-
-    /// Convert a byte offset in the text to a `TextCursor` position
-    ///
-    /// This is used for accessibility `SetTextSelection` action, which provides
-    /// byte offsets rather than grapheme cluster IDs.
-    ///
-    /// # Arguments
-    ///
-    /// * `text_layout` - The text layout containing the shaped runs
-    /// * `byte_offset` - The byte offset in the UTF-8 text
-    ///
-    /// # Returns
-    ///
-    /// A `TextCursor` positioned at the given byte offset, or None if the offset
-    /// is out of bounds.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn byte_offset_to_cursor(text_layout: &UnifiedLayout, byte_offset: u32) -> TextCursor {
-        // Handle offset 0 as special case (start of text)
-        if byte_offset == 0 {
-            // Find first cluster in items
-            for item in &text_layout.items {
-                if let ShapedItem::Cluster(cluster) = &item.item {
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    };
-                }
-            }
-            // No clusters found - return default
-            return TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: 0,
-                    start_byte_in_run: 0,
-                },
-                affinity: CursorAffinity::Trailing,
-            };
-        }
-
-        // Iterate through items to find which cluster contains this byte offset
-        let mut current_byte_offset = 0u32;
-
-        for item in &text_layout.items {
-            if let ShapedItem::Cluster(cluster) = &item.item {
-                // Calculate byte length of this cluster from its text
-                let cluster_byte_length = cluster.text().len() as u32;
-                let cluster_end_byte = current_byte_offset + cluster_byte_length;
-
-                // Check if our target byte offset falls within this cluster
-                if byte_offset >= current_byte_offset && byte_offset <= cluster_end_byte {
-                    // Found the cluster
-                    return TextCursor {
-                        cluster_id: cluster.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    };
-                }
-
-                current_byte_offset = cluster_end_byte;
-            }
-        }
-
-        // Offset is beyond the end of all text - return cursor at end of last cluster
-        for item in text_layout.items.iter().rev() {
-            if let ShapedItem::Cluster(cluster) = &item.item {
-                return TextCursor {
-                    cluster_id: cluster.source_cluster_id,
-                    affinity: CursorAffinity::Trailing,
-                };
-            }
-        }
-
-        // No clusters at all - return default position
-        TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Trailing,
-        }
     }
 
     /// Edit the text content of a node (used for text input actions)
