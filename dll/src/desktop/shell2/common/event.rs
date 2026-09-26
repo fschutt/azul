@@ -4164,10 +4164,20 @@ pub trait PlatformWindow {
             let Some(lw) = self.get_layout_window_mut() else {
                 return ProcessEventResult::DoNothing;
             };
+            let now = azul_core::task::Instant::now();
+            // Not every pass is a frame. The marker counts as fired whenever
+            // it is registered, and X11 and Wayland run this pass on every
+            // loop turn, not only when the driver's timerfd fires — each of
+            // those passes used to step the glide and relayout the window.
+            // A pass between two frames leaves the stamp alone and the driver
+            // armed, so the next frame takes the whole step.
+            if !lw.css_animation_step_due(&now) {
+                return ProcessEventResult::DoNothing;
+            }
             let had_work = lw.needs_animation_frame();
             // The same step `tick_animations_now` is about to take: real time
             // since the previous tick, a 16 ms frame after an idle period.
-            let dt = lw.animation_step_at(&azul_core::task::Instant::now());
+            let dt = lw.animation_step_at(&now);
             lw.tick_animations_now();
             (had_work, dt)
         };
@@ -13296,7 +13306,9 @@ pub trait PlatformWindow {
             .iter()
             .any(|t| *t == azul_core::task::DRAG_AUTOSCROLL_TIMER_ID);
         // The CSS animation driver's callback is an inert marker; the frame
-        // is advanced below, after the timer loop.
+        // is advanced below, after the timer loop. "Fired" here only means
+        // "registered" — whether this pass is a frame at all is decided in
+        // `advance_css_animations_now` (`LayoutWindow::css_animation_step_due`).
         let css_animation_fired = expired_timer_ids
             .iter()
             .any(|t| *t == azul_core::task::CSS_ANIMATION_TIMER_ID);

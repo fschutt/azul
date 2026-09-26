@@ -411,6 +411,10 @@ pub extern "C" fn css_animation_timer_callback(
     }
 }
 
+/// Period of the CSS animation driver
+/// ([`LayoutWindow::create_css_animation_timer`]), in milliseconds.
+pub const CSS_ANIMATION_FRAME_MS: u64 = 16;
+
 // ============================================================================
 // Tooltip Delay Timer Callback
 // ============================================================================
@@ -8875,7 +8879,9 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
+            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(
+                CSS_ANIMATION_FRAME_MS,
+            )),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(css_animation_timer_callback),
         }
@@ -11707,6 +11713,46 @@ impl LayoutWindow {
         self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
             (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32
         })
+    }
+
+    /// Whether a pass of the CSS animation driver at `now` is a FRAME — owes
+    /// the animations a step — or falls between two frames.
+    ///
+    /// The driver's callback is an inert marker, and the dispatcher counts it
+    /// as fired whenever it is REGISTERED. macOS and Windows get there only
+    /// when an OS timer fires; X11 and Wayland run the timer pass at the top
+    /// of every loop turn as well (Wayland once per dispatched batch), so each
+    /// pass stepped the glide — a restyle, a whole-window relayout and a
+    /// frame, several times per compositor frame, in slivers of uneven length.
+    ///
+    /// A pass is a frame when
+    ///
+    /// - nothing has stepped since an idle period (there is no stamp);
+    /// - at least half a driver period has passed since the last step — every genuine wake of
+    ///   an OS timer running at about the driver's period, even one that runs a little fast; or
+    /// - it falls in a later period of the driver's own schedule than the last step did. An OS
+    ///   timer keeps its schedule, so the on-time wake right after a late one arrives early by
+    ///   the lateness, and it is a frame of its own: refusing it would show the same picture
+    ///   twice.
+    ///
+    /// A pass that is not a frame must leave the stamp alone, so the next
+    /// frame measures its whole step.
+    #[must_use]
+    pub fn css_animation_step_due(&self, now: &Instant) -> bool {
+        let Some(prev) = self.last_anim_tick.as_ref() else {
+            return true;
+        };
+        let period_ns = u128::from(CSS_ANIMATION_FRAME_MS) * 1_000_000;
+        if now.duration_since(prev).as_nanos() * 2 >= period_ns {
+            return true;
+        }
+        self.timers
+            .get(&azul_core::task::CSS_ANIMATION_TIMER_ID)
+            .is_some_and(|driver| {
+                let period_of =
+                    |t: &Instant| t.duration_since(&driver.created).as_nanos() / period_ns;
+                period_of(now) > period_of(prev)
+            })
     }
 
     /// Advance layout animations by `dt` seconds and publish the result to the
