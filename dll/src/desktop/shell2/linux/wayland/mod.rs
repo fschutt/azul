@@ -1520,6 +1520,13 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// `handle_key` forwards every key to the `active_popup` (the
+    /// `xdg_popup` grab) before the shared pass sees it, so the shared
+    /// mailbox forwarding must not deliver it a second time.
+    fn popups_route_keys_natively(&self) -> bool {
+        true
+    }
+
     /// The window publishes on ITSELF. The registry route would turn a raw
     /// pointer back into `&mut WaylandWindow` while this very call holds one.
     fn write_clipboard_payload(

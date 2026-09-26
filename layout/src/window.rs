@@ -5452,6 +5452,45 @@ impl LayoutWindow {
         true
     }
 
+    /// The open `<transient-window>` popup that holds this window's keyboard,
+    /// if any: the most recently opened window that is a real popup - not
+    /// inline content of this window, not a torn-off palette (a window of
+    /// its own that the user clicks into).
+    ///
+    /// While one is open, focus STAYS on its invoker here (it is handed back
+    /// on close) but is not indicated - the popup rings its own control - and
+    /// a key this window receives belongs to the popup: X11 never gives an
+    /// override-redirect popup the input focus, so its keys land here and
+    /// the shell forwards them (`common::transient` in the dll).
+    #[must_use]
+    pub fn transient_keyboard_owner(&self) -> Option<&crate::transient::OpenTransientWindow> {
+        self.transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| !w.is_inline() && w.torn.is_none())
+    }
+
+    /// Rebuild the display list that carries (or should carry) the focus
+    /// ring, after something OUTSIDE a display-list build changed what the
+    /// ring gate answers - a popup taking or handing back the keyboard. The
+    /// transient reconcile and a dismissal both run after the pass's list was
+    /// built, so without this the ring stayed as that list left it. A no-op
+    /// without an indicated focus. Returns whether it rebuilt.
+    pub fn refresh_focus_ring(&mut self) -> bool {
+        if !self.focus_manager.focus_is_visible {
+            return false;
+        }
+        let Some(dom) = self.focus_manager.get_focused_node().map(|n| n.dom) else {
+            return false;
+        };
+        if !self.layout_results.contains_key(&dom) {
+            return false;
+        }
+        self.regenerate_display_list_for_dom(dom);
+        true
+    }
+
     /// Measure the content of the `<transient-window>` at `source_node` for
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this
@@ -9254,9 +9293,16 @@ impl LayoutWindow {
             // second, stale ring on its invoker in the parent. The shell
             // rebuilds the list on every activation change, so the ring comes
             // back, same modality, the moment the window does.
+            //
+            // Nor while a popup holds this window's keyboard: focus stays on
+            // the invoker (it is handed back on close), the popup rings its
+            // own control, and X11 never deactivates the parent for an
+            // override-redirect popup, so the activation gate alone left two
+            // rings there.
             if editing_active
                 || !self.focus_manager.focus_is_visible
                 || !self.current_window_state.is_window_active()
+                || self.transient_keyboard_owner().is_some()
             {
                 None
             } else {

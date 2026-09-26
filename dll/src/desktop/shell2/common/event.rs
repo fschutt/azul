@@ -4684,6 +4684,23 @@ pub trait PlatformWindow {
     /// gesture. Default: no-op (headless, or a backend without click-through).
     fn set_window_mouse_transparent(&mut self, _transparent: bool) {}
 
+    /// Does this backend deliver keys to a focus-taking popup BY ITSELF, so
+    /// that a key this (parent) window receives while one is open is really
+    /// meant for the parent? macOS and Win32 make the popup the key / active
+    /// window; Wayland's parent forwards every key to its `active_popup` in
+    /// `handle_key` before the shared pass ever sees it. Default `false`: the
+    /// popup never gets the keyboard (X11 override-redirect, headless), so the
+    /// shared rule in [`Self::forward_keys_to_popup`] hands it over.
+    fn popups_route_keys_natively(&self) -> bool {
+        false
+    }
+
+    /// Run the pass of every popup this window just forwarded a key to,
+    /// where this backend can reach the popup's window (X11: the registry).
+    /// The default reaches none: such a popup replays the key on its own next
+    /// pass (headless: the test drives it).
+    fn deliver_forwarded_keys(&mut self) {}
+
     /// `<transient-window>`, parent side: after a layout pass, turn the
     /// engine's popup diff into child windows / mailbox writes, and act on
     /// popups that dismissed themselves. See `common::transient`.
@@ -4855,6 +4872,75 @@ pub trait PlatformWindow {
             self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             self.request_regeneration_all_windows();
         }
+    }
+
+    /// `<transient-window>`, parent side: ONE KEYBOARD-ROUTING RULE for every
+    /// backend. While a focus-taking popup is open it holds the keyboard
+    /// (`LayoutWindow::transient_keyboard_owner`), so a keyboard transition
+    /// that reached THIS window is the popup's: it goes into the popup's
+    /// mailbox, with the text it typed, and this window's own pass does not
+    /// see it - no spatial navigation off the invoker, no default action, no
+    /// text typed into the invoker. Its focus stays on the invoker.
+    ///
+    /// A backend whose popups get the keyboard natively opts out
+    /// ([`Self::popups_route_keys_natively`]); on X11 the popup is
+    /// override-redirect and never does, which is report 2 (arrows did
+    /// nothing in the colour picker). Returns whether a key was forwarded.
+    fn forward_keys_to_popup(&mut self) -> bool {
+        use azul_layout::managers::text_input::TextInputSource;
+
+        if self.popups_route_keys_natively() {
+            return false;
+        }
+        let (keyboard, previous_key) = {
+            let current = self.get_current_window_state();
+            match self.get_previous_window_state() {
+                Some(previous) if previous.keyboard_state != current.keyboard_state => (
+                    current.keyboard_state.clone(),
+                    previous.keyboard_state.current_virtual_keycode,
+                ),
+                _ => return false,
+            }
+        };
+        let Some(mailbox) = self
+            .get_layout_window()
+            .and_then(super::transient::keyboard_owner_mailbox)
+        else {
+            return false;
+        };
+        // The text this key typed was recorded against THIS window's focused
+        // node (the invoker) by the backend's key handler: move it over.
+        let text = self.get_layout_window_mut().and_then(|lw| {
+            let mut typed = String::new();
+            lw.text_input_manager.pending_changesets.retain_mut(|q| {
+                let from_this_key = q.source == TextInputSource::Keyboard
+                    && q.seat_id == azul_core::window::PRIMARY_POINTER_SEAT;
+                if from_this_key {
+                    typed.push_str(q.edit.inserted_text.as_str());
+                }
+                !from_this_key
+            });
+            (!typed.is_empty()).then_some(typed)
+        });
+        let key = keyboard.current_virtual_keycode.into_option();
+        let taken = super::transient::forward_key(
+            &mailbox,
+            super::transient::ForwardedKey {
+                keyboard,
+                previous_key,
+                text,
+            },
+        );
+        focus_trace!(
+            "key {key:?} reached window {} while a popup holds the keyboard: forwarded={taken}",
+            self.registry_window_id()
+        );
+        if !taken {
+            return false;
+        }
+        self.consume_keyboard_delta("transient.key_forwarded");
+        self.deliver_forwarded_keys();
+        true
     }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
@@ -9930,6 +10016,17 @@ pub trait PlatformWindow {
                     visible: was_visible,
                 });
                 restored = restored.max(r);
+                // Focus never left the invoker, so the SetFocus above changed
+                // no node and rebuilt nothing - but the popup that suppressed
+                // the invoker's ring is gone now: hand the ring back.
+                if old_focus == Some(target)
+                    && self
+                        .get_layout_window_mut()
+                        .is_some_and(LayoutWindow::refresh_focus_ring)
+                {
+                    restored =
+                        restored.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                }
                 focus_trace!("dismissal returned focus to {target:?} (ring={was_visible})");
                 log_debug!(
                     super::debug_server::LogCategory::Window,
@@ -10012,6 +10109,39 @@ pub trait PlatformWindow {
         }
 
         let mut result = self.process_window_events_inner(depth).max(restored);
+
+        // FORWARDED KEYS, popup side: replay every key the parent received
+        // while this popup held the keyboard (`forward_keys_to_popup`), each
+        // as its own pass - the keyboard state the parent had after the
+        // transition becomes ours, so the diff yields exactly the KeyDown /
+        // KeyUp the popup would have seen as the key window, aimed at its
+        // own focused control (the autofocus above has already run).
+        if depth == 0 {
+            let forwarded =
+                super::transient::take_forwarded_keys(self.get_current_window_state());
+            for key in forwarded {
+                // The pass above ran; its delta is spent (the consumption
+                // below would do exactly this), so the next diff is the key's
+                // - starting from the key the PARENT's diff started from, so
+                // an auto-repeat is a fresh KeyDown here too.
+                let mut spent = self.get_current_window_state().clone();
+                spent.keyboard_state.current_virtual_keycode = key.previous_key;
+                self.set_previous_window_state(spent);
+                focus_trace!(
+                    "popup {} replays a forwarded key {:?} (text {:?})",
+                    self.registry_window_id(),
+                    key.keyboard.current_virtual_keycode.into_option(),
+                    key.text
+                );
+                *self.get_common_mut().keyboard_state_mut() = key.keyboard;
+                if let Some(text) = key.text.as_deref() {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        let _ = lw.record_text_input(text);
+                    }
+                }
+                result = result.max(self.process_window_events_inner(depth));
+            }
+        }
 
         // A callback that ran INSIDE a transient popup and asked for a
         // refresh must refresh the PARENT: the popup only mirrors the
@@ -10254,6 +10384,9 @@ pub trait PlatformWindow {
             }
             self.sync_capability_pump_timer();
             self.process_transient_dismissal();
+            // AFTER the dismissal: an Escape that closed the popup here has
+            // no popup left to be forwarded to (and was consumed there).
+            self.forward_keys_to_popup();
         }
 
         // Get previous state (or use current as fallback for first frame)

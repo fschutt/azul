@@ -2245,6 +2245,10 @@ pub(crate) fn reconcile_transient_windows(
     use azul_core::dom::DomId;
     use azul_layout::transient::collect_open_transient_windows;
 
+    // Whether a popup held the keyboard when this pass's display list was
+    // built: the list rings the invoker only if none did.
+    let keyboard_owned_before = layout_window.transient_keyboard_owner().is_some();
+
     // 1. What does the parent layout say is open, and where is each anchor?
     let wanted = {
         let Some(root) = layout_window.layout_results.get(&DomId::ROOT_ID) else {
@@ -2338,6 +2342,13 @@ pub(crate) fn reconcile_transient_windows(
     // about to be re-created that way. `merge` also cancels an open+close
     // pair the backend never saw, so nothing flashes.
     layout_window.pending_transient_diff.merge(diff);
+
+    // A popup took the keyboard (its invoker stops being ringed) or handed
+    // it back (the ring returns). The list was built BEFORE this reconcile,
+    // with the old answer, so rebuild it now.
+    if layout_window.transient_keyboard_owner().is_some() != keyboard_owned_before {
+        layout_window.refresh_focus_ring();
+    }
 }
 
 /// Build a `LayoutWindow` that SHARES the app-level font manager.

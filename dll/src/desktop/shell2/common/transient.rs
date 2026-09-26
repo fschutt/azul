@@ -122,6 +122,34 @@ pub struct TransientWindowData {
     /// even though it is `torn`, so it follows the cursor from drag START, not
     /// only once the pointer leaves the parent. Cleared on drop.
     pub following: bool,
+    /// Parent → popup: keyboard transitions the PARENT received while this
+    /// popup held the keyboard, oldest first, for the popup to replay through
+    /// its own pipeline (see [`forward_key`]).
+    pub forwarded_keys: Vec<ForwardedKey>,
+}
+
+/// One keyboard transition a parent received while its popup held the
+/// keyboard. X11 never gives an override-redirect popup the input focus, so
+/// every key lands in the parent; the parent hands it over here instead of
+/// running its own defaults on it (report 2: arrows moved the parent's focus
+/// onto a control hidden under the colour picker, and the picker never saw a
+/// key). Wayland does the same forwarding in its `handle_key`; macOS and
+/// Win32 make the popup the key window, so their parents never see the key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForwardedKey {
+    /// The parent's whole keyboard state AFTER the transition. The popup
+    /// adopts it, so its own state diff yields the KeyDown / KeyUp /
+    /// ModifiersChanged - the same events it would have seen as the key
+    /// window, modifiers included.
+    pub keyboard: azul_core::window::KeyboardState,
+    /// The key the parent's PREVIOUS state held as current. The popup's diff
+    /// starts from it, so it sees exactly the transition the parent saw - an
+    /// auto-repeat included, which the backends express as `None` -> the key
+    /// (X11 clears the previous key for a repeat; without this a held arrow
+    /// would nudge the picker once).
+    pub previous_key: azul_core::window::OptionVirtualKeyCode,
+    /// Text the key typed, as the parent's input method resolved it.
+    pub text: Option<String>,
 }
 
 /// A tear-off drag in progress, inside the popup window.
@@ -188,6 +216,46 @@ pub fn opened_with_visible_focus(state: &FullWindowState) -> bool {
         .unwrap_or(false)
 }
 
+/// The mailbox of the popup that holds `lw`'s keyboard (see
+/// `LayoutWindow::transient_keyboard_owner`), once its window exists.
+#[must_use]
+pub fn keyboard_owner_mailbox(lw: &LayoutWindow) -> Option<RefAny> {
+    match &lw.transient_keyboard_owner()?.surface {
+        OptionRefAny::Some(m) => Some(m.clone()),
+        OptionRefAny::None => None,
+    }
+}
+
+/// Parent side: hand one keyboard transition to the popup behind `mailbox`,
+/// which replays it on its next pass ([`take_forwarded_keys`]). Returns
+/// whether the mailbox took it - a popup the parent already closed takes
+/// nothing.
+pub fn forward_key(mailbox: &RefAny, key: ForwardedKey) -> bool {
+    if read(mailbox, |d| d.closed).unwrap_or(true) {
+        return false;
+    }
+    write(mailbox, |d| d.forwarded_keys.push(key))
+}
+
+/// Popup side: the keys the parent forwarded since the last call, oldest
+/// first. Empty for a window that is not a transient.
+pub fn take_forwarded_keys(state: &FullWindowState) -> Vec<ForwardedKey> {
+    let Some(m) = mailbox_of(state) else {
+        return Vec::new();
+    };
+    let mut taken = Vec::new();
+    write(&m, |d| taken = core::mem::take(&mut d.forwarded_keys));
+    taken
+}
+
+/// Popup side: are there forwarded keys this popup has not replayed yet?
+#[must_use]
+pub fn has_forwarded_keys(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| !d.forwarded_keys.is_empty()))
+        .unwrap_or(false)
+}
+
 /// Read a field off a mailbox without holding the borrow.
 fn read<T>(mailbox: &RefAny, f: impl FnOnce(&TransientWindowData) -> T) -> Option<T> {
     let mut m = mailbox.clone();
@@ -244,6 +312,7 @@ pub fn popup_create_options(
         drag: None,
         drop: None,
         following: false,
+        forwarded_keys: Vec::new(),
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -311,6 +380,7 @@ pub fn toplevel_create_options(
         // Set true by the parent's drag handler on the first move after an
         // inline tear, so the proxy follows the cursor from drag start.
         following: false,
+        forwarded_keys: Vec::new(),
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
@@ -505,17 +575,24 @@ pub fn sync_parent(
         })
         .map(|w| w.source_node)
         .collect();
+    let mut any_dismissed = false;
     for node in dismissed {
         if let Some(closed) = lw.dismiss_transient_window(node) {
             if let OptionRefAny::Some(m) = &closed.surface {
                 write(m, |d| d.closed = true);
             }
+            any_dismissed = true;
             log_debug!(
                 LogCategory::Window,
                 "[transient] popup {:?} dismissed by the user",
                 closed.content_dom
             );
         }
+    }
+    if any_dismissed {
+        // The popup handed the keyboard back: the invoker's ring returns.
+        // This runs after the pass's display list was built.
+        lw.refresh_focus_ring();
     }
 
     let diff = lw.take_transient_diff();

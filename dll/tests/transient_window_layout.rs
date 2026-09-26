@@ -975,6 +975,7 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
         // master's a11y work added this field without updating the test's
         // field-by-field copy of the mailbox.
         focus_visible: d.focus_visible,
+        forwarded_keys: d.forwarded_keys.clone(),
     }
 }
 
@@ -2318,6 +2319,11 @@ fn a_keyboard_opened_picker_leaves_exactly_one_ring() {
     keys_up(&mut parent, "t.tab.up");
     let swatch = node_with_class(&parent, "native_color_input");
     assert_eq!(focused(&parent), Some(swatch), "premise: Tab focused the swatch");
+    assert_eq!(
+        focus_rings(&parent),
+        1,
+        "premise: the keyboard-focused swatch is ringed (no popup yet)"
+    );
 
     key_down(&mut parent, VirtualKeyCode::Space, &[], "t.space");
     keys_up(&mut parent, "t.space.up");
@@ -2326,11 +2332,6 @@ fn a_keyboard_opened_picker_leaves_exactly_one_ring() {
     assert!(
         mailbox(&popup_opts.window_state).focus_visible,
         "premise: a keyboard-opened popup inherits the ring"
-    );
-    assert_eq!(
-        focus_rings(&parent),
-        1,
-        "premise: the keyboard-focused swatch is ringed while its window is active"
     );
 
     // The popup becomes the key window; the parent resigns.

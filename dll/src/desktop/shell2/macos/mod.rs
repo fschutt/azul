@@ -4496,6 +4496,13 @@ impl PlatformWindow for MacOSWindow {
         self.window.setIgnoresMouseEvents(transparent);
     }
 
+    fn popups_route_keys_natively(&self) -> bool {
+        // `AzulPopupWindow` answers `canBecomeKeyWindow = YES` and is shown
+        // with `makeKeyAndOrderFront`: AppKit sends the popup its own keys,
+        // and a key that reaches the parent was typed INTO the parent.
+        true
+    }
+
     // REQUIRED: Menu Display
 
     fn show_menu_from_callback(

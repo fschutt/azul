@@ -8096,6 +8096,32 @@ impl PlatformWindow for X11Window {
         crate::desktop::eyedropper::x11::capture(self)
     }
 
+    /// The popup that holds the keyboard is an override-redirect X window
+    /// that never gets the input focus, so its keys arrive HERE and the
+    /// shared rule (`forward_keys_to_popup`) parked them in its mailbox. The
+    /// popup is registered in this process: run its pass now, the way
+    /// Wayland's parent runs its popup's `key_event`, instead of leaving the
+    /// key until something else wakes the popup.
+    fn deliver_forwarded_keys(&mut self) {
+        let own = self.window as u64;
+        for wid in super::registry::get_all_window_ids() {
+            if wid == own {
+                continue;
+            }
+            let Some(wptr) = (unsafe { super::registry::get_window(wid) }) else {
+                continue;
+            };
+            if let super::LinuxWindow::X11(popup) = unsafe { &mut *wptr } {
+                if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    popup.common.current_window_state(),
+                ) {
+                    let r = popup.process_window_events(0);
+                    popup.apply_event_result(r);
+                }
+            }
+        }
+    }
+
     /// XShape: the bounding (drawn) and input shapes both follow the frame's
     /// alpha. Rects arrive y-then-x sorted and non-overlapping (`YXBanded`).
     fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {

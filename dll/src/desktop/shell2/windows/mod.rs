@@ -7268,6 +7268,13 @@ impl PlatformWindow for Win32Window {
         Win32Window::handle_begin_interactive_move(self);
     }
 
+    /// `ShowWindow(SW_SHOWNORMAL)` activates the owned popup, so Windows
+    /// sends it its own keys; a key that reaches the parent was typed into
+    /// the parent.
+    fn popups_route_keys_natively(&self) -> bool {
+        true
+    }
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::windows::capture(self)
     }
