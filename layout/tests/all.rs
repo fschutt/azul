@@ -420,6 +420,8 @@ mod text3_shaping_exact;
 mod text3_visual;
 #[path = "text_ack_survives_relayout.rs"]
 mod text_ack_survives_relayout;
+#[path = "text_beside_a_block_is_selectable.rs"]
+mod text_beside_a_block_is_selectable;
 #[path = "text_block_resolver.rs"]
 mod text_block_resolver;
 #[path = "text_edit_seam_regressions.rs"]
