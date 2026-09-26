@@ -5479,6 +5479,42 @@ mod autotest_generated {
         }
     }
 
+    /// Damage is consumed in VIEWPORT space, and a GPU value change inside a
+    /// scrolled frame repaints pixels the frame moved: a moved reference frame
+    /// (a transition, a drag) and a moved or fading scrollbar thumb - a
+    /// scroll box's bar on a scrolled PAGE - are painted by the frame's offset
+    /// higher than their display-list bounds. Damaged at those bounds, the
+    /// band that changed stayed stale and an unchanged one was repainted.
+    #[test]
+    fn gpu_value_damage_inside_a_scrolled_frame_lands_where_the_frame_paints_it() {
+        let list = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 100.0, 100.0),
+            ref_frame(3),
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let mut old_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        old_t.insert(3, ComputedTransform3D::IDENTITY);
+        let mut new_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        new_t.insert(3, translate(20.0, 0.0));
+        let o: HashMap<usize, f32> = HashMap::new();
+        let mut offsets: ScrollOffsetMap = HashMap::new();
+        offsets.insert(1, (0.0, 40.0));
+        let d = gpu_value_damage(&list, &old_t, &o, &new_t, &o, &offsets);
+        assert_eq!(d.rects.len(), 2, "old position + new position: {:?}", d.rects);
+        for r in &d.rects {
+            assert!(
+                (r.origin.y + 40.0).abs() < 0.01,
+                "the frame's content (laid out at y=0) is painted at y=-40 by its frame's \
+                 offset, the damage is at y={}",
+                r.origin.y
+            );
+        }
+        // Unscrolled, it is the display-list position.
+        let unscrolled = gpu_value_damage(&list, &old_t, &o, &new_t, &o, &ScrollOffsetMap::new());
+        assert!(unscrolled.rects.iter().all(|r| r.origin.y.abs() < 0.01));
+    }
+
     #[test]
     fn gpu_value_damage_unchanged_maps_report_nothing() {
         let list = dlist(vec![ref_frame(3), DisplayListItem::PopReferenceFrame]);
