@@ -322,6 +322,14 @@ pub fn apply_edit_to_selection(
 
     match selection {
         Selection::Range(range) => {
+            // A range of nothing is a caret: Backspace and Delete act on the
+            // grapheme beside it. Deleting the empty range deleted nothing,
+            // and the keys stayed dead until the selection was replaced.
+            if let (TextEdit::DeleteBackward | TextEdit::DeleteForward, Some(caret)) =
+                (edit, collapsed_range_caret(content, range))
+            {
+                return apply_edit_to_selection(content, &Selection::Cursor(caret), edit);
+            }
             // Delete the range first
             let (content_after_delete, cursor_pos) = delete_range(&new_content, range);
             match edit {
@@ -1133,6 +1141,11 @@ pub fn inspect_delete(
 ) -> Option<(SelectionRange, String)> {
     match selection {
         Selection::Range(range) => {
+            // A range of nothing deletes like the caret it stands for
+            // (`apply_edit_to_selection`), so that is what it previews.
+            if let Some(caret) = collapsed_range_caret(content, range) {
+                return inspect_delete(content, &Selection::Cursor(caret), forward);
+            }
             // If there's already a selection, that's what would be deleted
             let deleted_text = extract_text_in_range(content, range);
             Some((*range, deleted_text))

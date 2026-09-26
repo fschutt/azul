@@ -3660,6 +3660,24 @@ impl LayoutWindow {
             .collect()
     }
 
+    /// Whether `a` and `b` are ONE caret position in `node_id`'s block: equal
+    /// as positions, not as cluster ids - `Trailing` on a grapheme and
+    /// `Leading` on the next name the same place
+    /// (`text3::edit::collapsed_range_caret`).
+    fn same_caret_position(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        a: TextCursor,
+        b: TextCursor,
+    ) -> bool {
+        crate::text3::edit::collapsed_range_caret(
+            &self.caret_block_content(dom_id, node_id).0,
+            &SelectionRange { start: a, end: b },
+        )
+        .is_some()
+    }
+
     /// Whether `cursor` sits at the very start / the very end of its block's
     /// text, by POSITION in `content` - the carets' own numbering, whose first
     /// `generated` items are not text ([`Self::caret_block_content`]). An item
@@ -13664,7 +13682,8 @@ impl LayoutWindow {
                 return false;
             };
             if let Some((node, cursor)) = self.hittest_text_position_global(dom_id, point) {
-                if node == anchor_node && cursor == drag.anchor {
+                if node == anchor_node && self.same_caret_position(dom_id, node, cursor, drag.anchor)
+                {
                     return false;
                 }
             }
@@ -13675,7 +13694,12 @@ impl LayoutWindow {
         let Some(focus) = self.focused_cursor_for_point(point) else {
             return false;
         };
-        if focus == drag.anchor {
+        let onto_the_anchor = self
+            .text_edit_manager
+            .get_editing_dom_id()
+            .zip(self.text_edit_manager.get_editing_node_id())
+            .is_some_and(|(dom, node)| self.same_caret_position(dom, node, focus, drag.anchor));
+        if onto_the_anchor {
             return false;
         }
         let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
@@ -20785,20 +20809,25 @@ impl LayoutWindow {
             )
         })?;
 
+        // A drag that ends where it started moved nowhere: compared as
+        // cluster ids, `Trailing` on a grapheme and `Leading` on the next made
+        // a range of nothing, painted as nothing and deleted as nothing.
+        let moved = !self.same_caret_position(dom_id, node_id, anchor, focus);
+
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
         if let Some(primary) = mc.get_primary_mut() {
-            if anchor == focus {
-                primary.selection = Selection::Cursor(anchor);
-            } else {
-                primary.selection = Selection::Range(SelectionRange {
+            primary.selection = if moved {
+                Selection::Range(SelectionRange {
                     start: anchor,
                     end: focus,
-                });
-            }
+                })
+            } else {
+                Selection::Cursor(anchor)
+            };
         }
 
         self.text_edit_manager.mark_dirty();
