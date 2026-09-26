@@ -1582,12 +1582,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn check_if_scrollable_x_only_css_does_not_enable_the_y_axis() {
+    fn check_if_scrollable_x_only_css_enables_the_y_axis_too() {
         // `.inner` declares only `overflow-x: scroll`. Per CSS Overflow 3 § 3.1 the
-        // computed `overflow-y` of such a box becomes `auto` (i.e. scrollable), and
-        // `MultiValue::<LayoutOverflow>::resolve_computed` implements exactly that —
-        // but `check_if_scrollable` reads the *specified* values, so the y axis stays
-        // non-scrollable here even though the content overflows it.
+        // computed `overflow-y` of such a box becomes `auto`, and the overflow
+        // getters answer computed values, so content overflowing the y axis
+        // scrolls it. (This test used to pin the opposite: `check_if_scrollable`
+        // read the specified values and left y non-scrollable.)
         let lr = layout_result(chain_dom(X_ONLY_CSS));
         let mut sm = ScrollManager::new();
         register(
@@ -1599,7 +1599,7 @@ mod autotest_generated {
         let ancestor = check_if_scrollable(dom_id(0), nid(INNER), &lr, &sm)
             .expect("overflow-x: scroll + overflowing content");
         assert!(ancestor.scroll_x);
-        assert!(!ancestor.scroll_y);
+        assert!(ancestor.scroll_y, "overflow-y computes to auto and the content overflows it");
     }
 
     // ==================================================================

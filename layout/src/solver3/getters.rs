@@ -1358,16 +1358,47 @@ get_css_property!(
     compact = get_overflow_y
 );
 
-// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
-// overflow based on writing mode
-/// Physical `overflow-x`, with the css-overflow-3 logical fallback: when the
-/// physical property is unset, a declared `overflow-inline` (horizontal
-/// writing modes) or `overflow-block` (vertical) supplies the value. On the
-/// compact fast path the mapping already happened at build time, in
-/// declaration order (equal-specificity last-wins); this slow-path fallback
-/// uses "physical if declared, else logical" as the cascade approximation.
+/// The COMPUTED `overflow-x` (CSS Overflow 3 §3.1): a `visible` or `clip`
+/// computes to `auto` or `hidden` when `overflow-y` is neither of those, so
+/// `overflow-y: auto` alone makes a box a scroll container on both axes.
+///
+/// Every reader wants this value - taffy's per-axis overflow, the clip, the
+/// scroll-container and BFC checks - and handing out the specified one made
+/// each of them decide the axis the author left unset differently. A row
+/// wider than an `overflow-y: auto` flex item went to taffy as horizontally
+/// VISIBLE, so its width leaked into the flex container's content size and
+/// the viewport scrolled it (177px of sideways travel on the AzWidgets page).
 #[must_use]
 pub fn get_overflow_x(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    specified_overflow_x(styled_dom, node_id, node_state)
+        .resolve_computed(&specified_overflow_y(styled_dom, node_id, node_state))
+}
+
+/// The COMPUTED `overflow-y`; see [`get_overflow_x`].
+#[must_use]
+pub fn get_overflow_y(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    specified_overflow_y(styled_dom, node_id, node_state)
+        .resolve_computed(&specified_overflow_x(styled_dom, node_id, node_state))
+}
+
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
+// overflow based on writing mode
+/// Specified physical `overflow-x`, with the css-overflow-3 logical fallback:
+/// when the physical property is unset, a declared `overflow-inline`
+/// (horizontal writing modes) or `overflow-block` (vertical) supplies the
+/// value. On the compact fast path the mapping already happened at build
+/// time, in declaration order (equal-specificity last-wins); this slow-path
+/// fallback uses "physical if declared, else logical" as the cascade
+/// approximation.
+fn specified_overflow_x(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1419,9 +1450,9 @@ pub(crate) fn apply_viewport_overflow_rule(
     }
 }
 
-/// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
-#[must_use]
-pub fn get_overflow_y(
+/// Specified physical `overflow-y`; see [`specified_overflow_x`] for the
+/// logical fallback.
+fn specified_overflow_y(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,

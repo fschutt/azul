@@ -5567,11 +5567,10 @@ where
 
         let styled_node_state = self.get_styled_node_state(dom_id);
 
-        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        // +spec:overflow:833078 - resolve visible/clip to auto/hidden per CSS Overflow 3 §3.1
-        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+        // +spec:overflow:833078 - the getters answer the COMPUTED values (visible/clip
+        // resolved to auto/hidden per CSS Overflow 3 §3.1)
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
         let element_size = PhysicalSizeImport {
@@ -5728,22 +5727,17 @@ where
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
-        // Mirror push_node_clips EXACTLY: resolve visible/clip → auto/hidden per
-        // CSS Overflow 3 §3.1 (an axis computes to auto/hidden when the *other*
-        // axis is a scroll container). push_node_clips decides whether to emit a
-        // scroll frame from the RESOLVED values; popping from the RAW values can
-        // disagree. Concretely: the auto-injected titlebar title has
-        // overflow-x:hidden, overflow-y:visible → push resolves y→auto (a scroll
-        // container, since is_scroll() counts Auto) and emits PushClip +
-        // PushScrollFrame, but pop saw raw y=visible (is_scroll=false) and emitted
-        // only PopClip → an unbalanced PushScrollFrame. The layer allocator then
-        // extends the titlebar's scroll layer to the end of the list, swallowing
-        // the document body into the titlebar's clip rect (blank window) and
-        // underflowing the clip stack. Resolving here keeps push/pop symmetric.
-        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+        // Mirror push_node_clips EXACTLY: both read the COMPUTED overflow (CSS
+        // Overflow 3 §3.1, an axis computes to auto/hidden when the *other* axis
+        // is a scroll container), which the getters answer. They once popped
+        // from the specified values while pushing from resolved ones:
+        // the auto-injected titlebar title has overflow-x:hidden,
+        // overflow-y:visible, so push saw y=auto and emitted PushClip +
+        // PushScrollFrame while pop saw y=visible and emitted only PopClip - an
+        // unbalanced PushScrollFrame that let the titlebar's scroll layer swallow
+        // the document body (blank window) and underflowed the clip stack.
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
         let paint_rect = self
             .get_paint_rect(
@@ -6812,10 +6806,25 @@ where
                         )
                     )
                 };
-                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                // `content_box_rect` was extended to `get_scroll_content_size`,
+                // which floors at the node's own BORDER box (`used_size`): for
+                // a padded box with nothing overflowing it is padding-box tall
+                // while its origin stays at the content box, so the clip ran
+                // `padding-top` pixels past the box. A box's own padding and
+                // border are not overflow — only an extent beyond the border
+                // box is (the grown IFC above); otherwise the tight content
+                // box stands. (azul#478: every `td { padding: 3px }` clip
+                // reached into the next row, the rows' page-break avoid-ranges
+                // overlapped, and the break climbed a third of the page.)
+                let own_box = node.used_size.unwrap_or_default();
+                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st))
+                    && content_size.width > own_box.width + 0.01
+                {
                     viewport_clip_rect.size.width = content_box_rect.size.width;
                 }
-                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) {
+                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st))
+                    && content_size.height > own_box.height + 0.01
+                {
                     viewport_clip_rect.size.height = content_box_rect.size.height;
                 }
             }

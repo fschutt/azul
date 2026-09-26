@@ -2515,9 +2515,12 @@ mod autotest_generated {
 
     #[test]
     fn compute_node_clip_leaves_the_unclipped_axis_unbounded() {
-        // overflow-x: hidden / overflow-y: visible — the y axis must stay
+        // overflow-x: clip / overflow-y: visible — the y axis must stay
         // unbounded (finite stand-in), not collapse onto the ancestor's box.
-        let styled_dom = styled("div.clip { overflow-x: hidden; }");
+        // `clip` is CSS's one-axis clip: a lone `hidden` would make the other
+        // axis compute to `auto` (CSS Overflow 3 §3.1) and clip it too - see
+        // `compute_node_clip_hidden_on_one_axis_clips_both`.
+        let styled_dom = styled("div.clip { overflow-x: clip; }");
         let nodes = vec![
             hot(Some(0), Some((500.0, 500.0)), None),
             hot(Some(1), Some((100.0, 50.0)), Some(0)),
@@ -2538,6 +2541,28 @@ mod autotest_generated {
         // but a point to the right of it is not.
         assert!(point_in_rect(p(50.0, 900_000.0), &clip));
         assert!(!point_in_rect(p(500.0, 20.0), &clip));
+    }
+
+    #[test]
+    fn compute_node_clip_hidden_on_one_axis_clips_both() {
+        // CSS Overflow 3 §3.1: `overflow-x: hidden` makes the unset
+        // `overflow-y` compute to `auto`, so the box is a scroll container on
+        // BOTH axes and clips vertically as well.
+        let styled_dom = styled("div.clip { overflow-x: hidden; }");
+        let nodes = vec![
+            hot(Some(0), Some((500.0, 500.0)), None),
+            hot(Some(1), Some((100.0, 50.0)), Some(0)),
+            hot(Some(2), Some((400.0, 400.0)), Some(1)),
+        ];
+        let positions: PositionVec = vec![p(0.0, 0.0), p(10.0, 10.0), p(10.0, 10.0)];
+
+        let clip = compute_node_clip(&styled_dom, &nodes, &positions, 2, p(0.0, 0.0), None)
+            .expect("overflow-x: hidden clips");
+
+        assert_eq!(clip.origin.x, 10.0);
+        assert_eq!(clip.size.width, 100.0);
+        assert_eq!(clip.origin.y, 10.0);
+        assert_eq!(clip.size.height, 50.0);
     }
 
     #[test]

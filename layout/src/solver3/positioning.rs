@@ -2070,6 +2070,9 @@ mod autotest_generated {
             ".root { overflow-y: scroll; }",
             ".root { overflow-x: auto; }",
             ".root { overflow-y: auto; }",
+            // A lone `hidden` makes the other axis compute to `auto` (CSS
+            // Overflow 3 §3.1): the box scrolls vertically.
+            ".root { overflow-x: hidden; }",
         ] {
             let (sd, mut tree) = two_level(css);
             tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
@@ -2085,7 +2088,7 @@ mod autotest_generated {
     #[test]
     fn find_nearest_scrollport_ignores_non_scrolling_overflow() {
         for css in [
-            ".root { overflow-x: hidden; }",
+            ".root { overflow: hidden; }",
             ".root { overflow-y: visible; }",
             ".root { overflow-x: clip; }",
         ] {

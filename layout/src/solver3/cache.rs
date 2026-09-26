@@ -2580,10 +2580,9 @@ pub fn apply_content_scroll_necessity(
         .get(dom_id)
         .map(|n| n.styled_node_state)
         .unwrap_or_default();
-    let raw_overflow_x = get_overflow_x(styled_dom, dom_id, &node_state);
-    let raw_overflow_y = get_overflow_y(styled_dom, dom_id, &node_state);
-    let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-    let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+    // Computed values (CSS Overflow 3 §3.1), like every other reader.
+    let overflow_x = get_overflow_x(styled_dom, dom_id, &node_state);
+    let overflow_y = get_overflow_y(styled_dom, dom_id, &node_state);
 
     let raise_horizontal = !reqs.needs_horizontal
         && overflow_x.allows_user_scrolling()
