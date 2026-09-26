@@ -356,6 +356,172 @@ impl SelectionOwner {
     }
 }
 
+// ============================================================================
+// TEXT BLOCKS - which inline formatting context a caret lives in
+// ============================================================================
+
+/// A TEXT BLOCK: one inline formatting context (IFC) of one DOM - the box
+/// whose inline layout a [`TextCursor`]'s `source_run` / `start_byte_in_run`
+/// index.
+///
+/// Every caret, range and selection end lives in exactly one text block, and
+/// this is the only thing that may say which. A bare `NodeId` used to: the
+/// same field held the IFC root when a click opened a session, the text LEAF
+/// when a focus did, the editing HOST for assistive technology, and every
+/// reader re-resolved it with its own rule (walk up to any box, walk up to an
+/// inline layout, walk down caret-first, exact match). Where two rules
+/// disagreed a keystroke vanished or a highlight went unpainted, and an
+/// ANONYMOUS block could not be named at all.
+///
+/// Minted only by the layout's resolver - `LayoutWindow::text_block_of`,
+/// which ends in `LayoutTree::text_block_at` - and by
+/// [`TextBlock::remap`] of one it minted. Never built from a node id by hand.
+///
+/// ORDER is document order within one DOM (the arena's `NodeId` order is
+/// pre-order): blocks compare by the first DOM node inside them, an anonymous
+/// block before an element that is its own first node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextBlock {
+    dom: DomId,
+    key: TextBlockKey,
+}
+
+/// How a [`TextBlock`] is named inside its DOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TextBlockKey {
+    /// The element whose box establishes the inline formatting context: a
+    /// paragraph, a list item, an `inline-block`, a flat editable.
+    Element(NodeId),
+    /// The ANONYMOUS block box CSS 2 §9.2.1.1 wraps around a run of inline
+    /// content in a container that also holds blocks - "Item" in
+    /// `li > ["Item", ul]`. It has no element of its own, so it is named by
+    /// the element that holds it and the first DOM node of the run.
+    Anonymous {
+        /// The element whose box holds the anonymous block.
+        parent: NodeId,
+        /// The first DOM node inside the anonymous block.
+        first_child: NodeId,
+    },
+}
+
+impl TextBlock {
+    /// For the layout's resolver ONLY (`LayoutTree::text_block_at`), and for
+    /// tests that stand in for it. Everything else asks the resolver.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn from_resolved(dom: DomId, key: TextBlockKey) -> Self {
+        Self { dom, key }
+    }
+
+    /// The DOM the block belongs to.
+    #[must_use]
+    pub const fn dom(&self) -> DomId {
+        self.dom
+    }
+
+    /// How the block is named in its DOM.
+    #[must_use]
+    pub const fn key(&self) -> TextBlockKey {
+        self.key
+    }
+
+    /// The element that owns the block's inline layout - `None` for an
+    /// anonymous block, which has none. What an EDIT is keyed to: the text of
+    /// an anonymous block is its container's inline run, not a node's content.
+    #[must_use]
+    pub const fn element(&self) -> Option<NodeId> {
+        match self.key {
+            TextBlockKey::Element(n) => Some(n),
+            TextBlockKey::Anonymous { .. } => None,
+        }
+    }
+
+    /// The element whose box holds the block: the block's own element, or the
+    /// container of an anonymous one. What the block's STYLE is read from
+    /// (`user-select`, `::selection`, editability) - an anonymous block has no
+    /// style of its own and takes its container's - and what an ancestor walk
+    /// (scroll container, focus scope, editing host) starts from.
+    #[must_use]
+    pub const fn container(&self) -> NodeId {
+        match self.key {
+            TextBlockKey::Element(n) => n,
+            TextBlockKey::Anonymous { parent, .. } => parent,
+        }
+    }
+
+    /// The first DOM node inside the block: its element, or the first node of
+    /// an anonymous block's run. Its position in the arena is the block's
+    /// position in the document.
+    #[must_use]
+    pub const fn first_node(&self) -> NodeId {
+        match self.key {
+            TextBlockKey::Element(n) => n,
+            TextBlockKey::Anonymous { first_child, .. } => first_child,
+        }
+    }
+
+    /// Whether this is an anonymous block box.
+    #[must_use]
+    pub const fn is_anonymous(&self) -> bool {
+        matches!(self.key, TextBlockKey::Anonymous { .. })
+    }
+
+    /// [`Self::container`] as a `DomNodeId`.
+    #[must_use]
+    pub fn container_dom_node(&self) -> DomNodeId {
+        DomNodeId {
+            dom: self.dom,
+            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                self.container(),
+            )),
+        }
+    }
+
+    /// [`Self::element`] as a `DomNodeId`.
+    #[must_use]
+    pub fn element_dom_node(&self) -> Option<DomNodeId> {
+        self.element().map(|n| DomNodeId {
+            dom: self.dom,
+            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+        })
+    }
+
+    /// The same block in a rebuilt DOM, through `resolve` (old id -> new id).
+    /// `None` when a node that names the block did not survive.
+    #[must_use]
+    pub fn remap(self, resolve: impl Fn(NodeId) -> Option<NodeId>) -> Option<Self> {
+        let key = match self.key {
+            TextBlockKey::Element(n) => TextBlockKey::Element(resolve(n)?),
+            TextBlockKey::Anonymous {
+                parent,
+                first_child,
+            } => TextBlockKey::Anonymous {
+                parent: resolve(parent)?,
+                first_child: resolve(first_child)?,
+            },
+        };
+        Some(Self { dom: self.dom, key })
+    }
+}
+
+impl Ord for TextBlock {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.dom
+            .cmp(&other.dom)
+            .then_with(|| self.first_node().cmp(&other.first_node()))
+            // An anonymous block starts BEFORE an element that is its first
+            // node (the element is inside it).
+            .then_with(|| other.is_anonymous().cmp(&self.is_anonymous()))
+            .then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl PartialOrd for TextBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// Multi-cursor state for a contenteditable element (Sublime Text style).
 ///
 /// Replaces the split `CursorManager` + `SelectionManager` pattern for text editing.

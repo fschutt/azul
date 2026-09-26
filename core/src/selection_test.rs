@@ -1960,3 +1960,70 @@ mod peer_shift_tests {
         assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(6)));
     }
 }
+
+#[cfg(test)]
+mod text_block_tests {
+    use super::*;
+
+    fn element(n: usize) -> TextBlock {
+        TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(n)))
+    }
+
+    fn anonymous(parent: usize, first_child: usize) -> TextBlock {
+        TextBlock::from_resolved(
+            DomId::ROOT_ID,
+            TextBlockKey::Anonymous {
+                parent: NodeId::new(parent),
+                first_child: NodeId::new(first_child),
+            },
+        )
+    }
+
+    /// `li(1) > ["Item"(2), ul(3) > li(4) > "sub"(5)]`: the anonymous block
+    /// holding "Item" comes before the nested list item, which comes after
+    /// its container - document order.
+    #[test]
+    fn blocks_sort_in_document_order() {
+        let mut blocks = vec![element(4), anonymous(1, 2), element(1)];
+        blocks.sort();
+        assert_eq!(blocks, vec![element(1), anonymous(1, 2), element(4)]);
+    }
+
+    /// An anonymous block whose first node is an element starts before that
+    /// element: the element is inside it.
+    #[test]
+    fn an_anonymous_block_starts_before_its_first_element() {
+        assert!(anonymous(1, 2) < element(2));
+    }
+
+    #[test]
+    fn the_accessors_name_the_element_container_and_first_node() {
+        let e = element(7);
+        assert_eq!(e.element(), Some(NodeId::new(7)));
+        assert_eq!(e.container(), NodeId::new(7));
+        assert_eq!(e.first_node(), NodeId::new(7));
+        assert!(!e.is_anonymous());
+
+        let a = anonymous(3, 4);
+        assert_eq!(a.element(), None);
+        assert_eq!(a.container(), NodeId::new(3));
+        assert_eq!(a.first_node(), NodeId::new(4));
+        assert!(a.is_anonymous());
+        assert_eq!(a.element_dom_node(), None);
+        assert_eq!(
+            a.container_dom_node().node.into_crate_internal(),
+            Some(NodeId::new(3))
+        );
+    }
+
+    #[test]
+    fn remap_follows_every_naming_node_and_drops_on_a_missing_one() {
+        let shift = |n: NodeId| Some(NodeId::new(n.index() + 10));
+        assert_eq!(element(2).remap(shift), Some(element(12)));
+        assert_eq!(anonymous(1, 2).remap(shift), Some(anonymous(11, 12)));
+
+        let only_parent_survives = |n: NodeId| (n.index() == 1).then_some(n);
+        assert_eq!(anonymous(1, 2).remap(only_parent_survives), None);
+        assert_eq!(element(2).remap(only_parent_survives), None);
+    }
+}

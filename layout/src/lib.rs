@@ -511,6 +511,10 @@ pub mod scroll_timer;
 // shaping loop, and complex shaping/cache signatures.
 #[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
+/// Text blocks: which inline formatting context a node, a caret or a
+/// selection end lives in - the one resolver.
+#[cfg(feature = "text_layout")]
+pub mod text_block;
 /// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;

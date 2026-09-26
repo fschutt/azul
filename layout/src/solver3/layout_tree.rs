@@ -1893,6 +1893,138 @@ impl LayoutTree {
         layout_index
     }
 
+    /// The IFC root whose inline layout holds `layout_index`'s content - THE
+    /// ownership rule every text-block resolution goes through
+    /// ([`Self::text_block_at`], `LayoutWindow::text_block_of`):
+    ///
+    /// - the node itself, when it owns an inline layout (a paragraph, a list item, an
+    ///   `inline-block`, an anonymous block box);
+    /// - else its recorded IFC membership (a text node the root collected directly);
+    /// - else, for an INLINE-level box (text under a `<span>`, the `<b>` itself), the nearest
+    ///   layout ancestor that owns an inline layout. The walk only passes through inline-level
+    ///   boxes: a block, an inline-block or a flex item is never part of an ancestor's inline
+    ///   content, so it answers `None` instead of borrowing the ancestor's.
+    ///
+    /// `None` also for a block container that owns no inline layout of its own -
+    /// an editing host whose text sits in paragraphs - and for anything outside
+    /// an IFC.
+    #[must_use]
+    pub fn owning_ifc_root(&self, layout_index: usize) -> Option<usize> {
+        let owns_ifc = |i: usize| {
+            self.warm
+                .get(i)
+                .is_some_and(|w| w.inline_layout_result.is_some())
+        };
+        if owns_ifc(layout_index) {
+            return Some(layout_index);
+        }
+        let member_of = self
+            .warm
+            .get(layout_index)
+            .and_then(|w| w.ifc_membership.as_ref())
+            .map(|m| m.ifc_root_layout_index);
+        if let Some(root) = member_of.filter(|&root| owns_ifc(root)) {
+            return Some(root);
+        }
+        let mut cursor = layout_index;
+        for _ in 0..IFC_ANCESTOR_WALK_LIMIT {
+            let node = self.nodes.get(cursor)?;
+            if !matches!(node.formatting_context, FormattingContext::Inline) {
+                return None;
+            }
+            let parent = node.parent?;
+            if owns_ifc(parent) {
+                return Some(parent);
+            }
+            cursor = parent;
+        }
+        None
+    }
+
+    /// How the text block whose IFC root is at `ifc_root` is NAMED: its
+    /// element, or - for an anonymous block box, which has none - the element
+    /// holding it and the first DOM node inside it. `None` when `ifc_root`
+    /// owns no inline layout, or is a pseudo-element's box.
+    #[must_use]
+    pub fn text_block_key_at(&self, ifc_root: usize) -> Option<azul_core::selection::TextBlockKey> {
+        use azul_core::selection::TextBlockKey;
+
+        let warm = self.warm.get(ifc_root)?;
+        if warm.inline_layout_result.is_none() || warm.pseudo_element.is_some() {
+            return None;
+        }
+        if let Some(element) = self.nodes.get(ifc_root)?.dom_node_id {
+            return Some(TextBlockKey::Element(element));
+        }
+        let parent = self
+            .ancestor_chain(LayoutNodeId::new(ifc_root), Inclusivity::AncestorsOnly)
+            .find_map(|i| self.nodes.get(i.index()).and_then(|n| n.dom_node_id))?;
+        let first_child = self.first_dom_node_below(ifc_root)?;
+        Some(TextBlockKey::Anonymous {
+            parent,
+            first_child,
+        })
+    }
+
+    /// THE place a [`TextBlock`](azul_core::selection::TextBlock) is minted:
+    /// the text block of `dom` whose IFC root is at `ifc_root`
+    /// ([`Self::text_block_key_at`]).
+    #[must_use]
+    pub fn text_block_at(
+        &self,
+        dom: azul_core::dom::DomId,
+        ifc_root: usize,
+    ) -> Option<azul_core::selection::TextBlock> {
+        self.text_block_key_at(ifc_root)
+            .map(|key| azul_core::selection::TextBlock::from_resolved(dom, key))
+    }
+
+    /// The layout index of the IFC root of the text block named `key` - the
+    /// inverse of [`Self::text_block_key_at`]. `None` when this tree has no
+    /// such block (it was unmounted, or is not laid out yet).
+    #[must_use]
+    pub fn text_block_root(&self, key: azul_core::selection::TextBlockKey) -> Option<usize> {
+        use azul_core::selection::TextBlockKey;
+
+        match key {
+            TextBlockKey::Element(element) => self
+                .dom_to_layout
+                .get(&element)?
+                .iter()
+                .map(|idx| idx.index())
+                .find(|&idx| self.text_block_key_at(idx) == Some(key)),
+            // The first node of an anonymous block's run is a DIRECT child of
+            // the block's box: the run's nodes are what the box was built from.
+            TextBlockKey::Anonymous { first_child, .. } => {
+                self.dom_to_layout.get(&first_child)?.iter().find_map(|idx| {
+                    let parent = self.nodes.get(idx.index())?.parent?;
+                    (self.text_block_key_at(parent) == Some(key)).then_some(parent)
+                })
+            }
+        }
+    }
+
+    /// The first DOM node strictly below `index` in pre-order, skipping
+    /// pseudo-element boxes (a `::marker` names its list item, not content).
+    fn first_dom_node_below(&self, index: usize) -> Option<NodeId> {
+        let mut stack: Vec<usize> = self.children(index).iter().rev().copied().collect();
+        let mut budget = self.nodes.len();
+        while let Some(i) = stack.pop() {
+            if budget == 0 {
+                return None;
+            }
+            budget -= 1;
+            let is_pseudo = self.warm.get(i).is_some_and(|w| w.pseudo_element.is_some());
+            if !is_pseudo {
+                if let Some(n) = self.nodes.get(i).and_then(|n| n.dom_node_id) {
+                    return Some(n);
+                }
+            }
+            stack.extend(self.children(i).iter().rev().copied());
+        }
+        None
+    }
+
     /// Get the content size of a node (for scrollbar calculations).
     #[must_use]
     pub fn get_content_size(&self, index: LayoutNodeId) -> LogicalSize {
