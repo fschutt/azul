@@ -386,6 +386,45 @@ fn a_page_that_fits_the_window_gets_no_viewport_frame() {
     );
 }
 
+/// A scroll box's bar is found where the scrolled page paints it.
+///
+/// A bar is painted inside every scroll frame above its box - a box on the
+/// page, inside the page's frame, moves with the viewport. The scroll manager
+/// hit-tests bars against tracks it builds from the boxes' registered
+/// scrollports, which are LAYOUT coordinates: scrolled by 50, the box's bar
+/// was painted 50px higher than the pointer found it.
+#[test]
+fn a_bar_inside_the_scrolled_page_is_found_where_it_is_painted() {
+    // body(0) > [100px(1), box(2) 200x100 over 400px(3), 800px(4)]: the box's
+    // classic bar runs x 188..200, y 100..200 as laid out.
+    let styled = StyledDom::create_from_dom(
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(Dom::create_div().with_css("height: 100px;"))
+            .with_child(
+                Dom::create_div()
+                    .with_css("width: 200px; height: 100px; overflow-y: scroll;")
+                    .with_child(Dom::create_div().with_css("height: 400px;")),
+            )
+            .with_child(Dom::create_div().with_css("height: 800px;")),
+    );
+    let mut lw = window_with(styled, FcFontCache::default());
+    let scroll_box = NodeId::new(2);
+    scroll_viewport_to(&mut lw, 50.0);
+    // Painted at y 50..150 now: y=75 is on the bar, above where it was laid
+    // out and away from the viewport's own bar at the window's edge.
+    let press = LogicalPosition::new(194.0, 75.0);
+    let hit = lw
+        .scroll_manager
+        .hit_test_scrollbars(press)
+        .map(|h| (h.dom_id, h.node_id));
+    assert_eq!(
+        hit,
+        Some((DomId::ROOT_ID, scroll_box)),
+        "the press at {press:?} is on the box's bar as the page scrolled by 50px paints it"
+    );
+}
+
 /// A viewport scroll is a scroll SHIFT the CPU backends repaint.
 ///
 /// Between two frames the display list does not change on a scroll; the CPU
