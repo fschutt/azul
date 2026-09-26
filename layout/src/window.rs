@@ -3817,13 +3817,20 @@ impl LayoutWindow {
     ///
     /// ```text
     /// ReplaceChildren {
-    ///     parent,
-    ///     start..end:   the whole [first ..= last] block range,
-    ///     content:      ONE merged block - the FIRST block's element
-    ///                   (its classes and inline styles survive, Word
-    ///                   semantics) holding first-kept-text + last-kept-text,
+    ///     parent:       the two ends' nearest common ancestor,
+    ///     start..end:   its children from the one holding the FIRST block
+    ///                   to the one holding the LAST,
+    ///     content:      a fragment of those children rebuilt: the first
+    ///                   block becomes ONE merged block - its own element
+    ///                   (classes and inline styles survive, Word semantics)
+    ///                   holding first-kept-text + last-kept-text - with
+    ///                   whatever preceded it kept, and whatever followed the
+    ///                   last block kept after it,
     /// }
     /// ```
+    ///
+    /// For two sibling blocks that is simply `[first ..= last]` replaced by
+    /// the merged block. See [`Self::document_selection_replacement`].
     ///
     /// Atomicity is the point: the app applies or rejects the WHOLE edit,
     /// undo is one entry, and the overlay previews the merged paragraph
@@ -3833,7 +3840,8 @@ impl LayoutWindow {
     /// common case, keep their block-level formatting).
     ///
     /// Returns the changeset id, or `None` when no cross-block selection
-    /// is active / the selection could not be resolved.
+    /// is active / the selection could not be resolved - in which case the
+    /// selection is left exactly as it was.
     pub fn delete_cross_block_selection(&mut self) -> Option<u64> {
         self.replace_cross_block_selection("")
     }
@@ -3850,13 +3858,20 @@ impl LayoutWindow {
             text3::cache::InlineContent,
         };
 
-        let sel = self.text_edit_manager.take_cross_block_selection()?;
-        let dom_id = sel.dom_id;
-        let mut nodes: Vec<(NodeId, SelectionRange)> = sel
-            .affected_nodes
-            .iter()
-            .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
-            .collect();
+        // Built from a PEEK; the selection is consumed only once the edit is
+        // recorded. Taking it up front meant every refusal below dropped it:
+        // the highlight vanished, and a paste fell through to inserting at
+        // the caret as if nothing had been selected.
+        let (dom_id, mut nodes): (DomId, Vec<(NodeId, SelectionRange)>) = {
+            let sel = self.text_edit_manager.get_cross_block_selection()?;
+            (
+                sel.dom_id,
+                sel.affected_nodes
+                    .iter()
+                    .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+                    .collect(),
+            )
+        };
         if nodes.len() < 2 {
             return None;
         }
@@ -3921,54 +3936,12 @@ impl LayoutWindow {
             t
         };
 
-        // Replacement subtree: the FIRST block's element with the merged text.
-        let (parent, start_idx, end_idx, replacement) = {
-            let lr = self.layout_results.get(&dom_id)?;
-            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-            let parent = hierarchy
-                .get(first)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
-            let last_parent = hierarchy
-                .get(last)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)?;
-            if parent != last_parent {
-                return None; // invariant from set_cross_block_selection
-            }
-            let child_index_of = |target: NodeId| -> u32 {
-                let mut idx: u32 = 0;
-                let mut sib = hierarchy
-                    .get(target)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-                while let Some(sn) = sib {
-                    idx += 1;
-                    sib = hierarchy
-                        .get(sn)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-                }
-                idx
-            };
-            let start_idx = child_index_of(first);
-            let end_idx = child_index_of(last) + 1;
-            let mut root = lr.styled_dom.node_data.as_container()[first].clone();
-            // The clone carries the ELEMENT (type, classes, ids, inline css);
-            // its dataset/callback state stays with the app's re-render.
-            let _ = &mut root;
-            let replacement = Dom {
-                root,
-                // BARE text on purpose: `root` is a clone of the spanned BLOCK
-                // element, so these children are its INLINE content. Wrapping
-                // here produces <p><p>text</p></p> and the merge returns a
-                // block where the caller expects runs — the same inline case as
-                // document_edit.rs splitting and rejoining text.
-                children: alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
-                    merged_text
-                )]
-                .into(),
-                css: Vec::new().into(),
-                estimated_total_children: 1,
-            };
-            (parent, start_idx, end_idx, replacement)
-        };
+        // Replacement: the two ends' containers, rebuilt around the merged
+        // block. The ends need not share a parent - a document selection
+        // spans blocks in document order, wherever they sit (838adc974); this
+        // function kept the old sibling-only rule and refused everything else.
+        let (parent, start_idx, end_idx, replacement) =
+            self.document_selection_replacement(dom_id, first, last, merged_text)?;
 
         let parent_dom_node = DomNodeId {
             dom: dom_id,
@@ -3990,6 +3963,9 @@ impl LayoutWindow {
         // Word caret behavior: land INSIDE the merged text at the join, not
         // merely "before the replaced slot".
         resume.position = NodePosition::in_text_child(0, join_byte);
+
+        // The edit exists: NOW the selection is consumed.
+        self.text_edit_manager.clear_cross_block_selection();
 
         // Pre-apply caret continuity: collapse onto the selection start.
         {
@@ -4017,6 +3993,198 @@ impl LayoutWindow {
 
         let changeset = DocumentChangeset::new(parent_dom_node, op, resume, Instant::now());
         Some(self.record_document_edit(changeset))
+    }
+
+    /// The `ReplaceChildren` that deletes a document selection running from
+    /// block `first` to block `last` (document order) and joins what is left
+    /// of the two into `first`: `(parent, start, end, fragment)`.
+    ///
+    /// The range sits on the ends' nearest common ancestor, from its child
+    /// that holds `first` to its child that holds `last`, and those two are
+    /// rebuilt while everything between them goes:
+    ///
+    /// - on `first`'s side, everything BEFORE `first` stays, and `first` becomes its own element
+    ///   holding `merged_text` as one run (the v1 flattening), with nothing after it;
+    /// - on `last`'s side, everything AFTER `last` stays - its kept text is already in
+    ///   `merged_text` - and a container the selection emptied goes with it.
+    ///
+    /// For two sibling blocks this is `[first ..= last]` replaced by the one
+    /// merged block, as it always was.
+    ///
+    /// The payload is a FRAGMENT: `document_edit::apply_replace` and the
+    /// overlay's `children_for_node` insert its CHILDREN and ignore its root.
+    /// The merged block used to BE the root, so an applied delete put a bare
+    /// text run where the paragraph had been.
+    ///
+    /// `None` when the two do not form a range (one contains the other, or
+    /// they are not in one tree).
+    fn document_selection_replacement(
+        &self,
+        dom_id: DomId,
+        first: NodeId,
+        last: NodeId,
+        merged_text: String,
+    ) -> Option<(NodeId, u32, u32, Dom)> {
+        use azul_core::styled_dom::NodeHierarchyItem;
+
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+        let parent_of = |n: NodeId| hierarchy.get(n).and_then(NodeHierarchyItem::parent_id);
+        let children_of = |n: NodeId| -> Vec<NodeId> {
+            let mut out = Vec::new();
+            let mut child = hierarchy.get(n).and_then(|h| h.first_child_id(n));
+            while let Some(c) = child {
+                out.push(c);
+                child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            out
+        };
+        let child_index = |n: NodeId| -> u32 {
+            let mut idx: u32 = 0;
+            let mut sib = hierarchy.get(n).and_then(NodeHierarchyItem::previous_sibling_id);
+            while let Some(s) = sib {
+                idx += 1;
+                sib = hierarchy.get(s).and_then(NodeHierarchyItem::previous_sibling_id);
+            }
+            idx
+        };
+        // An element without its children: the clone carries the ELEMENT
+        // (type, classes, ids, inline css); its dataset/callback state stays
+        // with the app's re-render.
+        let element = |n: NodeId| Dom {
+            root: node_data[n].clone(),
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        };
+
+        // `first` and every ancestor above it.
+        let mut first_chain = vec![first];
+        let mut cur = first;
+        while let Some(p) = parent_of(cur) {
+            first_chain.push(p);
+            cur = p;
+        }
+        if first_chain.contains(&last) {
+            return None; // `last` contains `first`
+        }
+        // `last` up to (not including) the first ancestor it shares.
+        let mut last_side = vec![last];
+        let mut cur = last;
+        let common = loop {
+            let p = parent_of(cur)?;
+            if first_chain.contains(&p) {
+                break p;
+            }
+            last_side.push(p);
+            cur = p;
+        };
+        if common == first {
+            return None; // `first` contains `last`
+        }
+        let common_at = first_chain.iter().position(|&n| n == common)?;
+        let first_side = &first_chain[..common_at];
+        let first_top = *first_side.last()?;
+        let last_top = *last_side.last()?;
+
+        // `first`'s side, bottom-up: the merged block, then each container
+        // around it keeping only what came before it.
+        let mut head = element(first);
+        // BARE text on purpose: `head` is a clone of the spanned BLOCK
+        // element, so this child is its INLINE content. Wrapping it produces
+        // <p><p>text</p></p> - the same inline case as document_edit.rs
+        // splitting and rejoining text.
+        head.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            merged_text,
+        ));
+        for pair in first_side.windows(2) {
+            let (inner, container) = (pair[0], pair[1]);
+            let mut rebuilt = element(container);
+            for c in children_of(container) {
+                if c == inner {
+                    break;
+                }
+                rebuilt.add_child(self.live_subtree(dom_id, c));
+            }
+            rebuilt.add_child(head);
+            head = rebuilt;
+        }
+
+        // `last`'s side, bottom-up: `last` itself is consumed, each container
+        // around it keeps only what came after it, and one left empty goes.
+        let mut tail: Option<Dom> = None;
+        for pair in last_side.windows(2) {
+            let (inner, container) = (pair[0], pair[1]);
+            let mut rebuilt = element(container);
+            if let Some(t) = tail.take() {
+                rebuilt.add_child(t);
+            }
+            let mut after = false;
+            for c in children_of(container) {
+                if after {
+                    rebuilt.add_child(self.live_subtree(dom_id, c));
+                } else if c == inner {
+                    after = true;
+                }
+            }
+            tail = (!rebuilt.children.as_ref().is_empty()).then_some(rebuilt);
+        }
+
+        let mut fragment = Dom::create_div();
+        fragment.add_child(head);
+        if let Some(t) = tail {
+            fragment.add_child(t);
+        }
+        Some((
+            common,
+            child_index(first_top),
+            child_index(last_top) + 1,
+            fragment,
+        ))
+    }
+
+    /// `node`'s subtree as a plain `Dom`, carrying the text the user typed
+    /// that the app has not synced yet: an element the overlay holds edited
+    /// text for gets it as ONE run (the v1 flattening the merged block of a
+    /// document-selection delete uses). Rebuilt from the DOM alone, a block
+    /// kept by that delete would hand the app back its PRE-edit text, and the
+    /// typing in it would be undone by the delete of something else.
+    fn live_subtree(&self, dom_id: DomId, node: NodeId) -> Dom {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Dom::create_div();
+        };
+        let Some(data) = lr.styled_dom.node_data.as_container().get(node).cloned() else {
+            return Dom::create_div();
+        };
+        let edited = self
+            .content_overlay
+            .text_for_node(dom_id, node)
+            .map(|dirty| crate::overlay::flatten_inline_content(&dirty.content));
+        if let (Some(text), NodeType::Text(_)) = (&edited, data.get_node_type()) {
+            return Dom::create_text_do_not_use_without_block_level_wrapper(text.clone());
+        }
+        let mut out = Dom {
+            root: data,
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        };
+        if let Some(text) = edited {
+            out.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ));
+            return out;
+        }
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let mut child = hierarchy.get(node).and_then(|h| h.first_child_id(node));
+        while let Some(c) = child {
+            out.add_child(self.live_subtree(dom_id, c));
+            child = hierarchy
+                .get(c)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        }
+        out
     }
 
     /// The previous/next MERGE-ELIGIBLE block sibling of a node (C13).
