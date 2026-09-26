@@ -1830,10 +1830,16 @@ pub fn scroll_fast_path_eligible(
     let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
         .min(display_list.items.len());
 
-    // NESTED frame → ineligible. An inner frame's clip_bounds are the OUTER
-    // frame's content coords: with the outer frame scrolled, the memmove
-    // would shift a region displaced from the real on-screen clip by the
-    // outer offset. Conservative full-clip repaint instead.
+    // NESTED frame. An inner frame's clip_bounds are the OUTER frame's content
+    // coords, and so is everything around it this check reads: with the outer
+    // frame scrolled, the memmove would shift a region displaced from the real
+    // on-screen clip by the outer offset - conservative full-clip repaint
+    // instead. But the caller hands over the clip where it is ON SCREEN
+    // (`collect_scroll_shifts` projects it); while that IS the display-list
+    // clip, nothing around the frame is scrolled and every coordinate here is
+    // already on screen. That is every scroll box on a page taller than its
+    // window (they all sit inside the PAGE's frame) while the page is at rest,
+    // and it must not cost them the fast path.
     let mut depth = 0i32;
     for it in &display_list.items[..start] {
         match it {
@@ -1843,7 +1849,18 @@ pub fn scroll_fast_path_eligible(
         }
     }
     if depth > 0 {
-        return false;
+        let unscrolled = match &display_list.items[start] {
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: own, ..
+            } => {
+                (own.inner().origin.x - clip_bounds.origin.x).abs() < 0.01
+                    && (own.inner().origin.y - clip_bounds.origin.y).abs() < 0.01
+            }
+            _ => false,
+        };
+        if !unscrolled {
+            return false;
+        }
     }
 
     // NOTE on overlays: anything painted AFTER the frame that overlaps the
