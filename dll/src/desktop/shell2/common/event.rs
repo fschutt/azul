@@ -1547,11 +1547,6 @@ pub enum WindowStateSource {
 
 // Input-delta validation (R2)
 
-/// How many nodes the Ctrl+A block scan will visit under the editing host.
-/// Editable subtrees are small; the bound only stops a malformed hierarchy
-/// from spinning.
-const SELECT_ALL_BLOCK_SCAN_LIMIT: usize = 4096;
-
 /// How far the autoscroll edge test walks up summing ancestor scroll offsets.
 const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 
@@ -7740,205 +7735,26 @@ pub trait PlatformWindow {
             }
 
             SystemChange::SelectAllText => {
-                // Ctrl+A over a MULTI-BLOCK editable, not just the one IFC the
-                // focus happens to sit on. The old arm built its range from
-                // `get_inline_layout_for_node(focused_node)` alone, so a
-                // container whose children are paragraphs has no inline layout
-                // of its own and select-all did NOTHING at all — while the
-                // engine has carried cross-block selection (the same machinery
-                // drag-select and Cut/Copy use) the whole time.
-                let Some(focused_node) = self
-                    .get_layout_window()
-                    .and_then(|lw| lw.focus_manager.focused_node)
-                else {
+                // Ctrl+A over the focused editing host, every block of it:
+                // `LayoutWindow::select_all_text`, where layout tests reach it.
+                let Some(lw) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
-                let dom_id = focused_node.dom;
-                let Some(node_id) = focused_node.node.into_crate_internal() else {
+                let Some(focused_node) = lw.focus_manager.focused_node else {
                     return ProcessEventResult::DoNothing;
                 };
-
-                // The blocks to cover, rooted at the editing HOST: with focus
-                // on one paragraph INSIDE a multi-paragraph contenteditable,
-                // Ctrl+A must still cover the whole editable — so walk up to
-                // the outermost node whose contenteditable-ness the focus
-                // inherits, and select from there. A non-editable focus keeps
-                // the focused node as its root (unchanged behavior).
-                //
-                // Root's own IFC (a text input / a single paragraph) → that
-                // one block; otherwise its ELEMENT children that are IFC
-                // roots — the paragraph chain of a contenteditable container.
-                // Text children are skipped: XML pretty-printing whitespace
-                // is not a block, and a raw text run cannot anchor a
-                // cross-block selection.
-                let blocks: Vec<NodeId> = {
-                    let Some(lw) = self.get_layout_window() else {
-                        return ProcessEventResult::DoNothing;
-                    };
-                    let sel_root = lw
-                        .find_contenteditable_host(dom_id, node_id)
-                        .unwrap_or(node_id);
-                    if lw.get_inline_layout_for_node(dom_id, sel_root).is_some() {
-                        vec![sel_root]
-                    } else {
-                        let Some(lr) = lw.layout_results.get(&dom_id) else {
-                            return ProcessEventResult::DoNothing;
-                        };
-                        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                        let node_data = lr.styled_dom.node_data.as_container();
-                        // DESCEND. A child that owns no inline layout is a
-                        // WRAPPER, not a leaf — scanning only direct children
-                        // made Ctrl+A a no-op for the ordinary shape
-                        // `div[contenteditable] > section > p`, because
-                        // `section` has no IFC of its own and was skipped
-                        // without ever looking inside it.
-                        let mut out = Vec::new();
-                        let siblings_of = |parent: NodeId| {
-                            let mut kids = Vec::new();
-                            let mut child = hierarchy[parent].first_child_id(parent);
-                            while let Some(c) = child {
-                                kids.push(c);
-                                child = hierarchy[c].next_sibling_id();
-                            }
-                            kids
-                        };
-                        // Reversed, so `pop()` yields document order.
-                        let mut stack: Vec<NodeId> =
-                            siblings_of(sel_root).into_iter().rev().collect();
-                        let mut visited = 0usize;
-                        while let Some(c) = stack.pop() {
-                            visited += 1;
-                            if visited > SELECT_ALL_BLOCK_SCAN_LIMIT {
-                                break;
-                            }
-                            let is_text = matches!(
-                                node_data[c].get_node_type(),
-                                azul_core::dom::NodeType::Text(_)
-                            );
-                            if is_text {
-                                continue;
-                            }
-                            if lw.get_inline_layout_for_node(dom_id, c).is_some() {
-                                // Owns inline content: it IS a block to select,
-                                // and its inline runs are not blocks.
-                                out.push(c);
-                                continue;
-                            }
-                            stack.extend(siblings_of(c).into_iter().rev());
-                        }
-                        out
-                    }
-                };
-
+                let selected = lw.select_all_text(focused_node);
                 log_debug!(
                     super::debug_server::LogCategory::Layout,
-                    "[select-all] focus {:?}/{:?} -> {} block(s): {:?}",
-                    dom_id,
-                    node_id,
-                    blocks.len(),
-                    blocks
+                    "[select-all] focus {:?} -> selected: {}",
+                    focused_node,
+                    selected
                 );
-                let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
-                    log_debug!(
-                        super::debug_server::LogCategory::Layout,
-                        "[select-all] {:?}/{:?} yielded NO blocks to select — neither the \
-                         contenteditable host nor any descendant owns an inline layout",
-                        dom_id,
-                        node_id
-                    );
-                    return ProcessEventResult::DoNothing;
-                };
-
-                // Endpoint cursors come from the LAYOUT (real grapheme
-                // clusters); a byte-length synthetic end cursor resolves to
-                // nothing in get_selection_rects and the block silently loses
-                // its highlight.
-                let cursors = self.get_layout_window().and_then(|lw| {
-                    // MATERIALIZED, not the sparse view: under the default
-                    // dense text path the sparse layout is the shared empty
-                    // retirement sentinel, so both of these were None for
-                    // every node and Ctrl+A logged "blocks have no
-                    // first/last cluster cursor" and did nothing at all.
-                    let start = lw
-                        .materialized_inline_layout_for_node(dom_id, first)?
-                        .get_first_cluster_cursor()?;
-                    let end = lw
-                        .materialized_inline_layout_for_node(dom_id, last)?
-                        .get_last_cluster_cursor()?;
-                    Some((start, end))
-                });
-                let Some((start_cursor, end_cursor)) = cursors else {
-                    log_debug!(
-                        super::debug_server::LogCategory::Layout,
-                        "[select-all] blocks {:?}..{:?} have no first/last cluster cursor — the \
-                         inline layout is empty",
-                        first,
-                        last
-                    );
-                    return ProcessEventResult::DoNothing;
-                };
-
-                if first != last {
-                    // Cross-block: the engine precomputes the per-IFC ranges
-                    // (anchor tail, full middles, focus head) and stores them
-                    // render-ready, where the display-list pass picks them up
-                    // through build_text_selections_map.
-                    let set = self.get_layout_window_mut().is_some_and(|lw| {
-                        lw.set_cross_block_selection(dom_id, first, start_cursor, last, end_cursor)
-                    });
-                    if set {
-                        if let Some(lw) = self.get_layout_window_mut() {
-                            lw.regenerate_display_list_for_dom(dom_id);
-                        }
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                    }
-                    // Not a sibling chain (nested / mixed containers): fall
-                    // through to selecting the first block rather than nothing.
+                if selected {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-
-                let range = azul_core::selection::SelectionRange {
-                    start: start_cursor,
-                    end: if first == last {
-                        end_cursor
-                    } else {
-                        // Single-block fallback: end at the FIRST block's end.
-                        match self
-                            .get_layout_window()
-                            .and_then(|lw| lw.get_inline_layout_for_node(dom_id, first))
-                            .and_then(|l| l.get_last_cluster_cursor())
-                        {
-                            Some(c) => c,
-                            None => return ProcessEventResult::DoNothing,
-                        }
-                    },
-                };
-
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_edit_manager.clear_cross_block_selection();
-                    let did_set = if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor {
-                        // Select the whole content as ONE range. The caret
-                        // sits at range.end (last cluster) implicitly. Do NOT
-                        // follow with set_single_cursor — that collapsed the
-                        // selection, turning Ctrl+A into a no-op "move caret to
-                        // end" instead of select-all.
-                        mc.set_single_range(range);
-                        true
-                    } else {
-                        false
-                    };
-                    if did_set {
-                        // Rebuild the display list so the selection HIGHLIGHT is
-                        // actually drawn (build_text_selections_map runs inside).
-                        // Without this, ShouldUpdateDisplayListCurrentWindow only
-                        // re-renders the stale display list, so the range is set
-                        // functionally but stays invisible. Mirrors
-                        // apply_selection_op (Shift+Arrow), which regenerates for
-                        // exactly this reason.
-                        lw.regenerate_display_list_for_dom(dom_id);
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                    }
-                }
-                ProcessEventResult::DoNothing
             }
 
             SystemChange::UndoTextEdit { target } => {

@@ -1159,9 +1159,11 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
-/// How many nodes [`LayoutWindow::ifc_candidate_children`] will visit looking
-/// for the box that owns an editable's inline layout. Editable subtrees are
-/// small; the bound only stops a malformed hierarchy from spinning.
+/// How many nodes a scan of an editable's subtree will visit - looking for
+/// the box that owns its inline layout ([`LayoutWindow::ifc_candidate_children`])
+/// or for the blocks Ctrl+A covers ([`LayoutWindow::select_all_text`]).
+/// Editable subtrees are small; the bound only stops a malformed hierarchy
+/// from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
 
 #[allow(clippy::struct_excessive_bools)]
@@ -10838,7 +10840,135 @@ impl LayoutWindow {
         }
     }
 
-    /// Helper: Move cursor using a movement function and return the new cursor if it changed
+    /// Ctrl+A for the focus on `focused` (`SystemChange::SelectAllText`):
+    /// select everything its editing host holds - every block of a
+    /// multi-block editable, not just the one the focus happens to sit on -
+    /// as a cross-block selection, or as the session's single range when the
+    /// host is one block. Returns whether a selection was made; the caller
+    /// repaints.
+    ///
+    /// The shells' `SystemChange` arm used to be this whole routine, where
+    /// neither layout tests nor the e2e runner could reach it.
+    pub fn select_all_text(&mut self, focused: DomNodeId) -> bool {
+        let dom_id = focused.dom;
+        let Some(node_id) = focused.node.into_crate_internal() else {
+            return false;
+        };
+        let blocks = self.select_all_blocks(dom_id, node_id);
+        let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
+            return false;
+        };
+
+        // Endpoint cursors come from the LAYOUT (real grapheme clusters); a
+        // byte-length synthetic end cursor resolves to nothing in
+        // get_selection_rects and the block silently loses its highlight.
+        // MATERIALIZED, not the sparse view: under the default dense text
+        // path the sparse layout is the shared empty retirement sentinel.
+        let first_caret = self
+            .materialized_inline_layout_for_node(dom_id, first)
+            .and_then(|l| l.get_first_cluster_cursor());
+        let last_caret = self
+            .materialized_inline_layout_for_node(dom_id, last)
+            .and_then(|l| l.get_last_cluster_cursor());
+        let (Some(start_cursor), Some(end_cursor)) = (first_caret, last_caret) else {
+            return false;
+        };
+
+        // Cross-block: the engine precomputes the per-IFC ranges (anchor
+        // tail, full middles, focus head) and stores them render-ready, where
+        // the display-list pass picks them up through build_text_selections_map.
+        if first != last
+            && self.set_cross_block_selection(dom_id, first, start_cursor, last, end_cursor)
+        {
+            self.regenerate_display_list_for_dom(dom_id);
+            return true;
+        }
+
+        let end = if first == last {
+            end_cursor
+        } else {
+            // Single-block fallback: end at the FIRST block's end.
+            match self
+                .get_inline_layout_for_node(dom_id, first)
+                .and_then(|l| l.get_last_cluster_cursor())
+            {
+                Some(c) => c,
+                None => return false,
+            }
+        };
+        self.text_edit_manager.clear_cross_block_selection();
+        // Select the whole content as ONE range. The caret sits at range.end
+        // (last cluster) implicitly. Do NOT follow with set_single_cursor -
+        // that collapsed the selection, turning Ctrl+A into a no-op "move
+        // caret to end" instead of select-all.
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        mc.set_single_range(SelectionRange {
+            start: start_cursor,
+            end,
+        });
+        // Rebuild the display list so the selection HIGHLIGHT is actually
+        // drawn (build_text_selections_map runs inside), like apply_selection_op.
+        self.regenerate_display_list_for_dom(dom_id);
+        true
+    }
+
+    /// The text blocks Ctrl+A covers for a focus on `node_id`, in document
+    /// order.
+    ///
+    /// Rooted at the editing HOST: with focus on one paragraph inside a
+    /// multi-paragraph contenteditable, Ctrl+A still covers the whole
+    /// editable. A non-editable focus is its own root. A root that owns an
+    /// inline layout (a text input, a single paragraph) is the one block;
+    /// otherwise every ELEMENT below it that owns one is a block, and the
+    /// walk does not descend into them (their inline runs are not blocks)
+    /// but does descend into wrappers that own none -
+    /// `div[contenteditable] > section > p` is the ordinary shape. Text
+    /// children are skipped: XML pretty-printing whitespace is not a block,
+    /// and a raw text run cannot anchor a cross-block selection.
+    fn select_all_blocks(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
+        let sel_root = self
+            .find_contenteditable_host(dom_id, node_id)
+            .unwrap_or(node_id);
+        if self.get_inline_layout_for_node(dom_id, sel_root).is_some() {
+            return vec![sel_root];
+        }
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+        let children_of = |parent: NodeId| {
+            let mut kids = Vec::new();
+            let mut child = hierarchy[parent].first_child_id(parent);
+            while let Some(c) = child {
+                kids.push(c);
+                child = hierarchy[c].next_sibling_id();
+            }
+            kids
+        };
+        let mut out = Vec::new();
+        // Reversed, so `pop()` yields document order.
+        let mut stack: Vec<NodeId> = children_of(sel_root).into_iter().rev().collect();
+        let mut visited = 0usize;
+        while let Some(c) = stack.pop() {
+            visited += 1;
+            if visited > IFC_CANDIDATE_SCAN_LIMIT {
+                break;
+            }
+            if matches!(node_data[c].get_node_type(), NodeType::Text(_)) {
+                continue;
+            }
+            if self.get_inline_layout_for_node(dom_id, c).is_some() {
+                out.push(c);
+                continue;
+            }
+            stack.extend(children_of(c).into_iter().rev());
+        }
+        out
+    }
+
     /// Select the whole text of `target` for seat `seat_id` (a seat's Ctrl+A,
     /// 9b-ii-a-i-d-ii-b-i): anchor on the first cluster, caret after the last.
     /// One node only - the primary's select-all spans blocks through the
