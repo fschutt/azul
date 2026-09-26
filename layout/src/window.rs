@@ -3809,18 +3809,18 @@ impl LayoutWindow {
             })
     }
 
-    /// Establish a selection SPANNING MULTIPLE sibling blocks (AZUL-STILL-TODO
-    /// C9, v1): anchor and focus must be text-bearing IFC roots under the
-    /// same parent (the common contenteditable-container case). The
-    /// per-IFC ranges are precomputed here — anchor node from its cursor to
-    /// its text end, every sibling between fully, focus node from its start
-    /// to its cursor (mirrored for backward selections) — and stored
-    /// render-ready on the text-edit manager, where the display-list pass
-    /// picks them up through `build_text_selections_map`.
+    /// Establish a selection SPANNING MULTIPLE text blocks (AZUL-STILL-TODO
+    /// C9): anchor and focus are IFC roots of one DOM, and the selection
+    /// covers every text block between them in document order. The per-IFC
+    /// ranges are precomputed here — anchor node from its cursor to its text
+    /// end, every block between fully, focus node from its start to its
+    /// cursor (mirrored for backward selections) — and stored render-ready on
+    /// the text-edit manager, where the display-list pass picks them up
+    /// through `build_text_selections_map`.
     ///
-    /// Returns false (and changes nothing) when the two nodes are not
-    /// siblings, are the same node (single-node selection is
-    /// `MultiCursorState`'s job), or either has no text.
+    /// Returns false (and changes nothing) when the two are the same node
+    /// (single-node selection is `MultiCursorState`'s job) or either is not a
+    /// text block of `dom_id`.
     pub fn set_cross_block_selection(
         &mut self,
         dom_id: DomId,
@@ -3858,17 +3858,20 @@ impl LayoutWindow {
         };
         let middles: Vec<NodeId> = ifc_roots[i_first + 1..i_last].to_vec();
 
-        let node_start = |_n: NodeId| TextCursor {
+        let block_start = TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
         };
+        // A block with no cluster - a blank editable line, an image, a rule -
+        // ends where it starts: it is INSIDE the selection (deleted by
+        // `delete_cross_block_selection`) with no text to highlight. The
+        // FIRST block used to be refused there instead, so a drag that
+        // started on a blank line never became a selection.
+        let block_end = |n: NodeId| self.node_text_end_cursor(dom_id, n).unwrap_or(block_start);
 
-        let Some(first_end) = self.node_text_end_cursor(dom_id, first) else {
-            return false;
-        };
         // A cross-block selection contributes exactly ONE range per node; the
         // list carrier exists for the multi-cursor sessions of the other path.
         let mut affected = BTreeMap::new();
@@ -3876,28 +3879,22 @@ impl LayoutWindow {
             first,
             vec![SelectionRange {
                 start: first_cursor,
-                end: first_end,
+                end: block_end(first),
             }],
         );
         for &m in &middles {
-            // Text-less middles (images, rules) contribute a zero-width range
-            // at their start: they are INSIDE the selection (deleted by
-            // delete_cross_block_selection) but have no text to highlight.
-            let end = self
-                .node_text_end_cursor(dom_id, m)
-                .unwrap_or_else(|| node_start(m));
             affected.insert(
                 m,
                 vec![SelectionRange {
-                    start: node_start(m),
-                    end,
+                    start: block_start,
+                    end: block_end(m),
                 }],
             );
         }
         affected.insert(
             last,
             vec![SelectionRange {
-                start: node_start(last),
+                start: block_start,
                 end: last_cursor,
             }],
         );
@@ -10859,59 +10856,58 @@ impl LayoutWindow {
             return false;
         };
 
-        // Endpoint cursors come from the LAYOUT (real grapheme clusters); a
-        // byte-length synthetic end cursor resolves to nothing in
-        // get_selection_rects and the block silently loses its highlight.
-        // MATERIALIZED, not the sparse view: under the default dense text
-        // path the sparse layout is the shared empty retirement sentinel.
-        let first_caret = self
-            .materialized_inline_layout_for_node(dom_id, first)
-            .and_then(|l| l.get_first_cluster_cursor());
-        let last_caret = self
-            .materialized_inline_layout_for_node(dom_id, last)
-            .and_then(|l| l.get_last_cluster_cursor());
-        let (Some(start_cursor), Some(end_cursor)) = (first_caret, last_caret) else {
+        let (Some(start), Some(end)) = (
+            self.block_edge_caret(dom_id, first, false),
+            self.block_edge_caret(dom_id, last, true),
+        ) else {
             return false;
         };
 
-        // Cross-block: the engine precomputes the per-IFC ranges (anchor
-        // tail, full middles, focus head) and stores them render-ready, where
-        // the display-list pass picks them up through build_text_selections_map.
-        if first != last
-            && self.set_cross_block_selection(dom_id, first, start_cursor, last, end_cursor)
-        {
-            self.regenerate_display_list_for_dom(dom_id);
-            return true;
+        if first == last {
+            self.text_edit_manager.clear_cross_block_selection();
+            // Select the whole content as ONE range. The caret sits at
+            // range.end (last cluster) implicitly. Do NOT follow with
+            // set_single_cursor - that collapsed the selection, turning Ctrl+A
+            // into a no-op "move caret to end" instead of select-all.
+            let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+                return false;
+            };
+            mc.set_single_range(SelectionRange { start, end });
+        } else if !self.set_cross_block_selection(dom_id, first, start, last, end) {
+            // Cross-block: the engine precomputes the per-IFC ranges (anchor
+            // tail, full middles, focus head) and stores them render-ready.
+            // (A refusal used to fall back to selecting the first block only,
+            // for the sibling-chain rule 838adc974 retired.)
+            return false;
         }
-
-        let end = if first == last {
-            end_cursor
-        } else {
-            // Single-block fallback: end at the FIRST block's end.
-            match self
-                .get_inline_layout_for_node(dom_id, first)
-                .and_then(|l| l.get_last_cluster_cursor())
-            {
-                Some(c) => c,
-                None => return false,
-            }
-        };
-        self.text_edit_manager.clear_cross_block_selection();
-        // Select the whole content as ONE range. The caret sits at range.end
-        // (last cluster) implicitly. Do NOT follow with set_single_cursor -
-        // that collapsed the selection, turning Ctrl+A into a no-op "move
-        // caret to end" instead of select-all.
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
-            return false;
-        };
-        mc.set_single_range(SelectionRange {
-            start: start_cursor,
-            end,
-        });
         // Rebuild the display list so the selection HIGHLIGHT is actually
         // drawn (build_text_selections_map runs inside), like apply_selection_op.
         self.regenerate_display_list_for_dom(dom_id);
         true
+    }
+
+    /// The first caret of text block `block`, or with `end` its last: on its
+    /// first/last cluster, or on a blank editable line (which has no cluster)
+    /// the one position the line owns ([`Self::empty_editing_host_caret`]).
+    ///
+    /// From the LAYOUT's real grapheme clusters, since a byte-length synthetic
+    /// end resolves to nothing in `get_selection_rects`; and MATERIALIZED, not
+    /// the sparse view, which under the default dense text path is the shared
+    /// empty retirement sentinel.
+    fn block_edge_caret(&self, dom_id: DomId, block: NodeId, end: bool) -> Option<TextCursor> {
+        let layout = self.materialized_inline_layout_for_node(dom_id, block)?;
+        let edge = if end {
+            layout.get_last_cluster_cursor()
+        } else {
+            layout.get_first_cluster_cursor()
+        };
+        edge.or_else(|| {
+            Self::empty_editing_host_caret(
+                &self.layout_results.get(&dom_id)?.styled_dom,
+                block,
+                layout.as_ref(),
+            )
+        })
     }
 
     /// The text blocks Ctrl+A covers for a focus on `node_id`, in document
