@@ -2521,6 +2521,83 @@ fn a_combobox_list_popup_does_not_take_focus() {
     assert_eq!(focused(&parent), Some(field), "the field keeps its focus");
 }
 
+/// A FOCUSABLE swatch whose popup follows the app's `open` flag - the
+/// documented primary API ("the app never touches a window, it toggles
+/// `open`"), which reaches no callback seam.
+extern "C" fn focusable_swatch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let open = data
+        .downcast_ref::<PickerState>()
+        .map_or(false, |s| s.open);
+    let cfg = if open {
+        TransientWindowConfig::opened()
+    } else {
+        TransientWindowConfig::closed()
+    }
+    .with_dismiss(TransientDismiss::Escape);
+    let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(cfg)))
+        .with_child(Dom::create_div().with_css("width: 120px; height: 60px;".into()));
+    let swatch = Dom::create_div()
+        .with_css("width: 60px; height: 24px; margin: 40px; background: #e66465;".into())
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_child(popup);
+    Dom::create_body().with_child(swatch)
+}
+
+/// P1-7: a popup the APP opened through its `open` attribute owes focus
+/// back exactly like one a widget opened with `set_transient_window_open`.
+/// Only that callback seam recorded where focus was, so an attribute-opened
+/// popup dismissed with Escape (or an outside press that cleared focus)
+/// handed nothing back.
+#[test]
+fn a_popup_opened_by_its_attribute_owes_focus_back_on_dismissal() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(PickerState {
+        open: false,
+        label: "",
+        dismiss: TransientDismiss::Escape,
+        ack_dismiss: true,
+        dismissed_calls: Arc::new(AtomicUsize::new(0)),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = focusable_swatch_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout");
+
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    let swatch = focused(&parent).expect("premise: Tab focused the swatch");
+
+    with_state(&parent, |s| s.open = true);
+    relayout(&mut parent);
+    let _ = take_queued_popup(&mut parent);
+
+    key_down(&mut parent, VirtualKeyCode::Escape, &[], "t.escape");
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .is_empty(),
+        "premise: Escape dismissed the popup"
+    );
+    let owed = parent
+        .get_layout_window_mut()
+        .unwrap()
+        .transient_windows
+        .take_pending_focus_restore();
+    assert_eq!(
+        owed,
+        Some((swatch, true)),
+        "the dismissal owes the Tab-focused swatch (ringed) its focus back"
+    );
+    keys_up(&mut parent, "t.escape.up");
+}
+
 /// A ComboBox whose list was opened by a click on its field: `(parent,
 /// popup, field)`, the popup after its first pass.
 fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
