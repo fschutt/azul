@@ -1176,10 +1176,21 @@ fn publish(
     }
 }
 
-/// Arrow-key control for the picker's plane and hue bar, so a colour can be
-/// set WITHOUT a mouse: arrows nudge by 1%, Ctrl+arrows by 10% (the usual
-/// coarse/fine pair). Up/Down move brightness on the plane; Left/Right move
-/// saturation there and hue on the hue bar.
+/// Keyboard control for the picker's plane, hue bar and alpha bar, so a
+/// colour can be set WITHOUT a mouse (WAI-ARIA slider keys; the plane is the
+/// de-facto 2-D colour area):
+/// - arrows nudge by 1%, or 10% with the large-step modifier (see
+///   [`picker_step`]: Shift, or the platform's primary modifier). On the
+///   plane Left / Right move saturation and Up / Down brightness; on the
+///   bars Left / Down decrease and Right / Up increase.
+/// - PageUp / PageDown are the 10% step (the plane's y-axis, brightness).
+/// - Home / End go to the minimum / maximum (the plane's x-axis,
+///   saturation).
+///
+/// A handled key is claimed (`prevent_default`), so spatial navigation and
+/// page scrolling never run from inside the picker; any other key - and any
+/// chord `picker_step` declines - keeps its default (Tab moves on, Escape
+/// dismisses the popup).
 ///
 /// Shares `set_hsv` + `publish` with the drag handlers, so a keyboard change
 /// commits through exactly the same path a mouse drag does - one update
@@ -1201,23 +1212,50 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
         (NudgeAxis::Plane, K::Right) => hsv.s = (hsv.s + step).clamp(0.0, 1.0),
         (NudgeAxis::Plane, K::Up) => hsv.v = (hsv.v + step).clamp(0.0, 1.0),
         (NudgeAxis::Plane, K::Down) => hsv.v = (hsv.v - step).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::PageUp) => hsv.v = (hsv.v + COARSE_STEP).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::PageDown) => hsv.v = (hsv.v - COARSE_STEP).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::Home) => hsv.s = 0.0,
+        (NudgeAxis::Plane, K::End) => hsv.s = 1.0,
         (NudgeAxis::Hue, K::Left | K::Down) => {
             hsv.h = (hsv.h - step * 360.0).rem_euclid(360.0);
         }
         (NudgeAxis::Hue, K::Right | K::Up) => {
             hsv.h = (hsv.h + step * 360.0).rem_euclid(360.0);
         }
+        (NudgeAxis::Hue, K::PageDown) => {
+            hsv.h = (hsv.h - COARSE_STEP * 360.0).rem_euclid(360.0);
+        }
+        (NudgeAxis::Hue, K::PageUp) => {
+            hsv.h = (hsv.h + COARSE_STEP * 360.0).rem_euclid(360.0);
+        }
+        (NudgeAxis::Hue, K::Home) => hsv.h = 0.0,
+        // The top of the bar, as a drag to its right edge picks it (360
+        // would wrap straight back to 0).
+        (NudgeAxis::Hue, K::End) => hsv.h = HUE_MAX,
         // Alpha is a channel of the COLOUR, not of `hsv` - go through the
         // same `set_color` the alpha drag uses.
-        (NudgeAxis::Alpha, K::Left | K::Down | K::Right | K::Up) => {
-            let dir = if matches!(key, K::Left | K::Down) {
-                -1.0
-            } else {
-                1.0
-            };
+        (
+            NudgeAxis::Alpha,
+            K::Left
+            | K::Down
+            | K::Right
+            | K::Up
+            | K::PageUp
+            | K::PageDown
+            | K::Home
+            | K::End,
+        ) => {
             let mut c = picker.color();
             let a = f32::from(c.a) / 255.0;
-            c.a = channel_value((a + dir * step).clamp(0.0, 1.0) * 255.0);
+            let target = match key {
+                K::Home => 0.0,
+                K::End => 1.0,
+                K::PageDown => a - COARSE_STEP,
+                K::PageUp => a + COARSE_STEP,
+                K::Left | K::Down => a - step,
+                _ => a + step,
+            };
+            c.a = channel_value(target.clamp(0.0, 1.0) * 255.0);
             picker.set_color(c);
             info.prevent_default();
             let panel = info.get_parent(info.get_hit_node());
@@ -1239,18 +1277,40 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
 const FINE_STEP: f32 = 0.01;
 /// The large keyboard step of a picker control: 10%.
 const COARSE_STEP: f32 = 0.10;
+/// The top of the hue bar - what a drag to its right edge picks.
+const HUE_MAX: f32 = 359.9;
 
 /// The step a picker key takes for the modifiers held: [`FINE_STEP`], or
 /// [`COARSE_STEP`] with the large-step modifier. `None` means the chord is
 /// not the picker's and must fall through untouched.
 ///
-/// THE one place the modifier decision lives. `mac_conventions` is the
-/// process's [`azul_core::window::mac_shortcut_conventions`], passed in
-/// rather than read here so both conventions are testable on any host.
-fn picker_step(ks: &azul_core::window::KeyboardState, _mac_conventions: bool) -> Option<f32> {
-    // Ctrl (or Cmd on macOS) = the coarse step.
-    let coarse = ks.ctrl_down() || ks.super_down();
-    Some(if coarse { COARSE_STEP } else { FINE_STEP })
+/// THE one place the modifier decision lives (user ruling, 2026-09-26):
+/// - the large step is the platform's PRIMARY modifier - Cmd on a Mac,
+///   Ctrl everywhere else (the same split as every editing shortcut,
+///   `KeyboardState::primary_down`) - or Shift, the design-tool convention
+///   (Figma, Photoshop) that no OS reserves;
+/// - Alt, and the OTHER command modifier, are not the picker's: a stock Mac
+///   takes Ctrl+arrow for Mission Control / Spaces, Windows takes Win+arrow
+///   for window snapping, and Alt+arrow is an app's history / word motion.
+///
+/// `mac_conventions` is the process's
+/// [`azul_core::window::mac_shortcut_conventions`] (false for the X11
+/// backend on a Mac, whose keys follow Linux), passed in rather than read
+/// here so both conventions are testable on any host.
+fn picker_step(ks: &azul_core::window::KeyboardState, mac_conventions: bool) -> Option<f32> {
+    let (primary, other_command) = if mac_conventions {
+        (ks.super_down(), ks.ctrl_down())
+    } else {
+        (ks.ctrl_down(), ks.super_down())
+    };
+    if ks.alt_down() || other_command {
+        return None;
+    }
+    Some(if primary || ks.shift_down() {
+        COARSE_STEP
+    } else {
+        FINE_STEP
+    })
 }
 
 /// Which control `nudge_hsv` is driving.
