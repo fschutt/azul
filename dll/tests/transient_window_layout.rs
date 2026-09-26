@@ -2453,3 +2453,69 @@ fn a_key_the_parent_receives_while_its_picker_is_open_drives_the_picker() {
         "the invoker is not ringed while its popup holds the keyboard"
     );
 }
+
+/// A ComboBox: a field whose `<transient-window>` holds the option list.
+extern "C" fn combobox_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::combobox::ComboBox;
+    Dom::create_body().with_child(
+        ComboBox::new(azul_css::StringVec::from_vec(vec![
+            "Red".into(),
+            "Green".into(),
+            "Blue".into(),
+        ]))
+        .dom(),
+    )
+}
+
+/// P0-3: not every popup takes the keyboard. A combobox's list follows the
+/// WAI-ARIA combobox pattern: DOM focus STAYS on the field (typing keeps
+/// editing it) and the list is only its popup. Every transient popup used to
+/// autofocus its first tab stop, so opening the list moved focus onto the
+/// first option - where typed text had no handler.
+#[test]
+fn a_combobox_list_popup_does_not_take_focus() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = combobox_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let field_rect = rect_of_class(&parent, "combobox-input");
+    click_at(
+        &mut parent,
+        LogicalPosition::new(
+            field_rect.origin.x + field_rect.size.width / 2.0,
+            field_rect.origin.y + field_rect.size.height / 2.0,
+        ),
+    );
+    parent.regenerate_layout().expect("reconcile");
+    let field = node_with_class(&parent, "combobox-input");
+    assert_eq!(
+        focused(&parent),
+        Some(field),
+        "premise: the click focused the field"
+    );
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+
+    assert_eq!(
+        focused(&popup),
+        None,
+        "the list popup does not take focus (no autofocus of its first option)"
+    );
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_keyboard_owner()
+            .is_none(),
+        "and does not hold the parent's keyboard: keys stay with the field"
+    );
+    assert_eq!(focused(&parent), Some(field), "the field keeps its focus");
+}
