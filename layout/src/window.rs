@@ -11820,11 +11820,22 @@ impl LayoutWindow {
                             continue;
                         }
                     }
+                    let t_before = tr.t;
                     tr.t = if tr.duration_s <= 0.0 {
                         1.0
                     } else {
                         (tr.t + dt / tr.duration_s).min(1.0)
                     };
+                    // A step that did not move the clock shows exactly what
+                    // the previous step (or the seed's frame-0 override)
+                    // already wrote: nothing to restyle, no dirt to stage,
+                    // no relayout to ask for. The Linux loops service the
+                    // driver on every pass, and a pass in the same instant
+                    // as the last tick used to relayout the whole window for
+                    // a frame identical to the one on screen.
+                    if tr.t == t_before {
+                        continue;
+                    }
                     let (w, h) = rect.map_or((0.0, 0.0), |r| (r.size.width, r.size.height));
                     let resolver = azul_css::props::basic::animation::InterpolateResolver {
                         interpolate_func: tr.timing.to_interpolation(),
