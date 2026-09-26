@@ -20,7 +20,9 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::{
-    dynamic_selector::PseudoStateType, props::property::CssPropertyType, system::SystemStyle,
+    dynamic_selector::{PseudoStateType, ResolveSystemColors},
+    props::property::CssPropertyType,
+    system::SystemStyle,
 };
 use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
@@ -580,6 +582,14 @@ impl RenderContext {
         // `computed_values` here used to work because the cascade stored every
         // property in it; it no longer does, and emitting a page with no
         // `display` or `margin` would be silently wrong.
+        //
+        // A `system:` colour keyword is resolved against the cascade's own
+        // context before it is written out: the browser knows neither the
+        // keyword nor its token (which reads as a transparent colour).
+        let ctx = cache.dynamic_context.as_deref();
+        let css_of = |p: &azul_css::props::property::CssProperty| {
+            p.clone().resolve_system_colors(ctx).format_css()
+        };
         let mut decls: Vec<String> = Vec::new();
         for slice in [
             cache.cascaded_props.get_slice(node_idx),
@@ -587,7 +597,7 @@ impl RenderContext {
         ] {
             for sp in slice {
                 if sp.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    decls.push(sp.property.format_css());
+                    decls.push(css_of(&sp.property));
                 }
             }
         }
@@ -599,7 +609,7 @@ impl RenderContext {
                 .computed_values
                 .values_for(node_idx)
                 .iter()
-                .map(|(_t, p)| p.property.format_css()),
+                .map(|(_t, p)| css_of(&p.property)),
         );
         if !decls.is_empty() {
             self.css_rules
@@ -616,7 +626,7 @@ impl RenderContext {
                     pseudo_groups
                         .entry(css_pseudo)
                         .or_default()
-                        .push(sp.property.format_css());
+                        .push(css_of(&sp.property));
                 }
                 // Normal state properties are already in computed_values, skip them here
             }
