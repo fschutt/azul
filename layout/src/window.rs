@@ -3014,36 +3014,47 @@ impl LayoutWindow {
                     })
         });
 
-        // Caret at block start / end, judged against the CURRENT effective
-        // content (overlay-first via get_text_before_textinput). Conservative
-        // on multi-run content: a caret we cannot prove at the boundary keeps
-        // Backspace/Delete on the plain per-IFC text path — safe fallback.
-        let (at_start, at_end) = self
-            .cursor_of_seat(seat_id)
-            .map_or((false, false), |cursor| {
-                let content = self.get_text_before_textinput(focus.dom, node_id);
-                let at_start =
-                    cursor.cluster_id.source_run == 0 && cursor.cluster_id.start_byte_in_run == 0;
-                let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
-                    if let InlineContent::Text(run) = c {
-                        Some((
-                            u32::try_from(i).unwrap_or(u32::MAX),
-                            u32::try_from(run.text.len()).unwrap_or(u32::MAX),
-                        ))
-                    } else {
-                        None
-                    }
-                });
-                let at_end = match last_text {
-                    Some((last_run, last_len)) => {
-                        cursor.cluster_id.source_run >= last_run
-                            && cursor.cluster_id.start_byte_in_run >= last_len
-                    }
-                    // No text at all: the caret is at both boundaries.
-                    None => true,
-                };
-                (at_start, at_end)
-            });
+        // Caret at block start / end: by POSITION, in the caret's OWN block,
+        // in the numbering the caret was minted in (`caret_block_content`,
+        // overlay-first). Its raw cluster id against the focused HOST's text
+        // said "at the start" for a caret AFTER the first glyph (`Trailing` on
+        // cluster 0), never said "at the end" for the layout's end-of-text
+        // caret, and in a multi-paragraph host no paragraph but the last had
+        // an end. A selection has no boundary: Backspace and Delete delete it
+        // (a range of nothing is the caret it stands for). No caret, no
+        // boundary - the plain per-IFC text path is the safe fallback.
+        let session = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            let document_selection = self
+                .text_edit_manager
+                .get_cross_block_selection()
+                .is_some_and(|cb| cb.dom_id == focus.dom);
+            self.text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .filter(|mc| !document_selection && mc.node_id.dom == focus.dom)
+                .and_then(|mc| {
+                    Some((
+                        mc.node_id.node.into_crate_internal(),
+                        mc.get_primary()?.selection,
+                    ))
+                })
+        } else {
+            self.text_edit_manager
+                .seat_caret(seat_id)
+                .filter(|c| c.node.dom == focus.dom)
+                .map(|c| (c.node.node.into_crate_internal(), c.selection()))
+        };
+        let (at_start, at_end) = session.map_or((false, false), |(caret_node, selection)| {
+            let block = self.text_target_of(focus.dom, host, caret_node);
+            let (content, generated) = self.caret_block_content(focus.dom, block);
+            let caret = match selection {
+                Selection::Cursor(c) => Some(c),
+                Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&content, &r),
+            };
+            caret.map_or((false, false), |c| {
+                Self::caret_at_block_edges(&content, generated, c)
+            })
+        });
 
         Some(crate::default_actions::EditingQueryState {
             is_contenteditable: true,
@@ -3471,13 +3482,19 @@ impl LayoutWindow {
     /// as one line, and the app's text-sync API (`get_unsynced_text_edits`)
     /// can only map an edit to its block when the node IS the block's IFC.
     pub fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
-        let Some(caret) = self
+        let caret = self
             .text_edit_manager
             .multi_cursor
             .as_ref()
             .filter(|mc| mc.node_id.dom == dom_id)
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
-        else {
+            .and_then(|mc| mc.node_id.node.into_crate_internal());
+        self.text_target_of(dom_id, host, caret)
+    }
+
+    /// [`Self::caret_text_target`] for a caret on `caret` - any seat's, not
+    /// only the primary session's.
+    fn text_target_of(&self, dom_id: DomId, host: NodeId, caret: Option<NodeId>) -> NodeId {
+        let Some(caret) = caret else {
             return host;
         };
         if caret == host {
@@ -3609,36 +3626,76 @@ impl LayoutWindow {
     }
 
     /// The carets are the layout's, and one can sit ON a generated item (a
-    /// click on a list marker). It edits at the start of the block's own text
-    /// instead: nothing typed or deleted goes into the marker.
-    fn past_generated_items(selections: Vec<Selection>, generated: usize) -> Vec<Selection> {
+    /// click on a list marker). It stands at the start of the block's own
+    /// text instead: nothing typed or deleted goes into the marker.
+    fn past_generated(cursor: TextCursor, generated: usize) -> TextCursor {
         let first_text = u32::try_from(generated).unwrap_or(u32::MAX);
-        if first_text == 0 {
+        if cursor.cluster_id.source_run < first_text {
+            TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: first_text,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Leading,
+            }
+        } else {
+            cursor
+        }
+    }
+
+    /// [`Self::past_generated`] for every end of every selection.
+    fn past_generated_items(selections: Vec<Selection>, generated: usize) -> Vec<Selection> {
+        if generated == 0 {
             return selections;
         }
-        let clamp = |c: TextCursor| {
-            if c.cluster_id.source_run < first_text {
-                TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: first_text,
-                        start_byte_in_run: 0,
-                    },
-                    affinity: CursorAffinity::Leading,
-                }
-            } else {
-                c
-            }
-        };
         selections
             .into_iter()
             .map(|sel| match sel {
-                Selection::Cursor(c) => Selection::Cursor(clamp(c)),
+                Selection::Cursor(c) => Selection::Cursor(Self::past_generated(c, generated)),
                 Selection::Range(r) => Selection::Range(SelectionRange {
-                    start: clamp(r.start),
-                    end: clamp(r.end),
+                    start: Self::past_generated(r.start, generated),
+                    end: Self::past_generated(r.end, generated),
                 }),
             })
             .collect()
+    }
+
+    /// Whether `cursor` sits at the very start / the very end of its block's
+    /// text, by POSITION in `content` - the carets' own numbering, whose first
+    /// `generated` items are not text ([`Self::caret_block_content`]). An item
+    /// that holds nothing (an empty seed run) is not in the way; a character,
+    /// a line break or an image is.
+    fn caret_at_block_edges(
+        content: &[InlineContent],
+        generated: usize,
+        cursor: TextCursor,
+    ) -> (bool, bool) {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let cursor = Self::past_generated(cursor, generated);
+        let text = content.get(generated..).unwrap_or(&[]);
+        let blank = |items: &[InlineContent]| {
+            items
+                .iter()
+                .all(|item| matches!(item, InlineContent::Text(t) if t.text.is_empty()))
+        };
+        let run = (cursor.cluster_id.source_run as usize).saturating_sub(generated);
+        let (at_item_start, at_item_end) = match text.get(run) {
+            Some(InlineContent::Text(t)) => {
+                let at = cursor_byte_offset_in_run(&t.text, &cursor);
+                (at == 0, at >= t.text.len())
+            }
+            Some(_) => (
+                cursor.affinity == CursorAffinity::Leading,
+                cursor.affinity == CursorAffinity::Trailing,
+            ),
+            // Past the content: a blank block has its one caret at both
+            // edges; anything else is a stale caret, and no boundary.
+            None => return if blank(text) { (true, true) } else { (false, false) },
+        };
+        (
+            at_item_start && blank(&text[..run]),
+            at_item_end && blank(&text[run + 1..]),
+        )
     }
 
     /// The caret expressed as a STRUCTURAL position inside `node`: the index

@@ -368,6 +368,40 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
     }
 }
 
+/// The caret a zero-width range stands for; `None` for a range that covers
+/// something.
+///
+/// The two ends of a range can name ONE position with different cluster
+/// ids: `Trailing` on a grapheme and `Leading` on the next one are the same
+/// place between them - a drag that jitters a pixel across a glyph edge
+/// produces exactly that pair. Compared as ids it is "a selection", one that
+/// covers nothing. The caret is `Leading` at that byte - the edit path's own
+/// convention.
+#[must_use]
+pub fn collapsed_range_caret(
+    content: &[InlineContent],
+    range: &SelectionRange,
+) -> Option<TextCursor> {
+    if range.start == range.end {
+        return Some(range.start);
+    }
+    let run = range.start.cluster_id.source_run;
+    if run != range.end.cluster_id.source_run {
+        return None;
+    }
+    let Some(InlineContent::Text(text_run)) = content.get(run as usize) else {
+        return None;
+    };
+    let at = cursor_byte_offset_in_run(&text_run.text, &range.start);
+    (at == cursor_byte_offset_in_run(&text_run.text, &range.end)).then(|| TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: run,
+            start_byte_in_run: u32::try_from(at).unwrap_or(u32::MAX),
+        },
+        affinity: CursorAffinity::Leading,
+    })
+}
+
 /// Deletes the content within a given range.
 ///
 /// Handles:
