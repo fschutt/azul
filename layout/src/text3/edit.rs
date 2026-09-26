@@ -323,8 +323,7 @@ pub fn apply_edit_to_selection(
     match selection {
         Selection::Range(range) => {
             // A range of nothing is a caret: Backspace and Delete act on the
-            // grapheme beside it. Deleting the empty range deleted nothing,
-            // and the keys stayed dead until the selection was replaced.
+            // grapheme beside it (deleting the empty range deleted nothing).
             if let (TextEdit::DeleteBackward | TextEdit::DeleteForward, Some(caret)) =
                 (edit, collapsed_range_caret(content, range))
             {
@@ -376,15 +375,10 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
     }
 }
 
-/// The caret a zero-width range stands for; `None` for a range that covers
-/// something.
-///
-/// The two ends of a range can name ONE position with different cluster
-/// ids: `Trailing` on a grapheme and `Leading` on the next one are the same
-/// place between them - a drag that jitters a pixel across a glyph edge
-/// produces exactly that pair. Compared as ids it is "a selection", one that
-/// covers nothing. The caret is `Leading` at that byte - the edit path's own
-/// convention.
+/// The caret a zero-width range stands for (`Leading` at its byte, the edit
+/// path's convention); `None` for a range that covers something. Its ends can
+/// name ONE position with different ids: `Trailing` on a grapheme and
+/// `Leading` on the next, which a drag jittering across a glyph edge makes.
 #[must_use]
 pub fn collapsed_range_caret(
     content: &[InlineContent],

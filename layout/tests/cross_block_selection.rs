@@ -1,13 +1,12 @@
-//! AZUL-STILL-TODO C9/C10: selection spanning multiple sibling blocks and
-//! the selection-spanning delete.
+//! AZUL-STILL-TODO C9/C10: selection spanning multiple text blocks and the
+//! selection-spanning delete.
 //!
 //! - `set_cross_block_selection` precomputes the per-IFC ranges (anchor node from its cursor to its
-//!   end, middles fully, focus node from its start to its cursor) and stores them render-ready; the
-//!   display-list pass consumes them through `build_text_selections_map`.
-//! - `delete_cross_block_selection` trims the two end nodes through the text overlay and emits ONE
-//!   `RemoveChildren` structural changeset for the fully-covered middles; the caret collapses to
-//!   the selection start. (Word-style paragraph MERGE of the two remaining part-blocks is the
-//!   separate merge gap, not part of this slice.)
+//!   end, the blocks between fully, focus node from its start to its cursor) and stores them
+//!   render-ready; the display-list pass consumes them through `build_text_selections_map`.
+//! - `delete_cross_block_selection` records ONE `ReplaceChildren` on the two ends' nearest common
+//!   ancestor whose fragment holds the first block merged with what is left of the last (Word
+//!   semantics); the caret collapses to the selection start.
 
 use azul_core::{
     dom::{Dom, DomId, IdOrClass, NodeId},

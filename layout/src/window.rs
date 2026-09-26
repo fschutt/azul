@@ -1166,6 +1166,41 @@ static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
 
+/// `parent`'s children, in order.
+fn child_nodes(
+    hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
+    parent: NodeId,
+) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    let mut child = hierarchy.get(parent).and_then(|h| h.first_child_id(parent));
+    while let Some(c) = child {
+        out.push(c);
+        child = hierarchy
+            .get(c)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+    }
+    out
+}
+
+/// `node`'s index in its parent's child list: how many siblings precede it.
+fn sibling_index(
+    hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
+    node: NodeId,
+) -> u32 {
+    let previous = |n: NodeId| {
+        hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id)
+    };
+    let mut index = 0;
+    let mut sibling = previous(node);
+    while let Some(s) = sibling {
+        index += 1;
+        sibling = previous(s);
+    }
+    index
+}
+
 #[allow(clippy::struct_excessive_bools)]
 /// A tear-off drag of an inline-docked `<transient-window>`, running in
 /// the PARENT window (the panel has no window of its own to drag).
@@ -2823,17 +2858,7 @@ impl LayoutWindow {
         let mut cur = node.node.into_crate_internal()?;
         let mut path_rev: Vec<u32> = Vec::new();
         while cur != anc {
-            let mut index: u32 = 0;
-            let mut sib = hierarchy
-                .get(cur)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            while let Some(sn) = sib {
-                index += 1;
-                sib = hierarchy
-                    .get(sn)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            }
-            path_rev.push(index);
+            path_rev.push(sibling_index(&hierarchy, cur));
             match hierarchy
                 .get(cur)
                 .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
@@ -3014,15 +3039,9 @@ impl LayoutWindow {
                     })
         });
 
-        // Caret at block start / end: by POSITION, in the caret's OWN block,
-        // in the numbering the caret was minted in (`caret_block_content`,
-        // overlay-first). Its raw cluster id against the focused HOST's text
-        // said "at the start" for a caret AFTER the first glyph (`Trailing` on
-        // cluster 0), never said "at the end" for the layout's end-of-text
-        // caret, and in a multi-paragraph host no paragraph but the last had
-        // an end. A selection has no boundary: Backspace and Delete delete it
-        // (a range of nothing is the caret it stands for). No caret, no
-        // boundary - the plain per-IFC text path is the safe fallback.
+        // Caret at block start / end: by POSITION in the caret's OWN block
+        // (not the host's flattened text, not the raw cluster id). A
+        // selection is never at a boundary - Backspace and Delete delete it.
         let session = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             let document_selection = self
                 .text_edit_manager
@@ -3548,12 +3567,9 @@ impl LayoutWindow {
     }
 
     /// The layout node whose inline layout an edit of `node_id` re-shapes:
-    /// its own, or - for a node that owns none, like a text widget's
-    /// container - the first one among its descendants, the caret's block
-    /// first ([`Self::ifc_candidate_children`]). The one search both
-    /// [`Self::reshape_text_node`] (which writes there) and
-    /// [`Self::caret_block_content`] (which reads the generated prefix from
-    /// there) go through, so the two cannot disagree about the block.
+    /// its own, else the first among its descendants, the caret's block first
+    /// ([`Self::ifc_candidate_children`]). Shared by [`Self::reshape_text_node`]
+    /// and [`Self::caret_block_content`], so the two agree on the block.
     fn ifc_layout_index_for_edit(&self, dom_id: DomId, node_id: NodeId) -> Option<usize> {
         let tree = &self.layout_results.get(&dom_id)?.layout_tree;
         let owned_ifc = |n: NodeId| -> Option<usize> {
@@ -3574,7 +3590,7 @@ impl LayoutWindow {
     }
 
     /// The generated items `solver3::fc` put IN FRONT of an IFC's own content
-    /// - today exactly a list item's `::marker` - as the IFC root's cached
+    /// (today exactly a list item's `::marker`), as the IFC root's cached
     /// collection (`LayoutNodeWarm::inline_content_cache`) holds them.
     fn generated_ifc_prefix(&self, dom_id: DomId, layout_index: usize) -> Vec<InlineContent> {
         self.layout_results
@@ -3593,20 +3609,13 @@ impl LayoutWindow {
     }
 
     /// The content a caret in `node_id`'s block indexes, and how many
-    /// generated items lead it.
+    /// generated items lead it: the edit model (`get_text_before_textinput`,
+    /// the DOM's text alone) behind the prefix the layout numbers first - a
+    /// list item's `::marker`, which makes its text run 1 to every caret.
     ///
-    /// The layout numbers a block's runs in the content `solver3::fc` built,
-    /// which starts with a list item's `::marker`: every caret it mints in a
-    /// list item's text says run 1. The edit model - `get_text_before_textinput`,
-    /// the content overlay - is the DOM's text alone, where that text is run 0,
-    /// so an edit that handed it the layout's carets spliced a run that is not
-    /// there and typing into a list item did nothing. This is the edit model
-    /// behind the generated prefix: the carets' own numbering.
-    ///
-    /// An edit splices this, then keeps only `[generated..]` - the overlay,
-    /// the undo snapshots and the app's text-sync API get the text alone -
-    /// and [`Self::reshape_text_node`] shapes the prefix in front of it again,
-    /// so the marker stays drawn and the carets keep their numbering.
+    /// Edits splice this and store only `[generated..]` (overlay, undo, the
+    /// app's sync API get the text); [`Self::reshape_text_node`] shapes the
+    /// prefix in front again, so the carets keep their numbering.
     fn caret_block_content(&self, dom_id: DomId, node_id: NodeId) -> (Vec<InlineContent>, usize) {
         let text = self.get_text_before_textinput(dom_id, node_id);
         let leading = text
@@ -3799,16 +3808,7 @@ impl LayoutWindow {
         }
 
         // Index of that direct child among ALL children.
-        let mut index: u32 = 0;
-        let mut sib = hierarchy
-            .get(direct_child)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-        while let Some(sn) = sib {
-            index += 1;
-            sib = hierarchy
-                .get(sn)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-        }
+        let index = sibling_index(&hierarchy, direct_child);
 
         // Only a TEXT child carries a byte offset; anything else is a
         // boundary before/after it (after = caret at the child's end).
@@ -3842,19 +3842,10 @@ impl LayoutWindow {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return NodePosition::before_child(0);
         };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
-        let mut count: u32 = 0;
-        let mut last_child: Option<NodeId> = None;
-        let mut child = hierarchy.get(first).and_then(|n| n.first_child_id(first));
-        while let Some(c) = child {
-            count += 1;
-            last_child = Some(c);
-            child = hierarchy
-                .get(c)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
-        }
-        let last_text_len = last_child.and_then(|c| {
+        let children = child_nodes(&lr.styled_dom.node_hierarchy.as_container(), first);
+        let count = u32::try_from(children.len()).unwrap_or(u32::MAX);
+        let last_text_len = children.last().and_then(|&c| {
             node_data.get(c).and_then(|n| match n.get_node_type() {
                 NodeType::Text(t) => Some(u32::try_from(t.as_str().len()).unwrap_or(u32::MAX)),
                 _ => None,
@@ -3940,11 +3931,9 @@ impl LayoutWindow {
             },
             affinity: CursorAffinity::Leading,
         };
-        // A block with no cluster - a blank editable line, an image, a rule -
-        // ends where it starts: it is INSIDE the selection (deleted by
-        // `delete_cross_block_selection`) with no text to highlight. The
-        // FIRST block used to be refused there instead, so a drag that
-        // started on a blank line never became a selection.
+        // A block with no cluster (a blank line, an image) ends where it
+        // starts: inside the selection, with no text to highlight. The FIRST
+        // block used to be refused instead - no drag from a blank line.
         let block_end = |n: NodeId| self.node_text_end_cursor(dom_id, n).unwrap_or(block_start);
 
         // A cross-block selection contributes exactly ONE range per node; the
@@ -4003,19 +3992,16 @@ impl LayoutWindow {
     /// ```text
     /// ReplaceChildren {
     ///     parent:       the two ends' nearest common ancestor,
-    ///     start..end:   its children from the one holding the FIRST block
-    ///                   to the one holding the LAST,
-    ///     content:      a fragment of those children rebuilt: the first
-    ///                   block becomes ONE merged block - its own element
-    ///                   (classes and inline styles survive, Word semantics)
-    ///                   holding first-kept-text + last-kept-text - with
-    ///                   whatever preceded it kept, and whatever followed the
-    ///                   last block kept after it,
+    ///     start..end:   its children holding the FIRST to the LAST block,
+    ///     content:      those children rebuilt around ONE merged block - the
+    ///                   FIRST block's element (classes and inline styles
+    ///                   survive, Word semantics) holding first-kept-text +
+    ///                   last-kept-text,
     /// }
     /// ```
     ///
-    /// For two sibling blocks that is simply `[first ..= last]` replaced by
-    /// the merged block. See [`Self::document_selection_replacement`].
+    /// ([`Self::document_selection_replacement`]; for two siblings simply
+    /// `[first ..= last]` replaced by the merged block.)
     ///
     /// Atomicity is the point: the app applies or rejects the WHOLE edit,
     /// undo is one entry, and the overlay previews the merged paragraph
@@ -4043,10 +4029,8 @@ impl LayoutWindow {
             text3::cache::InlineContent,
         };
 
-        // Built from a PEEK; the selection is consumed only once the edit is
-        // recorded. Taking it up front meant every refusal below dropped it:
-        // the highlight vanished, and a paste fell through to inserting at
-        // the caret as if nothing had been selected.
+        // A PEEK: the selection is consumed only once the edit exists, so a
+        // refusal below leaves it standing.
         let (dom_id, mut nodes): (DomId, Vec<(NodeId, SelectionRange)>) = {
             let sel = self.text_edit_manager.get_cross_block_selection()?;
             (
@@ -4064,48 +4048,30 @@ impl LayoutWindow {
         let (first, first_range) = nodes[0];
         let (last, last_range) = *nodes.last().expect("len >= 2");
 
-        // Text kept from the FIRST block: everything before the range start
-        // (affinity-aware byte offsets — a Trailing cursor cuts AFTER its
-        // grapheme). Read in the carets' own run numbering
-        // (`caret_block_content`): a list item's text is run 1 behind its
-        // marker, and the DOM's text alone kept a first item whole and
-        // dropped a last item's tail.
-        use crate::text3::edit::cursor_byte_offset_in_run;
-        let cut_run = first_range.start.cluster_id.source_run;
-        let mut first_kept = String::new();
-        for (i, c) in self.caret_block_content(dom_id, first).0.iter().enumerate() {
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            if let InlineContent::Text(run) = c {
-                match i.cmp(&cut_run) {
-                    core::cmp::Ordering::Less => first_kept.push_str(&run.text),
-                    core::cmp::Ordering::Equal => {
-                        let byte = cursor_byte_offset_in_run(&run.text, &first_range.start)
-                            .min(run.text.len());
-                        first_kept.push_str(&run.text[..byte]);
-                        break;
-                    }
-                    core::cmp::Ordering::Greater => {}
+        // The text a block keeps before (`head`) or after its cut, in the
+        // carets' own run numbering (`caret_block_content` - a list item's
+        // text is run 1 behind its marker) and affinity-aware (a Trailing
+        // cursor cuts AFTER its grapheme).
+        let kept = |block: NodeId, cut: &TextCursor, head: bool| -> String {
+            use crate::text3::edit::cursor_byte_offset_in_run;
+            let cut_run = cut.cluster_id.source_run;
+            let mut out = String::new();
+            for (i, item) in self.caret_block_content(dom_id, block).0.iter().enumerate() {
+                let InlineContent::Text(run) = item else {
+                    continue;
+                };
+                let i = u32::try_from(i).unwrap_or(u32::MAX);
+                if i == cut_run {
+                    let byte = cursor_byte_offset_in_run(&run.text, cut).min(run.text.len());
+                    out.push_str(if head { &run.text[..byte] } else { &run.text[byte..] });
+                } else if (i < cut_run) == head {
+                    out.push_str(&run.text);
                 }
             }
-        }
-
-        // Text kept from the LAST block: everything after the range end.
-        let cut_run = last_range.end.cluster_id.source_run;
-        let mut last_kept = String::new();
-        for (i, c) in self.caret_block_content(dom_id, last).0.iter().enumerate() {
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            if let InlineContent::Text(run) = c {
-                match i.cmp(&cut_run) {
-                    core::cmp::Ordering::Equal => {
-                        let byte = cursor_byte_offset_in_run(&run.text, &last_range.end)
-                            .min(run.text.len());
-                        last_kept.push_str(&run.text[byte..]);
-                    }
-                    core::cmp::Ordering::Greater => last_kept.push_str(&run.text),
-                    core::cmp::Ordering::Less => {}
-                }
-            }
-        }
+            out
+        };
+        let first_kept = kept(first, &first_range.start, true);
+        let last_kept = kept(last, &last_range.end, false);
 
         let join_byte = u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
         let merged_text = {
@@ -4116,10 +4082,8 @@ impl LayoutWindow {
             t
         };
 
-        // Replacement: the two ends' containers, rebuilt around the merged
-        // block. The ends need not share a parent - a document selection
-        // spans blocks in document order, wherever they sit (838adc974); this
-        // function kept the old sibling-only rule and refused everything else.
+        // The ends need not share a parent: a document selection spans blocks
+        // in document order, wherever they sit (838adc974).
         let (parent, start_idx, end_idx, replacement) =
             self.document_selection_replacement(dom_id, first, last, merged_text)?;
 
@@ -4175,29 +4139,17 @@ impl LayoutWindow {
         Some(self.record_document_edit(changeset))
     }
 
-    /// The `ReplaceChildren` that deletes a document selection running from
-    /// block `first` to block `last` (document order) and joins what is left
-    /// of the two into `first`: `(parent, start, end, fragment)`.
+    /// The `(parent, start, end, fragment)` of the `ReplaceChildren` that
+    /// deletes a document selection from block `first` to block `last` and
+    /// joins what is left into `first`. `parent` is their nearest common
+    /// ancestor; of its children, the one holding `first` keeps what precedes
+    /// `first` plus `first` itself holding `merged_text` (one run, the v1
+    /// flattening), the one holding `last` keeps what follows `last` (and goes
+    /// if that is nothing), and everything between goes.
     ///
-    /// The range sits on the ends' nearest common ancestor, from its child
-    /// that holds `first` to its child that holds `last`, and those two are
-    /// rebuilt while everything between them goes:
-    ///
-    /// - on `first`'s side, everything BEFORE `first` stays, and `first` becomes its own element
-    ///   holding `merged_text` as one run (the v1 flattening), with nothing after it;
-    /// - on `last`'s side, everything AFTER `last` stays - its kept text is already in
-    ///   `merged_text` - and a container the selection emptied goes with it.
-    ///
-    /// For two sibling blocks this is `[first ..= last]` replaced by the one
-    /// merged block, as it always was.
-    ///
-    /// The payload is a FRAGMENT: `document_edit::apply_replace` and the
-    /// overlay's `children_for_node` insert its CHILDREN and ignore its root.
-    /// The merged block used to BE the root, so an applied delete put a bare
-    /// text run where the paragraph had been.
-    ///
-    /// `None` when the two do not form a range (one contains the other, or
-    /// they are not in one tree).
+    /// The payload is a FRAGMENT - `document_edit::apply_replace` and the
+    /// overlay insert its CHILDREN and ignore its root. `None` when one block
+    /// contains the other.
     fn document_selection_replacement(
         &self,
         dom_id: DomId,
@@ -4211,24 +4163,6 @@ impl LayoutWindow {
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
         let parent_of = |n: NodeId| hierarchy.get(n).and_then(NodeHierarchyItem::parent_id);
-        let children_of = |n: NodeId| -> Vec<NodeId> {
-            let mut out = Vec::new();
-            let mut child = hierarchy.get(n).and_then(|h| h.first_child_id(n));
-            while let Some(c) = child {
-                out.push(c);
-                child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
-            }
-            out
-        };
-        let child_index = |n: NodeId| -> u32 {
-            let mut idx: u32 = 0;
-            let mut sib = hierarchy.get(n).and_then(NodeHierarchyItem::previous_sibling_id);
-            while let Some(s) = sib {
-                idx += 1;
-                sib = hierarchy.get(s).and_then(NodeHierarchyItem::previous_sibling_id);
-            }
-            idx
-        };
         // An element without its children: the clone carries the ELEMENT
         // (type, classes, ids, inline css); its dataset/callback state stays
         // with the app's re-render.
@@ -4268,20 +4202,17 @@ impl LayoutWindow {
         let first_top = *first_side.last()?;
         let last_top = *last_side.last()?;
 
-        // `first`'s side, bottom-up: the merged block, then each container
-        // around it keeping only what came before it.
+        // `first`'s side, bottom-up: the merged block (BARE text: it is the
+        // block's inline content, not a <p><p>), then each container around
+        // it keeping only what came before it.
         let mut head = element(first);
-        // BARE text on purpose: `head` is a clone of the spanned BLOCK
-        // element, so this child is its INLINE content. Wrapping it produces
-        // <p><p>text</p></p> - the same inline case as document_edit.rs
-        // splitting and rejoining text.
         head.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
             merged_text,
         ));
         for pair in first_side.windows(2) {
             let (inner, container) = (pair[0], pair[1]);
             let mut rebuilt = element(container);
-            for c in children_of(container) {
+            for c in child_nodes(&hierarchy, container) {
                 if c == inner {
                     break;
                 }
@@ -4301,7 +4232,7 @@ impl LayoutWindow {
                 rebuilt.add_child(t);
             }
             let mut after = false;
-            for c in children_of(container) {
+            for c in child_nodes(&hierarchy, container) {
                 if after {
                     rebuilt.add_child(self.live_subtree(dom_id, c));
                 } else if c == inner {
@@ -4318,18 +4249,15 @@ impl LayoutWindow {
         }
         Some((
             common,
-            child_index(first_top),
-            child_index(last_top) + 1,
+            sibling_index(&hierarchy, first_top),
+            sibling_index(&hierarchy, last_top) + 1,
             fragment,
         ))
     }
 
-    /// `node`'s subtree as a plain `Dom`, carrying the text the user typed
-    /// that the app has not synced yet: an element the overlay holds edited
-    /// text for gets it as ONE run (the v1 flattening the merged block of a
-    /// document-selection delete uses). Rebuilt from the DOM alone, a block
-    /// kept by that delete would hand the app back its PRE-edit text, and the
-    /// typing in it would be undone by the delete of something else.
+    /// `node`'s subtree as a plain `Dom` WITH the typing the app has not
+    /// synced yet: an element the overlay holds edited text for gets it as ONE
+    /// run. From the DOM alone, a block kept by a delete would lose it.
     fn live_subtree(&self, dom_id: DomId, node: NodeId) -> Dom {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return Dom::create_div();
@@ -4356,15 +4284,29 @@ impl LayoutWindow {
             ));
             return out;
         }
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let mut child = hierarchy.get(node).and_then(|h| h.first_child_id(node));
-        while let Some(c) = child {
+        for c in child_nodes(&lr.styled_dom.node_hierarchy.as_container(), node) {
             out.add_child(self.live_subtree(dom_id, c));
-            child = hierarchy
-                .get(c)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
         out
+    }
+
+    /// Every IFC root (text block) of `dom_id`, in DOCUMENT order.
+    ///
+    /// The layout tree is built in pre-order, so its own order IS document
+    /// order; anonymous boxes carry no `dom_node_id` and are skipped.
+    #[must_use]
+    pub fn ifc_roots_in_document_order(&self, dom_id: DomId) -> Vec<NodeId> {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let tree = &lr.layout_tree;
+        (0..tree.nodes.len())
+            .filter(|idx| {
+                tree.warm(LayoutNodeId::new(*idx))
+                    .is_some_and(|w| w.inline_layout_result.is_some())
+            })
+            .filter_map(|idx| tree.nodes[idx].dom_node_id)
+            .collect()
     }
 
     /// The previous/next MERGE-ELIGIBLE block sibling of a node (C13).
@@ -4386,25 +4328,6 @@ impl LayoutWindow {
     /// the `<ul>`, so the merge is a no-op. (The previous version returned
     /// the raw sibling unfiltered, so Backspace at a block start could merge
     /// a whole block INTO an XML whitespace text node.)
-    /// Every IFC root (text block) of `dom_id`, in DOCUMENT order.
-    ///
-    /// The layout tree is built in pre-order, so its own order IS document
-    /// order; anonymous boxes carry no `dom_node_id` and are skipped.
-    #[must_use]
-    pub fn ifc_roots_in_document_order(&self, dom_id: DomId) -> Vec<NodeId> {
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return Vec::new();
-        };
-        let tree = &lr.layout_tree;
-        (0..tree.nodes.len())
-            .filter(|idx| {
-                tree.warm(LayoutNodeId::new(*idx))
-                    .is_some_and(|w| w.inline_layout_result.is_some())
-            })
-            .filter_map(|idx| tree.nodes[idx].dom_node_id)
-            .collect()
-    }
-
     fn block_sibling(&self, dom_id: DomId, node_id: NodeId, next: bool) -> Option<NodeId> {
         use azul_core::dom::NodeType;
 
@@ -4491,17 +4414,7 @@ impl LayoutWindow {
         let mut path_rev: Vec<u32> = Vec::new();
         let mut current = node_id;
         while current != anchor {
-            let mut index: u32 = 0;
-            let mut sib = hierarchy_c
-                .get(current)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            while let Some(sn) = sib {
-                index += 1;
-                sib = hierarchy_c
-                    .get(sn)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
-            }
-            path_rev.push(index);
+            path_rev.push(sibling_index(&hierarchy_c, current));
             match hierarchy_c
                 .get(current)
                 .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
@@ -10160,11 +10073,9 @@ impl LayoutWindow {
                 .is_some_and(|(dom, node)| {
                     !self.is_node_contenteditable_inherited_internal(dom, node)
                 });
-            // The same holds for a selection over static text that spans
-            // BLOCKS: it lives in `cross_block`, beside a session that is only
-            // its anchor caret (a collapsed Cursor, so the Range test above
-            // does not see it). `clear_editing` ends a document selection, so
-            // one over static text has to be recognised here to survive.
+            // Likewise a selection over static text that spans BLOCKS: it
+            // sits in `cross_block`, beside a session that is only its anchor
+            // caret, and `clear_editing` would end it.
             let static_document_selection =
                 self.text_edit_manager.cross_block.as_ref().is_some_and(|cb| {
                     !self.is_node_contenteditable_inherited_internal(
@@ -10731,12 +10642,11 @@ impl LayoutWindow {
         self.node_is_self_or_descendant(edom, enode, fnode)
     }
 
-    /// Collapse `dom_id`'s document selection onto ONE caret for a plain
-    /// (non-extending) move: its document-order start for a character step
-    /// backward, its end for one forward, its focus for any other step - the
-    /// rule `MultiCursorState::move_all_cursors_with` applies to a range inside
-    /// one block. The session is re-seated there, which ends the document
-    /// selection. `false` when there was none to collapse.
+    /// Collapse `dom_id`'s document selection for a plain (non-extending)
+    /// move, by `move_all_cursors_with`'s rule for a range in one block: its
+    /// start for a character step backward, its end forward, its focus for
+    /// any other step. Re-seating the session there ends the selection.
+    /// `false` when there was none.
     fn collapse_document_selection_for_move(
         &mut self,
         dom_id: DomId,
@@ -10767,10 +10677,9 @@ impl LayoutWindow {
         true
     }
 
-    /// Whether the document selection belongs to the host `target` - the one
-    /// whose key was pressed: same DOM, and `target` contains one of its two
-    /// ends. A selection anywhere else is a leftover, never this key's to
-    /// delete or replace.
+    /// Whether the document selection is inside `target`, the host whose key
+    /// was pressed (it contains one of the two ends). One anywhere else is a
+    /// leftover, never that key's to delete or replace.
     fn document_selection_belongs_to(&self, target: DomNodeId) -> bool {
         let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
             return false;
@@ -10812,13 +10721,9 @@ impl LayoutWindow {
             return false;
         };
 
-        // A plain arrow key over a DOCUMENT selection collapses it. That
-        // selection is not the session's own range - it sits beside the
-        // session in `cross_block`, which paint, copy and delete prefer - so
-        // moving the session's caret (below) left it painted, and still the
-        // thing the next Backspace deleted. A character step lands on the
-        // edge it points at and stops there; any other step moves on from
-        // where the collapse put the caret.
+        // A plain arrow over a DOCUMENT selection collapses it: moving the
+        // session's caret (below) left it painted, and the thing the next
+        // Backspace deleted. A character step stops on the edge.
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
             && matches!(op.mode, SelectionMode::Move)
         {
@@ -10913,14 +10818,9 @@ impl LayoutWindow {
     }
 
     /// Ctrl+A for the focus on `focused` (`SystemChange::SelectAllText`):
-    /// select everything its editing host holds - every block of a
-    /// multi-block editable, not just the one the focus happens to sit on -
-    /// as a cross-block selection, or as the session's single range when the
-    /// host is one block. Returns whether a selection was made; the caller
-    /// repaints.
-    ///
-    /// The shells' `SystemChange` arm used to be this whole routine, where
-    /// neither layout tests nor the e2e runner could reach it.
+    /// every block its editing host holds, as a cross-block selection, or as
+    /// the session's single range when the host is one block. Returns whether
+    /// a selection was made; the caller repaints.
     pub fn select_all_text(&mut self, focused: DomNodeId) -> bool {
         let dom_id = focused.dom;
         let Some(node_id) = focused.node.into_crate_internal() else {
@@ -10949,10 +10849,6 @@ impl LayoutWindow {
             };
             mc.set_single_range(SelectionRange { start, end });
         } else if !self.set_cross_block_selection(dom_id, first, start, last, end) {
-            // Cross-block: the engine precomputes the per-IFC ranges (anchor
-            // tail, full middles, focus head) and stores them render-ready.
-            // (A refusal used to fall back to selecting the first block only,
-            // for the sibling-chain rule 838adc974 retired.)
             return false;
         }
         // Rebuild the display list so the selection HIGHLIGHT is actually
@@ -10962,13 +10858,9 @@ impl LayoutWindow {
     }
 
     /// The first caret of text block `block`, or with `end` its last: on its
-    /// first/last cluster, or on a blank editable line (which has no cluster)
-    /// the one position the line owns ([`Self::empty_editing_host_caret`]).
-    ///
-    /// From the LAYOUT's real grapheme clusters, since a byte-length synthetic
-    /// end resolves to nothing in `get_selection_rects`; and MATERIALIZED, not
-    /// the sparse view, which under the default dense text path is the shared
-    /// empty retirement sentinel.
+    /// first/last cluster of the MATERIALIZED layout (the sparse one is the
+    /// empty retirement sentinel under dense text), or on a blank editable
+    /// line the one position it owns ([`Self::empty_editing_host_caret`]).
     fn block_edge_caret(&self, dom_id: DomId, block: NodeId, end: bool) -> Option<TextCursor> {
         let layout = self.materialized_inline_layout_for_node(dom_id, block)?;
         let edge = if end {
@@ -10986,18 +10878,11 @@ impl LayoutWindow {
     }
 
     /// The text blocks Ctrl+A covers for a focus on `node_id`, in document
-    /// order.
-    ///
-    /// Rooted at the editing HOST: with focus on one paragraph inside a
-    /// multi-paragraph contenteditable, Ctrl+A still covers the whole
-    /// editable. A non-editable focus is its own root. A root that owns an
-    /// inline layout (a text input, a single paragraph) is the one block;
-    /// otherwise every ELEMENT below it that owns one is a block, and the
-    /// walk does not descend into them (their inline runs are not blocks)
-    /// but does descend into wrappers that own none -
-    /// `div[contenteditable] > section > p` is the ordinary shape. Text
-    /// children are skipped: XML pretty-printing whitespace is not a block,
-    /// and a raw text run cannot anchor a cross-block selection.
+    /// order: rooted at its editing HOST (a non-editable focus is its own
+    /// root), the root itself when it owns an inline layout, else every
+    /// ELEMENT below it that does - descending through wrappers that own
+    /// none (`div[contenteditable] > section > p`), not into blocks, and
+    /// skipping text children (pretty-printing whitespace is not a block).
     fn select_all_blocks(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
         let sel_root = self
             .find_contenteditable_host(dom_id, node_id)
@@ -11010,18 +10895,9 @@ impl LayoutWindow {
         };
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
-        let children_of = |parent: NodeId| {
-            let mut kids = Vec::new();
-            let mut child = hierarchy[parent].first_child_id(parent);
-            while let Some(c) = child {
-                kids.push(c);
-                child = hierarchy[c].next_sibling_id();
-            }
-            kids
-        };
         let mut out = Vec::new();
         // Reversed, so `pop()` yields document order.
-        let mut stack: Vec<NodeId> = children_of(sel_root).into_iter().rev().collect();
+        let mut stack: Vec<NodeId> = child_nodes(&hierarchy, sel_root).into_iter().rev().collect();
         let mut visited = 0usize;
         while let Some(c) = stack.pop() {
             visited += 1;
@@ -11035,7 +10911,7 @@ impl LayoutWindow {
                 out.push(c);
                 continue;
             }
-            stack.extend(children_of(c).into_iter().rev());
+            stack.extend(child_nodes(&hierarchy, c).into_iter().rev());
         }
         out
     }
@@ -13628,11 +13504,9 @@ impl LayoutWindow {
                 .as_ref()
                 .is_some_and(|mc| mc.node_id == anchor_block);
             if !already_there {
-                // `initialize_editing` ends any document selection - a new
-                // caret is a new selection everywhere else. Here the caret
-                // moves to the selection's OTHER end so the handle can extend
-                // it, and the selection stays painted until the first move
-                // rebuilds it.
+                // A new caret ends the document selection everywhere else;
+                // this one only moves to its other end, and the selection
+                // stays painted until the first move rebuilds it.
                 let kept = self.text_edit_manager.cross_block.take();
                 self.text_edit_manager.initialize_editing(
                     anchor,
@@ -13682,7 +13556,8 @@ impl LayoutWindow {
                 return false;
             };
             if let Some((node, cursor)) = self.hittest_text_position_global(dom_id, point) {
-                if node == anchor_node && self.same_caret_position(dom_id, node, cursor, drag.anchor)
+                if node == anchor_node
+                    && self.same_caret_position(dom_id, node, cursor, drag.anchor)
                 {
                     return false;
                 }
@@ -17313,11 +17188,9 @@ impl LayoutWindow {
             return empty;
         }
 
-        // Typing over a DOCUMENT selection replaces it, through the same
-        // atomic replace-merge a paste over it uses. The insert below acts on
-        // the session's caret, which sits at the selection's ANCHOR: the text
-        // landed there, the selection stayed painted, and the next Backspace
-        // deleted every block it spanned.
+        // Typing over a DOCUMENT selection replaces it, like a paste over it.
+        // The insert below would land at the session's caret - the
+        // selection's anchor - and leave the selection standing.
         if is_primary_seat && self.text_edit_manager.get_cross_block_selection().is_some() {
             if self.document_selection_belongs_to(changeset.node)
                 && self
@@ -17378,9 +17251,7 @@ impl LayoutWindow {
         // children through the per-node overlay.
         let node_id = self.caret_text_target(dom_id, node_id);
 
-        // The content the carets index: the block's text behind the items
-        // the layout numbers first (a list item's marker), see
-        // `caret_block_content`.
+        // In the carets' numbering (behind a list item's marker).
         let (mut content, generated) = self.caret_block_content(dom_id, node_id);
         if content.len() == generated {
             let style_node = self.seed_style_node(dom_id, node_id);
@@ -17519,9 +17390,8 @@ impl LayoutWindow {
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
         // the REAL styled content instead of rebuilding with
-        // StyleProperties::default() (which stripped all styling). The
-        // snapshots and the overlay hold the block's TEXT: the generated
-        // prefix is the layout's, and the reshape puts it back.
+        // StyleProperties::default() (which stripped all styling). They and
+        // the overlay hold the text only; the reshape re-adds the prefix.
         let pre_content_snapshot = content.split_off(generated);
         let new_content = {
             let mut with_prefix = new_content;
@@ -18083,11 +17953,9 @@ impl LayoutWindow {
         node_id: NodeId,
         new_inline_content: Vec<InlineContent>,
     ) {
-        // A document selection's ranges are MEASURED against the text of the
-        // blocks it spans (`set_cross_block_selection` precomputes them). A
-        // commit into one of those blocks - an undo, a redo, another seat's
-        // keystroke - moves the text under them, and a delete would then cut
-        // at offsets that name different characters. The selection ends.
+        // A document selection's ranges are precomputed against its blocks'
+        // text. A commit into one of them (undo, redo, another seat's
+        // keystroke) moves that text, so the selection ends.
         let spans_edited_node = self
             .text_edit_manager
             .get_cross_block_selection()
@@ -18246,9 +18114,7 @@ impl LayoutWindow {
         // We need to find the IFC root node. The layout tree uses its own indices
         // (different from DOM node IDs), so we must go through dom_to_layout.
         // The IFC may be on this node OR a child (text children of a
-        // contenteditable) — caret-owning block first, then document order:
-        // `ifc_layout_index_for_edit`, the search the edit paths read the
-        // block's generated prefix through as well.
+        // contenteditable) — caret-owning block first, then document order.
         let (mut constraints, ifc_layout_index) = {
             let Some(ifc_idx) = self.ifc_layout_index_for_edit(dom_id, node_id) else {
                 return;
@@ -18270,12 +18136,9 @@ impl LayoutWindow {
             }
         };
 
-        // A list item's `::marker` leads its layout content (`solver3::fc`
-        // pushes it first) and the carets the layout mints are numbered with
-        // it; the content that arrives here is the edit model's - the DOM's
-        // text, with no marker. Put the generated items back in front, or
-        // the first keystroke in a list item erased its bullet and
-        // renumbered every caret in it (see `caret_block_content`).
+        // The edit model's text has no `::marker`; the layout's content, and
+        // every caret it mints, starts with it. Put it back in front, or a
+        // keystroke in a list item erased its bullet and renumbered its carets.
         let new_inline_content = if matches!(
             new_inline_content.first(),
             Some(InlineContent::Marker { .. })
@@ -19456,13 +19319,10 @@ impl LayoutWindow {
     /// through `content.get(source_run)`), so this table cannot drift from
     /// the cursors the way the DOM vector does.
     ///
-    /// `node_id` is whichever node of the block a selection sits on: the IFC
-    /// root (a click), a text leaf inside it (a focus-opened session, a
-    /// seat's caret), text under a `<span>` - resolved through
-    /// [`Self::get_node_inline_layout`], and through the parent for a text
-    /// leaf that has no box of its own. The layout is the MATERIALIZED one:
-    /// under the default dense path the stored sparse layout is the empty
-    /// retirement sentinel.
+    /// `node_id` is any node of the block (IFC root, text leaf, text under a
+    /// `<span>`), resolved by [`Self::get_node_inline_layout`] - through the
+    /// parent for a text leaf with no box of its own - to the MATERIALIZED
+    /// layout (the sparse one is the retirement sentinel under dense text).
     fn selection_runs_for_node(
         &self,
         dom_id: DomId,
@@ -20547,8 +20407,8 @@ impl LayoutWindow {
                     })
                 });
             if !pressed_an_editable && self.text_edit_manager.has_active_editing() {
+                // Ends the session's document selection with it.
                 self.text_edit_manager.clear_editing();
-                self.text_edit_manager.clear_cross_block_selection();
             }
             return None;
         };
@@ -20809,9 +20669,8 @@ impl LayoutWindow {
             )
         })?;
 
-        // A drag that ends where it started moved nowhere: compared as
-        // cluster ids, `Trailing` on a grapheme and `Leading` on the next made
-        // a range of nothing, painted as nothing and deleted as nothing.
+        // Compared as ids, `Trailing` on a grapheme and `Leading` on the next
+        // made a range of nothing out of a drag that moved nowhere.
         let moved = !self.same_caret_position(dom_id, node_id, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
@@ -21037,12 +20896,8 @@ impl LayoutWindow {
         // other selected block untouched (Backspace over a multi-paragraph
         // selection deleted inside one of them). Copy and Cut already go
         // through the cross-block path; every delete does now.
-        //
-        // ...but only a selection inside `target`, the host whose key was
-        // pressed. One anywhere else is a leftover no path ended (it used to
-        // be deleted from here regardless: Backspace in one field wiped the
-        // paragraphs of another). The caret in `target` is what this key
-        // acts on, so the stray selection ends instead.
+        // Only one inside `target`, though: a leftover elsewhere is ended, not
+        // deleted (Backspace in one field used to wipe another's paragraphs).
         if self.text_edit_manager.get_cross_block_selection().is_some() {
             if self.document_selection_belongs_to(target) {
                 let affected: Vec<DomNodeId> = self
@@ -21070,9 +20925,7 @@ impl LayoutWindow {
         let host = target.node.into_crate_internal()?;
         let node_id = self.caret_text_target(dom_id, host);
 
-        // The content the carets index: the block's text behind the items the
-        // layout numbers first (a list item's marker), see
-        // `caret_block_content`.
+        // In the carets' numbering (behind a list item's marker).
         let (mut content, generated) = self.caret_block_content(dom_id, node_id);
 
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
@@ -21103,9 +20956,8 @@ impl LayoutWindow {
                 } => (content, selections),
                 crate::text3::edit::EditOutcome::NoOp(_) => return None,
             };
-        // The generated prefix is not text. Backspace before a list item's
-        // first character removes "the item in front of the caret" - its
-        // marker - and that is no edit of the item's text at all.
+        // The marker is not text: Backspace before a list item's first
+        // character would remove it as "the item in front of the caret".
         if new_content.get(..generated) != content.get(..generated) {
             return None;
         }
@@ -21113,8 +20965,8 @@ impl LayoutWindow {
         // ours - it is moved into the undo record below (U3-a).
         let peer_changes = crate::text3::edit::run_text_diff(&content, &new_content);
 
-        // The undo snapshots and the overlay hold the block's TEXT: the
-        // generated prefix is the layout's, and the reshape puts it back.
+        // Undo snapshots and the overlay hold the text only; the reshape
+        // re-adds the marker.
         let content = content.split_off(generated);
         let new_content = {
             let mut with_prefix = new_content;
@@ -21151,9 +21003,8 @@ impl LayoutWindow {
     }
 
     /// Seat `seat_id`'s selection as styled clipboard content
-    /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, with
-    /// the runs' formatting like the primary's - read from the same layout
-    /// runs the primary's copy reads. `None` for a bare caret.
+    /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, read
+    /// like the primary's. `None` for a bare caret.
     #[must_use]
     pub fn seat_selected_content_for_clipboard(
         &self,
@@ -21171,14 +21022,11 @@ impl LayoutWindow {
     }
 
     /// Push the text `range` covers onto `acc`, read from `runs` - the
-    /// layout's own `source_run -> (shaped text, style)` table that the
-    /// range's cursors are numbered against ([`Self::selection_runs_for_node`]).
-    /// Either direction: a range dragged backward copies the same text.
-    ///
-    /// Affinity-aware: a Trailing end on the final cluster means AFTER that
-    /// grapheme. A run the range only passes OVER is taken whole, and an end
-    /// that names a non-text item (a `<br>`, a `::marker`) has no entry in the
-    /// table at all - which is exactly the "take the neighbours whole" answer.
+    /// layout's run table its cursors are numbered against
+    /// ([`Self::selection_runs_for_node`]). Either direction; affinity-aware
+    /// (a Trailing end is AFTER its grapheme); a run the range passes over is
+    /// taken whole, and an end on a non-text item (a `<br>`, a `::marker`)
+    /// has no entry, which takes its neighbours whole.
     fn push_layout_range(
         acc: &mut ClipboardExtract,
         runs: &BTreeMap<u32, (Arc<str>, Arc<StyleProperties>)>,
@@ -21298,13 +21146,8 @@ impl LayoutWindow {
             return None;
         }
 
-        // The runs the ranges' own cursors are numbered against: the layout's
-        // `source_run -> shaped text` table, exactly as the multi-block copy
-        // above reads it - whatever the edits so far did to the block, since
-        // every edit re-shapes it. (The DOM-child walk this used to index has
-        // no `::marker` - a list item's text is run 1 to the cursor and run 0
-        // to the walk, so it copied nothing - and raw, uncollapsed white
-        // space: "c" of "a   b c", byte 4 of the SHAPED "a b c", copied "b".)
+        // The layout's runs, as the multi-block copy reads them - not the DOM
+        // walk, which has no `::marker` and uncollapsed white space.
         let runs = self.selection_runs_for_node(*dom_id, node_id);
         let mut acc = ClipboardExtract::default();
         for range in &ranges {
