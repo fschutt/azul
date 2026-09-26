@@ -26,7 +26,7 @@
 //! [`LayoutTree::owning_ifc_root`]: crate::solver3::layout_tree::LayoutTree::owning_ifc_root
 //! [`LayoutTree::text_block_at`]: crate::solver3::layout_tree::LayoutTree::text_block_at
 
-use alloc::sync::Arc;
+use alloc::{collections::BTreeSet, sync::Arc};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
@@ -525,6 +525,48 @@ impl LayoutWindow {
                 .map(EditHost::dom_node),
             ..BlockFilter::SELECTABLE
         }
+    }
+
+    /// The first and the last text block Ctrl+A covers for a focus on `node`:
+    /// the selectable blocks of its editing host (a focus outside any host is
+    /// its own root), from the document walk - anonymous blocks included.
+    ///
+    /// The last is the last OUTERMOST block: one nested in another (an
+    /// inline-block's, inside its paragraph) ends inside that one, so it
+    /// never ends the host. A host that holds no block of its own - an inline
+    /// editable inside a paragraph - selects in the block its text is in.
+    #[must_use]
+    pub fn select_all_extent(&self, node: DomNodeId) -> Option<(TextBlock, TextBlock)> {
+        let root = self
+            .find_contenteditable_host(node)
+            .map_or(node, EditHost::dom_node);
+        let roots = self.text_block_roots(
+            node.dom,
+            BlockFilter {
+                within: Some(root),
+                ..BlockFilter::SELECTABLE
+            },
+        );
+        let Some(&(first, _)) = roots.first() else {
+            let block = self
+                .text_block_of(root)
+                .filter(|block| self.text_target(*block).is_some_and(|t| t.selectable))?;
+            return Some((block, block));
+        };
+        let tree = &self.layout_results.get(&node.dom)?.layout_tree;
+        let indices: BTreeSet<usize> = roots.iter().map(|(_, idx)| idx.index()).collect();
+        let nested = |index: usize| {
+            let mut current = tree.nodes.get(index).and_then(|n| n.parent);
+            while let Some(parent) = current {
+                if indices.contains(&parent) {
+                    return true;
+                }
+                current = tree.nodes.get(parent).and_then(|n| n.parent);
+            }
+            false
+        };
+        let (last, _) = *roots.iter().rev().find(|(_, idx)| !nested(idx.index()))?;
+        Some((first, last))
     }
 
     /// [`Self::text_block_roots`] without the layout nodes.

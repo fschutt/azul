@@ -1160,8 +1160,7 @@ pub enum TextEditNotify {
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// How many nodes a scan of an editable's subtree will visit - looking for
-/// the box that owns its inline layout ([`LayoutWindow::ifc_candidate_children`])
-/// or for the blocks Ctrl+A covers ([`LayoutWindow::select_all_text`]).
+/// the box that owns its inline layout ([`LayoutWindow::ifc_candidate_children`]).
 /// Editable subtrees are small; the bound only stops a malformed hierarchy
 /// from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
@@ -10677,29 +10676,16 @@ impl LayoutWindow {
     }
 
     /// Ctrl+A for the focus on `focused` (`SystemChange::SelectAllText`):
-    /// every block its editing host holds, as a cross-block selection, or as
-    /// the session's single range when the host is one block. Returns whether
-    /// a selection was made; the caller repaints.
+    /// every block its editing host holds
+    /// ([`Self::select_all_extent`]), as a cross-block selection, or as one
+    /// range when the host is one block. Returns whether a selection was made;
+    /// the caller repaints.
     pub fn select_all_text(&mut self, focused: DomNodeId) -> bool {
         let dom_id = focused.dom;
-        let Some(node_id) = focused.node.into_crate_internal() else {
-            return false;
-        };
-        // Only the blocks whose text a selection may cover (`user-select`):
-        // Ctrl+A starting or ending on unselectable chrome selected - and
-        // copied - text the painter never highlights.
-        let blocks: Vec<TextBlock> = self
-            .select_all_blocks(dom_id, node_id)
-            .into_iter()
-            .filter_map(|n| {
-                self.text_block_of(DomNodeId {
-                    dom: dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-                })
-            })
-            .filter(|block| self.text_target(*block).is_some_and(|t| t.selectable))
-            .collect();
-        let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
+        // Selectable blocks only (`user-select`): Ctrl+A starting or ending on
+        // unselectable chrome selected - and copied - text the painter never
+        // highlights.
+        let Some((first, last)) = self.select_all_extent(focused) else {
             return false;
         };
 
@@ -10716,10 +10702,17 @@ impl LayoutWindow {
             // range.end (last cluster) implicitly. Do NOT follow with
             // set_single_cursor - that collapsed the selection, turning Ctrl+A
             // into a no-op "move caret to end" instead of select-all.
-            let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
-                return false;
-            };
-            mc.set_single_range(SelectionRange { start, end });
+            let range = SelectionRange { start, end };
+            if self.text_edit_manager.get_editing_block() == Some(first) {
+                if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                    mc.set_single_range(range);
+                }
+            } else {
+                // The range indexes THIS block: laid over another block's
+                // session it selected an unrelated span there. It opens the
+                // session here instead, as a click would.
+                self.open_session(first, range);
+            }
         } else if !self.set_cross_block_selection(first, start, last, end) {
             return false;
         }
@@ -10740,48 +10733,6 @@ impl LayoutWindow {
         } else {
             target.first_caret()
         }
-    }
-
-    /// The text blocks Ctrl+A covers for a focus on `node_id`, in document
-    /// order: rooted at its editing HOST (a non-editable focus is its own
-    /// root), the root itself when it owns an inline layout, else every
-    /// ELEMENT below it that does - descending through wrappers that own
-    /// none (`div[contenteditable] > section > p`), not into blocks, and
-    /// skipping text children (pretty-printing whitespace is not a block).
-    fn select_all_blocks(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
-        let sel_root = self
-            .find_contenteditable_host(DomNodeId {
-                dom: dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-            })
-            .map_or(node_id, crate::text_block::EditHost::node);
-        if self.get_inline_layout_for_node(dom_id, sel_root).is_some() {
-            return vec![sel_root];
-        }
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return Vec::new();
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let node_data = lr.styled_dom.node_data.as_container();
-        let mut out = Vec::new();
-        // Reversed, so `pop()` yields document order.
-        let mut stack: Vec<NodeId> = child_nodes(&hierarchy, sel_root).into_iter().rev().collect();
-        let mut visited = 0usize;
-        while let Some(c) = stack.pop() {
-            visited += 1;
-            if visited > IFC_CANDIDATE_SCAN_LIMIT {
-                break;
-            }
-            if matches!(node_data[c].get_node_type(), NodeType::Text(_)) {
-                continue;
-            }
-            if self.get_inline_layout_for_node(dom_id, c).is_some() {
-                out.push(c);
-                continue;
-            }
-            stack.extend(child_nodes(&hierarchy, c).into_iter().rev());
-        }
-        out
     }
 
     /// Select the whole text of `target` for seat `seat_id` (a seat's Ctrl+A,
