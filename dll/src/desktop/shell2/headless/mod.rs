@@ -7955,6 +7955,116 @@ mod tests {
         );
     }
 
+    // --- The long-press wake-up -------------------------------------------
+    //
+    // A motionless press produces no input events, so a MouseDown arms a
+    // one-shot marker timer (`LONG_PRESS_TIMER_ID`, threshold + 15 ms) whose
+    // expiry runs the event pass that evaluates `detect_long_press` (MWA-B12).
+    // The marker was built with an INTERVAL and no delay, and `Timer::invoke`
+    // admits a timer that never ran at once unless it has a delay - so the
+    // first timer pass of any kind spent it, and `invoke_expired_timers` ran
+    // the long-press pass merely because the marker was registered. X11 and
+    // Wayland run a timer pass at the top of every loop turn: there the
+    // wake-up was spent on the turn right after the press, long before the
+    // threshold, and nothing woke the loop when the threshold came.
+
+    #[derive(Debug, Clone)]
+    struct LongPressLog {
+        hits: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn count_long_press(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(log) = refany.downcast_ref::<LongPressLog>() {
+            log.hits.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    /// A 300x200 box that counts the `LongPress` events it receives.
+    extern "C" fn long_press_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            events::{EventFilter, HoverEventFilter},
+        };
+        let log = data
+            .downcast_ref::<LongPressLog>()
+            .map(|l| l.clone())
+            .expect("long-press log");
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("width: 300px; height: 200px;")
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::LongPress),
+                        callback: CoreCallback {
+                            cb: count_long_press as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(log),
+                    }]
+                    .into(),
+                ),
+        )
+    }
+
+    fn long_press_log() -> LongPressLog {
+        LongPressLog {
+            hits: Arc::new(core::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    fn long_press_wake_armed(window: &HeadlessWindow) -> bool {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.timers.contains_key(&azul_core::task::LONG_PRESS_TIMER_ID))
+    }
+
+    #[test]
+    fn a_timer_pass_before_the_threshold_does_not_spend_the_long_press_wake() {
+        use azul_core::events::MouseButton;
+
+        // Frozen from before the press, so the wake-up's own schedule is a
+        // pure function of the ticks below, whatever this machine's speed.
+        azul_core::task::reset_test_clock();
+        azul_core::task::freeze_test_clock();
+        let state = Arc::new(RefCell::new(RefAny::new(long_press_log())));
+        let mut window = make_window_sized(&state, long_press_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 100.0 });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        let armed_at_press = long_press_wake_armed(&window);
+
+        // The pass X11 and Wayland run on the very next loop turn ...
+        let _ = window.process_timers_and_threads();
+        let armed_after_same_instant = long_press_wake_armed(&window);
+        // ... and one a few ms later (another timer, a thread tick).
+        let _ = azul_core::task::advance_test_clock_ms(5);
+        let _ = window.process_timers_and_threads();
+        let armed_after_5ms = long_press_wake_armed(&window);
+        azul_core::task::reset_test_clock();
+
+        assert!(
+            armed_at_press,
+            "harness: a press arms the long-press wake-up"
+        );
+        assert!(
+            armed_after_same_instant && armed_after_5ms,
+            "a timer pass 0 ms and 5 ms into a 500 ms press must leave the long-press wake-up \
+             armed for its threshold; still armed after the same-instant pass: \
+             {armed_after_same_instant}, after the +5 ms pass: {armed_after_5ms}"
+        );
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect
