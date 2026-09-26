@@ -30,7 +30,7 @@ other session's in-flight page_breaks test).
 |---|---|---|---|
 | `wt/viewport-scrollbar` | agent-ad7cf34be0a4bfeec | done, 2 commits (rebased onto 028ecfcfd) | scripts/VIEWPORT_SCROLLBAR_2026_09_26.md |
 | `wt/viewport-scroll-frame` | (new agent, from 358f07ef1) | running: root scroll frame (content moves with the viewport) + classic-bar overshoot | - |
-| `wt/animation-pacing` | agent-ab0ba1d8799a9fee8 | done, 13 commits (rebased) | scripts/TOGGLE_ANIMATION_PACING_2026_09_26.md |
+| `wt/animation-pacing` | agent-ab0ba1d8799a9fee8 | **INTEGRATED** as dac2aa31a..0527d9cae: compiled first try; 5 layout + 5 dll tests GREEN at the tip; with the 6 fixes reverted exactly the 6 predicted REDs (values as predicted), the constraint test stays green | scripts/TOGGLE_ANIMATION_PACING_2026_09_26.md |
 | `wt/x11-on-macos` | (agent a102b231d7eccb479) | running | XQuartz at /opt/X11, no xkbcommon |
 | `wt/system-colours` | (agent a2050d36f3988c5d7) | running | dark mode / system:* colours / SystemStyle fields; also `margin: 0` on the demo body |
 | `wt/selection-bugs` | (agent a0d97ff9a56c803a7) | running | live bugs #1,#2,#3,#4,#6,#8 of scripts/SELECTION_ARCHITECTURE_REVIEW_2026_09_26.md |
