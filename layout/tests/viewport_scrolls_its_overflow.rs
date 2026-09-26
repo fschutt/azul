@@ -91,6 +91,70 @@ fn a_page_that_fits_is_not_a_scroll_container() {
     );
 }
 
+/// The viewport's horizontal travel, `0.0` when the root is no scroll
+/// container at all.
+fn root_max_scroll_x(lw: &LayoutWindow) -> f32 {
+    lw.scroll_manager
+        .get_scroll_state(DomId::ROOT_ID, NodeId::new(0))
+        .map_or(0.0, |s| s.max_scroll_offsets().0)
+}
+
+/// `body > div.scroller > div(900px wide)` at 640x480, with the body laid
+/// out as `body_display`. The scroller declares only `overflow-y: auto`,
+/// which is how the AzWidgets page scroller is written.
+fn a_wide_row_inside_a_y_scroller(body_display: &str) -> LayoutWindow {
+    let dom = Dom::create_body()
+        .with_css(&format!("height: 100%; margin: 0; {body_display}"))
+        .with_child(
+            Dom::create_div()
+                .with_css("height: 300px; flex-grow: 1; min-height: 0; overflow-y: auto;")
+                .with_child(Dom::create_div().with_css("width: 900px; height: 50px;")),
+        );
+    laid_out(dom, 640.0, 480.0)
+}
+
+/// Content inside a scroller is the SCROLLER's overflow, never the page's.
+///
+/// CSS Overflow 3 §3.1: when one axis is neither `visible` nor `clip`, a
+/// `visible` on the other axis computes to `auto`. So `overflow-y: auto`
+/// alone makes the box a scroll container on BOTH axes, and a row wider
+/// than it scrolls inside it. Measured live in AzWidgets on macOS at
+/// 640x480: a 733px Pagination inside the page scroller gave the scroller
+/// 145px of horizontal travel - and the VIEWPORT another 177px, so a
+/// sideways trackpad swipe dragged the whole body, custom titlebar and all.
+#[test]
+fn a_wide_row_inside_a_flex_items_y_scroller_does_not_widen_the_viewport() {
+    let lw = a_wide_row_inside_a_y_scroller("display: flex; flex-direction: column;");
+    assert_eq!(
+        root_max_scroll_x(&lw),
+        0.0,
+        "the 900px row lives inside an `overflow-y: auto` scroller, so it must not give the \
+         viewport horizontal travel"
+    );
+    let inner = lw
+        .scroll_manager
+        .get_scroll_state(DomId::ROOT_ID, NodeId::new(1))
+        .expect("the scroller is registered")
+        .max_scroll_offsets()
+        .0;
+    assert!(
+        (inner - 260.0).abs() < 1.0,
+        "the scroller itself scrolls the 900px row across its 640px, got {inner}"
+    );
+}
+
+/// The same law for a scroller in normal block flow.
+#[test]
+fn a_wide_row_inside_a_block_y_scroller_does_not_widen_the_viewport() {
+    let lw = a_wide_row_inside_a_y_scroller("display: block;");
+    assert_eq!(
+        root_max_scroll_x(&lw),
+        0.0,
+        "the 900px row lives inside an `overflow-y: auto` scroller, so it must not give the \
+         viewport horizontal travel"
+    );
+}
+
 /// An inner scroller keeps its own travel; the viewport's is separate.
 #[test]
 fn an_inner_scroller_and_the_viewport_scroll_independently() {
