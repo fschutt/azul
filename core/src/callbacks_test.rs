@@ -75,6 +75,7 @@ mod autotest_generated {
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
             }
         }
     }
@@ -1384,6 +1385,7 @@ mod size_query_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
             }
         }
     }
@@ -1566,6 +1568,7 @@ mod system_style_dependency_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
             }
         }
     }
@@ -1727,5 +1730,295 @@ mod system_style_dependency_tests {
         let declared = take_recorded_style_dependencies();
         assert!(declared.contains(SystemStyleDependency::Everything));
         assert!(declared.contains(SystemStyleDependency::Colors));
+    }
+}
+
+/// `LayoutCallbackInfo::add_global_hotkey` & co.: `layout()` DECLARES the
+/// global hotkeys the state it is built from wants, through the same
+/// thread-local recorder shape as the size queries and the style
+/// dependencies - the FFI-frozen, `Copy` info struct does not change.
+#[cfg(test)]
+mod global_hotkey_recorder_tests {
+    use azul_css::{system::SystemStyle, AzString};
+
+    use super::*;
+    use crate::{
+        global_hotkey::{
+            take_recorded_global_hotkeys, GlobalHotkey, GlobalHotkeyError, GlobalHotkeyInfo,
+            GlobalHotkeyInfoVec, GlobalHotkeyOwner, GlobalHotkeyStatus, HotkeyModifiers,
+            GLOBAL_HOTKEY_DECLARATION_CAP,
+        },
+        geom::LogicalSize,
+        refany::{OptionRefAny, RefAny},
+        window::VirtualKeyCode as K,
+    };
+
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<SystemStyle>,
+        hotkeys: GlobalHotkeyInfoVec,
+    }
+
+    impl Rd {
+        fn new(hotkeys: Vec<GlobalHotkeyInfo>) -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(SystemStyle::default()),
+                hotkeys: GlobalHotkeyInfoVec::from_vec(hotkeys),
+            }
+        }
+
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: alloc::sync::Arc::clone(&self.style),
+                active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: self.hotkeys.clone(),
+            }
+        }
+    }
+
+    fn info(rd: &LayoutCallbackInfoRefData<'_>) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(
+            rd,
+            WindowSize {
+                dimensions: LogicalSize::new(800.0, 600.0),
+                ..WindowSize::default()
+            },
+            WindowTheme::LightMode,
+        )
+    }
+
+    fn ctrl_alt(key: K) -> GlobalHotkey {
+        GlobalHotkey {
+            modifiers: HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            key,
+        }
+    }
+
+    /// A callback the recorder only stores (never invoked here), told apart
+    /// by its number.
+    fn cb(n: usize) -> CoreCallback {
+        CoreCallback {
+            cb: n,
+            ctx: OptionRefAny::None,
+        }
+    }
+
+    fn entry(
+        hotkey: GlobalHotkey,
+        status: GlobalHotkeyStatus,
+        owner: GlobalHotkeyOwner,
+    ) -> GlobalHotkeyInfo {
+        GlobalHotkeyInfo {
+            hotkey,
+            status,
+            trigger: hotkey.to_display_string(),
+            owner,
+        }
+    }
+
+    /// What one `layout()` call declared drains ONCE: a leak into the next
+    /// call would keep a hotkey alive that the new state no longer wants.
+    #[test]
+    fn declarations_drain_once_and_the_next_drain_is_empty() {
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        assert!(
+            take_recorded_global_hotkeys().declared.is_empty(),
+            "constructing the info declares nothing"
+        );
+
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(1_u32), cb(1));
+        info.add_global_hotkey_with_description(
+            ctrl_alt(K::J),
+            AzString::from("Bring the app to the front"),
+            RefAny::new(2_u32),
+            cb(2),
+        );
+        let recorded = take_recorded_global_hotkeys();
+        assert_eq!(recorded.declared.len(), 2);
+        assert_eq!(recorded.declared[0].hotkey, ctrl_alt(K::K));
+        assert_eq!(recorded.declared[0].description.as_str(), "");
+        assert_eq!(recorded.declared[1].hotkey, ctrl_alt(K::J));
+        assert_eq!(
+            recorded.declared[1].description.as_str(),
+            "Bring the app to the front"
+        );
+        assert_eq!(recorded.declared[1].callback.cb, 2);
+        assert!(!recorded.read_status, "declaring is not reading");
+        assert!(!recorded.overflowed);
+
+        let again = take_recorded_global_hotkeys();
+        assert!(
+            again.declared.is_empty(),
+            "the drain must reset - the next layout() starts from nothing"
+        );
+    }
+
+    /// Declaring the same accelerator twice in one pass: the last
+    /// declaration wins, as a later `with_callback` would.
+    #[test]
+    fn the_last_duplicate_wins() {
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(1_u32), cb(1));
+        info.add_global_hotkey(ctrl_alt(K::J), RefAny::new(2_u32), cb(2));
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(3_u32), cb(3));
+        let recorded = take_recorded_global_hotkeys();
+        assert_eq!(recorded.declared.len(), 2, "one entry per accelerator");
+        let k = recorded
+            .declared
+            .iter()
+            .find(|d| d.hotkey == ctrl_alt(K::K))
+            .expect("Ctrl+Alt+K is declared");
+        assert_eq!(k.callback.cb, 3);
+    }
+
+    /// `layout()` reads where a hotkey stood when the pass began (the
+    /// snapshot the engine took), and the READ is recorded: a later status
+    /// change re-runs this layout once.
+    #[test]
+    fn a_status_read_answers_from_the_snapshot_and_is_recorded() {
+        let rd = Rd::new(vec![
+            entry(
+                ctrl_alt(K::K),
+                GlobalHotkeyStatus::Active,
+                GlobalHotkeyOwner::ThisWindow,
+            ),
+            entry(
+                ctrl_alt(K::T),
+                GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp),
+                GlobalHotkeyOwner::OtherWindow,
+            ),
+        ]);
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::K)),
+            GlobalHotkeyStatus::Active
+        );
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::T)),
+            GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp)
+        );
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::J)),
+            GlobalHotkeyStatus::NotRegistered,
+            "an accelerator the snapshot does not list is not registered"
+        );
+        let recorded = take_recorded_global_hotkeys();
+        assert!(recorded.read_status);
+        assert!(recorded.declared.is_empty());
+    }
+
+    #[test]
+    fn the_list_is_the_snapshot_with_its_owners_and_reading_it_is_recorded() {
+        let snapshot = vec![
+            entry(
+                ctrl_alt(K::A),
+                GlobalHotkeyStatus::Active,
+                GlobalHotkeyOwner::App,
+            ),
+            entry(
+                ctrl_alt(K::B),
+                GlobalHotkeyStatus::Pending,
+                GlobalHotkeyOwner::ThisWindow,
+            ),
+        ];
+        let rd = Rd::new(snapshot.clone());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        let listed = info.get_global_hotkeys();
+        assert_eq!(listed.as_ref(), snapshot.as_slice());
+        assert!(take_recorded_global_hotkeys().read_status);
+    }
+
+    /// A callback generating accelerators programmatically cannot grow the
+    /// recording without bound; the drain says the list is incomplete.
+    #[test]
+    fn more_than_the_cap_latches_overflowed() {
+        const LETTERS: [K; 26] = [
+            K::A,
+            K::B,
+            K::C,
+            K::D,
+            K::E,
+            K::F,
+            K::G,
+            K::H,
+            K::I,
+            K::J,
+            K::K,
+            K::L,
+            K::M,
+            K::N,
+            K::O,
+            K::P,
+            K::Q,
+            K::R,
+            K::S,
+            K::T,
+            K::U,
+            K::V,
+            K::W,
+            K::X,
+            K::Y,
+            K::Z,
+        ];
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        for i in 0..(GLOBAL_HOTKEY_DECLARATION_CAP + 10) {
+            let bits = i / LETTERS.len();
+            let hotkey = GlobalHotkey {
+                modifiers: HotkeyModifiers {
+                    ctrl: bits & 1 != 0,
+                    alt: bits & 2 != 0,
+                    shift: bits & 4 != 0,
+                    meta: bits & 8 != 0,
+                },
+                key: LETTERS[i % LETTERS.len()],
+            };
+            info.add_global_hotkey(hotkey, RefAny::new(i), cb(i + 1));
+        }
+        let recorded = take_recorded_global_hotkeys();
+        assert!(recorded.overflowed);
+        assert_eq!(recorded.declared.len(), GLOBAL_HOTKEY_DECLARATION_CAP);
+        assert!(
+            !take_recorded_global_hotkeys().overflowed,
+            "the flag resets with the drain"
+        );
     }
 }
