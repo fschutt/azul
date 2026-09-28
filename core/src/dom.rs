@@ -1726,10 +1726,11 @@ impl FluentArgKVVec {
     /// `data-l10n-<name>="value"` attributes, in attribute order.
     ///
     /// `data-l10n` itself (the message key) is not an argument. A value that
-    /// parses as `i32` becomes [`FluentArg::I32`], else one that parses as
-    /// `f32` becomes [`FluentArg::F32`], else it stays a
-    /// [`FluentArg::String`]. Shared by every XML-to-DOM builder, so the
-    /// three of them cannot drift apart.
+    /// parses as `i32` becomes [`FluentArg::I32`], else a plain decimal
+    /// (digits, sign, point - no `NaN`, `inf` or exponent, which
+    /// `f32::from_str` would also accept) becomes [`FluentArg::F32`], else it
+    /// stays a [`FluentArg::String`]. Shared by every XML-to-DOM builder, so
+    /// the three of them cannot drift apart.
     pub fn from_l10n_attributes<'a, I>(attributes: I) -> Self
     where
         I: IntoIterator<Item = (&'a str, &'a str)>,
@@ -1739,9 +1740,12 @@ impl FluentArgKVVec {
             let Some(arg_name) = key.strip_prefix("data-l10n-") else {
                 continue;
             };
+            let plain_decimal = value
+                .bytes()
+                .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+'));
             let value = if let Ok(i) = value.parse::<i32>() {
                 FluentArg::I32(i)
-            } else if let Ok(f) = value.parse::<f32>() {
+            } else if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
                 FluentArg::F32(f)
             } else {
                 FluentArg::String(value.into())
