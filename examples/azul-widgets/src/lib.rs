@@ -458,7 +458,7 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
     )
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = match data.downcast_ref::<Showcase>() {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
@@ -690,7 +690,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let notifications = notifications::notifications_section(&data, &s.notifications);
     let video_card = video::card(&s.video);
     let menus = menus_section(&data, s.menu_status.as_str());
-    let hotkey = hotkeys::hotkey_section(&data, &s.hotkey);
+    let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info);
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
 

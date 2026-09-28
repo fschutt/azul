@@ -125,12 +125,16 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     stays in UNOBSERVABLE_MANAGERS / not_fingerprintable - moving it to the fingerprinted set is
     OPEN).
 
+14. feat(examples): the demo declares from state (`HotkeyDemo { enabled, fired }`,
+    `hotkey_section(data, demo, &info)`, Enable/Disable + Retry buttons; layout() passes its
+    info) + scenario `examples/azul-widgets/e2e/global_hotkey.json` (UNVERIFIED: needs
+    regenerated bindings and a headless run; Linux/Windows accelerator spelling).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
-14. demo `examples/azul-widgets/src/hotkeys.rs` declares from state (layout() gets `info`).
 15. optional fix(macos) F13-F20: RED = manifest rows F13..F20 macOS column 0 -> 1 in
     `layout/tests/keycode_table_manifest_is_exhaustive.rs`; fix = arms 0x69 F13, 0x6B F14, 0x71
     F15, 0x6A F16, 0x40 F17, 0x4F F18, 0x50 F19, 0x5A F20 in `macos_keycode_to_virtual_key`.
