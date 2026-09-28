@@ -802,6 +802,12 @@ impl TransientWindowManager {
     /// of its `open` attribute. Opening also lifts an earlier user dismissal —
     /// the user clicked the swatch again, which is the re-arm. Takes effect
     /// on the next reconcile. Returns whether anything changed.
+    ///
+    /// Closing wins over the attribute the way a user dismissal does: a
+    /// window that is open (through its attribute or a callback) is held
+    /// closed until its attribute goes false and true again. Without that, a
+    /// popup the app opened through its attribute could not be closed from a
+    /// callback at all - `forced_open` was the only thing this cleared.
     pub fn set_forced_open(&mut self, node: NodeId, open: bool) -> bool {
         let was = self.forced_open.contains(&node);
         if open {
@@ -812,7 +818,11 @@ impl TransientWindowManager {
             !was
         } else {
             self.forced_open.retain(|n| *n != node);
-            was
+            let is_open = self.open.iter().any(|w| w.source_node == node);
+            if is_open && !self.dismissed.contains(&node) {
+                self.dismissed.push(node);
+            }
+            was || is_open
         }
     }
 
