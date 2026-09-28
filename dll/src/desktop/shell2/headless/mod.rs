@@ -9657,6 +9657,190 @@ mod tests {
         }
     }
 
+    // --- The press router: scripted and physical presses, one arbitration ---
+
+    /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
+    /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
+    /// bar or a `scrollbar-width: none` bar exists at all is the
+    /// scrollbar-presence question, not the press router's.
+    extern "C" fn harness_layout_classic_scrollbar(
+        _data: RefAny,
+        _info: LayoutCallbackInfo,
+    ) -> Dom {
+        let mut container = Dom::create_div().with_css(
+            "width: 200px; height: 100px; overflow-y: scroll; \
+             -azul-scrollbar-visibility: always; scrollbar-width: auto;",
+        );
+        for i in 0..20 {
+            let bg = if i % 2 == 0 { "#c83c3c" } else { "#3c78c8" };
+            container = container.with_child(
+                Dom::create_div().with_css(&format!("height: 30px; background-color: {bg};")),
+            );
+        }
+        Dom::create_body().with_child(container)
+    }
+
+    /// The classic box's scroll node and the window point at the centre of
+    /// its vertical thumb, read off the bar the scroll manager built.
+    fn classic_thumb(
+        window: &HeadlessWindow,
+    ) -> (azul_core::dom::DomId, azul_core::dom::NodeId, LogicalPosition) {
+        use azul_core::dom::ScrollbarOrientation;
+        use azul_layout::managers::scroll_state::ScrollbarComponent;
+
+        let sm = &window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("layout window")
+            .scroll_manager;
+        let (dom, node) = sm
+            .state_keys()
+            .into_iter()
+            .find(|&(d, n)| {
+                sm.get_scrollbar_state(d, n, ScrollbarOrientation::Vertical)
+                    .is_some()
+            })
+            .expect("the overflowing box must carry a vertical scrollbar");
+        let bar = sm
+            .get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
+            .expect("found above");
+        let at = LogicalPosition::new(
+            bar.track_rect.origin.x + bar.track_rect.size.width / 2.0,
+            bar.track_rect.origin.y + bar.button_size + bar.thumb_offset + bar.thumb_length / 2.0,
+        );
+        assert!(
+            matches!(
+                sm.hit_test_scrollbars(at).map(|h| h.component),
+                Some(ScrollbarComponent::Thumb)
+            ),
+            "premise: {at:?} is on the thumb of the classic bar {bar:?}"
+        );
+        (dom, node, at)
+    }
+
+    /// Push the primary pointer the way a SCRIPTED op does: the
+    /// `mouse_move` / `mouse_down` / `mouse_up` ops all end in
+    /// `modify_window_state`, i.e. a whole-state push through
+    /// `CallbackChange::ModifyWindowState`, serviced like any callback's
+    /// change.
+    fn push_pointer(window: &mut HeadlessWindow, at: LogicalPosition, left_down: bool) {
+        use azul_core::{events::ProcessEventResult, window::CursorPosition};
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let mut state = window.get_current_window_state().clone();
+        state.mouse_state.cursor_position = CursorPosition::InWindow(at);
+        state.mouse_state.left_down = left_down;
+        let tier = PlatformWindow::apply_user_change(
+            window,
+            &CallbackChange::ModifyWindowState { state },
+        );
+        if tier > ProcessEventResult::DoNothing {
+            window.service_frame(tier);
+        }
+    }
+
+    fn scroll_y_of(
+        window: &HeadlessWindow,
+        dom: azul_core::dom::DomId,
+        node: azul_core::dom::NodeId,
+    ) -> f32 {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.scroll_manager.get_current_offset(dom, node))
+            .map_or(0.0, |o| o.y)
+    }
+
+    /// ONE press router: a SCRIPTED press on a scrollbar thumb must reach the
+    /// same arbitration as a physical one - scrollbar first, then content -
+    /// and the same drag must scroll the box the same.
+    ///
+    /// The physical press is asked "is this a scrollbar?" by the backend
+    /// before anything else. The scripted one (`DebugEvent::MouseDown` ->
+    /// `modify_window_state` -> the `ModifyWindowState` arm) went straight to
+    /// the event pass and became a `MouseDown` on the box. So an AZ_E2E
+    /// script against the real app could never reproduce a press a
+    /// scrollbar took on the device.
+    #[test]
+    fn a_scripted_press_on_a_scrollbar_thumb_drags_it_like_a_physical_press() {
+        use azul_core::events::MouseButton;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        const DRAG_PX: f32 = 20.0;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut physical = make_window_with(&state, harness_layout_classic_scrollbar);
+        physical.regenerate_layout().expect("initial layout");
+        let mut scripted = make_window_with(&state, harness_layout_classic_scrollbar);
+        scripted.regenerate_layout().expect("initial layout");
+
+        let (dom, node, at) = classic_thumb(&physical);
+        assert_eq!(
+            classic_thumb(&scripted),
+            (dom, node, at),
+            "premise: two identical windows lay the bar out identically"
+        );
+        let to = LogicalPosition::new(at.x, at.y + DRAG_PX);
+
+        // PHYSICAL: the headless backend's native ingress, which asks the
+        // scrollbars first like every desktop backend.
+        step(&mut physical, HeadlessEvent::MouseMove { x: at.x, y: at.y });
+        step(
+            &mut physical,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        let physical_held = physical.get_scrollbar_drag_state().is_some();
+        step(&mut physical, HeadlessEvent::MouseMove { x: to.x, y: to.y });
+        let physical_scroll = scroll_y_of(&physical, dom, node);
+        step(
+            &mut physical,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
+
+        // SCRIPTED: the same gesture as the ops a script sends.
+        push_pointer(&mut scripted, at, false);
+        push_pointer(&mut scripted, at, true);
+        let scripted_held = scripted.get_scrollbar_drag_state().is_some();
+        push_pointer(&mut scripted, to, true);
+        let scripted_scroll = scroll_y_of(&scripted, dom, node);
+        push_pointer(&mut scripted, to, false);
+
+        assert!(physical_held, "premise: a physical press on the thumb grabs it");
+        assert!(
+            physical_scroll > 0.0,
+            "premise: dragging the grabbed thumb {DRAG_PX}px scrolls the box"
+        );
+        assert!(
+            scripted_held,
+            "a scripted press on the thumb must grab it too: the same press router, scrollbar \
+             first (it went to the content under the bar)"
+        );
+        assert!(
+            (scripted_scroll - physical_scroll).abs() < 0.01,
+            "the same drag must scroll the box the same: physical {physical_scroll}, scripted \
+             {scripted_scroll}"
+        );
+        for (name, window) in [("physical", &physical), ("scripted", &scripted)] {
+            assert!(
+                window.get_scrollbar_drag_state().is_none(),
+                "{name}: the release lets go of the thumb"
+            );
+            assert!(
+                !window.get_current_window_state().mouse_state.left_down,
+                "{name}: the release clears the button the press latched"
+            );
+        }
+    }
+
     /// Sample the RGBA of the last rendered frame at physical pixel (x, y).
     #[cfg(feature = "cpurender")]
     fn sample_px(window: &HeadlessWindow, x: u32, y: u32) -> Option<[u8; 4]> {
