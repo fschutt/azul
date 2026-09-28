@@ -1459,6 +1459,156 @@ pub mod windows_fonts {
     pub const COURIER_NEW: &str = "Courier New";
 }
 
+/// The Windows UI accent colour, parsed from the registry as the `reg query`
+/// CLI prints it. Pure text parsing, so it is tested on every platform; the
+/// Windows discovery (`dll/src/desktop/shell2/windows/system_style.rs`) runs
+/// the queries and hands the output here.
+pub mod windows_accent {
+    use alloc::string::String;
+
+    use super::SystemStyle;
+    use crate::props::basic::color::{ColorU, OptionColorU};
+
+    /// The key holding the accent Windows draws its UI with
+    /// (`UISettings.GetColorValue(UIColorType::Accent)` reads the same data).
+    pub const EXPLORER_ACCENT_KEY: &str =
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent";
+    /// DWM's key: `AccentColor` mirrors the accent, `ColorizationColor` is
+    /// the window-FRAME colourisation and must not be read as the accent.
+    pub const DWM_KEY: &str = r"HKCU\Software\Microsoft\Windows\DWM";
+
+    /// The seven accent shades of the `AccentPalette` value, named like the
+    /// `SystemAccentColorLight3` ... `SystemAccentColorDark3` theme resources.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct AccentPalette {
+        pub light_3: ColorU,
+        pub light_2: ColorU,
+        pub light_1: ColorU,
+        pub accent: ColorU,
+        pub dark_1: ColorU,
+        pub dark_2: ColorU,
+        pub dark_3: ColorU,
+    }
+
+    /// The UI accent from `reg query` output (of [`EXPLORER_ACCENT_KEY`] or
+    /// [`DWM_KEY`]).
+    #[must_use]
+    pub fn accent_from_reg_query(output: &str) -> Option<ColorU> {
+        // TODAY'S PARSE (moved here unchanged from the Windows discovery):
+        // the first `0x` in the output, whatever value it belongs to, read as
+        // 0xAABBGGRR including its alpha.
+        let hex_start = output.find("0x")?;
+        let hex_digits: String = output[hex_start + 2..]
+            .trim()
+            .chars()
+            .take(8)
+            .filter(char::is_ascii_hexdigit)
+            .collect();
+        let val = u32::from_str_radix(&hex_digits, 16).ok()?;
+        let [r, g, b, a] = val.to_le_bytes();
+        Some(ColorU::new(r, g, b, a))
+    }
+
+    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`].
+    #[must_use]
+    pub fn accent_palette_from_reg_query(_output: &str) -> Option<AccentPalette> {
+        // TODAY: azul reads no palette.
+        None
+    }
+
+    /// Writes the discovered accent into `style`.
+    pub const fn apply_accent(style: &mut SystemStyle, accent: ColorU) {
+        // TODAY'S BEHAVIOUR: the accent is also copied into the selection.
+        style.colors.accent = OptionColorU::Some(accent);
+        style.colors.selection_background = OptionColorU::Some(accent);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::system::defaults;
+
+        /// `reg query HKCU\...\Explorer\Accent` on a Windows 11 machine with a
+        /// distinct value per shade (entry 8 of the palette is unused).
+        const EXPLORER_ACCENT: &str = "\r\n\
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent\r\n\
+    AccentPalette    REG_BINARY    99EBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n\
+    StartColorMenu    REG_DWORD    0xffb85f00\r\n\
+    AccentColorMenu    REG_DWORD    0xffd47800\r\n\
+    MotionAccentId_v1.00    REG_DWORD    0xdb\r\n\
+\r\n";
+
+        /// `reg query HKCU\...\DWM`: the frame colourisation comes first.
+        const DWM: &str = "\r\n\
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\DWM\r\n\
+    Composition    REG_DWORD    0x1\r\n\
+    ColorizationColor    REG_DWORD    0xc40078d4\r\n\
+    ColorizationAfterglow    REG_DWORD    0xc40078d4\r\n\
+    AccentColor    REG_DWORD    0xffd47800\r\n\
+    ColorPrevalence    REG_DWORD    0x0\r\n\
+\r\n";
+
+        const WIN11_BLUE: ColorU = ColorU::new_rgb(0x00, 0x78, 0xD4);
+
+        #[test]
+        fn the_accent_is_accent_color_menu_not_the_first_dword_of_the_key() {
+            assert_eq!(accent_from_reg_query(EXPLORER_ACCENT), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn the_dwm_key_yields_accent_color_not_the_frame_colorization() {
+            assert_eq!(accent_from_reg_query(DWM), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn without_accent_color_menu_the_palette_base_is_the_accent() {
+            let only_palette = "    AccentPalette    REG_BINARY    \
+                99EBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n";
+            assert_eq!(accent_from_reg_query(only_palette), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn the_accent_palette_parses_light_3_through_dark_3() {
+            assert_eq!(
+                accent_palette_from_reg_query(EXPLORER_ACCENT),
+                Some(AccentPalette {
+                    light_3: ColorU::new_rgb(0x99, 0xEB, 0xFF),
+                    light_2: ColorU::new_rgb(0x60, 0xCD, 0xFF),
+                    light_1: ColorU::new_rgb(0x00, 0x93, 0xF9),
+                    accent: WIN11_BLUE,
+                    dark_1: ColorU::new_rgb(0x00, 0x5F, 0xB8),
+                    dark_2: ColorU::new_rgb(0x00, 0x42, 0x92),
+                    dark_3: ColorU::new_rgb(0x00, 0x23, 0x68),
+                })
+            );
+        }
+
+        #[test]
+        fn a_short_or_malformed_palette_is_none() {
+            for output in [
+                "    AccentPalette    REG_BINARY    99EBFF00\r\n",
+                "    AccentPalette    REG_BINARY    ZZEBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n",
+                "    AccentPalette    REG_DWORD    0xffd47800\r\n",
+                "",
+            ] {
+                assert_eq!(accent_palette_from_reg_query(output), None, "{output:?}");
+            }
+        }
+
+        #[test]
+        fn applying_the_accent_leaves_the_selection_colours_alone() {
+            let mut style = defaults::windows_11_light();
+            let selection = style.colors.selection_background;
+            let text_selection = style.colors.text_selection_background;
+            let purple = ColorU::new_rgb(0x88, 0x17, 0x98);
+            apply_accent(&mut style, purple);
+            assert_eq!(style.colors.accent, OptionColorU::Some(purple));
+            assert_eq!(style.colors.selection_background, selection);
+            assert_eq!(style.colors.text_selection_background, text_selection);
+        }
+    }
+}
+
 /// Linux/GTK common font family names.
 pub mod linux_fonts {
     /// GNOME default fonts
