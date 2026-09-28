@@ -1182,6 +1182,29 @@ greeting = Hello, { $name }!
     }
 
     #[test]
+    fn a_key_missing_in_a_regional_locale_falls_back_to_its_language() {
+        // doc/guide/en/architecture/localization.md, "Fallback Languages": a
+        // key missing in `fr-CA` is searched in `fr`. This is also what makes
+        // the guide's own setup work: it registers `en` and `de`, while the
+        // OS reports `en-US` / `de-DE`.
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("fr", "greeting = Bonjour\n"));
+        assert!(localizer.add_resource("en", "greeting = Hello\n"));
+
+        let tr = |locale: &str| {
+            localizer
+                .translate(AzString::from(locale), AzString::from("greeting"), FmtArgVec::new())
+                .as_str()
+                .to_string()
+        };
+        assert_eq!(tr("fr-CA"), "Bonjour");
+        assert_eq!(tr("fr-Latn-CA"), "Bonjour");
+        // A locale with nothing of its own ends at the DEFAULT locale's
+        // language (`en-US` -> `en`), not at the raw key.
+        assert_eq!(tr("ja-JP"), "Hello");
+    }
+
+    #[test]
     fn test_syntax_check() {
         // Valid FTL
         let valid = "hello = Hello, world!";
