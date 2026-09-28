@@ -9431,6 +9431,345 @@ mod tests {
         );
     }
 
+    // --- A VirtualView scrolled into sight repaints where it is shown -------
+    //
+    // REPORTED (AzWidgets on macOS, 2026-09-28): the Video card showed Big Buck
+    // Bunny's first frame, and after a press on play no later frame ever
+    // reached the screen. The frames did reach the widget: each one is written
+    // into the widget's state and its `VirtualView` re-renders in place
+    // (`video_writeback` -> `trigger_all_virtual_view_rerender`). What never
+    // happened was the REPAINT. A view that re-renders in place changes only
+    // its child display list, so its one source of damage is the child-list
+    // diff (`compute_virtual_view_damage`), and that damaged the view's box at
+    // its CONTENT position. Inside a scrolled box that is a scroll offset below
+    // where the view is painted. The Video card sits far down the scrolled
+    // page, so every frame repainted a band nowhere near it. The poster got
+    // through only because scrolling the card into sight repaints it.
+    //
+    // The class is the one `damage_change_inside_scrolled_frame_repaints_at_viewport_position`
+    // pins for the parent list, in the one damage source it does not reach.
+
+    #[cfg(feature = "cpurender")]
+    const SWATCH_RED: [u8; 4] = [220, 30, 30, 255];
+    #[cfg(feature = "cpurender")]
+    const SWATCH_GREEN: [u8; 4] = [30, 220, 30, 255];
+    #[cfg(feature = "cpurender")]
+    const SWATCH_BLUE: [u8; 4] = [30, 30, 220, 255];
+    #[cfg(feature = "cpurender")]
+    const SWATCH_YELLOW: [u8; 4] = [220, 220, 30, 255];
+
+    /// What a swatch view paints: one colour, changed in place the way a
+    /// video frame is.
+    #[cfg(feature = "cpurender")]
+    struct VvSwatch {
+        rgba: [u8; 4],
+    }
+
+    /// The app state: the swatch's `RefAny`, the same one across builds.
+    #[cfg(feature = "cpurender")]
+    struct ScrolledSwatchPage {
+        swatch: RefAny,
+    }
+
+    /// The app state of the video twin: the decoded frames, as the `RefAny`
+    /// that `VideoWidget::with_frames` replays.
+    #[cfg(feature = "cpurender")]
+    struct ScrolledVideoPage {
+        frames: RefAny,
+    }
+
+    /// Fills the view with the swatch's colour.
+    #[cfg(feature = "cpurender")]
+    extern "C" fn swatch_view_render(
+        data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
+        };
+
+        let mut data = data;
+        let [r, g, b, a] = data
+            .downcast_ref::<VvSwatch>()
+            .map_or([0, 0, 0, 255], |s| s.rgba);
+        let size = info.get_bounds().get_logical_size();
+        let rect = LogicalRect::new(LogicalPosition::zero(), size);
+        let bg: StyleBackgroundContentVec =
+            vec![StyleBackgroundContent::Color(ColorU { r, g, b, a })].into();
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(
+                            size.width,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            size.height,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            ),
+            materialized: rect,
+            virtual_rect: rect,
+        }
+    }
+
+    /// `<body>` with a 200x100 box scrolling a 600px column: 300px of spacer,
+    /// then `view` at 180x60, then 240px of spacer. The view's box is at
+    /// content y 308..368 (the body's 8px margin first); scrolled by 300 it is
+    /// on screen at y 8..68.
+    #[cfg(feature = "cpurender")]
+    fn scrolled_page_around(view: Dom) -> Dom {
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    overflow::LayoutOverflow,
+                },
+                property::CssProperty,
+            },
+        };
+
+        fn sized(width: f32, height: f32) -> Vec<CssPropertyWithConditions> {
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(width))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(height))),
+            ]
+        }
+        let mut scroller = sized(200.0, 100.0);
+        scroller.push(CssPropertyWithConditions::simple(CssProperty::overflow_y(
+            LayoutOverflow::Scroll,
+        )));
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css_props(scroller.into())
+                .with_child(Dom::create_div().with_css_props(sized(180.0, 300.0).into()))
+                .with_child(view.with_css_props(sized(180.0, 60.0).into()))
+                .with_child(Dom::create_div().with_css_props(sized(180.0, 240.0).into())),
+        )
+    }
+
+    #[cfg(feature = "cpurender")]
+    extern "C" fn scrolled_swatch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let swatch = data
+            .downcast_ref::<ScrolledSwatchPage>()
+            .map(|page| page.swatch.clone())
+            .expect("page state");
+        scrolled_page_around(Dom::create_virtual_view(
+            swatch,
+            azul_core::callbacks::VirtualViewCallback::create(swatch_view_render),
+        ))
+    }
+
+    #[cfg(feature = "cpurender")]
+    extern "C" fn scrolled_video_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::video::{VideoConfig, VideoSource};
+        use azul_layout::widgets::video::VideoWidget;
+
+        let frames = data
+            .downcast_ref::<ScrolledVideoPage>()
+            .map(|page| page.frames.clone())
+            .expect("page state");
+        scrolled_page_around(
+            VideoWidget::create(VideoConfig::new(VideoSource::Bytes(
+                Vec::<u8>::new().into(),
+            )))
+            .with_frames(frames)
+            .dom(),
+        )
+    }
+
+    /// Change the swatch's colour in place: the dataset changes, the DOM does
+    /// not.
+    #[cfg(feature = "cpurender")]
+    fn set_swatch(swatch: &RefAny, rgba: [u8; 4]) {
+        let mut handle = swatch.clone();
+        if let Some(mut s) = handle.downcast_mut::<VvSwatch>() {
+            s.rgba = rgba;
+        }
+    }
+
+    /// A 4x4 video frame of one colour.
+    #[cfg(feature = "cpurender")]
+    fn solid_video_frame(rgba: [u8; 4]) -> azul_core::video::VideoFrame {
+        let mut bytes: Vec<u8> = Vec::with_capacity(4 * 4 * 4);
+        for _ in 0..16 {
+            bytes.extend_from_slice(&rgba);
+        }
+        azul_core::video::VideoFrame::new(4, 4, bytes.into())
+    }
+
+    /// Which colour of `palette` a painted pixel is, allowing for the image
+    /// scaler's rounding.
+    #[cfg(feature = "cpurender")]
+    fn palette_index(px: [u8; 4], palette: &[[u8; 4]]) -> Option<usize> {
+        palette
+            .iter()
+            .position(|c| c.iter().zip(px.iter()).all(|(a, b)| a.abs_diff(*b) <= 12))
+    }
+
+    /// Scroll the OUTERMOST scroll frame (the lowest node id) of `window` to
+    /// vertical offset `dy`. [`scroll_frame_to`] takes whichever frame the map
+    /// hands out first, which is only right while there is one.
+    #[cfg(feature = "cpurender")]
+    fn scroll_outermost_frame_to(window: &mut HeadlessWindow, dy: f32) {
+        use azul_core::{
+            dom::DomId,
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            hit_test::ScrollPosition,
+        };
+
+        let node_id = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().copied().min())
+            .expect("no scroll frame registered");
+        let sp = ScrollPosition {
+            parent_rect: LogicalRect {
+                origin: LogicalPosition::new(8.0, 8.0),
+                size: LogicalSize::new(200.0, 100.0),
+            },
+            children_rect: LogicalRect {
+                origin: LogicalPosition::new(0.0, dy),
+                size: LogicalSize::new(200.0, 600.0),
+            },
+        };
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .unwrap()
+            .set_scroll_position(DomId { inner: 0 }, node_id, sp);
+    }
+
+    /// Paint one frame from the layout as it stands - what a desktop
+    /// backend's frame path does after it drained the queued view re-renders:
+    /// no relayout, no rebuild, only `render_frame` and its damage.
+    #[cfg(feature = "cpurender")]
+    fn paint_frame(window: &mut HeadlessWindow) {
+        let (width, height, dpi) = {
+            let ws = window.common.current_window_state();
+            (
+                ws.size.dimensions.width,
+                ws.size.dimensions.height,
+                ws.size.dpi as f32 / 96.0,
+            )
+        };
+        if let Some(lw) = window.common.layout_window.as_ref() {
+            let _painted = window.cpu_backend.render_frame(
+                lw,
+                &window.common.renderer_resources,
+                width,
+                height,
+                dpi,
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_virtual_view_scrolled_into_sight_repaints_where_it_is_shown() {
+        let swatch = RefAny::new(VvSwatch { rgba: SWATCH_RED });
+        let state = Arc::new(RefCell::new(RefAny::new(ScrolledSwatchPage {
+            swatch: swatch.clone(),
+        })));
+        let mut window = make_window_with(&state, scrolled_swatch_layout);
+        window.regenerate_layout().expect("initial layout");
+        scroll_outermost_frame_to(&mut window, 300.0);
+        window.regenerate_layout().expect("scroll relayout");
+
+        let probe = (50u32, 30u32);
+        assert_eq!(
+            sample_px(&window, probe.0, probe.1),
+            Some(SWATCH_RED),
+            "harness: scrolling the view into sight paints it"
+        );
+
+        // One frame of new content: the data behind the view changes in
+        // place, the view is queued for an in-place re-render (what the video
+        // writeback's `trigger_all_virtual_view_rerender` does), and the frame
+        // path drains the queue and paints. No relayout.
+        set_swatch(&swatch, SWATCH_GREEN);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .queue_all_virtual_view_reinvoke();
+        assert!(
+            window.common.drain_virtual_view_updates(),
+            "harness: the view must re-render"
+        );
+        paint_frame(&mut window);
+
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        assert_eq!(
+            sample_px(&window, probe.0, probe.1),
+            Some(SWATCH_GREEN),
+            "the view re-rendered but its pixels on screen kept the old content: a view inside \
+             a scrolled box must be damaged where it is PAINTED (its box minus the scroll \
+             offset), not at its content position; damage={damage:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_video_scrolled_into_sight_shows_its_later_frames_too() {
+        const PALETTE: [[u8; 4]; 4] = [SWATCH_RED, SWATCH_GREEN, SWATCH_BLUE, SWATCH_YELLOW];
+
+        let frames: Vec<azul_core::video::VideoFrame> =
+            PALETTE.iter().map(|c| solid_video_frame(*c)).collect();
+        let state = Arc::new(RefCell::new(RefAny::new(ScrolledVideoPage {
+            frames: RefAny::new(frames),
+        })));
+        let mut window = make_window_with(&state, scrolled_video_layout);
+        // The first layout mounts the widget, and mounting starts its replay
+        // worker: a real thread that writes one frame back about every 33 ms,
+        // through the same `video_writeback` the streaming decoder uses.
+        window.regenerate_layout().expect("initial layout");
+        scroll_outermost_frame_to(&mut window, 300.0);
+        window.regenerate_layout().expect("scroll relayout");
+
+        let probe = (50u32, 30u32);
+        let mut shown: Vec<usize> = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while shown.len() < 3 && std::time::Instant::now() < deadline {
+            // One turn of a desktop frame loop: deliver the worker's
+            // writebacks (each stores its frame and queues the view's
+            // re-render), drain the queue, paint.
+            let _ = window.process_timers_and_threads();
+            let _ = window.common.drain_virtual_view_updates();
+            paint_frame(&mut window);
+            if let Some(i) =
+                sample_px(&window, probe.0, probe.1).and_then(|px| palette_index(px, &PALETTE))
+            {
+                if !shown.contains(&i) {
+                    shown.push(i);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            shown.len() >= 3,
+            "the video played for up to 5 s, and its box on screen showed {} of its 4 frame \
+             colours ({shown:?}): every frame reaches the widget and re-renders its view, so a \
+             view in a scrolled box must be repainted where it is shown, not a scroll offset \
+             below it",
+            shown.len()
+        );
+    }
+
     /// REGRESSION (swallowed sub-pixel scrolling): high-resolution trackpads
     /// deliver deltas well under a device pixel per frame. The scroll baseline
     /// used to advance every frame even when the delta was dropped as
