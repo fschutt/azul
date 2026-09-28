@@ -508,9 +508,11 @@ fn poll() {
 /// The grab connection's socket, for the loops' poll set. `None` until the
 /// first registration opened the connection.
 pub(super) fn connection_fd() -> Option<i32> {
-    let x = xlib()?;
+    // The state first: asked on every park, this must not load libX11 in a
+    // session that never registered an X11 hotkey (a Wayland one, say).
     let guard = state();
     let s = guard.as_ref()?;
+    let x = xlib()?;
     let fd = unsafe { (x.connection_number)(s.display as *mut Display) };
     (fd >= 0).then_some(fd)
 }
@@ -519,11 +521,11 @@ pub(super) fn connection_fd() -> Option<i32> {
 /// flushes and reads whatever the socket holds without blocking, so after a
 /// `false` the socket is empty too and the fd announces the next press.
 pub(super) fn has_queued_events() -> bool {
-    let Some(x) = xlib() else {
-        return false;
-    };
     let guard = state();
     let Some(s) = guard.as_ref() else {
+        return false;
+    };
+    let Some(x) = xlib() else {
         return false;
     };
     unsafe { (x.pending)(s.display as *mut Display) > 0 }
