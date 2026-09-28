@@ -247,6 +247,14 @@ pub fn determine_keyboard_default_action_with_editing(
                 if is_text_input(focus, layout_results) {
                     return DefaultAction::None;
                 }
+                // A MODIFIED arrow is not navigation (P2-10): Ctrl / Alt /
+                // Super (Cmd) + arrow are OS and app chords - Spaces and
+                // Mission Control, window snapping, history back, word
+                // motion - so on a focused control they neither move focus
+                // nor scroll. Shift+arrow stays an arrow.
+                if ctrl_down || alt_down || keyboard_state.super_down() {
+                    return DefaultAction::None;
+                }
                 // SPATIAL NAVIGATION, per CSS Spatial Navigation Level 1: an
                 // arrow does not choose between focus and scroll, it tries them
                 // IN ORDER. Look for a focusable in that direction first; only
