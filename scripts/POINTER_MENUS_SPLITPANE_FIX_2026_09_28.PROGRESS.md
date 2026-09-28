@@ -55,9 +55,12 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   dom_node, #[must_use] merge_split_pane_state. POLICY NOTE: layout forbids `mul_add`
   (clippy::suboptimal_flops allowed: results must stay bit-reproducible) - write `a + b * c`.
 
+- `b363231cf` S3 FIX: `on_split_key` (divider, Focus VirtualKeyDown), KEY_STEP 0.01 /
+  KEY_STEP_COARSE 0.10, DIVIDER_NAME "Resize panes"; tab stop + Grip + value moved to the divider.
+
 ## IN PROGRESS
 
-- S3 FIX (on_split_key on the divider; tab stop/role/name/value moved from container), NEXT 3.
+- S4 RED (divider tracks the cursor: `delta / (W - 6)`; NaN cursor keeps the ratio), NEXT 4.
 
 ## NEXT (in order)
 
