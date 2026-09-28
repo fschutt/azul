@@ -142,6 +142,8 @@ mod a_scroll_box_scrolls_to_its_end_padding;
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
 mod abspos_in_flex_containing_block;
+#[path = "accordion_animation.rs"]
+mod accordion_animation;
 #[path = "anonymous_nodes.rs"]
 mod anonymous_nodes;
 #[path = "app_caret_moves.rs"]
