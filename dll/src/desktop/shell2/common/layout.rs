@@ -499,8 +499,6 @@ pub fn regenerate_layout(
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
     let _ = azul_core::callbacks::take_recorded_style_dependencies();
-    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
-    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
