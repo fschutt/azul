@@ -755,6 +755,13 @@ impl FluentLocalizerHandle {
             }
         }
 
+        // Try the requested locale's language: `fr-CA` -> `fr`
+        for parent in less_specific_locales(locale) {
+            if let Some(result) = self.try_translate(parent, message_id, &args) {
+                return result;
+            }
+        }
+
         // Try default locale
         let default_locale = self
             .inner()
@@ -764,6 +771,11 @@ impl FluentLocalizerHandle {
         if locale != default_locale {
             if let Some(result) = self.try_translate(&default_locale, message_id, &args) {
                 return result;
+            }
+            for parent in less_specific_locales(&default_locale) {
+                if let Some(result) = self.try_translate(parent, message_id, &args) {
+                    return result;
+                }
             }
         }
 
@@ -1116,6 +1128,22 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
     }
 
     None
+}
+
+/// The less specific forms of a locale tag, most specific first:
+/// `"zh-Hant-TW"` yields `"zh-Hant"`, then `"zh"` (BCP 47 "lookup"
+/// truncation). `_` counts as a separator too, as in POSIX names (`de_DE`).
+fn less_specific_locales(locale: &str) -> impl Iterator<Item = &str> + '_ {
+    let mut rest = locale;
+    core::iter::from_fn(move || {
+        let cut = rest.rfind(|c: char| c == '-' || c == '_')?;
+        rest = &rest[..cut];
+        if rest.is_empty() {
+            None
+        } else {
+            Some(rest)
+        }
+    })
 }
 
 /// Check if a string looks like a BCP 47 locale identifier.
