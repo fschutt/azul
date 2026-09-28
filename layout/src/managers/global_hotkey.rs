@@ -1310,6 +1310,96 @@ impl SharedGlobalHotkeys {
     }
 }
 
+impl SharedGlobalHotkeys {
+    /// See [`GlobalHotkeyManager::take_relayout`].
+    pub fn take_relayout(&self, source: HotkeySource) -> bool {
+        self.lock().take_relayout(source)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// One window's membership
+// ---------------------------------------------------------------------------
+
+/// A `LayoutWindow`'s place in its App's manager: the shared handle, and the
+/// window's sequence number (its [`HotkeySource::Window`]).
+///
+/// Dropping it forgets the window's declaration - every close path ends in
+/// the `LayoutWindow` being dropped, so no shell has to remember to - and the
+/// next sync releases what only this window wanted.
+#[derive(Debug)]
+pub struct WindowHotkeys {
+    shared: SharedGlobalHotkeys,
+    seq: WindowSeq,
+}
+
+impl WindowHotkeys {
+    /// A new window of the App behind `shared`.
+    #[must_use]
+    pub fn new(shared: SharedGlobalHotkeys) -> Self {
+        Self {
+            shared,
+            seq: next_window_seq(),
+        }
+    }
+
+    /// A new window of the App whose loop runs on this thread, or of a
+    /// detached manager of its own (see [`SharedGlobalHotkeys::current_or_detached`]).
+    #[must_use]
+    pub fn for_current_app() -> Self {
+        Self::new(SharedGlobalHotkeys::current_or_detached())
+    }
+
+    /// The App's handle.
+    #[must_use]
+    pub const fn shared(&self) -> &SharedGlobalHotkeys {
+        &self.shared
+    }
+
+    /// This window's sequence number.
+    #[must_use]
+    pub const fn seq(&self) -> WindowSeq {
+        self.seq
+    }
+
+    /// This window as a declaration source.
+    #[must_use]
+    pub const fn source(&self) -> HotkeySource {
+        HotkeySource::Window(self.seq)
+    }
+
+    /// The statuses a `layout()` pass of this window reads (owner relative to
+    /// this window), taken right before the pass.
+    #[must_use]
+    pub fn snapshot(&self) -> GlobalHotkeyInfoVec {
+        self.shared.snapshot_for(self.source())
+    }
+
+    /// Hand what one `layout()` pass declared to the manager and bring the
+    /// OS in line before returning. A status change asks the sources that
+    /// read one to run again ([`SharedGlobalHotkeys::take_relayout`]).
+    pub fn declare_recorded(
+        &self,
+        recorded: azul_core::global_hotkey::RecordedGlobalHotkeys,
+    ) -> SyncOutcome {
+        let mut manager = self.shared.lock();
+        manager.declare(self.source(), recorded.declared, recorded.read_status);
+        manager.sync()
+    }
+
+    /// This window took the keyboard focus (the owner rule prefers the most
+    /// recently focused declarer).
+    pub fn note_focus(&self) {
+        self.shared.note_focus(self.seq);
+    }
+}
+
+impl Drop for WindowHotkeys {
+    fn drop(&mut self) {
+        self.shared.forget_source(self.source());
+    }
+}
+
 /// Run `f` - a fired global hotkey's callback - with `event` readable through
 /// [`delivered_event`] (`CallbackInfo::get_global_hotkey_event`).
 pub fn with_delivered_event<R>(event: GlobalHotkeyEvent, f: impl FnOnce() -> R) -> R {

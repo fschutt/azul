@@ -3172,7 +3172,7 @@ pub fn run_tray_only(
 
             // A tray utility's summon hotkey: same stub window, same reason.
             let window = unsafe { &mut *headless_ptr };
-            let _ = crate::desktop::global_hotkey::deliver_fired(window);
+            let _ = crate::desktop::global_hotkey::pump_headless(window);
         },
     );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {

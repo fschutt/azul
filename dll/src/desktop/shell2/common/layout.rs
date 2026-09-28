@@ -482,7 +482,11 @@ pub fn regenerate_layout(
         // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
         // macOS from `NSView`).
         safe_area: layout_window.safe_area_insets,
-        global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+        // Where each global hotkey stood BEFORE this pass (owner relative to
+        // this window): what `get_global_hotkey_status` answers from. A
+        // status that moves because of this pass's own declarations is seen
+        // by the one extra pass the sync below asks for.
+        global_hotkeys: layout_window.global_hotkeys.snapshot(),
     };
 
     let callback_info = LayoutCallbackInfo::new_with_reason(
@@ -532,6 +536,23 @@ pub fn regenerate_layout(
     // LayoutWindow::system_style_change_needs_full_regeneration.
     layout_window.recorded_style_dependencies =
         azul_core::callbacks::take_recorded_style_dependencies();
+    // ... and the global hotkeys the state it was built from wants. They go
+    // to the App's manager, which brings the OS grabs in line NOW: new ones
+    // grabbed, dropped ones released, kept ones untouched (a changed
+    // callback or RefAny is swapped without an OS call). A status change
+    // asks the passes that read one to run again, through the hotkey pump.
+    // A pass that does not run `layout()` declares nothing new: the last
+    // declaration stands.
+    let recorded_hotkeys = azul_core::global_hotkey::take_recorded_global_hotkeys();
+    if recorded_hotkeys.overflowed {
+        crate::plog_warn!(
+            "[global-hotkey] layout() declared more than {} global hotkeys; the rest were dropped",
+            azul_core::global_hotkey::GLOBAL_HOTKEY_DECLARATION_CAP
+        );
+    }
+    let _ = layout_window
+        .global_hotkeys
+        .declare_recorded(recorded_hotkeys);
     layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
     layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
     azul_layout::probe::emit_phase_heap("after_callback");

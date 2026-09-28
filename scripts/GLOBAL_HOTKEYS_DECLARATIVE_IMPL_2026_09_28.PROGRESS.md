@@ -62,15 +62,20 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    (`dll/tests/headless_global_hotkeys.rs`; needs `LayoutWindow.global_hotkeys.shared()` and
    `azul::desktop::global_hotkey::pump_headless(&mut HeadlessWindow) -> ProcessEventResult`).
 
+6. feat(hotkeys): regenerate_layout declares into the App's manager (`WindowHotkeys` in the
+   manager module; `LayoutWindow.global_hotkeys` + both exhaustive destructures; note_focus in
+   `apply_window_activation`; `pump_headless` in the dll handles presses + relayout requests;
+   headless Phase 1c and the tray-only timer call it). Desktop pumps do NOT yet handle relayout
+   requests (step 10).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-6. feat: regenerate_layout snapshots + declares + syncs into the window's manager; `WindowHotkeys`
-   field + drop guard; note_focus; headless pump handles relayout requests; mark app dirty on
-   RefreshDom.
+(step 6 left out on purpose: "mark app dirty on RefreshDom" moves to step 8)
+
 7. RED app: AppConfig static list + derived callback (headless).
 8. feat app: `AppConfig.global_hotkeys` / `global_hotkeys_callback`, `GlobalHotkeysCallback(Type)`,
    `OptionGlobalHotkeysCallback`, `GlobalHotkeysCallbackInfo` (with `impl_managed_callback!`),

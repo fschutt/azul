@@ -222,6 +222,32 @@ pub fn deliver_fired<W: PlatformWindow>(window: &mut W) -> ProcessEventResult {
     result
 }
 
+/// One turn of the headless loop (and of the tray-only stub): poll, sync,
+/// run every press against `window`, and - when a sync moved a status this
+/// window's last `layout()` read - ask for that pass to run once more.
+///
+/// Acts on the WINDOW's manager (the App it joined), not on whatever App is
+/// current, so a test can drive a window it built directly.
+pub fn pump_headless(
+    window: &mut crate::desktop::shell2::headless::HeadlessWindow,
+) -> ProcessEventResult {
+    let Some((shared, source)) = window
+        .get_layout_window()
+        .map(|lw| (lw.global_hotkeys.shared().clone(), lw.global_hotkeys.source()))
+    else {
+        return ProcessEventResult::DoNothing;
+    };
+    let mut result = ProcessEventResult::DoNothing;
+    for delivery in take_deliveries(&shared) {
+        result = result.max(deliver(window, delivery));
+    }
+    if shared.take_relayout(source) {
+        window.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
+        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+    }
+    result
+}
+
 /// macOS: deliver against the first window. Called from both macOS run
 /// loops (`NSApplication::run`'s drain timer and the manual loop), next to
 /// the tray pump.

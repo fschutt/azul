@@ -2999,8 +2999,9 @@ impl HeadlessWindow {
             // Presses parked by the simulated backend (`simulate`, the
             // AZ_E2E `global_hotkey` op) run their callbacks against this
             // window - the slot the desktop run loops give them, next to the
-            // tray pump.
-            let hotkey_result = crate::desktop::global_hotkey::deliver_fired(&mut self);
+            // tray pump - and a status change this window's `layout()` read
+            // asks for one more pass.
+            let hotkey_result = crate::desktop::global_hotkey::pump_headless(&mut self);
             if !matches!(
                 hotkey_result,
                 azul_core::events::ProcessEventResult::DoNothing
