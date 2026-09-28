@@ -16,6 +16,7 @@ use azul::{
     window::TransientWindowConfig,
 };
 
+mod hotkeys;
 mod notifications;
 mod video;
 
@@ -48,6 +49,7 @@ struct Showcase {
     notifications: notifications::NotificationsDemo,
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
+    hotkey: hotkeys::HotkeyDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -715,6 +717,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let notifications = notifications::notifications_section(&data, &s.notifications);
     let video_card = video::card(&s.video);
     let menus = menus_section(&data, s.menu_status.as_str());
+    let hotkey = hotkeys::hotkey_section(&data, &s.hotkey);
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
 
@@ -909,6 +912,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_child(feedback)
                 .with_child(notifications)
                 .with_child(menus)
+                .with_child(hotkey)
                 .with_child(files)
                 .with_child(tabs)
                 .with_child(docking)
@@ -1120,6 +1124,7 @@ pub fn start() {
         accordion_open: vec![true, false],
         notifications: notifications::NotificationsDemo::probe(),
         video: video::new_state(),
+        hotkey: hotkeys::HotkeyDemo::default(),
     });
     let config = AppConfig::create();
     let app = App::create(data, config);
