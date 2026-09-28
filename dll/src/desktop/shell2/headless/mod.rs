@@ -9104,7 +9104,7 @@ mod tests {
                 tier = tier.max_self(window.apply_text_input_event(&text));
             }
             HeadlessEvent::Scroll { delta_x, delta_y } => {
-                window.apply_wheel_scroll_event(delta_x, delta_y);
+                tier = tier.max_self(window.apply_wheel_scroll_event(delta_x, delta_y));
             }
             _ => {}
         }
