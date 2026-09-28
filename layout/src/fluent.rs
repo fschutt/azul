@@ -1163,6 +1163,21 @@ greeting = Hello, { $name }!
     }
 
     #[test]
+    fn a_fractional_f32_argument_renders_as_written_not_widened() {
+        // `FluentArg::F32` is what `with_fluent_args` and `data-l10n-price="0.1"`
+        // produce. Widening 0.1f32 to f64 yields 0.10000000149011612, and
+        // Fluent prints an f64 with `to_string()` - every digit of it.
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("en-US", "price = costs { $amount }\n"));
+        let args = FmtArgVec::from_vec(vec![FmtArg {
+            key: AzString::from("amount"),
+            value: FmtValue::Float(0.1),
+        }]);
+        let result = localizer.translate(AzString::from("en-US"), AzString::from("price"), args);
+        assert_eq!(result.as_str(), "costs 0.1");
+    }
+
+    #[test]
     fn test_syntax_check() {
         // Valid FTL
         let valid = "hello = Hello, world!";
