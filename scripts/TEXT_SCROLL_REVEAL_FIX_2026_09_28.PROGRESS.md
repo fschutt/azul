@@ -52,7 +52,8 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 
 - e38569fe1 refactor M3: `LayoutWindow::drag_autoscroll_box(anchor)` (old rule), dll timer calls it.
 - 0b4d797d2 test RED M3: `a_selection_drag_autoscrolls_the_box_its_text_scrolls_in.rs` (registered).
-- M3 FIX in progress: `TextTarget::scroll_box(&LayoutWindow)` + `LayoutWindow::scroll_box_of_layout_node`; drag_autoscroll_box prefers the session text target during a text drag; reveal uses it; timer edge box via `scroll_manager.ancestor_scroll_offset`.
+- c47c53a92 fix M3: `TextTarget::scroll_box`, `LayoutWindow::scroll_box_of_layout_node` (find_scrollable_ancestor delegates), drag_autoscroll_box prefers the session box during a text drag, reveal uses it, timer edge box = `ancestor_scroll_offset`.
+- M5 RED next: `focused_byte_offset_for_point` / `focused_rect_for_byte_offset` ignore the field scroll.
 
 ## NEXT (in order)
 
