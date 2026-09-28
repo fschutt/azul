@@ -468,6 +468,8 @@ mod textinput_first_draw_and_focus;
 mod textinput_resize_selection;
 #[path = "textinput_seed_style.rs"]
 mod textinput_seed_style;
+#[path = "the_macos_titlebar_lines_up_with_its_traffic_lights.rs"]
+mod the_macos_titlebar_lines_up_with_its_traffic_lights;
 #[path = "theme_conditional_stylesheet.rs"]
 mod theme_conditional_stylesheet;
 #[path = "token_vs_slicer_differential.rs"]
