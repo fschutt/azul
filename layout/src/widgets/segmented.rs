@@ -571,7 +571,7 @@ mod autotest_generated {
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
         props::basic::{length::SizeMetric, pixel::PixelValue},
@@ -585,6 +585,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -2513,5 +2514,175 @@ mod autotest_generated {
                 (seg_node(2), "text", SEG_UNSELECTED_TEXT),
             ]
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Roving tabindex (WAI-ARIA APG, P2-12): a segmented control behaves as a
+    // radio group - one Tab stop, the arrows move AND select, wrapping.
+    // ------------------------------------------------------------------
+
+    /// A plain tab stop, the control, another plain tab stop. Flattened: root
+    /// 0, before 1, control 2, segment `i` at `3 + 2 * i`, after at `3 + 2 * n`.
+    /// Also hands back the control's shared state.
+    fn page(seg: Segmented) -> (StyledDom, RefAny) {
+        let dom = seg.dom();
+        let state = segment_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn page_before() -> DomNodeId {
+        page_node(1)
+    }
+
+    fn page_segment(i: usize) -> DomNodeId {
+        page_node(3 + 2 * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        page_node(3 + 2 * n)
+    }
+
+    /// Presses `key` on segment `i` of `page`; panics when the segment has no
+    /// key handler - the state of every segment before P2-12.
+    fn press_segment(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_segment(i), key, held)
+            .expect("every segment must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_lands_on_the_selected_segment_and_the_next_tab_leaves() {
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(2));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(2), page_after(3)],
+            "the control is ONE tab stop: the selected segment, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_segment(2), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_the_selection_out_of_range_the_first_segment_is_the_tab_stop() {
+        let (styled, _) =
+            page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(usize::MAX));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(0), page_after(3)],
+        );
+    }
+
+    #[test]
+    fn arrow_right_on_a_segment_selects_and_focuses_the_next_one() {
+        let (styled, state) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let mut probe = state.clone();
+
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+
+        assert_eq!(selected_index_of(&mut probe), 1);
+        assert_eq!(rv::focus_request(&changes), Some(page_segment(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn segment_arrows_move_the_selection_both_ways_and_wrap_around() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            (1, K::Right, 2),
+            (1, K::Down, 2),
+            (1, K::Left, 0),
+            (1, K::Up, 0),
+            (2, K::Right, 0),
+            (0, K::Left, 2),
+        ] {
+            let (styled, state) =
+                page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_segment(&styled, from, key, &[]);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                to,
+                "{key:?} on segment {from} must select segment {to}",
+            );
+            assert_eq!(rv::focus_request(&changes), Some(page_segment(to)));
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_selected_segment_is_the_only_tab_stop() {
+        let (mut styled, _) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Left, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(2), page_after(3)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_segment(2), page_before()],
+        );
+    }
+
+    #[test]
+    fn the_user_callback_hears_a_segment_selected_with_the_arrow_keys() {
+        let mut log = RefAny::new(IndexLog { seen: Vec::new() });
+        let (styled, _) = page(
+            Segmented::create(labels(&["a", "b", "c"]))
+                .with_on_change(log.clone(), change_cb(record_index)),
+        );
+        let (update, _) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(log_indices(&mut log), vec![1]);
+        assert_eq!(update, Update::RefreshDom);
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_segment_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Right, Some(K::RControl)),
+            (K::Left, Some(K::LWin)),
+            (K::Left, Some(K::LShift)),
+            (K::Tab, None),
+            (K::Escape, None),
+        ] {
+            let (styled, state) = page(Segmented::create(labels(&["a", "b", "c"])));
+            let mut probe = state.clone();
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_segment(&styled, 0, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(selected_index_of(&mut probe), 0, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_a_segment_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = run_click(Some(styled.clone()), seg_node(2), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let stop = page_node(seg_node(2));
+        assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
     }
 }
