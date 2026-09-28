@@ -350,9 +350,10 @@ pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 #[cfg(feature = "fluent")]
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
-    create_fluent_zip_from_strings, export_to_zip, FluentError, FluentLanguageInfo,
-    FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec, FluentLocalizerHandle,
-    FluentSyntaxCheckResult, FluentZipLoadResult,
+    create_fluent_zip_from_strings, export_to_zip, AppConfigFluentExt, FluentError,
+    FluentLanguageInfo, FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec,
+    FluentLocalizerHandle, FluentSyntaxCheckResult, FluentZipLoadResult,
+    TranslationCompletenessReport,
 };
 
 /// File system operations (C-compatible wrappers for `std::fs`).

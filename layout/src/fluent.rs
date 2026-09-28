@@ -77,6 +77,33 @@ impl core::fmt::Display for TranslationCompletenessReport {
     }
 }
 
+/// `AppConfig::check_translations` - the translation-completeness check of
+/// the localization guide, for an app's startup or its test suite.
+pub trait AppConfigFluentExt {
+    /// Which message ids each locale of `AppConfig::fluent_locales` lacks
+    /// that another of its locales defines. An empty `missing_keys` means
+    /// every locale translates every key; missing entries are also reported
+    /// through `azul_core::diagnostics` (stderr by default).
+    fn check_translations(&self) -> TranslationCompletenessReport;
+}
+
+impl AppConfigFluentExt for azul_core::resources::AppConfig {
+    fn check_translations(&self) -> TranslationCompletenessReport {
+        let Some(localizer) =
+            FluentLocalizerHandle::from_locale_sources(self.fluent_locales.as_ref())
+        else {
+            return TranslationCompletenessReport::default();
+        };
+        let locales: Vec<String> = localizer
+            .get_loaded_locales()
+            .iter()
+            .map(|locale| locale.as_str().to_string())
+            .collect();
+        let locales: Vec<&str> = locales.iter().map(String::as_str).collect();
+        localizer.check_translations(&locales).err().unwrap_or_default()
+    }
+}
+
 /// Error type for Fluent operations
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -845,8 +872,13 @@ impl FluentLocalizerHandle {
         let mut all_keys = std::collections::BTreeSet::new();
         
         let inner = self.inner();
-        let bundles = inner.bundles.lock().unwrap();
-        
+        // A poisoned lock still holds intact bundles (a panic elsewhere must
+        // not turn a completeness check into a second panic).
+        let bundles = match inner.bundles.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
         // Collect all keys from all bundles
         for bundle in bundles.values() {
             for source in &bundle.sources {
@@ -880,12 +912,13 @@ impl FluentLocalizerHandle {
         if report.missing_keys.is_empty() {
             Ok(())
         } else {
+            // (Was `#[cfg(feature = "logging")] log::warn!` - a feature this
+            // crate does not have, and a `log` it does not depend on.)
             for (locale, keys) in &report.missing_keys {
                 for key in keys {
-                    #[cfg(feature = "logging")]
-                    log::warn!("warning: untranslated string '{}' for requested language {}", key, locale);
-                    #[cfg(not(feature = "logging"))]
-                    eprintln!("warning: untranslated string '{}' for requested language {}", key, locale);
+                    azul_core::diagnostics::emit(format!(
+                        "[azul][warn] untranslated string '{key}' for requested language {locale}"
+                    ));
                 }
             }
             Err(report)
