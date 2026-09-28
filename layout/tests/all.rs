@@ -142,6 +142,8 @@ mod abspos_in_flex_containing_block;
 mod anonymous_nodes;
 #[path = "app_caret_moves.rs"]
 mod app_caret_moves;
+#[path = "app_target.rs"]
+mod app_target;
 #[path = "azul_widgets_demo_follows_the_theme.rs"]
 mod azul_widgets_demo_follows_the_theme;
 #[path = "block_edge_keys.rs"]

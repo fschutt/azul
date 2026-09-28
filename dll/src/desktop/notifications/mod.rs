@@ -23,8 +23,9 @@
 //! 3. The OS reports a click on whatever thread it likes; the backend queues a `NotificationEvent`
 //!    into the layout mailbox (the tray's `queue_tray_event`) and, on macOS, wakes the run loop.
 //! 4. [`pump_notifications`] routes the mailbox to the callbacks of the notifications the events
-//!    name, and the run loop runs them with [`invoke_deliveries`] - through `invoke_menu_callback`
-//!    against its first window, exactly as it runs a tray menu item's callback, with the event
+//!    name, and the run loop's app-event collector (`desktop::app_events`) runs them with
+//!    [`invoke_deliveries`] - through `invoke_menu_callback` against the most recently focused
+//!    window (else the oldest), exactly as it runs a tray menu item's callback, with the event
 //!    installed for `CallbackInfo::get_notification_event`.
 //!
 //! # Failures are events

@@ -9,8 +9,9 @@
 //! and the Wayland portal's `Activated` signal arrives on a D-Bus thread. None
 //! of those can hold a `CallbackInfo`. So the backends only [`push_fired`] an
 //! id into this mailbox, and the run loop's pump takes the callbacks out with
-//! [`take_fired`] and runs them against the app's first window - the same
-//! route a tray menu click takes (`desktop::tray::pump_tray`).
+//! [`take_fired`] and runs them against the window [`super::app_target`]
+//! picks (the most recently focused, else the oldest) - the same route a
+//! tray menu click takes (`desktop::app_events` in the dll).
 //!
 //! The registry is PROCESS-wide, not per window (see
 //! `azul_core::global_hotkey` for why), so it is a static here rather than a

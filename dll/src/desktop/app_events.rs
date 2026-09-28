@@ -1,0 +1,237 @@
+//! The app-level event collector: tray menu clicks, native-notification
+//! events and global-hotkey presses, taken out of their mailboxes in ONE
+//! place and run against ONE window picked by ONE rule.
+//!
+//! # Why one collector
+//!
+//! The three sources are the same shape - an OS callback that cannot hold a
+//! `CallbackInfo` parks something in a process-wide mailbox, and the run
+//! loop runs the app's callback later through `invoke_menu_callback` - but
+//! each run loop used to pump them one by one, in different places:
+//!
+//! * the macOS manual loop pumped the tray only at the TOP of an iteration, so a pick handled
+//!   inside that iteration's `sendEvent:` waited for the NEXT event;
+//! * the Win32 loop never pumped the tray at all;
+//! * each source picked "the first window" of the platform registry: pointer order on macOS, a
+//!   `HashMap` on Linux, `HWND` order on Windows.
+//!
+//! Now every loop calls its platform's `deliver_to_*_windows` (or
+//! [`deliver_to`] with the tray-only stub), which services the sources
+//! (`loop_waker::service_sources`), collects every mailbox, and runs the
+//! lot against the window `azul_layout::managers::app_target` picks: the
+//! most recently focused window, else the oldest.
+
+use azul_core::{events::ProcessEventResult, menu::CoreMenuCallback};
+use azul_layout::managers::{
+    app_target::{pick_app_target, AppTargetCandidate},
+    global_hotkey::FiredHotkey,
+    notification::NotificationDelivery,
+};
+
+use crate::desktop::shell2::common::event::{CommonWindowState, MenuInvocation, PlatformWindow};
+
+/// Everything the app-level sources owe the app since the last collection.
+#[derive(Debug, Default)]
+pub(crate) struct AppEvents {
+    /// Tray menu items that carry a callback.
+    tray_menu: Vec<CoreMenuCallback>,
+    /// Notification events, routed to their notification's callback.
+    notifications: Vec<NotificationDelivery>,
+    /// Global hotkeys pressed, with the callback each runs.
+    hotkeys: Vec<FiredHotkey>,
+}
+
+impl AppEvents {
+    /// Service the sources (acknowledge the loop waker, drain D-Bus, read
+    /// the hotkey grab connection) and take every mailbox. Event-loop thread.
+    #[must_use]
+    pub(crate) fn collect() -> Self {
+        crate::desktop::loop_waker::service_sources();
+        Self {
+            // First: on macOS the tray pump also files callback-less menu
+            // items into the tray event mailbox.
+            tray_menu: crate::desktop::tray::pump_tray(),
+            notifications: crate::desktop::notifications::pump_notifications(),
+            hotkeys: azul_layout::managers::global_hotkey::take_fired(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tray_menu.is_empty() && self.notifications.is_empty() && self.hotkeys.is_empty()
+    }
+
+    #[must_use]
+    pub(crate) fn len(&self) -> usize {
+        self.tray_menu.len() + self.notifications.len() + self.hotkeys.len()
+    }
+
+    /// Run everything against `window`, in the order the sources were
+    /// collected. Returns the strongest result any callback asked for.
+    pub(crate) fn invoke<W: PlatformWindow>(self, window: &mut W) -> ProcessEventResult {
+        let Self {
+            tray_menu,
+            notifications,
+            hotkeys,
+        } = self;
+        let mut result = ProcessEventResult::DoNothing;
+        for callback in tray_menu {
+            result = result.max(window.invoke_menu_callback(
+                callback,
+                MenuInvocation::Native { site: "tray_menu" },
+            ));
+        }
+        if !notifications.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(window, notifications)
+        {
+            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+        for fire in hotkeys {
+            crate::plog_debug!(
+                "[global-hotkey] {} fired (id {})",
+                fire.hotkey.to_display_string().as_str(),
+                fire.id.id
+            );
+            result = result.max(window.invoke_menu_callback(
+                fire.callback,
+                MenuInvocation::Native {
+                    site: "global_hotkey",
+                },
+            ));
+        }
+        result
+    }
+}
+
+/// Collect and run against a window the caller already has - the tray-only
+/// app's headless stub, which is the only window such an app has.
+pub(crate) fn deliver_to<W: PlatformWindow>(window: &mut W) -> ProcessEventResult {
+    let events = AppEvents::collect();
+    if events.is_empty() {
+        return ProcessEventResult::DoNothing;
+    }
+    events.invoke(window)
+}
+
+/// Describe one window for [`pick_app_target`]. Menus and tooltips are
+/// transient: a target only when no other window is open.
+fn candidate<K: Copy>(key: K, common: &CommonWindowState) -> AppTargetCandidate<K> {
+    use azul_core::window::WindowType;
+    AppTargetCandidate {
+        key,
+        order: common.app_order,
+        transient: matches!(
+            common.current_window_state().flags.window_type,
+            WindowType::Menu | WindowType::Tooltip
+        ),
+    }
+}
+
+/// Say that collected events had nowhere to run. Not silent: a dropped
+/// callback is indistinguishable from a broken one otherwise.
+fn report_undelivered(events: &AppEvents) {
+    crate::plog_debug!(
+        "[app-events] {} tray / notification / hotkey event(s) had no window to run against",
+        events.len()
+    );
+}
+
+/// macOS: the RunForever drain timer and both points of the manual loop (the
+/// top, and right before `runMode:beforeDate:` parks).
+#[cfg(target_os = "macos")]
+pub(crate) fn deliver_to_macos_windows() {
+    use crate::desktop::shell2::macos::registry;
+
+    let events = AppEvents::collect();
+    if events.is_empty() {
+        return;
+    }
+    let candidates: Vec<AppTargetCandidate<*mut crate::desktop::shell2::macos::MacOSWindow>> =
+        registry::get_all_window_ptrs()
+            .into_iter()
+            .filter(|p| !p.is_null())
+            .map(|p| candidate(p, unsafe { &(*p).common }))
+            .collect();
+    let Some(wptr) = pick_app_target(&candidates) else {
+        report_undelivered(&events);
+        return;
+    };
+    // Safe: registry pointers stay valid while registered, and this runs on
+    // the main thread between event dispatches, with no other borrow live.
+    let window = unsafe { &mut *wptr };
+    if !matches!(events.invoke(window), ProcessEventResult::DoNothing) {
+        window.request_redraw();
+    }
+}
+
+/// Win32: after the thread-queue drain, which ran the `WM_HOTKEY` and
+/// notify-window procedures that filled the mailboxes.
+#[cfg(target_os = "windows")]
+pub(crate) fn deliver_to_win32_windows() {
+    use crate::desktop::shell2::windows::registry;
+
+    let events = AppEvents::collect();
+    if events.is_empty() {
+        return;
+    }
+    let candidates: Vec<AppTargetCandidate<*mut crate::desktop::shell2::windows::Win32Window>> =
+        registry::get_all_window_handles()
+            .into_iter()
+            .filter_map(registry::get_window)
+            .map(|p| candidate(p, unsafe { &(*p).common }))
+            .collect();
+    let Some(wptr) = pick_app_target(&candidates) else {
+        report_undelivered(&events);
+        return;
+    };
+    // Safe: see the macOS twin; the Win32 loop runs this outside any window
+    // procedure.
+    let window = unsafe { &mut *wptr };
+    if !matches!(events.invoke(window), ProcessEventResult::DoNothing) {
+        window.request_redraw();
+    }
+}
+
+/// X11 / Wayland: at the top of every loop iteration. The loops park on the
+/// sources' descriptors (`loop_waker::wait_fds`), so this runs as soon as
+/// one of them has something.
+#[cfg(az_x11)]
+pub(crate) fn deliver_to_linux_windows() {
+    use crate::desktop::shell2::linux::{registry, LinuxWindow};
+
+    let events = AppEvents::collect();
+    if events.is_empty() {
+        return;
+    }
+    let candidates: Vec<AppTargetCandidate<*mut LinuxWindow>> = registry::get_all_window_ids()
+        .into_iter()
+        .filter_map(|id| unsafe { registry::get_window(id) })
+        .map(|p| {
+            let common = match unsafe { &*p } {
+                LinuxWindow::X11(w) => &w.common,
+                #[cfg(target_os = "linux")]
+                LinuxWindow::Wayland(w) => &w.common,
+            };
+            candidate(p, common)
+        })
+        .collect();
+    let Some(wptr) = pick_app_target(&candidates) else {
+        report_undelivered(&events);
+        return;
+    };
+    // Safe: see the macOS twin; the Linux loop runs this before it polls its
+    // windows, with no window borrowed.
+    match unsafe { &mut *wptr } {
+        LinuxWindow::X11(w) => {
+            if !matches!(events.invoke(w), ProcessEventResult::DoNothing) {
+                w.request_redraw();
+            }
+        }
+        #[cfg(target_os = "linux")]
+        LinuxWindow::Wayland(w) => {
+            if !matches!(events.invoke(w), ProcessEventResult::DoNothing) {
+                w.request_redraw();
+            }
+        }
+    }
+}

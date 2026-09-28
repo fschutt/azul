@@ -1998,10 +1998,10 @@ impl CallbackInfo {
     /// keyboard focus.
     ///
     /// App-wide, not per window: every platform grabs a hotkey for the
-    /// process, so the callback runs against the app's first window (the
-    /// tray's menu clicks take the same route) and the registration outlives
-    /// the window that made it. Call [`Self::raise_window`] from the callback
-    /// to bring the app forward.
+    /// process, so the callback runs against the app's most recently focused
+    /// window, else its oldest (the tray's clicks take the same route), and
+    /// the registration outlives the window that made it. Call
+    /// [`Self::raise_window`] from the callback to bring the app forward.
     ///
     /// Answered NOW: `Err` when the combination is not a usable hotkey
     /// (`InvalidAccelerator` - e.g. a bare letter, which would swallow typing

@@ -21,12 +21,14 @@
 //!
 //! # Delivery
 //!
-//! The backends only park ids. Each run loop calls one of the
-//! `pump_into_*` functions per iteration, which runs the fired hotkeys'
-//! callbacks against the app's FIRST window through
-//! `PlatformWindow::invoke_menu_callback` - the exact route a tray menu
-//! click takes, and for the same reason: a `CallbackInfo` needs a window,
-//! and a hotkey belongs to the app, not to one of them.
+//! The backends only park ids. Each run loop's app-event collector
+//! (`desktop::app_events`) takes them per iteration, together with the
+//! tray's and the notifications' mailboxes, and runs the callbacks through
+//! `PlatformWindow::invoke_menu_callback` - the exact route a tray menu click
+//! takes, and for the same reason: a `CallbackInfo` needs a window, and a
+//! hotkey belongs to the app, not to one of them. The window is the most
+//! recently focused one, else the oldest (`azul_layout::managers::app_target`);
+//! the headless loop runs [`deliver_fired`] against its only window.
 
 use azul_core::events::ProcessEventResult;
 use azul_layout::managers::global_hotkey::{self as registry, GlobalHotkeyBackend};
@@ -165,79 +167,4 @@ pub fn deliver_fired<W: PlatformWindow>(window: &mut W) -> ProcessEventResult {
         ));
     }
     result
-}
-
-/// Poll the backend and report whether anything waits to be delivered - the
-/// cheap check a loop makes before it looks up a window.
-fn poll_and_check() -> bool {
-    registry::poll_backend();
-    registry::has_pending_fires()
-}
-
-/// macOS: deliver against the first window. Called from both macOS run
-/// loops (`NSApplication::run`'s drain timer and the manual loop), next to
-/// the tray pump.
-#[cfg(target_os = "macos")]
-pub(crate) fn pump_into_first_macos_window() {
-    if !poll_and_check() {
-        return;
-    }
-    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
-    let Some(&wptr) = window_ptrs.first() else {
-        crate::plog_debug!("[global-hotkey] a hotkey fired but no window exists to run it");
-        return;
-    };
-    let window = unsafe { &mut *wptr };
-    if !matches!(deliver_fired(window), ProcessEventResult::DoNothing) {
-        window.request_redraw();
-    }
-}
-
-/// Windows: deliver against the first window. Called from the run loop
-/// after the message drain (which is what ran the `WM_HOTKEY` window
-/// procedure); a callback's rebuild is picked up by the loop's render pass
-/// right after.
-#[cfg(target_os = "windows")]
-pub(crate) fn pump_into_first_win32_window() {
-    use crate::desktop::shell2::windows::registry;
-    if !poll_and_check() {
-        return;
-    }
-    let Some(wptr) = registry::get_all_window_handles()
-        .first()
-        .and_then(|hwnd| registry::get_window(*hwnd))
-    else {
-        return;
-    };
-    let window = unsafe { &mut *wptr };
-    let _ = deliver_fired(window);
-}
-
-/// X11 / Wayland: poll the grab connection, then deliver against the first
-/// window.
-#[cfg(az_x11)]
-pub(crate) fn pump_into_first_linux_window() {
-    use crate::desktop::shell2::linux::{registry, LinuxWindow};
-    if !poll_and_check() {
-        return;
-    }
-    let Some(wptr) = registry::get_all_window_ids()
-        .first()
-        .and_then(|id| unsafe { registry::get_window(*id) })
-    else {
-        return;
-    };
-    match unsafe { &mut *wptr } {
-        LinuxWindow::X11(w) => {
-            if !matches!(deliver_fired(w), ProcessEventResult::DoNothing) {
-                w.request_redraw();
-            }
-        }
-        #[cfg(target_os = "linux")]
-        LinuxWindow::Wayland(w) => {
-            if !matches!(deliver_fired(w), ProcessEventResult::DoNothing) {
-                w.request_redraw();
-            }
-        }
-    }
 }

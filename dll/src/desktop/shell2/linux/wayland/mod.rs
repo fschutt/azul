@@ -3525,6 +3525,7 @@ impl WaylandWindow {
         if is_pressed && !self.common.current_window_state().window_focused {
             self.common
                 .update_unsynced_state(|ws| ws.window_focused = true);
+            self.common.note_focus_gained();
             self.dynamic_selector_context.window_focused = true;
             self.sync_ime_position_to_os();
         }
@@ -6053,6 +6054,7 @@ impl WaylandWindow {
         self.snapshot_window_state_baseline("wayland.handle_keyboard_enter");
         self.common
             .update_unsynced_state(|ws| ws.window_focused = true);
+        self.common.note_focus_gained();
         self.dynamic_selector_context.window_focused = true;
 
         let xkb_state = self.keyboard_state.state;

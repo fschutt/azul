@@ -2945,6 +2945,12 @@ pub struct CommonWindowState {
     /// Whether the accessibility tree needs to be rebuilt and sent to the OS.
     /// Set on focus change, DOM rebuild, text edit — NOT on every mouse move.
     pub a11y_dirty: bool,
+    /// When this window was created and last gained the keyboard focus, on
+    /// the process-wide activation clock. Read by `desktop::app_events` to
+    /// pick the window a tray click, notification click or global hotkey
+    /// runs against (the most recently focused, else the oldest); stamped by
+    /// [`Self::note_focus_gained`] from every backend's focus-in handler.
+    pub app_order: azul_layout::managers::app_target::WindowActivationOrder,
 }
 
 impl CommonWindowState {
@@ -3258,7 +3264,17 @@ impl CommonWindowState {
             display_list_initialized: false,
             display_list_dirty: false,
             a11y_dirty: true,
+            app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
         }
+    }
+
+    /// The OS just gave this window the keyboard focus. Called from every
+    /// backend's focus-in handler (`windowDidBecomeKey`, X11 `FocusIn`,
+    /// Wayland `wl_keyboard.enter` and its key-press inference, Win32
+    /// `WM_SETFOCUS`), next to its `window_focused = true`. Stamps the
+    /// activation clock that decides where app-level events run.
+    pub fn note_focus_gained(&mut self) {
+        self.app_order.note_focused();
     }
 
     /// Everything a layout pass needs from here, as disjoint borrows — see

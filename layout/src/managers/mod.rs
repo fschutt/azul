@@ -26,6 +26,9 @@
 //! classified) drives all of them from one place.
 
 pub mod a11y;
+/// Which window an app-level event (tray click, notification click, global
+/// hotkey) runs against: the most recently focused, else the oldest.
+pub mod app_target;
 /// Platform-neutral a11y element list for the shells `accesskit` does not
 /// cover (iOS / Android). Gated with the same feature as `a11y` itself.
 #[cfg(feature = "a11y")]

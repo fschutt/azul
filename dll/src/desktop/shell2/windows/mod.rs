@@ -6142,6 +6142,7 @@ unsafe extern "system" fn window_proc(
                     ws.window_focused = true;
                 },
             );
+            window.common.note_focus_gained();
             window.dynamic_selector_context.window_focused = true;
 
             // Re-read the pressed-key set: the releases that happened while

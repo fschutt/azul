@@ -5420,6 +5420,7 @@ impl X11Window {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_in");
                     self.common
                         .update_unsynced_state(|ws| ws.window_focused = true);
+                    self.common.note_focus_gained();
                     self.dynamic_selector_context.window_focused = true;
                     // The keyboard state is a guess again: everything released
                     // while another window had focus was delivered THERE. The

@@ -1132,19 +1132,12 @@ pub fn run(
                     let font_registry = font_registry.clone();
                     let font_manager_c = font_manager.clone();
                     let drain = RcBlock::new(move || {
-                        // Tray menu clicks land in the process-wide menu-action
-                        // queue; drain the ones this tray owns. Items carrying a
-                        // callback come back here to be invoked, the rest go to
-                        // the tray event mailbox. Self-gating when there is no
-                        // tray.
-                        pump_tray_into_windows();
-                        // Notifications: queued posts out, clicks back in.
-                        // Self-gating when nothing was ever posted.
-                        pump_notifications_into_windows();
-
-                        // Global hotkeys the Carbon handler parked, run
-                        // against the first window like the tray's clicks.
-                        crate::desktop::global_hotkey::pump_into_first_macos_window();
+                        // The app-level sources - tray menu clicks, notification
+                        // events, the hotkeys the Carbon handler parked - in one
+                        // collection, run against the most recently focused
+                        // window (else the oldest). Self-gating when there is
+                        // nothing to deliver.
+                        crate::desktop::app_events::deliver_to_macos_windows();
 
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
@@ -1242,11 +1235,12 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
-                        // Tray menu clicks, before native events: this loop is
-                        // what runs for the DEFAULT termination behaviour, so
-                        // skipping it here is what made the tray menu inert.
-                        pump_tray_into_windows();
-                        pump_notifications_into_windows();
+                        // App-level events handled in the LAST iteration's
+                        // post-wake drain (a tray pick, a Carbon hotkey, a
+                        // notification click), before native events: this loop
+                        // is what runs for the DEFAULT termination behaviour,
+                        // so skipping it here is what made the tray menu inert.
+                        crate::desktop::app_events::deliver_to_macos_windows();
 
                         // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our
@@ -1396,17 +1390,15 @@ pub fn run(
                             }
                         }
 
-                        // A notification a callback posted during the event
-                        // dispatch above goes out NOW, not after the next
-                        // unrelated event wakes the loop.
-                        pump_notifications_into_windows();
-
-                        // --- Global hotkeys ---
-                        // The Carbon handler ran inside a `sendEvent:` above
-                        // (this iteration's drain, or the post-wake drain of
-                        // the last one) and parked the id; deliver it BEFORE
-                        // parking, or it would wait for the next event.
-                        crate::desktop::global_hotkey::pump_into_first_macos_window();
+                        // --- App-level events, BEFORE parking ---
+                        // A Carbon hotkey, a status-item click and a tray menu
+                        // pick are all handled inside a `sendEvent:` of the
+                        // drain above, and a callback may have posted a
+                        // notification while the windows were processed. All of
+                        // it goes out NOW: parked, it would wait for the next
+                        // unrelated event (the tray used to be pumped only at
+                        // the top of the loop).
+                        crate::desktop::app_events::deliver_to_macos_windows();
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
@@ -1971,41 +1963,14 @@ pub fn run(
         // `super::macos::drain_closed_windows()` in the macOS loop.
         registry::drain_closed_windows();
 
-        // --- Native notifications ---
-        // Queued posts go out as a notification-area balloon, and the balloon
-        // clicks / timeouts the hidden notify window's procedure queued during
-        // the thread-queue drain above run the notification's callback -
-        // against the first window, the tray's shape on macOS and Linux.
-        {
-            let deliveries = crate::desktop::notifications::pump_notifications();
-            if !deliveries.is_empty() {
-                let first = registry::get_all_window_handles()
-                    .first()
-                    .and_then(|h| registry::get_window(*h));
-                match first {
-                    Some(wptr) => {
-                        let window = unsafe { &mut *wptr };
-                        if crate::desktop::notifications::invoke_deliveries(window, deliveries) {
-                            window.request_redraw();
-                        }
-                    }
-                    None => {
-                        log_debug!(
-                            debug_server::LogCategory::Callbacks,
-                            "[notifications] {} event(s) had no window to run against",
-                            deliveries.len()
-                        );
-                    }
-                }
-            }
-        }
-
-        // --- Global hotkeys ---
-        // `WM_HOTKEY` woke `WaitMessage` and the thread-queue drain above ran
-        // the message-only window's procedure, which parked the id. Run the
-        // callbacks against the first window; a rebuild they ask for is
-        // picked up by the render pass below.
-        crate::desktop::global_hotkey::pump_into_first_win32_window();
+        // --- App-level events: notifications, global hotkeys, the tray ---
+        // `WM_HOTKEY` and the notify window's `NIN_BALLOON*` woke
+        // `WaitMessage`, and the thread-queue drain above ran their window
+        // procedures, which parked what happened. Queued notification posts go
+        // out as a balloon here too. Everything runs in THIS iteration against
+        // the most recently focused window (else the oldest); a rebuild it
+        // asks for is picked up by the render pass below.
+        crate::desktop::app_events::deliver_to_win32_windows();
 
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
@@ -2497,113 +2462,17 @@ fn run_linux_windows(
             break;
         }
 
-        // The app-level sources' per-iteration half: acknowledge the loop
-        // waker, drain the shared D-Bus connection completely, read the
-        // hotkey grab connection. The loops park on these sources' fds
-        // (`loop_waker::wait_fds`) instead of polling them.
-        crate::desktop::loop_waker::service_sources();
-
-        // Tray: dispatch D-Bus traffic. This is what ANSWERS the panel — SNI
-        // is ~90% property reads, and a host whose GetAll times out shows no
-        // icon at all. The returned callbacks are the panel-drawn dbusmenu's
-        // clicks (tray/linux.rs serves com.canonical.dbusmenu); run them
-        // against the first window, the same shape as macOS's
-        // pump_tray_into_windows — a CallbackInfo needs a window to exist.
-        {
-            let tray_callbacks = crate::desktop::tray::pump_tray();
-            if !tray_callbacks.is_empty() {
-                use azul_core::events::ProcessEventResult;
-
-                use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
-                if let Some(win_ptr) = window_ids
-                    .first()
-                    .and_then(|wid| unsafe { registry::get_window(*wid) })
-                {
-                    match unsafe { &mut *win_ptr } {
-                        LinuxWindow::X11(w) => {
-                            for cb in tray_callbacks {
-                                if !matches!(
-                                    w.invoke_menu_callback(
-                                        cb,
-                                        MenuInvocation::Native {
-                                            site: "linux.tray_menu"
-                                        }
-                                    ),
-                                    ProcessEventResult::DoNothing
-                                ) {
-                                    w.request_redraw();
-                                }
-                            }
-                        }
-                        #[cfg(target_os = "linux")]
-                        LinuxWindow::Wayland(w) => {
-                            for cb in tray_callbacks {
-                                if !matches!(
-                                    w.invoke_menu_callback(
-                                        cb,
-                                        MenuInvocation::Native {
-                                            site: "linux.tray_menu"
-                                        }
-                                    ),
-                                    ProcessEventResult::DoNothing
-                                ) {
-                                    w.request_redraw();
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    log_debug!(
-                        debug_server::LogCategory::Callbacks,
-                        "[tray] {} menu callback(s) had no window to run against",
-                        tray_callbacks.len()
-                    );
-                }
-            }
-        }
-
-        // Native notifications: queued posts out to the freedesktop server,
-        // its ActionInvoked / NotificationClosed signals (read off the same
-        // shared D-Bus connection the tray dispatches) routed to the
-        // callbacks of the notifications they name, and run against the
-        // first window - the tray's shape. The loops' poll is bounded while a
-        // notification is outstanding (`notifications::needs_polling`), since
-        // the D-Bus socket is not in their wait set.
-        {
-            let deliveries = crate::desktop::notifications::pump_notifications();
-            if !deliveries.is_empty() {
-                if let Some(win_ptr) = window_ids
-                    .first()
-                    .and_then(|wid| unsafe { registry::get_window(*wid) })
-                {
-                    match unsafe { &mut *win_ptr } {
-                        LinuxWindow::X11(w) => {
-                            if crate::desktop::notifications::invoke_deliveries(w, deliveries) {
-                                w.request_redraw();
-                            }
-                        }
-                        #[cfg(target_os = "linux")]
-                        LinuxWindow::Wayland(w) => {
-                            if crate::desktop::notifications::invoke_deliveries(w, deliveries) {
-                                w.request_redraw();
-                            }
-                        }
-                    }
-                } else {
-                    log_debug!(
-                        debug_server::LogCategory::Callbacks,
-                        "[notifications] {} event(s) had no window to run against",
-                        deliveries.len()
-                    );
-                }
-            }
-        }
-
-        // Global hotkeys: read the X grab connection (the portal's listener
-        // thread parks its own and raises the loop waker), then run what
-        // fired against the first window - the tray's route. A press wakes
-        // the loop through the grab connection's fd in the poll set.
-        crate::desktop::global_hotkey::pump_into_first_linux_window();
+        // App-level events: the tray (the panel's property reads are answered
+        // by the D-Bus drain in here - SNI is ~90% property reads, and a host
+        // whose GetAll times out shows no icon at all - and the panel-drawn
+        // dbusmenu's clicks come back as callbacks), the freedesktop
+        // notification server's ActionInvoked / NotificationClosed (same
+        // shared D-Bus connection), and global hotkeys (the X grab connection
+        // is read here; the portal's listener thread parks its own). One
+        // collection, run against the most recently focused window (else the
+        // oldest). The loops park on these sources' fds
+        // (`loop_waker::wait_fds`), so this runs as soon as one has something.
+        crate::desktop::app_events::deliver_to_linux_windows();
 
         // Process events for all windows
         for wid in &window_ids {
@@ -2954,125 +2823,18 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     Ok(())
 }
 
-/// Drain tray menu clicks and run the callbacks they carry.
-///
-/// This lives in ONE place and is called from EVERY macOS event-loop branch on
-/// purpose. It was originally inlined into the `RunForever` timer, which meant
-/// it never ran for the DEFAULT termination behaviour (`EndProcess`) - the tray
-/// appeared, its menu opened, `menuItemAction:` fired and pushed the tag, and
-/// then nothing consumed it. The menu looked dead for the most common config
-/// while working in the one that is rarely used.
-///
-/// A tray menu item is invoked through the SAME path as a window menu item:
-/// `invoke_menu_callback` builds the `CallbackInfo`, hands over the caller's
-/// `RefAny`, applies whatever the callback changed and asks for a rebuild.
-/// It needs a window because a `CallbackInfo` does, and the tray has none of
-/// its own, so the first window stands in.
-#[cfg(target_os = "macos")]
-fn pump_tray_into_windows() {
-    let tray_callbacks = crate::desktop::tray::pump_tray();
-    if tray_callbacks.is_empty() {
-        return;
-    }
-
-    use azul_core::events::ProcessEventResult;
-
-    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
-
-    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
-    match window_ptrs.first() {
-        Some(&wptr) => {
-            let window = unsafe { &mut *wptr };
-            if invoke_tray_callbacks(window, tray_callbacks) {
-                window.request_redraw();
-            }
-        }
-        None => {
-            // A tray-first app has no OS window to run against. Say so rather
-            // than dropping a user's callback in silence; `run_tray_only` uses
-            // a HeadlessWindow instead and never reaches this branch.
-            log_debug!(
-                LogCategory::Callbacks,
-                "[tray] {} menu callback(s) had no window to run against",
-                tray_callbacks.len()
-            );
-        }
-    }
-}
-
-/// Dispatch queued notifications and run the callbacks of the ones the user
-/// clicked, pressed a button on or dismissed.
-///
-/// The notification twin of [`pump_tray_into_windows`], called from the same
-/// places for the same reason (the default `EndProcess` loop and the
-/// `RunForever` timer both), and delivering the same way: through
-/// `invoke_menu_callback` against the first window - a notification has no
-/// window of its own, and a `CallbackInfo` needs one. The events are queued
-/// by `UNUserNotificationCenter`'s delegate on UN's own queue, which also
-/// posts the app-defined NSEvent that wakes this loop to get here.
-#[cfg(target_os = "macos")]
-fn pump_notifications_into_windows() {
-    let deliveries = crate::desktop::notifications::pump_notifications();
-    if deliveries.is_empty() {
-        return;
-    }
-    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
-    match window_ptrs.first() {
-        Some(&wptr) => {
-            let window = unsafe { &mut *wptr };
-            if crate::desktop::notifications::invoke_deliveries(window, deliveries) {
-                window.request_redraw();
-            }
-        }
-        None => {
-            log_debug!(
-                LogCategory::Callbacks,
-                "[notifications] {} event(s) had no window to run against",
-                deliveries.len()
-            );
-        }
-    }
-}
-
-/// Run tray menu callbacks against SOME window - a real one, or the headless
-/// stub a tray-only app uses.
-///
-/// A `CallbackInfo` is built from a window (its `LayoutWindow`, raw handle, GL
-/// context, window state), so a callback needs one to exist even when the click
-/// came from a menu bar item that belongs to no window. `HeadlessWindow`
-/// satisfies that without any OS window being created, which is what makes a
-/// genuinely windowless tray app possible.
-#[cfg(target_os = "macos")]
-///
-/// Returns whether anything asked for a repaint; `request_redraw` is not on the
-/// `PlatformWindow` trait, and a windowless app has nothing to repaint anyway,
-/// so the decision belongs to the caller.
-#[cfg(target_os = "macos")]
-#[must_use]
-fn invoke_tray_callbacks<W: PlatformWindow>(
-    window: &mut W,
-    callbacks: Vec<azul_core::menu::CoreMenuCallback>,
-) -> bool {
-    use azul_core::events::ProcessEventResult;
-
-    use crate::desktop::shell2::common::event::MenuInvocation;
-
-    let mut needs_redraw = false;
-    for cb in callbacks {
-        if !matches!(
-            window.invoke_menu_callback(
-                cb,
-                MenuInvocation::Native {
-                    site: "macos.tray_menu"
-                }
-            ),
-            ProcessEventResult::DoNothing
-        ) {
-            needs_redraw = true;
-        }
-    }
-    needs_redraw
-}
+// The app-level sources (tray menu clicks, notification events, global
+// hotkeys) are delivered by `desktop::app_events`: ONE collection, called
+// from EVERY macOS event-loop branch on purpose. The tray pump was
+// originally inlined into the `RunForever` timer, which meant it never ran
+// for the DEFAULT termination behaviour (`EndProcess`) - the tray appeared,
+// its menu opened, `menuItemAction:` fired and pushed the tag, and then
+// nothing consumed it. Each source is invoked through the SAME path as a
+// window menu item: `invoke_menu_callback` builds the `CallbackInfo`, hands
+// over the caller's `RefAny`, applies whatever the callback changed and asks
+// for a rebuild. It needs a window because a `CallbackInfo` does; the
+// collector picks the most recently focused one, else the oldest
+// (`azul_layout::managers::app_target`).
 
 /// Run an app that has a tray and NO window at all.
 ///
@@ -3167,32 +2929,18 @@ pub fn run_tray_only(
         }
     }
 
-    // Drain tray clicks into the headless window. 33ms matches the windowed
-    // path's timer.
+    // Drain the app-level sources into the headless window: tray clicks, the
+    // notifications a tray utility posts, its summon hotkey. The stub is the
+    // only window such an app has, so no target has to be picked. 33ms
+    // matches the windowed path's timer.
     let headless_ptr: *mut HeadlessWindow = &mut headless;
     let drain = block2::RcBlock::new(
         move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
-            let callbacks = crate::desktop::tray::pump_tray();
-            if !callbacks.is_empty() {
-                // Safe: single-threaded main-loop timer, and `headless` outlives the
-                // run loop below (it is dropped only after `app.run()` returns).
-                let window = unsafe { &mut *headless_ptr };
-                // Nothing to repaint: there is no window on screen.
-                let _ = invoke_tray_callbacks(window, callbacks);
-            }
-            // A tray utility is exactly the app that notifies: its callbacks
-            // run against the same headless stand-in.
-            let deliveries = crate::desktop::notifications::pump_notifications();
-            if !deliveries.is_empty() {
-                let window = unsafe { &mut *headless_ptr };
-                let _ = crate::desktop::notifications::invoke_deliveries(window, deliveries);
-            }
-
-            // A tray utility's summon hotkey: same stub window, same reason.
-            if azul_layout::managers::global_hotkey::has_pending_fires() {
-                let window = unsafe { &mut *headless_ptr };
-                let _ = crate::desktop::global_hotkey::deliver_fired(window);
-            }
+            // Safe: single-threaded main-loop timer, and `headless` outlives the
+            // run loop below (it is dropped only after `app.run()` returns).
+            let window = unsafe { &mut *headless_ptr };
+            // Nothing to repaint: there is no window on screen.
+            let _ = crate::desktop::app_events::deliver_to(window);
         },
     );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {

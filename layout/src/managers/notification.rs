@@ -20,8 +20,8 @@
 //!   [`NotificationEvent`] here - the tray's `queue_tray_event` mailbox, bounded the same way.
 //! * **Routing.** [`NotificationRegistry`] maps the app's notification id to the callback the
 //!   notification carries. The run loop drains the mailbox through it and invokes each routed
-//!   callback against its first window with `invoke_menu_callback`, exactly as it invokes a tray
-//!   menu item's callback. Every event is the notification's last, so the registry forgets the
+//!   callback with `invoke_menu_callback` against the window [`super::app_target`] picks (the
+//!   most recently focused, else the oldest), exactly as it invokes a tray menu item's callback. Every event is the notification's last, so the registry forgets the
 //!   callback as it routes - which is what stops the `NotificationClosed` a freedesktop server
 //!   sends after `ActionInvoked` from arriving as a second event.
 //! * **The current event.** A callback learns which event it runs for from

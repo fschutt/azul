@@ -3202,6 +3202,7 @@ define_class!(
                     // styling never repainted.
                     macos_window.snapshot_window_state_baseline("macos.window_did_become_key");
                     macos_window.common.update_unsynced_state(|ws| ws.window_focused = true);
+                    macos_window.common.note_focus_gained();
                     macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus

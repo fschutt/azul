@@ -15,7 +15,8 @@
 //! "this hotkey belongs to window 2". A per-window API would be a lie that
 //! breaks the moment its window closes while the grab stays. So the id is
 //! app-wide, the callback carries its own `RefAny`, and it runs against the
-//! app's first window, exactly like a tray menu click does.
+//! app's most recently focused window (else its oldest), exactly like a tray
+//! menu click does.
 //!
 //! # One combination, normalised
 //!

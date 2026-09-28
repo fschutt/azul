@@ -100,8 +100,9 @@ pub enum NotificationSound {
 /// The same pair a tray / window menu item carries
 /// ([`crate::menu::CoreMenuCallback`]), and invoked through the same path:
 /// the event is routed to it by the run loop and it runs with a
-/// `CallbackInfo` built from the first window, which is what lets it change
-/// app state and return `Update::RefreshDom`.
+/// `CallbackInfo` built from the app's most recently focused window (else its
+/// oldest), which is what lets it change app state and return
+/// `Update::RefreshDom`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NotificationCallback {
