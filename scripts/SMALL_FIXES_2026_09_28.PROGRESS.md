@@ -44,6 +44,17 @@ first, then the fix. Stage explicit paths. Final report goes to
    - a2da2c573 fix: day cells PushButton + "Tuesday, 23 June 2026" names
      (named in build_grid; build_day_cell signature kept), nav "Previous
      month"/"Next month", chip × "Remove <label>".
+   - ae63b001c RED + 83c9d22ae fix: time-picker arrows named; ProgressBar
+     `accessibility_name` field + `with_accessibility_name` (API + layout
+     change, forwarded in flat/flora render_bar_impl); video frame image
+     decorative (role Nothing) via `frame_image`; dom_lint: interactive =
+     Hover/Focus callbacks only, and element types with their own role
+     (button, a, input, ...) are not "role Unknown".
+   - Survey result: node 318 = the VideoWidget root (lifecycle callbacks);
+     role-Unknown hits = tooltip wrapper (demo labelled()), drop zone,
+     demo video overlay/toggle (NodeType::Button), demo seek bar (needs role
+     Slider + value). labelled() overwrites names ("Accent colour" ->
+     "ColorInput", "Register Cmd+Shift+K" -> "Registration").
    - NEXT STEP: demo call sites in examples/azul-widgets/src/*.rs:
      section titles / Card body / other `create_div_with_text` -> heading /
      p / span (keep the look: set margin-top: 0 on headings);
