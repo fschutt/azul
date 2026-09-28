@@ -57,13 +57,12 @@ file is deleted in that last commit.
 - Task 7a (E2E get_selection_state):
   - 1439f69d0 refactor: `selection_range_info(lw, block, &Selection)` in
     layout/src/e2e/full.rs (params `_lw`, `_block` unused until the fix).
+  - b38d2fe34 test: `selection_state_tests` at the end of e2e/full.rs.
+  - a17a3b0ea fix: byte offsets via `byte_offset_of_cursor` + `*_affinity`.
 
 ## IN PROGRESS
 
-7a RED: unit test module in e2e/full.rs, "hello world" select-all range
-Leading@0..Trailing@10 -> `end == Some(11)` (today 10). Then fix: start/end/
-cursor_position = FlatByte via `lw.byte_offset_of_cursor(block, ..)`, plus
-`*_affinity` fields.
+7b: dll headless test `step()` Scroll/TextInput.
 
 ## NEXT (in order)
 
