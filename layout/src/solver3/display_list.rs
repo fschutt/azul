@@ -5116,275 +5116,124 @@ where
             }
         }
 
-        // Paint non-float children first
-        for child_index in non_float_children {
-            let child_node = self
-                .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
-            });
-
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
-            }
-
-            // Push image mask clip if this child has one (wraps background + children)
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-
-            // IMPORTANT: Paint background and border BEFORE pushing clips!
-            // This ensures the container's background is in parent space (stationary),
-            // not in scroll space. Same logic as generate_for_stacking_context.
-            self.paint_node_background_and_border(builder, child_index)?;
-
-            // Push clips and scroll frames AFTER painting background
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-
-            // Paint descendants inside the clip/scroll frame
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
-
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
-
-            // Pop the child's clips.
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-
-            // Pop image mask clip
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
-
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
-
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
-            }
-        }
-
+        // Non-floats first, then the floats over them, then the children being
+        // dragged, over everything (W3C). The three groups are painted alike.
         // +spec:positioning:1bcbb5 - floats rendered in front of non-positioned in-flow blocks, but
-        // behind in-flow inlines Paint float children AFTER non-floats (so they appear on
-        // top)
-        for child_index in float_children {
-            let child_node = self
+        // behind in-flow inlines
+        for child_index in non_float_children
+            .into_iter()
+            .chain(float_children)
+            .chain(dragging_children)
+        {
+            self.paint_in_flow_child(builder, child_index)?;
+        }
+
+        Ok(())
+    }
+
+    /// Paints one in-flow (non-stacking-context) child of
+    /// [`Self::paint_in_flow_descendants`] and everything under it: its
+    /// reference frame and image mask, its background and border (in the
+    /// PARENT's space, so a scroll container's background stays put), the
+    /// clip and scroll frames it pushes for its own content, its descendants
+    /// inside them, and its scrollbars on top once they are closed.
+    fn paint_in_flow_child(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        child_index: usize,
+    ) -> Result<()> {
+        let child_node = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(child_index))
+            .ok_or(LayoutError::InvalidTree)?;
+
+        // Check if this child has a GPU transform (CSS transform or drag)
+        let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
+            self.gpu_value_cache.and_then(|cache| {
+                // CSS transform first, then the ANIMATION channel — an
+                // engine-driven transition animates nodes that have no CSS
+                // `transform` of their own, and without this they get no
+                // reference frame and jump to their destination.
+                let (key, transform) = cache
+                    .css_transform_keys
+                    .get(&dom_id)
+                    .zip(cache.css_current_transform_values.get(&dom_id))
+                    .or_else(|| {
+                        cache
+                            .anim_transform_keys
+                            .get(&dom_id)
+                            .zip(cache.anim_current_transform_values.get(&dom_id))
+                    })?;
+                Some((*key, *transform))
+            })
+        });
+
+        // Push reference frame if child has a transform
+        if let Some((transform_key, initial_transform)) = child_ref_frame {
+            let child_pos = self
                 .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
+                .calculated_positions
+                .get(child_index)
+                .copied()
+                .unwrap_or_default();
+            let child_size = child_node.used_size.unwrap_or(LogicalSize {
+                width: 0.0,
+                height: 0.0,
             });
+            let child_bounds = LogicalRect {
+                origin: child_pos,
+                size: child_size,
+            };
+            builder.set_current_node(child_node.dom_node_id);
+            builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+        }
 
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
-            }
+        // Push image mask clip if this child has one (wraps background + children)
+        let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
 
-            // Same as above: push image mask, paint background, then clips
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-            self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
+        // IMPORTANT: Paint background and border BEFORE pushing clips!
+        // This ensures the container's background is in parent space (stationary),
+        // not in scroll space. Same logic as generate_for_stacking_context.
+        self.paint_node_background_and_border(builder, child_index)?;
 
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
+        // Push clips and scroll frames AFTER painting background
+        let did_push_clip = self.push_node_clips(builder, child_index, child_node);
 
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
+        // Paint descendants inside the clip/scroll frame
+        self.paint_in_flow_descendants(
+            builder,
+            child_index,
+            self.positioned_tree.tree.children(child_index),
+        )?;
 
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
-
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
+        // For VirtualView children: emit placeholder INSIDE the clip
+        if let Some(dom_id) = child_node.dom_node_id {
+            if self.is_virtual_view_node(dom_id) {
+                let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
+                builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
             }
         }
 
-        // Paint dragging children LAST so they appear on top of everything (W3C spec)
-        for child_index in dragging_children {
-            let child_node = self
-                .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
+        // Pop the child's clips.
+        if did_push_clip {
+            self.pop_node_clips(builder, child_node);
+        }
 
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
-            });
+        // Pop image mask clip
+        if did_push_child_image_mask {
+            builder.pop_image_mask_clip();
+        }
+        // The stroke follows the geometry, not the fill region - it must
+        // be outside the mask the fill was painted through.
+        self.paint_svg_stroke(builder, child_index);
 
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
-            }
+        // Paint scrollbars AFTER popping clips so they appear on top of content
+        self.paint_scrollbars(builder, child_index)?;
 
-            // Same as above: push image mask, paint background, then clips
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-            self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
-
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
-
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
-
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
-
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
-            }
+        // Pop reference frame if we pushed one
+        if child_ref_frame.is_some() {
+            builder.pop_reference_frame();
         }
 
         Ok(())
