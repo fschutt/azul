@@ -3984,6 +3984,93 @@ pub fn logs_dropped() -> u64 {
     LOGS_DROPPED.load(Ordering::Relaxed)
 }
 
+/// The global-hotkey E2E vocabulary: what a scenario writes, and the names
+/// it spells answers, statuses and owners with.
+#[cfg(all(test, feature = "std"))]
+mod global_hotkey_op_tests {
+    use azul_core::global_hotkey::{
+        GlobalHotkeyError, GlobalHotkeyOwner, GlobalHotkeyStatus,
+    };
+
+    use super::*;
+    use crate::managers::global_hotkey::SimulatedAnswer;
+
+    #[test]
+    fn the_answer_and_settle_ops_parse_from_scenario_json() {
+        let ev: DebugEvent = serde_json::from_str(
+            r#"{"op":"global_hotkey_answer","accelerator":"Ctrl+Alt+K","answer":"taken"}"#,
+        )
+        .expect("global_hotkey_answer must parse");
+        assert!(matches!(
+            ev,
+            DebugEvent::GlobalHotkeyAnswer { ref accelerator, ref answer }
+                if accelerator == "Ctrl+Alt+K" && answer == "taken"
+        ));
+        let ev: DebugEvent = serde_json::from_str(
+            r#"{"op":"global_hotkey_settle","accelerator":"Ctrl+Alt+K","result":"denied"}"#,
+        )
+        .expect("global_hotkey_settle must parse");
+        assert!(matches!(
+            ev,
+            DebugEvent::GlobalHotkeySettle { ref accelerator, ref result }
+                if accelerator == "Ctrl+Alt+K" && result == "denied"
+        ));
+    }
+
+    /// Every name the answer op documents maps to what the simulated
+    /// backend answers, and a typo is an error rather than a silent grant.
+    #[test]
+    fn simulated_answers_have_names() {
+        assert_eq!(simulated_answer_from_name("active"), Ok(SimulatedAnswer::Grant));
+        assert_eq!(simulated_answer_from_name("pending"), Ok(SimulatedAnswer::Pending));
+        assert_eq!(
+            simulated_answer_from_name("taken"),
+            Ok(SimulatedAnswer::Refuse(GlobalHotkeyError::TakenByAnotherApp))
+        );
+        assert_eq!(
+            simulated_answer_from_name("denied"),
+            Ok(SimulatedAnswer::Refuse(GlobalHotkeyError::Denied))
+        );
+        assert_eq!(
+            simulated_answer_from_name("unsupported"),
+            Ok(SimulatedAnswer::Refuse(GlobalHotkeyError::Unsupported))
+        );
+        assert!(simulated_answer_from_name("tkaen").is_err());
+
+        assert_eq!(
+            settle_result_from_name("active").map(|r| r.is_ok()),
+            Ok(true)
+        );
+        assert_eq!(
+            settle_result_from_name("denied"),
+            Ok(Err(GlobalHotkeyError::Denied))
+        );
+        assert!(settle_result_from_name("maybe").is_err());
+    }
+
+    /// `assert_global_hotkeys` compares statuses and owners by name; "failed"
+    /// matches any failure, a reason matches only its own.
+    #[test]
+    fn statuses_and_owners_have_names() {
+        let taken = GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp);
+        assert!(global_hotkey_status_matches(&GlobalHotkeyStatus::Active, "active"));
+        assert!(!global_hotkey_status_matches(&GlobalHotkeyStatus::Pending, "active"));
+        assert!(global_hotkey_status_matches(&taken, "failed"));
+        assert!(global_hotkey_status_matches(&taken, "taken"));
+        assert!(!global_hotkey_status_matches(&taken, "denied"));
+        assert!(global_hotkey_status_matches(
+            &GlobalHotkeyStatus::NotRegistered,
+            "not_registered"
+        ));
+        assert_eq!(global_hotkey_status_name(&taken), "taken");
+
+        assert_eq!(global_hotkey_owner_name(GlobalHotkeyOwner::ThisWindow), "window");
+        assert_eq!(global_hotkey_owner_name(GlobalHotkeyOwner::OtherWindow), "other_window");
+        assert_eq!(global_hotkey_owner_name(GlobalHotkeyOwner::App), "app");
+        assert_eq!(global_hotkey_owner_name(GlobalHotkeyOwner::Nobody), "nobody");
+    }
+}
+
 #[cfg(all(test, feature = "std"))]
 mod profile_report_tests {
     use super::*;

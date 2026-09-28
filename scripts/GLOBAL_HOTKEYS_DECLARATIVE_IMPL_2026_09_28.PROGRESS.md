@@ -114,12 +114,17 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     `get_global_hotkey_event`, `retry_global_hotkey` + `CallbackChange::RetryGlobalHotkey { hotkey }`
     (arms in dll `apply_user_change` and `layout/src/e2e/runner.rs`).
 
+13a. test(e2e): the global-hotkey ops - RED, does not compile: `layout/src/e2e/full.rs` module
+    `global_hotkey_op_tests` needs `DebugEvent::{GlobalHotkeyAnswer, GlobalHotkeySettle}`,
+    `simulated_answer_from_name`, `settle_result_from_name`, `global_hotkey_status_matches`,
+    `global_hotkey_status_name`, `global_hotkey_owner_name`.
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
-13. e2e: ops use the window's manager; `global_hotkey_answer`, `global_hotkey_settle`,
+13b. e2e: ops use the window's manager; `global_hotkey_answer`, `global_hotkey_settle`,
     `assert_global_hotkeys`; update gate reasons in `layout/src/e2e/full.rs` (~7727, ~8848).
 14. demo `examples/azul-widgets/src/hotkeys.rs` declares from state (layout() gets `info`).
 15. optional fix(macos) F13-F20: RED = manifest rows F13..F20 macOS column 0 -> 1 in
