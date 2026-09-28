@@ -3023,6 +3023,19 @@ impl CallbackInfo {
         self.push_change(CallbackChange::PreventDefault);
     }
 
+    /// Whether THIS callback has called [`Self::prevent_default`] so far.
+    ///
+    /// A widget that runs an application callback on its own `CallbackInfo`
+    /// reads this afterwards to learn whether the application cancelled the
+    /// widget's default: the dialog's `cancel` event is the case it exists
+    /// for (HTML: `event.preventDefault()` in a `cancel` handler keeps the
+    /// dialog open). Only this callback's own changes are visible; an
+    /// earlier handler on the propagation path has its own change set.
+    #[must_use]
+    pub fn is_default_prevented(&self) -> bool {
+        false
+    }
+
     // Cursor Blinking Api (for system timer control)
 
     /// Set cursor visibility state
@@ -3092,6 +3105,25 @@ impl CallbackInfo {
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Whether the `<transient-window>` at `node` is open in THIS window:
+    /// shown (as a popup, a torn-off toplevel or docked inline), or held
+    /// open by a `set_transient_window_open(node, true)` the next layout
+    /// pass will show - and not held closed by a dismissal.
+    ///
+    /// A widget that toggles its popup asks this instead of keeping an
+    /// "open" flag of its own: such a flag lives in a callback payload the
+    /// app's rebuild re-mints, and misses the closes it did not cause (an
+    /// outside press, Escape), which is how the demo's popover could no
+    /// longer be closed (2026-09-28).
+    ///
+    /// `false` for a node of another dom: a popup's own callbacks cannot see
+    /// the parent's popups.
+    #[must_use]
+    pub fn is_transient_window_open(&self, node: DomNodeId) -> bool {
+        let _ = node;
+        false
     }
 
     /// Tear the open `<transient-window>` at `node` off into a free toplevel
@@ -8477,6 +8509,85 @@ mod autotest_generated {
             assert!(info.has_pending_relayout_change());
             assert_eq!(info.take_changes().len(), 4);
         });
+    }
+
+    /// The dialog's `cancel` event: a widget reads back whether the app's
+    /// handler, run on the widget's own `CallbackInfo`, prevented the default.
+    #[test]
+    fn is_default_prevented_sees_this_callbacks_prevent_default() {
+        with_info(node_none(), |info| {
+            assert!(!info.is_default_prevented(), "nothing prevented yet");
+            info.stop_propagation();
+            assert!(
+                !info.is_default_prevented(),
+                "stopping propagation is not preventing the default"
+            );
+            info.prevent_default();
+            assert!(info.is_default_prevented());
+            // Querying must not consume the log.
+            assert!(info.is_default_prevented());
+            assert_eq!(info.take_changes().len(), 2);
+        });
+    }
+
+    /// A widget toggles its popup by asking the engine whether it is open:
+    /// a node a callback holds open and a window the manager shows both read
+    /// as open; a window a callback closed again, a node of another dom and
+    /// a node with no popup read as closed.
+    #[test]
+    fn is_transient_window_open_reads_the_engines_popup_set() {
+        let node = |n: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        };
+        let fresh = || LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let shown = |lw: &mut LayoutWindow| {
+            let placement = crate::transient::placement_for(
+                NodeId::new(4),
+                LogicalRect::zero(),
+                &azul_core::transient::TransientWindowConfig::opened(),
+            );
+            let _ = lw
+                .transient_windows
+                .reconcile(&[placement], |_, _| Some(LogicalSize::new(10.0, 10.0)));
+        };
+
+        // No popup at all.
+        assert!(!with_info_on(fresh(), node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Held open by a callback, before the next pass shows it.
+        let mut lw = fresh();
+        let _ = lw.transient_windows.set_forced_open(NodeId::new(4), true);
+        assert!(with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Shown by the manager.
+        let mut lw = fresh();
+        shown(&mut lw);
+        assert!(with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Shown, then closed by a callback: held closed until the next pass.
+        let mut lw = fresh();
+        shown(&mut lw);
+        let _ = lw.transient_windows.set_forced_open(NodeId::new(4), false);
+        assert!(!with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // The same node id in another dom is not this window's popup.
+        let mut lw = fresh();
+        shown(&mut lw);
+        assert!(!with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(DomNodeId {
+                dom: DomId { inner: 1 },
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(4))),
+            })
+        }));
     }
 
     #[test]
