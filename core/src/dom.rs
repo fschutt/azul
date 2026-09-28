@@ -3286,10 +3286,15 @@ impl NodeData {
         self
     }
 
+    /// Attach the arguments (`$name` → value) a localizable text is
+    /// formatted with. They apply to this node's own text when it is an
+    /// `AzString::tr` key, and otherwise to its direct text children - the
+    /// shape `Dom::create_p_with_text(AzString::tr(key))` builds.
     pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
         self.fluent_args = Some(Box::new(args.into()));
     }
 
+    /// Builder form of [`Self::set_fluent_args`].
     #[inline]
     #[must_use]
     pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
@@ -7121,18 +7126,21 @@ impl Dom {
         self.root.add_id(id);
         self
     }
-    
+
+    /// Attach Fluent arguments to this DOM's root node - see
+    /// [`NodeData::set_fluent_args`] for which text they apply to.
     pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
         self.root.set_fluent_args(args);
     }
 
+    /// Builder form of [`Self::set_fluent_args`].
     #[inline]
     #[must_use]
     pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
         self.set_fluent_args(args);
         self
     }
-    
+
     #[inline]
     #[must_use]
     pub fn with_class(mut self, class: AzString) -> Self {

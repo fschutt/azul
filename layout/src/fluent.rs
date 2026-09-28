@@ -1006,47 +1006,67 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
 
 /// Replace every localizable text node of `dom` (a string made with
 /// `AzString::tr`) with its translation into `locale`.
+///
+/// A text node's arguments are its own `fluent_args`, or - when it has none -
+/// its parent element's: `Dom::create_p_with_text(AzString::tr(key))
+/// .with_fluent_args(..)` and `<p data-l10n="key" data-l10n-name="..">` both
+/// hang the arguments on the element and the key on its text child.
 pub fn translate_texts_in_dom(dom: &mut azul_core::dom::Dom, localizer: &FluentLocalizerHandle, locale: &str) {
-    translate_node(&mut dom.root, localizer, locale);
-    
+    translate_subtree(dom, localizer, locale, None);
+}
+
+fn translate_subtree(
+    dom: &mut azul_core::dom::Dom,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+    parent_args: Option<&azul_core::dom::FluentArgKVVec>,
+) {
+    translate_node(&mut dom.root, localizer, locale, parent_args);
+
+    let own_args = dom.root.fluent_args.as_deref();
     for child in dom.children.as_mut() {
-        translate_texts_in_dom(child, localizer, locale);
+        translate_subtree(child, localizer, locale, own_args);
     }
 }
 
 #[inline(always)]
-fn translate_node(node: &mut azul_core::dom::NodeData, localizer: &FluentLocalizerHandle, locale: &str) {
+fn translate_node(
+    node: &mut azul_core::dom::NodeData,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+    parent_args: Option<&azul_core::dom::FluentArgKVVec>,
+) {
     let (key, fmt_args) = {
         let text_box = match &node.node_type {
             azul_core::dom::NodeType::Text(tb) => tb,
             _ => return,
         };
-        
+
         if !text_box.as_ref().is_localizable() {
             return;
         }
-        
-        (text_box.as_ref().as_str().to_owned(), extract_fluent_args(node))
+
+        let args = node.fluent_args.as_deref().or(parent_args);
+        (text_box.as_ref().as_str().to_owned(), extract_fluent_args(args))
     };
-    
+
     let translated = localizer.translate(
         azul_css::corety::AzString::from(locale),
         azul_css::corety::AzString::from(key.as_str()),
         fmt_args,
     );
-    
+
     if let azul_core::dom::NodeType::Text(text_box) = &mut node.node_type {
         *text_box = azul_css::css::BoxOrStatic::heap(translated);
     }
 }
 
 #[inline(always)]
-fn extract_fluent_args(node: &azul_core::dom::NodeData) -> crate::fmt::FmtArgVec {
-    let args = match node.fluent_args.as_ref() {
-        Some(a) => a,
-        None => return crate::fmt::FmtArgVec::new(),
+fn extract_fluent_args(args: Option<&azul_core::dom::FluentArgKVVec>) -> crate::fmt::FmtArgVec {
+    let Some(args) = args else {
+        return crate::fmt::FmtArgVec::new();
     };
-    
+
     let mut fmt_args_vec = std::vec::Vec::with_capacity(args.as_slice().len());
     
     for arg in args.as_slice() {
