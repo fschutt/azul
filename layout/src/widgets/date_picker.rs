@@ -281,6 +281,38 @@ const fn month_name(month: u32) -> &'static str {
     }
 }
 
+/// English weekday name for `weekday()`'s `0 = Sunday .. 6 = Saturday`.
+const fn weekday_name(weekday: u32) -> &'static str {
+    const NAMES: [&str; 7] = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
+    let idx = weekday as usize;
+    if idx < 7 {
+        NAMES[idx]
+    } else {
+        ""
+    }
+}
+
+/// What a screen reader announces for one day of the grid: the full date
+/// ("Tuesday, 23 June 2026"), because the grid is ONE Tab stop and the arrow
+/// keys move within it, so a bare "23" would not say where focus landed.
+fn day_accessibility_name(year: u32, month: u32, day: u32) -> AzString {
+    AzString::from(format!(
+        "{}, {} {} {}",
+        weekday_name(weekday(year, month, day)),
+        day,
+        month_name(month),
+        year
+    ))
+}
+
 // ---- colours ----
 const BORDER_COLOR: ColorU = ColorU {
     r: 206,
@@ -843,7 +875,7 @@ impl Default for DatePicker {
 fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    let nav = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
+    let nav = |arrow: AzString, name: &'static str, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
@@ -859,9 +891,10 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
-            // Calendar navigation / day cells act as buttons.
+            // A button whose glyph (‹ / ›) is not a name: say what it does.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: Some(AzString::from_const_str(name)).into(),
                 ..Default::default()
             })
     };
@@ -873,13 +906,13 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(HEADER_STYLE))
         .with_children(
             alloc::vec![
-                nav(PREV_ARROW, on_prev_month as usize, shared.clone()),
+                nav(PREV_ARROW, "Previous month", on_prev_month as usize, shared.clone()),
                 crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                         HEADER_LABEL_STYLE,
                     )),
-                nav(NEXT_ARROW, on_next_month as usize, shared),
+                nav(NEXT_ARROW, "Next month", on_next_month as usize, shared),
             ]
             .into(),
         )
@@ -933,7 +966,9 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
                     TabIndex::NoKeyboardFocus
                 };
                 cells.push(
-                    build_day_cell(day, day == sel_day, shared.clone()).with_tab_index(tab_index),
+                    build_day_cell(day, day == sel_day, shared.clone())
+                        .with_accessibility_name(day_accessibility_name(year, month, day))
+                        .with_tab_index(tab_index),
                 );
             }
         }
@@ -993,9 +1028,11 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
             ]
             .into(),
         )
-        // The date field opens a chooser.
+        // A day of the date grid is a button (Enter / Space / a click picks
+        // it). `build_grid` adds its full-date name: only the grid knows the
+        // month and year the day belongs to.
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::ComboBox,
+            role: azul_core::a11y::AccessibilityRole::PushButton,
             ..Default::default()
         })
 }

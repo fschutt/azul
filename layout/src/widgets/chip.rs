@@ -496,6 +496,10 @@ impl Chip {
         // RefAny so both handlers observe the same ChipState.
         let state_ref = RefAny::new(self.chip_state);
 
+        // The remove button's name is built from the label before the label
+        // text moves into its `<p>`: "×" is a glyph, not a name.
+        let remove_name = AzString::from(alloc::format!("Remove {}", self.label.as_str()));
+
         let mut label = crate::widgets::widget_p_with_text(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
@@ -536,9 +540,11 @@ impl Chip {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE))
                 .with_tab_index(TabIndex::Auto)
-                // The remove affordance is its own button, not part of the chip's label.
+                // The remove affordance is its own button, not part of the chip's
+                // label, named after the chip it removes ("Remove Rust").
                 .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                     role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(remove_name).into(),
                     ..Default::default()
                 })
                 .with_callbacks(
