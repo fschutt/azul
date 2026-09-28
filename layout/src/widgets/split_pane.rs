@@ -234,6 +234,33 @@ const fn main_size(dir: SplitDirection, size: LogicalSize) -> f32 {
     }
 }
 
+/// [`DIVIDER_THICKNESS`] as a length.
+const DIVIDER_THICKNESS_PX: f32 = DIVIDER_THICKNESS as f32;
+
+/// The main-axis space the two panes share: the container's, less the
+/// divider's fixed thickness (`flex-basis: 0` panes grow into what the
+/// divider leaves). A container no thicker than the divider has no such
+/// space; its whole size stands in, so the ratio stays a proportion.
+const fn pane_space(msize: f32) -> f32 {
+    if msize > DIVIDER_THICKNESS_PX {
+        msize - DIVIDER_THICKNESS_PX
+    } else {
+        msize
+    }
+}
+
+/// Where the divider's centre is along the main axis at `ratio`, the way
+/// the layout places it: the first pane takes `ratio` of the shared space,
+/// then comes half the divider. (`ratio * container` missed it by up to half
+/// the divider away from the middle, and the grab zone with it.)
+const fn divider_centre(ratio: f32, msize: f32) -> f32 {
+    if msize > DIVIDER_THICKNESS_PX {
+        ratio * pane_space(msize) + DIVIDER_THICKNESS_PX / 2.0
+    } else {
+        ratio * msize
+    }
+}
+
 /// Builds the outer-container style: a full-size flex box laid out along the
 /// split's main axis. Overridable via [`SplitPane::with_container_style`].
 fn container_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
@@ -563,8 +590,7 @@ extern "C" fn on_split_pointer_down(mut data: RefAny, mut info: CallbackInfo) ->
         return Update::DoNothing;
     }
     let main = main_axis(dir, pos);
-    let divider_center = sp.inner.ratio * msize;
-    if (main - divider_center).abs() <= GRAB_THRESHOLD {
+    if (main - divider_centre(sp.inner.ratio, msize)).abs() <= GRAB_THRESHOLD {
         sp.is_dragging = true;
         sp.drag_start_px = main;
         sp.ratio_at_drag_start = sp.inner.ratio;
@@ -597,7 +623,17 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
     }
     let main = main_axis(dir, pos);
     let delta = main - sp.drag_start_px;
-    let new_ratio = (sp.ratio_at_drag_start + delta / msize).clamp(MIN_RATIO, MAX_RATIO);
+    // Over the space the panes share, not the whole container: a ratio step
+    // of `delta / container` moved the divider by `delta * (W - 6) / W`, so
+    // it slid out from under the cursor.
+    let new_ratio =
+        (sp.ratio_at_drag_start + delta / pane_space(msize)).clamp(MIN_RATIO, MAX_RATIO);
+    // `clamp` passes NaN through (a NaN cursor or container size): a NaN
+    // ratio wrote `flex-grow: 0` on both panes, an invisible split. Such a
+    // move is dropped; the drag goes on with the next one.
+    if new_ratio.is_nan() {
+        return Update::DoNothing;
+    }
     sp.inner.ratio = new_ratio;
 
     // Resize the two panes. Children are [pane0, divider, pane1]; the callback
@@ -2257,7 +2293,8 @@ mod autotest_generated {
     #[test]
     fn pointer_down_records_the_anchor_when_it_lands_on_the_divider() {
         let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(0.25));
-        // 200px wide, ratio 0.25 -> the grab zone is centred on x = 50.
+        // 200px wide, ratio 0.25 -> the divider's centre (and the grab
+        // zone's) is at 0.25 * 194 + 3 = 51.5.
         let (update, changes) = drive(
             sd,
             &[(0, size(200.0, 100.0))],
@@ -2445,6 +2482,13 @@ mod autotest_generated {
         assert_eq!(wrapper(&mut state).inner.ratio, 0.5);
     }
 
+    /// The ratio a drag of `delta` px from `anchor` lands on in a container
+    /// `main` px long: the delta over the space the panes share (the
+    /// container less the divider), so the divider tracks the cursor.
+    fn tracked(anchor: f32, delta: f32, main: f32) -> f32 {
+        anchor + delta / (main - DIVIDER_THICKNESS as f32)
+    }
+
     #[test]
     fn pointer_move_applies_the_cursor_delta_and_resizes_both_panes() {
         let boxes = [(0, size(200.0, 100.0))];
@@ -2454,14 +2498,16 @@ mod autotest_generated {
             (100.0, 50.0),
             (150.0, 50.0),
         );
-        // +50px over a 200px container = +0.25 on the anchor ratio of 0.5.
-        assert_eq!(wrapper(&mut state).inner.ratio, 0.75);
+        // +50px over the 194px the panes share, on the anchor ratio of 0.5.
+        let expected = tracked(0.5, 50.0, 200.0);
+        assert!((wrapper(&mut state).inner.ratio - expected).abs() < 1e-6);
         assert_eq!(update, Update::DoNothing, "no hook installed");
 
         let writes = css_changes(&changes);
         assert_eq!(writes.len(), 2, "exactly one flex-grow per pane");
-        assert_eq!(writes[0].1, 0.75);
-        assert_eq!(writes[1].1, 0.25);
+        // flex-grow is stored x1000 and truncated.
+        assert!((writes[0].1 - expected).abs() < 2e-3, "{writes:?}");
+        assert!((writes[1].1 - (1.0 - expected)).abs() < 2e-3, "{writes:?}");
         assert_ne!(
             writes[0].0, writes[1].0,
             "the two panes must be distinct nodes"
@@ -2563,16 +2609,18 @@ mod autotest_generated {
             (108.0, 50.0),
             (128.0, 50.0),
         );
-        // press at 108 (within 9 of the 100 centre), moved +20 over 200px.
+        // press at 108 (within 9 of the 100 centre), moved +20 over the
+        // 194px the panes share.
         let r = wrapper(&mut state).inner.ratio;
-        assert!((r - 0.6).abs() < 1e-6, "expected 0.5 + 20/200, got {r}");
+        let expected = tracked(0.5, 20.0, 200.0);
+        assert!((r - expected).abs() < 1e-6, "expected 0.5 + 20/194, got {r}");
     }
 
     #[test]
     fn pointer_move_back_to_the_press_point_restores_the_ratio() {
         let boxes = [(0, size(200.0, 100.0))];
         let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(0.4));
-        // ratio 0.4 over 200px -> the grab zone is centred on x = 80.
+        // ratio 0.4 over 200px -> the divider's centre is at 0.4 * 194 + 3 = 80.6.
         let a = sd.clone();
         let (_, _) = drive(a, &boxes, node(0), cursor(80.0, 50.0), |info| {
             on_split_pointer_down(state.clone(), info)
@@ -2596,17 +2644,17 @@ mod autotest_generated {
     #[test]
     fn pointer_move_uses_the_axis_that_matches_the_direction() {
         let boxes = [(0, size(200.0, 100.0))];
-        // Vertical: centre y = 50, main size = 100. +25px = +0.25.
+        // Vertical: centre y = 50, main size = 100 (94 shared). +25px.
         let (_, _, mut state) = press_then_move(
             plain(SplitDirection::Vertical),
             &boxes,
             (10.0, 50.0),
             (999.0, 75.0),
         );
-        assert_eq!(
-            wrapper(&mut state).inner.ratio,
-            0.75,
-            "a vertical split must ignore horizontal cursor motion"
+        let r = wrapper(&mut state).inner.ratio;
+        assert!(
+            (r - tracked(0.5, 25.0, 100.0)).abs() < 1e-6,
+            "a vertical split must ignore horizontal cursor motion, got {r}"
         );
     }
 
@@ -2624,7 +2672,7 @@ mod autotest_generated {
         );
         let seen = logged(&mut log);
         assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].ratio, 0.75);
+        assert!((seen[0].ratio - tracked(0.5, 50.0, 200.0)).abs() < 1e-6);
         assert_eq!(seen[0].direction, SplitDirection::Horizontal);
     }
 
@@ -2743,50 +2791,9 @@ mod autotest_generated {
         assert!(wrapper(&mut state).inner.ratio.is_finite());
     }
 
-    #[test]
-    fn pointer_move_with_a_nan_cursor_poisons_the_ratio() {
-        // PIN + KNOWN DEFECT: `clamp` passes NaN through, so a NaN cursor
-        // leaves the widget with a NaN ratio, which then encodes as
-        // flex-grow: 0 on BOTH panes (an invisible split). No panic, but the
-        // documented `[MIN_RATIO, MAX_RATIO]` invariant is broken.
-        let boxes = [(0, size(200.0, 100.0))];
-        let (_, changes, mut state) = press_then_move(
-            plain(SplitDirection::Horizontal),
-            &boxes,
-            (100.0, 50.0),
-            (f32::NAN, 50.0),
-        );
-        assert!(wrapper(&mut state).inner.ratio.is_nan());
-        let writes = css_changes(&changes);
-        assert_eq!(writes.len(), 2);
-        assert_eq!(writes[0].1, 0.0);
-        assert_eq!(writes[1].1, 0.0);
-    }
-
-    #[test]
-    fn pointer_move_with_a_nan_container_size_poisons_the_ratio() {
-        // Same defect from the other side: `msize <= 0.0` does not reject NaN,
-        // so `delta / NaN` reaches the clamp. Pinned, not endorsed.
-        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
-        let a = sd.clone();
-        let (_, _) = drive(
-            a,
-            &[(0, size(200.0, 100.0))],
-            node(0),
-            cursor(100.0, 50.0),
-            |info| on_split_pointer_down(state.clone(), info),
-        );
-        let (update, _) = drive(
-            sd,
-            &[(0, size(f32::NAN, 100.0))],
-            node(0),
-            cursor(150.0, 50.0),
-            |info| on_split_pointer_move(state.clone(), info),
-        );
-        assert_eq!(update, Update::DoNothing);
-        let mut state = state;
-        assert!(wrapper(&mut state).inner.ratio.is_nan());
-    }
+    // The NaN cursor / NaN container size cases: see
+    // `a_non_finite_move_leaves_the_split_where_it_was` (they used to be pinned
+    // here as a known defect - a NaN ratio, flex-grow 0 on both panes).
 
     #[test]
     fn pointer_move_with_extreme_cursors_stays_inside_the_clamp() {
@@ -2864,7 +2871,11 @@ mod autotest_generated {
         let mut state = state;
         let w = wrapper(&mut state);
         assert!(!w.is_dragging);
-        assert_eq!(w.inner.ratio, 0.75, "the drag result survives the release");
+        assert_eq!(
+            w.inner.ratio,
+            tracked(0.5, 50.0, 200.0),
+            "the drag result survives the release"
+        );
     }
 
     #[test]
@@ -2917,7 +2928,7 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "post-release motion must not resize");
         let mut state = state;
-        assert_eq!(wrapper(&mut state).inner.ratio, 0.75);
+        assert_eq!(wrapper(&mut state).inner.ratio, tracked(0.5, 50.0, 200.0));
     }
 
     // ==================================================================
