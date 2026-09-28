@@ -13689,10 +13689,14 @@ pub fn process_debug_event(
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.
 
-            // Text selection is now handled automatically by the normal event pipeline.
-            // When modify_window_state is called, it triggers apply_user_change
-            // which detects mouse_state_changed and calls process_window_events.
-            // This generates a TextClick internal event with the correct position from mouse_state.
+            // The press is a STATE push, and the host's `ModifyWindowState`
+            // arm (the dll's and the headless runner's) hands its pointer
+            // delta to the press router first,
+            // `LayoutWindow::route_pointer_transition`: scrollbar first, then
+            // content, exactly as a physical press in the shells. A press on
+            // a bar grabs the thumb or pages; any other press goes on to the
+            // event pass (MouseDown, and a text-selection click with the
+            // position from `mouse_state`).
 
             send_ok(request, None, None);
         }

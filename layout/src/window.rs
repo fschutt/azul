@@ -1603,8 +1603,9 @@ pub struct LayoutWindow {
     pub epoch: Epoch,
     /// Currently GL textures inside the active `CachedDisplayList`
     pub gl_texture_cache: GlTextureCache,
-    /// State for tracking scrollbar drag interaction
-    currently_dragging_thumb: Option<ScrollbarDragState>,
+    /// The scrollbar thumb the pointer holds: set and cleared by the press
+    /// router (`crate::press_router`), read with [`Self::scrollbar_drag`].
+    pub(crate) currently_dragging_thumb: Option<ScrollbarDragState>,
     /// Text input manager - centralizes all text editing logic
     pub text_input_manager: crate::managers::text_input::TextInputManager,
     /// The pending STRUCTURAL edit (Enter split / Backspace merge / wrap…),

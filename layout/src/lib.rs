@@ -502,6 +502,10 @@ pub use azul_core::paged;
 /// text/structural next).
 #[cfg(feature = "text_layout")]
 pub mod overlay;
+/// The pointer-press arbiter: scrollbar first, then content - the one
+/// decision the shells, the scripted path and the E2E runner share.
+#[cfg(feature = "text_layout")]
+pub mod press_router;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;

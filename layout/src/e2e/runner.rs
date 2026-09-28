@@ -2035,7 +2035,20 @@ impl Runner {
 
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
-                let old = std::mem::replace(&mut self.window_state, state.clone());
+                let mut old = std::mem::replace(&mut self.window_state, state.clone());
+                // THE PRESS ROUTER, port of the DLL's arm: a scripted press,
+                // move or release of the primary pointer (`mouse_down`,
+                // `click`, a callback's push) reaches the same scrollbar-first
+                // arbitration a physical one does. What the scrollbar layer
+                // takes is folded into `old`, the baseline the pass diffs
+                // against, so the press does not ALSO become a `MouseDown` on
+                // the content under the bar.
+                let pointer_to_scrollbar = self.window_state.mouse_state != old.mouse_state && {
+                    let now = self.now();
+                    let current = self.window_state.mouse_state;
+                    self.layout_window
+                        .route_pointer_transition(&mut old.mouse_state, &current, now)
+                };
                 let size_changed = self.window_state.size.dimensions != old.size.dimensions;
                 let dpi_changed = self.window_state.size.dpi != old.size.dpi;
                 let mouse_state_changed = self.window_state.mouse_state != old.mouse_state;
@@ -2091,11 +2104,12 @@ impl Runner {
                     || self.window_state.position != old.position;
 
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
-                if anything_changed {
+                if anything_changed || pointer_to_scrollbar {
                     // Advance the sync baseline BEFORE the pass — it is what
                     // `determine_all_events` diffs `current` against, so
                     // forgetting it makes every event pass see a zero delta
-                    // and produce nothing.
+                    // and produce nothing. A push the scrollbar took whole
+                    // advances it too: its delta is spent.
                     self.previous_window_state = Some(old);
                 }
                 // Mouse state changed → re-resolve the pointer target before
@@ -2942,7 +2956,18 @@ impl Runner {
             CallbackChange::QueueWindowStateSequence { states } => {
                 let mut result = ProcessEventResult::DoNothing;
                 for queued_state in states {
-                    let old = self.window_state.clone();
+                    let mut old = self.window_state.clone();
+                    // THE PRESS ROUTER for each queued state, as in
+                    // `ModifyWindowState`: the `click` op queues move / down /
+                    // up, and a down on a scrollbar is the scrollbar's.
+                    let pointer_to_scrollbar = old.mouse_state != queued_state.mouse_state && {
+                        let now = self.now();
+                        self.layout_window.route_pointer_transition(
+                            &mut old.mouse_state,
+                            &queued_state.mouse_state,
+                            now,
+                        )
+                    };
                     self.previous_window_state = Some(old.clone());
 
                     // The DLL copies exactly these fields (not the whole
@@ -2968,11 +2993,19 @@ impl Runner {
                         self.dpi_pending = true;
                     }
 
-                    if let Some(pos) = queued_state.mouse_state.cursor_position.get_position() {
-                        self.update_hit_test_at(pos);
+                    // A pointer the scrollbar took is not over the content:
+                    // no hover re-resolve for it, as on a physical thumb drag.
+                    if !pointer_to_scrollbar {
+                        if let Some(pos) = queued_state.mouse_state.cursor_position.get_position()
+                        {
+                            self.update_hit_test_at(pos);
+                        }
                     }
 
                     result = result.max(self.process_window_events(0));
+                    if pointer_to_scrollbar {
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    }
                 }
                 result
             }
@@ -6426,6 +6459,10 @@ mod tests {
              the same drag does on a device; the offset is {:.1} (the press went to the content, \
              not to the scrollbar)",
             offset.y,
+        );
+        assert!(
+            runner.layout_window.scrollbar_drag().is_none(),
+            "the scripted release must let go of the thumb"
         );
     }
 }
