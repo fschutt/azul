@@ -2063,6 +2063,15 @@ impl LayoutTree {
     /// [`crate::solver3::scrollbar::is_viewport_scroller`]) - the root's
     /// margin box as well ([`crate::solver3::scrollbar::viewport_scroll_extent`]).
     ///
+    /// Any other scroll container's extent is measured in its PADDING box,
+    /// the box its scrollport is (CSS Overflow 3 §2.2): its in-flow
+    /// children's margin boxes and its END padding after them
+    /// ([`Self::in_flow_scrollable_extent`]). The content size alone is a
+    /// content-box extent in most formatting contexts, and measured against
+    /// the padding box it fell `padding-top + padding-bottom` short - a
+    /// scroll box could never be scrolled far enough to show its own bottom
+    /// padding, and a flex item's bottom margin was missing on top of that.
+    ///
     /// A pure function of THIS layout. The painted thumb used to read the
     /// extent the `ScrollManager` held instead, which is what the PREVIOUS
     /// layout published - or nothing, on a window's first pass - so a
@@ -2072,7 +2081,11 @@ impl LayoutTree {
     pub fn scroll_extent(&self, index: LayoutNodeId, is_viewport: bool) -> LogicalSize {
         let content = self.get_content_size(index);
         if !is_viewport {
-            return content;
+            let flow = self.in_flow_scrollable_extent(index);
+            return LogicalSize {
+                width: content.width.max(flow.width),
+                height: content.height.max(flow.height),
+            };
         }
         self.nodes.get(index.index()).map_or(content, |node| {
             crate::solver3::scrollbar::viewport_scroll_extent(
@@ -2081,6 +2094,60 @@ impl LayoutTree {
                 &node.box_props.unpack().margin,
             )
         })
+    }
+
+    /// The part of a scroll container's scrollable overflow its in-flow BOX
+    /// children span, in its PADDING box (CSS Overflow 3 §2.2): every child's
+    /// margin box, offset by the container's leading padding, and the
+    /// container's inline-end and block-end padding after the furthest one.
+    ///
+    /// Zero for a box without laid-out in-flow box children, and for an
+    /// inline formatting context root: its extent is its TEXT's
+    /// ([`Self::get_content_size`]), and a text field's scroll range is
+    /// sized by the caret reveal's own rule (`CARET_SCROLL_GUTTER_PX`).
+    /// Out-of-flow children are left out: their boxes are no in-flow
+    /// content, so no end padding follows them.
+    fn in_flow_scrollable_extent(&self, index: LayoutNodeId) -> LogicalSize {
+        let i = index.index();
+        let Some(node) = self.nodes.get(i) else {
+            return LogicalSize::default();
+        };
+        if self
+            .warm
+            .get(i)
+            .is_some_and(|w| w.inline_layout_result.is_some())
+        {
+            return LogicalSize::default();
+        }
+        let mut right: Option<f32> = None;
+        let mut bottom: Option<f32> = None;
+        for &child in self.children(i) {
+            let (Some(hot), Some(warm)) = (self.nodes.get(child), self.warm.get(child)) else {
+                continue;
+            };
+            if matches!(
+                warm.computed_style.position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) {
+                continue;
+            }
+            let (Some(pos), Some(size)) = (warm.relative_position, hot.used_size) else {
+                continue;
+            };
+            let margin = hot.box_props.unpack().margin;
+            let child_right = pos.x + size.width + margin.right;
+            let child_bottom = pos.y + size.height + margin.bottom;
+            right = Some(right.map_or(child_right, |r| r.max(child_right)));
+            bottom = Some(bottom.map_or(child_bottom, |b| b.max(child_bottom)));
+        }
+        let (Some(right), Some(bottom)) = (right, bottom) else {
+            return LogicalSize::default();
+        };
+        let padding = node.box_props.unpack().padding;
+        LogicalSize {
+            width: (padding.left + right + padding.right).max(0.0),
+            height: (padding.top + bottom + padding.bottom).max(0.0),
+        }
     }
 }
 
