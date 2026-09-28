@@ -75,10 +75,13 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - faf98ab34 fix(modal): Modal is a front-end over the core (modal, closedby Auto); DialogClasses gains title/close; tests rewritten
 - d74409e87 chore: checkpoint
 - f20fd0bee feat(examples): demo uses Dialog (modal with Keep/Delete + x; popover dialog with x)
+- ef3f74346 chore: checkpoint
+- 821ebfd27 refactor: drop unused Callback imports in popover/modal
 
 ## IN PROGRESS
 
-- Final self-review of the uncompiled code, then the report.
+- The final report (scripts/POPOVER_DIALOG_REMODEL_2026_09_28.md); its
+  commit deletes this file.
 
 ## NEXT (in order)
 
