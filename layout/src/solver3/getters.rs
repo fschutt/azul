@@ -4792,6 +4792,190 @@ fn pick_memory_face(
         .or_else(|| pool.first().copied())
 }
 
+/// Draw each CSS family of `chain` at the weight the chain asked for, where
+/// its best face is a variable font FILE matched at another weight.
+///
+/// Only the first face of each CSS group is looked at: it is the one the
+/// resolver ranked best for the requested style, and the one that draws every
+/// character it covers. See [`variable_weight_instance`].
+pub fn select_variable_weight_instances(
+    chain: &mut FontFallbackChain,
+    weight: FcWeight,
+    fc_cache: &FcFontCache,
+) {
+    for group in &mut chain.css_fallbacks {
+        let Some(face) = group.fonts.first() else {
+            continue;
+        };
+        if let Some(instance) = variable_weight_instance(fc_cache, face, weight) {
+            group.fonts[0] = instance;
+        }
+    }
+}
+
+/// The face to draw instead of `face` when a chain asks for `weight`: the
+/// static instance of a variable font file at that weight.
+///
+/// rust-fontconfig indexes a variable font ONCE, at its default instance.
+/// macOS draws its whole UI from one such file, `SFNS.ttf` ("System Font",
+/// `wght` 1-1000, Bold at 700), so a bold request matched a face registered at
+/// 400 and drew it regular - which is why the macOS bold chain had been routed
+/// to Helvetica Neue, and why the titlebar's bold title came out in a
+/// different typeface from the text beside it.
+///
+/// This bakes the file at `weight` ([`crate::font::parsed::bake_weight_instance`],
+/// the same bake `FontManager::register_named_font` does for a variable font
+/// registered from memory) and registers the instance in `fc_cache` as an
+/// in-memory font, under the source's family at the requested weight.
+///
+/// `None` - keep `face` - when it already has `weight`, is a memory font
+/// (those were baked when they were registered), has no `wght` axis spanning
+/// the request, or cannot be baked.
+///
+/// Each `(face, weight)` is baked at most ONCE per process. rust-fontconfig
+/// memoises its chains, so the source face keeps coming back on every later
+/// resolution; the answer - an instance, or "no instance" - is memoised here
+/// and handed back without touching the font again. `FontId`s come from a
+/// process-wide counter, so a source id never names a face of another cache.
+#[must_use]
+pub fn variable_weight_instance(
+    fc_cache: &FcFontCache,
+    face: &rust_fontconfig::FontMatch,
+    weight: FcWeight,
+) -> Option<rust_fontconfig::FontMatch> {
+    use std::{collections::BTreeMap, sync::Mutex};
+
+    /// `(source face, requested weight)` -> the baked instance, or `None`
+    /// when the source has no instance at that weight.
+    static INSTANCES: Mutex<BTreeMap<(FontId, u16), Option<FontId>>> =
+        Mutex::new(BTreeMap::new());
+
+    let as_match = |id: FontId| rust_fontconfig::FontMatch {
+        id,
+        // An instance draws the same characters as its source.
+        unicode_ranges: face.unicode_ranges.clone(),
+        fallbacks: Vec::new(),
+    };
+
+    let key = (face.id, weight as u16);
+    let known = INSTANCES
+        .lock()
+        .ok()
+        .and_then(|memo| memo.get(&key).copied());
+    match known {
+        Some(None) => return None,
+        // An instance is a memory font: still there means the same cache, or
+        // a clone sharing its state.
+        Some(Some(id)) if fc_cache.is_memory_font(&id) => return Some(as_match(id)),
+        _ => {}
+    }
+
+    let remembered = match bake_weight_instance_into(fc_cache, face.id, weight) {
+        WeightInstance::Baked(id) => Some(id),
+        WeightInstance::Absent => None,
+        // Not a face of this cache: nothing is known about it, so nothing is
+        // remembered - the cache that does hold it gets its own answer.
+        WeightInstance::UnknownFace => return None,
+    };
+    if let Ok(mut memo) = INSTANCES.lock() {
+        memo.insert(key, remembered);
+    }
+    remembered.map(as_match)
+}
+
+/// What baking a face at a weight came to (see [`variable_weight_instance`]).
+enum WeightInstance {
+    /// Draw this instance, registered in the cache.
+    Baked(FontId),
+    /// The face has no other instance at that weight: it is a static font,
+    /// already that weight, a memory font, outside its `wght` axis, or it did
+    /// not bake.
+    Absent,
+    /// The cache does not hold the face.
+    UnknownFace,
+}
+
+/// Bake the variable font file behind `source` at `weight` and register the
+/// instance in `fc_cache`.
+fn bake_weight_instance_into(
+    fc_cache: &FcFontCache,
+    source: FontId,
+    weight: FcWeight,
+) -> WeightInstance {
+    // A face registered from memory was expanded into static instances when it
+    // was registered (`FontManager::register_named_font`); only a FILE is
+    // still variable here.
+    if fc_cache.is_memory_font(&source) {
+        return WeightInstance::Absent;
+    }
+    let Some(meta) = fc_cache.get_metadata_by_id(&source) else {
+        return WeightInstance::UnknownFace;
+    };
+    if meta.weight == weight {
+        return WeightInstance::Absent;
+    }
+    let index = match fc_cache.get_font_by_id(&source) {
+        Some(rust_fontconfig::OwnedFontSource::Disk(path)) => path.font_index,
+        Some(rust_fontconfig::OwnedFontSource::Memory(font)) => font.font_index,
+        None => return WeightInstance::UnknownFace,
+    };
+    let Some(bytes) = fc_cache.get_font_bytes(&source) else {
+        return WeightInstance::Absent;
+    };
+    let Some((min, _default, max)) =
+        crate::font::parsed::read_wght_axis(bytes.as_slice(), index)
+    else {
+        return WeightInstance::Absent;
+    };
+    let wght = f32::from(weight as u16);
+    if wght < min || wght > max {
+        return WeightInstance::Absent;
+    }
+    let Some(baked) = crate::font::parsed::bake_weight_instance(bytes.as_slice(), index, wght)
+    else {
+        return WeightInstance::Absent;
+    };
+
+    let mut pattern = meta;
+    pattern.weight = weight;
+    pattern.bold = if weight >= FcWeight::Bold {
+        PatternMatch::True
+    } else {
+        PatternMatch::False
+    };
+    let registered = pattern.clone();
+    let label = pattern
+        .family
+        .clone()
+        .or_else(|| pattern.name.clone())
+        .unwrap_or_default();
+    let id = FontId::new();
+    fc_cache.with_memory_font_with_id(
+        id,
+        pattern,
+        rust_fontconfig::FcFont {
+            bytes: baked,
+            font_index: 0,
+            id: label,
+        },
+    );
+    if fc_cache.is_memory_font(&id) {
+        return WeightInstance::Baked(id);
+    }
+    // rust-fontconfig files an identical (pattern, bytes) pair under the id it
+    // already has and does not register ours: draw that one.
+    let mut twins: Vec<FontId> = Vec::new();
+    fc_cache.for_each_pattern(|pattern, pattern_id| {
+        if *pattern == registered {
+            twins.push(*pattern_id);
+        }
+    });
+    twins
+        .into_iter()
+        .find(|twin| fc_cache.is_memory_font(twin))
+        .map_or(WeightInstance::Absent, WeightInstance::Baked)
+}
+
 /// Registry-aware variant of [`resolve_font_chains`].
 ///
 /// When `registry`
@@ -4932,6 +5116,10 @@ pub fn resolve_font_chains_with_registry(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A variable font FILE matched at its default instance is drawn at
+        // the weight asked for (macOS's SFNS.ttf for every bold system face).
+        select_variable_weight_instances(&mut chain, weight, fc_cache);
 
         chains.insert(cache_key, chain);
     }
@@ -5151,6 +5339,9 @@ pub fn resolve_font_chains_fast(
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // The cache the probe registers its faces in, and so the one a variable
+    // face's weight instance is registered in (a shallow clone: same state).
+    let shared_cache = registry.shared_cache();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
@@ -5257,6 +5448,10 @@ pub fn resolve_font_chains_fast(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A variable font FILE matched at its default instance is drawn at
+        // the weight asked for (macOS's SFNS.ttf for every bold system face).
+        select_variable_weight_instances(&mut chain, weight, &shared_cache);
 
         chains.insert(cache_key, chain);
     }

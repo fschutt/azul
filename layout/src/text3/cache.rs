@@ -451,7 +451,7 @@ pub(crate) fn resolve_chain_on_miss(
     fc_cache: &FcFontCache,
 ) -> rust_fontconfig::FontFallbackChain {
     let mut trace = Vec::new();
-    fc_cache.resolve_font_chain_with_scripts(
+    let mut chain = fc_cache.resolve_font_chain_with_scripts(
         &key.font_families,
         key.weight,
         if key.italic {
@@ -466,7 +466,10 @@ pub(crate) fn resolve_chain_on_miss(
         },
         None,
         &mut trace,
-    )
+    );
+    // Same weight selection as the pre-pass, so a miss draws what a hit would.
+    crate::solver3::getters::select_variable_weight_instances(&mut chain, key.weight, fc_cache);
+    chain
 }
 
 /// Whether `ch` needs a glyph of its own. Whitespace, controls and the

@@ -943,7 +943,9 @@ impl TitlebarMetrics {
             safe_area: SafeAreaInsets::default(),
             title_font: OptionString::Some(".SF NS".into()),
             title_font_size: OptionF32::Some(13.0),
-            title_font_weight: OptionU16::Some(600), // Semibold
+            // `NSFont.titleBarFont`: weight trait 0.4 = NSFontWeightBold (700).
+            // Semibold (590/600) is a TOOLBAR-style bar's 15pt title.
+            title_font_weight: OptionU16::Some(700), // Bold
             background_active: OptionColorU::None,
             background_inactive: OptionColorU::None,
             text_active: OptionColorU::None,
@@ -1473,16 +1475,18 @@ impl SystemFontType {
 
     fn macos_fallback_chain(self) -> Vec<&'static str> {
         match self {
-            // Normal weight: System Font first, then Helvetica Neue.
-            Self::Ui => vec![
+            // System Font first, regular AND bold. `SFNS.ttf` ("System Font")
+            // is ONE variable font: a `wght` axis from 1 to 1000, Bold at 700.
+            // rust-fontconfig indexes it at its default instance (400), and the
+            // resolver draws the instance at the requested weight
+            // (`solver3::getters::variable_weight_instance` in azul-layout).
+            // Helvetica Neue, which has static bold faces, stays behind it for
+            // a system without SFNS.
+            Self::Ui | Self::UiBold | Self::TitleBold => vec![
                 apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
                 apple_fonts::LUCIDA_GRANDE,
             ],
-            // Bold weights: Helvetica Neue first (System Font has no Bold variant in fontconfig).
-            Self::UiBold | Self::TitleBold => {
-                vec![apple_fonts::HELVETICA_NEUE, apple_fonts::LUCIDA_GRANDE]
-            }
             // Monospace: Menlo (has a Bold variant), then Monaco.
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
                 vec![apple_fonts::MENLO, apple_fonts::MONACO]
