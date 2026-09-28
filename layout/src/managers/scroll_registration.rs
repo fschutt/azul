@@ -33,6 +33,34 @@ use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
 /// is actually reachable instead of being clamped away at the end of the line.
 pub const CARET_SCROLL_GUTTER_PX: f32 = 6.0;
 
+/// The extent a scroll box publishes to the `ScrollManager`: its `content`,
+/// plus [`CARET_SCROLL_GUTTER_PX`] when it is the box the active caret sits
+/// on (`caret_node`, the session block's container - which in a TextInput is
+/// the value `<p>`, both the IFC root and the horizontal scroll box).
+///
+/// ONE rule for [`register_scroll_nodes`] and for the text-edit fast path
+/// (`LayoutWindow::reshape_text_node`), so a keystroke and the relayout after
+/// it publish the same extent.
+///
+/// Only that one node, never its ancestors: widening every ancestor by the
+/// gutter makes the BODY 6px wider than the viewport, so the whole page turns
+/// horizontally scrollable the moment a text field takes focus.
+#[must_use]
+pub fn caret_scroll_extent(
+    caret_node: Option<DomNodeId>,
+    dom_id: DomId,
+    node_id: NodeId,
+    content: azul_core::geom::LogicalSize,
+) -> azul_core::geom::LogicalSize {
+    let hosts_caret = caret_node
+        .is_some_and(|c| c.dom == dom_id && c.node.into_crate_internal() == Some(node_id));
+    let mut content = content;
+    if hosts_caret {
+        content.width += CARET_SCROLL_GUTTER_PX;
+    }
+    content
+}
+
 pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
     // Runs after every layout - every frame of a layout-property tween - and
     // the desktop shell's incremental relayout runs it a second time.
@@ -53,16 +81,6 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         // new size into it, so the first registration of every resize read
         // the previous window's.
         let viewport_size = layout_result.viewport.size;
-        // ONLY the node the caret sits on — which in a TextInput is the value
-        // <p>, i.e. both the IFC root and the horizontal scroll box.
-        //
-        // This deliberately does NOT walk the ancestor chain. Widening every
-        // ancestor by the gutter makes the BODY 6px wider than the viewport, so
-        // the whole page turns horizontally scrollable the moment a text field
-        // takes focus — which is a far worse bug than the one being fixed.
-        let caret_host: Option<NodeId> = caret_node
-            .filter(|c| c.dom == *dom_id)
-            .and_then(|c| c.node.into_crate_internal());
         // What the VirtualView callbacks published for this DOM, read the way
         // `display_list::paint_scrollbars` reads it — same producer, same
         // `children_rect.size`, so the two cannot disagree about the extent.
@@ -264,16 +282,18 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             };
 
-            let mut content_size = layout_result
-                .layout_tree
-                .scroll_extent(LayoutNodeId::new(node_idx), is_viewport_root);
             // See [`CARET_SCROLL_GUTTER_PX`]: the caret is content the text
             // extent does not account for, so without this the reveal has
             // nowhere to scroll to and the caret is clipped at the end of an
             // overflowing line.
-            if caret_host == Some(dom_node_id) {
-                content_size.width += CARET_SCROLL_GUTTER_PX;
-            }
+            let content_size = caret_scroll_extent(
+                caret_node,
+                *dom_id,
+                dom_node_id,
+                layout_result
+                    .layout_tree
+                    .scroll_extent(LayoutNodeId::new(node_idx), is_viewport_root),
+            );
 
             layout_window.scroll_manager.set_overscroll_behavior(
                 *dom_id,

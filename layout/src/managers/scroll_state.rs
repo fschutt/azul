@@ -1603,6 +1603,45 @@ impl ScrollManager {
         }
     }
 
+    /// Refresh the CONTENT size of a registered scroll node in place. The
+    /// container, the bars and the offset stay; the offset is clamped into the
+    /// new range the way a registration clamps it (a live rubber-band is left
+    /// alone).
+    ///
+    /// The text-edit fast path's half of registration
+    /// (`LayoutWindow::reshape_text_node`): a keystroke grows the text
+    /// without a relayout, and the caret reveal that follows it in the SAME
+    /// pass is clamped against this size. Refreshed only when the box's
+    /// scrollbar necessity flipped, a box that already overflowed kept the
+    /// extent of the previous keystroke, and the reveal stopped one
+    /// character short.
+    ///
+    /// Returns `false`, changing nothing, when the node has no state.
+    pub fn update_content_size(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        content_size: LogicalSize,
+    ) -> bool {
+        let Some(state) = self.states.get_mut(&(dom_id, node_id)) else {
+            return false;
+        };
+        let off = state.current_offset;
+        let was_overscrolling =
+            off.x.is_finite() && off.y.is_finite() && state.clamp(off) != off;
+        state.content_rect.size = content_size;
+        if !was_overscrolling {
+            let clamped = state.clamp(off);
+            if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
+                || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
+            {
+                self.scroll_dirty = true;
+            }
+            state.current_offset = clamped;
+        }
+        true
+    }
+
     /// Forget `node_id`'s scroll state - offset, bounds, bars - for a node that
     /// is no longer a scroll container at all (`register_scroll_nodes`). A
     /// node that merely stopped overflowing keeps its state, refreshed. A

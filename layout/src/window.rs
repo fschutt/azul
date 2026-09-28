@@ -18877,6 +18877,46 @@ impl LayoutWindow {
                         plan.transitioned
                     );
                 }
+                // The caret gutter the registration pass gives the box that
+                // hosts the caret - the same rule, so the fast path and a
+                // full registration publish the same extent.
+                let published_extent = crate::managers::scroll_registration::caret_scroll_extent(
+                    self.text_edit_manager
+                        .multi_cursor
+                        .as_ref()
+                        .map(|mc| mc.block.container_dom_node()),
+                    dom_id,
+                    plan.host_dom,
+                    plan.merged_extent,
+                );
+                if !plan.transitioned {
+                    // PUBLISH BEFORE CONSUME, in the fast path too. The box
+                    // already scrolled and still does, so nothing above
+                    // re-registers it - and the caret reveal that follows this
+                    // edit IN THE SAME PASS (the shells reveal right after
+                    // `apply_text_changeset`, before any relayout) is clamped
+                    // against the manager's content size. Left at the previous
+                    // keystroke's extent, the reveal stopped exactly one
+                    // keystroke short and clipped the character just typed.
+                    //
+                    // Not for the viewport's scroller: its extent is the root's
+                    // margin box (`LayoutTree::scroll_extent`), which this
+                    // text-only extent is not; its relayout registers it.
+                    let is_viewport =
+                        solver3::scrollbar::is_viewport_scroller(dom_id, plan.host_dom);
+                    if !is_viewport
+                        && self.scroll_manager.update_content_size(
+                            dom_id,
+                            plan.host_dom,
+                            published_extent,
+                        )
+                    {
+                        // Thumb geometry follows the extent (the press
+                        // router hit-tests these bars).
+                        self.scroll_manager.calculate_scrollbar_states();
+                        let _ = self.refresh_scrollbar_transforms();
+                    }
+                }
                 if plan.transitioned {
                     if plan.now_reqs.needs_reflow() || plan.was_reflow {
                         escalate_for_scrollbar_geometry = true;
@@ -18907,7 +18947,7 @@ impl LayoutWindow {
                                 dom_id,
                                 plan.host_dom,
                                 plan.scrollport,
-                                plan.merged_extent,
+                                published_extent,
                                 now,
                                 plan.now_reqs
                                     .presence(azul_core::dom::ScrollbarOrientation::Horizontal),
