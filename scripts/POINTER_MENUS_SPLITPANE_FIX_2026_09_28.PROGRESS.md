@@ -37,9 +37,12 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   `an_idle_split_pane_takes_the_ratio_the_app_rebuilds_it_with`); test helpers `split_container`,
   `callback_state`, `rebuild`, `app_dom` at the end of split_pane.rs tests.
 
+- `32e554055` S1 FIX: container `.with_dataset(state).with_merge_callback(merge_split_pane_state)`;
+  demo `Showcase.split_ratio` (stored in `on_splitpane`, passed to `with_ratio`).
+
 ## IN PROGRESS
 
-- S1 FIX (merge callback + demo stores the ratio), see NEXT 1.
+- S2 RED (leave mid-drag keeps the drag; press captures the pointer), see NEXT 2.
 
 ## NEXT (in order)
 
