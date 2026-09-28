@@ -110,7 +110,8 @@ pub fn must_not_park() -> bool {
     if crate::desktop::global_hotkey::has_buffered_input() {
         return true;
     }
-    azul_layout::managers::notification::has_queued_requests()
+    azul_layout::managers::tray_event::has_queued_tray_events()
+        || azul_layout::managers::notification::has_queued_requests()
         || azul_layout::managers::notification::has_queued_events()
         || azul_layout::managers::global_hotkey::has_pending_fires()
 }

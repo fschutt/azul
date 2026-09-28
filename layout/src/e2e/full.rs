@@ -7738,6 +7738,14 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          X10 has no node to judge. The rule itself is pinned by layout/tests/app_target.rs",
     ),
     (
+        "tray_event",
+        "owns no window state: one PROCESS-GLOBAL mutex mailbox that the tray's platform \
+         callbacks (an AppKit action, an SNI D-Bus call) park events in and the run loop drains \
+         destructively, plus a thread-local 'current event' set only for the duration of one \
+         delivery. The tray belongs to the app, not to a window, and nothing is node-keyed, so \
+         X10 has nothing to judge. Routing and delivery are pinned by layout/tests/tray_events.rs",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -8865,6 +8873,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              clock, and the activation stamps it orders are fields of the dll shell's \
              CommonWindowState. `manager_fingerprints` takes a `&LayoutWindow`, which never \
              holds one",
+        ),
+        (
+            "tray_event",
+            "nothing on the WINDOW to hash, for `notification`'s reasons: the mailbox is a \
+             process-global whose only reader (`drain_tray_events`) consumes what it returns, so \
+             measuring it would swallow the click the app was about to receive, and the tray is \
+             the app's, so a change could not be attributed to this window",
         ),
     ];
     #[cfg(not(feature = "a11y"))]

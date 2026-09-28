@@ -1,6 +1,6 @@
-//! The app-level event collector: tray menu clicks, native-notification
-//! events and global-hotkey presses, taken out of their mailboxes in ONE
-//! place and run against ONE window picked by ONE rule.
+//! The app-level event collector: tray menu clicks, plain tray clicks,
+//! native-notification events and global-hotkey presses, taken out of their
+//! mailboxes in ONE place and run against ONE window picked by ONE rule.
 //!
 //! # Why one collector
 //!
@@ -12,6 +12,8 @@
 //! * the macOS manual loop pumped the tray only at the TOP of an iteration, so a pick handled
 //!   inside that iteration's `sendEvent:` waited for the NEXT event;
 //! * the Win32 loop never pumped the tray at all;
+//! * nothing drained the tray EVENT mailbox, so a click on the icon (anything without a menu
+//!   callback of its own) never reached the app;
 //! * each source picked "the first window" of the platform registry: pointer order on macOS, a
 //!   `HashMap` on Linux, `HWND` order on Windows.
 //!
@@ -26,6 +28,7 @@ use azul_layout::managers::{
     app_target::{pick_app_target, AppTargetCandidate},
     global_hotkey::FiredHotkey,
     notification::NotificationDelivery,
+    tray_event::{with_current_tray_event, TrayDelivery},
 };
 
 use crate::desktop::shell2::common::event::{CommonWindowState, MenuInvocation, PlatformWindow};
@@ -35,6 +38,10 @@ use crate::desktop::shell2::common::event::{CommonWindowState, MenuInvocation, P
 pub(crate) struct AppEvents {
     /// Tray menu items that carry a callback.
     tray_menu: Vec<CoreMenuCallback>,
+    /// Every other tray event (a click on the icon, a middle click, a
+    /// scroll, a menu item without a callback), routed to the tray's own
+    /// callback.
+    tray: Vec<TrayDelivery>,
     /// Notification events, routed to their notification's callback.
     notifications: Vec<NotificationDelivery>,
     /// Global hotkeys pressed, with the callback each runs.
@@ -49,8 +56,10 @@ impl AppEvents {
         crate::desktop::loop_waker::service_sources();
         Self {
             // First: on macOS the tray pump also files callback-less menu
-            // items into the tray event mailbox.
+            // items and icon clicks into the tray event mailbox, which the
+            // next field drains.
             tray_menu: crate::desktop::tray::pump_tray(),
+            tray: crate::desktop::tray::take_tray_deliveries(),
             notifications: crate::desktop::notifications::pump_notifications(),
             hotkeys: azul_layout::managers::global_hotkey::take_fired(),
         }
@@ -58,12 +67,15 @@ impl AppEvents {
 
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
-        self.tray_menu.is_empty() && self.notifications.is_empty() && self.hotkeys.is_empty()
+        self.tray_menu.is_empty()
+            && self.tray.is_empty()
+            && self.notifications.is_empty()
+            && self.hotkeys.is_empty()
     }
 
     #[must_use]
     pub(crate) fn len(&self) -> usize {
-        self.tray_menu.len() + self.notifications.len() + self.hotkeys.len()
+        self.tray_menu.len() + self.tray.len() + self.notifications.len() + self.hotkeys.len()
     }
 
     /// Run everything against `window`, in the order the sources were
@@ -71,6 +83,7 @@ impl AppEvents {
     pub(crate) fn invoke<W: PlatformWindow>(self, window: &mut W) -> ProcessEventResult {
         let Self {
             tray_menu,
+            tray,
             notifications,
             hotkeys,
         } = self;
@@ -80,6 +93,14 @@ impl AppEvents {
                 callback,
                 MenuInvocation::Native { site: "tray_menu" },
             ));
+        }
+        for delivery in tray {
+            let TrayDelivery { callback, event } = delivery;
+            // Installed for the call, so the callback can ask
+            // `CallbackInfo::get_tray_event` which event it runs for.
+            result = result.max(with_current_tray_event(&event, || {
+                window.invoke_menu_callback(callback, MenuInvocation::Native { site: "tray" })
+            }));
         }
         if !notifications.is_empty()
             && crate::desktop::notifications::invoke_deliveries(window, notifications)

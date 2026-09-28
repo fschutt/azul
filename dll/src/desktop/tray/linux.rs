@@ -1284,13 +1284,23 @@ impl PlatformTray {
             Ok(mut q) => q.drain(..).collect(),
             Err(_) => Vec::new(),
         };
-        ids.into_iter()
-            .filter_map(|id| {
-                self.state
-                    .menu
-                    .get(id as usize)
-                    .and_then(|n| n.callback.as_ref().cloned())
-            })
-            .collect()
+        // An item carrying a callback is delivered to it; an item without one
+        // becomes a `MenuItem` event for the tray's own callback - the macOS
+        // backend's split, so a bare item is not silently dropped here.
+        let mut to_invoke = Vec::new();
+        for id in ids {
+            let Some(node) = usize::try_from(id).ok().and_then(|i| self.state.menu.get(i)) else {
+                continue;
+            };
+            match node.callback.as_ref() {
+                Some(callback) => to_invoke.push(callback.clone()),
+                None => {
+                    #[allow(clippy::cast_sign_loss)]
+                    let command = id as u32;
+                    queue_tray_event(TrayEvent::menu_item(command));
+                }
+            }
+        }
+        to_invoke
     }
 }

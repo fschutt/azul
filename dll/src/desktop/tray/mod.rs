@@ -18,11 +18,16 @@
 //!
 //! Tray callbacks arrive on whatever thread the OS feels like (a D-Bus
 //! dispatch on Linux, the message pump on Windows, the main run loop on
-//! macOS), and none of them can hold a `CallbackInfo`. So they post into a
-//! process-wide mailbox and the run loop drains it — the same shape
-//! `gnome_menu::actions_protocol` already uses for menu activations.
+//! macOS), and none of them can hold a `CallbackInfo`. A menu item that
+//! carries its own callback comes back from [`pump_tray`]; everything else -
+//! a click on the icon, a middle click, a scroll, a menu item without a
+//! callback - is posted into a process-wide mailbox
+//! (`azul_layout::managers::tray_event`), and [`take_tray_deliveries`] routes
+//! it to the tray's own callback (`TrayIconData::callback`). The run loops'
+//! app-event collector (`desktop::app_events`) calls both every iteration.
 
 use azul_core::tray::{TrayEvent, TrayIconData};
+use azul_layout::managers::tray_event::{self as events, TrayDelivery};
 
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux;
@@ -68,35 +73,53 @@ impl core::fmt::Display for TrayError {
     }
 }
 
-/// Process-wide tray event mailbox.
-///
-/// Tray callbacks cannot hold a `CallbackInfo` — they run on a D-Bus dispatch
-/// thread, inside a `TrackPopupMenu` modal loop, or in an AppKit action — so
-/// they queue here and the run loop drains it between frames.
-static TRAY_EVENTS: std::sync::LazyLock<std::sync::Mutex<Vec<TrayEvent>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
-
-/// Post an event from a platform callback. Never blocks the caller for long
-/// and never panics across an FFI boundary (a poisoned lock is dropped, not
-/// unwrapped — losing one tray click beats aborting the process from inside an
-/// objc / D-Bus / Win32 callback).
+/// Post an event from a platform callback into the tray event mailbox
+/// (`azul_layout::managers::tray_event`). Never blocks the caller for long
+/// and never panics across an FFI boundary (a poisoned lock is recovered,
+/// and a full mailbox drops the event - losing one tray click beats aborting
+/// the process from inside an objc / D-Bus / Win32 callback).
 pub(crate) fn queue_tray_event(ev: TrayEvent) {
-    if let Ok(mut q) = TRAY_EVENTS.lock() {
-        // A tray the app never drains must not grow without bound.
-        const MAX_QUEUED: usize = 256;
-        if q.len() < MAX_QUEUED {
-            q.push(ev);
-        }
-    }
+    let _ = events::queue_tray_event(ev);
 }
 
-/// Take everything queued since the last call. Called by the run loop.
+/// Take everything queued since the last call, unrouted. The run loops use
+/// [`take_tray_deliveries`], which calls this.
 #[must_use]
 pub fn drain_tray_events() -> Vec<TrayEvent> {
-    TRAY_EVENTS
-        .lock()
-        .map(|mut q| core::mem::take(&mut *q))
-        .unwrap_or_default()
+    events::drain_tray_events()
+}
+
+/// Every tray event queued since the last call, routed to the live tray's
+/// callback (`TrayIconData::callback`), for the caller to run against a
+/// window with the event installed (`tray_event::with_current_tray_event`).
+///
+/// This is the mailbox's consumer. It had none: a plain click on the icon
+/// (anything without a menu callback of its own) was queued and never seen.
+/// Without a live tray, or a tray without a callback, the events are drained
+/// and dropped - the mailbox must not fill up behind an app that did not ask.
+#[must_use]
+pub fn take_tray_deliveries() -> Vec<TrayDelivery> {
+    let queued = drain_tray_events();
+    if queued.is_empty() {
+        return Vec::new();
+    }
+    let callback = LIVE_TRAY.with(|c| {
+        let mut callback = azul_core::menu::OptionCoreMenuCallback::None;
+        if let Ok(live) = c.try_borrow() {
+            if let Some(tray) = &*live {
+                callback = tray.data().callback.clone();
+            }
+        }
+        callback
+    });
+    if callback.as_ref().is_none() {
+        crate::plog_debug!(
+            "[tray] {} tray event(s) dropped: the tray has no callback \
+             (TrayIconData::with_callback)",
+            queued.len()
+        );
+    }
+    events::route_tray_events(queued, &callback)
 }
 
 thread_local! {

@@ -470,6 +470,8 @@ mod textinput_seed_style;
 mod theme_conditional_stylesheet;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
+#[path = "tray_events.rs"]
+mod tray_events;
 #[path = "typed_script_font_fallback.rs"]
 mod typed_script_font_fallback;
 #[path = "typing_beside_a_block.rs"]

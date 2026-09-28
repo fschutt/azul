@@ -65,6 +65,10 @@ pub mod selection;
 pub mod sensors;
 pub mod text_edit;
 pub mod text_input;
+/// System-tray events that no menu item's own callback handles (a click on
+/// the icon, ...): the mailbox, the routing to the tray's callback, and the
+/// event a callback runs for.
+pub mod tray_event;
 pub mod undo_redo;
 pub mod virtual_view;
 /// Cross-thread "raise this window" requests (9h-i-a-ii).

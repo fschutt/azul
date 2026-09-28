@@ -5410,6 +5410,15 @@ impl CallbackInfo {
         crate::managers::notification::current_notification_event()
     }
 
+    /// Inside the tray's callback (`TrayIconData::with_callback`): which tray
+    /// event it runs for - a click on the icon (`Activate`), a middle click, a
+    /// scroll, a context-menu request, or a menu item that has no callback of
+    /// its own (with its command id). `None` in any other callback.
+    #[must_use]
+    pub fn get_tray_event(&self) -> Option<azul_core::tray::TrayEvent> {
+        crate::managers::tray_event::current_tray_event()
+    }
+
     /// Read the most recently observed permission state for `capability`
     /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) - e.g.
     /// so a callback can check a capability is `Granted` before using it (show
