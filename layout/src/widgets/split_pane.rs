@@ -14,6 +14,12 @@
 //! lost release). A rebuild of the app's DOM mid-drag keeps the drag
 //! (`merge_split_pane_state`).
 //!
+//! ## Keyboard + accessibility (the APG window splitter)
+//! The DIVIDER is the focusable separator: a tab stop with the splitter role,
+//! a name and the first pane's share as its value. The arrow keys along the
+//! split's axis move it by 1% (10% with Ctrl / Cmd), Home / End to the ends
+//! of the clamp - the same commit path as a drag (`flex-grow` + `on_resize`).
+//!
 //! ## Layout model
 //! The container is a flex row (horizontal split: panes left/right) or column
 //! (vertical split: panes top/bottom). Its three children are
@@ -176,6 +182,13 @@ const GRAB_THRESHOLD: f32 = 9.0;
 /// Smallest / largest allowed first-pane fraction (keeps both panes visible).
 const MIN_RATIO: f32 = 0.05;
 const MAX_RATIO: f32 = 0.95;
+/// How far one arrow key on the focused divider moves it, as a share of the
+/// split - and with Ctrl (Cmd on macOS) held, the coarse step. The slider's
+/// fine / coarse pair.
+const KEY_STEP: f32 = 0.01;
+const KEY_STEP_COARSE: f32 = 0.10;
+/// The divider's accessible name (the APG window splitter's label).
+const DIVIDER_NAME: &str = "Resize panes";
 
 // ---- colours ----
 /// Divider colour (#adb5bd, mid grey).
@@ -463,6 +476,12 @@ impl SplitPane {
                 on_split_pointer_up as usize,
             ),
         ];
+        // The keyboard's handle is the DIVIDER - the focusable separator of
+        // the APG window splitter - sharing the pointer callbacks' state.
+        let divider_callbacks = vec![mk(
+            EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+            on_split_key as usize,
+        )];
 
         // Children: [first-pane, divider, second-pane] — the order the drag
         // handler relies on (first_child = pane0, then divider, then pane1).
@@ -471,9 +490,26 @@ impl SplitPane {
             .with_css_props(pane_style(ratio))
             .with_children(vec![self.first].into());
 
+        // The separator: a tab stop, the splitter role (`Grip`, which the a11y
+        // tree maps to a splitter), a name, and the first pane's share in
+        // percent as its value. It carries the role, not the container: a
+        // separator's children are presentational, so on the container the
+        // role hid both panes' content from a screen reader.
         let divider = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_DIVIDER_CLASS))
-            .with_css_props(divider_style(direction));
+            .with_css_props(divider_style(direction))
+            .with_callbacks(divider_callbacks.into())
+            .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Grip,
+                accessibility_name: Some(AzString::from_const_str(DIVIDER_NAME)).into(),
+                accessibility_value: Some(AzString::from(format!(
+                    "{}",
+                    (ratio * 100.0).round() as i32
+                )))
+                .into(),
+                ..Default::default()
+            });
 
         let second_pane = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SECOND_CLASS))
@@ -491,14 +527,6 @@ impl SplitPane {
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
                 merge_split_pane_state,
             ))
-            .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // the splitter is a draggable grip. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Grip,
-                ..Default::default()
-            })
             .with_children(vec![first_pane, divider, second_pane].into())
     }
 }
@@ -618,6 +646,63 @@ extern "C" fn on_split_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Up
         sp.is_dragging = false;
     }
     Update::DoNothing
+}
+
+/// The arrow keys on the focused divider (the APG window splitter), so the
+/// split is usable without a pointer: Left / Right move a side-by-side
+/// divider, Up / Down a stacked one, by [`KEY_STEP`] - [`KEY_STEP_COARSE`]
+/// with Ctrl (Cmd on macOS) held - and Home / End put it at either end of
+/// the clamp. Both panes follow and the app hears of it through
+/// `on_resize`, exactly like a drag; the key is consumed so it does not also
+/// move the focus or scroll. Any other key is left alone.
+extern "C" fn on_split_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let step = if ks.ctrl_down() || ks.super_down() {
+        KEY_STEP_COARSE
+    } else {
+        KEY_STEP
+    };
+    let ratio = sp.inner.ratio;
+    let target = match (sp.inner.direction, key) {
+        (SplitDirection::Horizontal, K::Left) | (SplitDirection::Vertical, K::Up) => ratio - step,
+        (SplitDirection::Horizontal, K::Right) | (SplitDirection::Vertical, K::Down) => {
+            ratio + step
+        }
+        (_, K::Home) => MIN_RATIO,
+        (_, K::End) => MAX_RATIO,
+        _ => return Update::DoNothing,
+    };
+    // `clamp` passes NaN through: a split built with a NaN ratio is left
+    // as it is rather than written with it.
+    let new_ratio = target.clamp(MIN_RATIO, MAX_RATIO);
+    if new_ratio.is_nan() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    sp.inner.ratio = new_ratio;
+
+    // The divider sits between the two panes.
+    let divider = info.get_hit_node();
+    if let Some(first) = info.get_previous_sibling(divider) {
+        info.set_css_property(first, flex_grow_prop(new_ratio));
+    }
+    if let Some(second) = info.get_next_sibling(divider) {
+        info.set_css_property(second, flex_grow_prop(1.0 - new_ratio));
+    }
+
+    let inner = sp.inner;
+    match sp.on_resize.as_mut() {
+        Some(SplitPaneOnResize { callback, refany }) => callback.invoke(refany.clone(), info, inner),
+        None => Update::DoNothing,
+    }
 }
 
 /// Carry a divider drag across a parent rebuild.
@@ -1889,7 +1974,9 @@ mod autotest_generated {
             dom_classes(&dom),
             vec!["__azul-native-split-pane".to_string()]
         );
-        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        // The tab stop is the divider (the separator), not the container.
+        assert_eq!(dom.root.get_tab_index(), None);
+        assert_eq!(child(&dom, 1).root.get_tab_index(), Some(TabIndex::Auto));
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 3);
         assert_eq!(
@@ -2017,13 +2104,28 @@ mod autotest_generated {
         ];
         assert_eq!(wired, expected);
         // The drag lives on the container, never on the divider or the panes -
-        // otherwise the cursor would leave the callback node mid-drag.
-        for i in 0..3 {
+        // otherwise the cursor would leave the callback node mid-drag. The
+        // divider carries the keyboard's handler and nothing else.
+        for i in [0, 2] {
             assert!(
                 child(&dom, i).root.callbacks.as_ref().is_empty(),
-                "child {i} must not carry pointer callbacks"
+                "pane {i} must not carry callbacks"
             );
         }
+        let divider: Vec<(EventFilter, usize)> = child(&dom, 1)
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .map(|c| (c.event, c.callback.cb))
+            .collect();
+        assert_eq!(
+            divider,
+            vec![(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                on_split_key as usize,
+            )]
+        );
     }
 
     #[test]
