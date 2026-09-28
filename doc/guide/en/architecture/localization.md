@@ -37,7 +37,7 @@ Additionally, the `Dom` node has `set_fluent_args` and `with_fluent_args` to att
 `F32` or `String` arguments to your localization, i.e.:
 
 ```rust
-let text = Dom::create_p_with_text(String::tr("welcome-greeting"))
+let text = Dom::create_p_with_text(String::tr("welcome-message"))
 .with_fluent_args(vec![
     FluentArgKV {
         key: "userName".into(),
@@ -87,7 +87,7 @@ Any node with `data-l10n` will have its text content resolved as a localization 
 pass formatting arguments directly via `data-l10n-<arg>` attributes:
 
 ```xml
-<!-- This will lookup "hello_key" and pass "Alice" as the userName argument -->
+<!-- This will lookup "welcome-message" and pass "Alice" as the userName argument -->
 <!-- Result: <p>Welcome back, Alice!</p> -->
 <p data-l10n="welcome-message" data-l10n-userName="Alice"></p>
 ```
@@ -108,7 +108,7 @@ re-localized. However, the `LayoutCallbackInfo::is_rtl` functions can be used to
 of the `Dom` structure on the RTL-ness, for example to adjust for different layouts.
 
 ```rust
-fn on_click(data: RefAny, info: CallbackInfo) -> Update {
+fn on_click(data: RefAny, mut info: CallbackInfo) -> Update {
     info.set_locale("de".into()); // triggers re-localization, but not relayout
     Update::DoNothing // set to RefreshDom to force re-layout
 }
