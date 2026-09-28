@@ -20635,14 +20635,15 @@ impl LayoutWindow {
         hit_local: ContentBoxLocal,
         hit_layout_idx: LayoutNodeId,
         ifc_root_layout_idx: LayoutNodeId,
-        ifc_root_node_id: NodeId,
+        ifc_root_node_id: Option<NodeId>,
     ) -> Option<ScrolledContentPoint> {
+        // The root's own scroll; an anonymous root (`None`) does not scroll.
+        let scrolled = |local: ContentBoxLocal| match ifc_root_node_id {
+            Some(root) => Self::ifc_local_point_from(local, scroll_offsets, root),
+            None => local.scrolled_by(ScrollOffset::zero()),
+        };
         if hit_layout_idx == ifc_root_layout_idx {
-            return Some(Self::ifc_local_point_from(
-                hit_local,
-                scroll_offsets,
-                ifc_root_node_id,
-            ));
+            return Some(scrolled(hit_local));
         }
         let tree = &layout_result.layout_tree;
         let hit_border =
@@ -20656,11 +20657,7 @@ impl LayoutWindow {
             .to_static_layout(hit_border)
             .to_border_box_local(root_border)
             .to_content_box_local(tree.content_inset(ifc_root_layout_idx));
-        Some(Self::ifc_local_point_from(
-            rebased,
-            scroll_offsets,
-            ifc_root_node_id,
-        ))
+        Some(scrolled(rebased))
     }
 
     /// [`Self::ifc_local_point_from`] for callers that can borrow `self`.
@@ -20851,36 +20848,26 @@ impl LayoutWindow {
                     let Some(layout_node_idx) = layout_node_idx else {
                         continue;
                     };
-                    let Some(warm_node) = tree.warm(LayoutNodeId::new(layout_node_idx)) else {
+
+                    // The layout index of the IFC root the hit node's text is
+                    // laid out in, by THE rule (`LayoutTree::owning_ifc_root`:
+                    // its own IFC, its IFC membership, an inline box's nearest
+                    // IFC ancestor) - selection is stored on the block, never
+                    // on the text node. The index is needed because the hit
+                    // node and the IFC root are different boxes whenever an
+                    // inline box (`<span>`, `<b>`) or a text leaf is what the
+                    // pointer landed on. The root may be ANONYMOUS (text beside
+                    // a block): it is a text block like any other, and
+                    // demanding a DOM node of it skipped the hit.
+                    let Some(ifc_root_layout_idx) = tree.owning_ifc_root(layout_node_idx) else {
+                        // No IFC involvement - not text
                         continue;
                     };
-
-                    // The IFC root's NodeId AND its layout index. Selection
-                    // must be stored on the IFC root, not on text nodes — and
-                    // the index is needed because the hit node and the IFC
-                    // root are different boxes whenever an inline box
-                    // (`<span>`, `<b>`) is what the pointer landed on.
-                    let (ifc_root_node_id, ifc_root_layout_idx) =
-                        if warm_node.inline_layout_result.is_some() {
-                            // This node IS an IFC root - use its own NodeId
-                            (*node_id, layout_node_idx)
-                        } else if let Some(ref membership) = warm_node.ifc_membership {
-                            // This node participates in an IFC - its root
-                            let root_idx = membership.ifc_root_layout_index;
-                            let root_owns_ifc = tree
-                                .warm(LayoutNodeId::new(root_idx))
-                                .is_some_and(|w| w.inline_layout_result.is_some());
-                            match tree
-                                .get(LayoutNodeId::new(root_idx))
-                                .and_then(|n| n.dom_node_id)
-                            {
-                                Some(root_dom_id) if root_owns_ifc => (root_dom_id, root_idx),
-                                _ => continue,
-                            }
-                        } else {
-                            // No IFC involvement - not a text node
-                            continue;
-                        };
+                    // The root's own node, for its scroll offset - none for an
+                    // anonymous block, which does not scroll.
+                    let ifc_root_node_id = tree
+                        .get(LayoutNodeId::new(ifc_root_layout_idx))
+                        .and_then(|n| n.dom_node_id);
 
                     // The block under the pointer, with its materialized
                     // layout and the blank-line caret built in (`TextTarget`):
@@ -20900,14 +20887,26 @@ impl LayoutWindow {
                     // HIT, which is the IFC root only when the pointer landed
                     // on the paragraph itself rather than on an inline box
                     // inside it.
-                    let Some(local_pos) = Self::ifc_local_point_rebased(
+                    //
+                    // A hit node with no position of its own - a text leaf
+                    // keeps the POSITION_UNSET sentinel - cannot rebase its
+                    // point; the window point it was hit at, mapped into the
+                    // root, can.
+                    let rebased = Self::ifc_local_point_rebased(
                         layout_result,
                         &scroll_offsets,
                         hit_item.point_relative_to_item,
                         LayoutNodeId::new(layout_node_idx),
                         LayoutNodeId::new(ifc_root_layout_idx),
                         ifc_root_node_id,
-                    ) else {
+                    );
+                    let Some(local_pos) = rebased.or_else(|| {
+                        self.window_point_to_ifc_local(
+                            *dom_id,
+                            ifc_root_layout_idx,
+                            hit_item.point_in_viewport,
+                        )
+                    }) else {
                         continue;
                     };
 
@@ -25878,7 +25877,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(1),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .expect("both nodes are positioned");
         assert_eq!(rebased.get(), pos(54.0, 1.0));
@@ -25891,7 +25890,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(0),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .unwrap();
         assert_eq!(same.get(), pos(4.0, 1.0));
@@ -25905,7 +25904,7 @@ mod autotest_generated {
             hit_local,
             LayoutNodeId::new(9_999),
             LayoutNodeId::new(0),
-            NodeId::new(0),
+            Some(NodeId::new(0)),
         )
         .is_none());
     }
