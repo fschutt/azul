@@ -568,6 +568,15 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),
+    // System-wide hotkeys are APP-wide registrations (never per window), so
+    // they sit beside `App`. Without the entry "GLobalHotkey" contains the
+    // OpenGL module's own name and every one of them was filed under `gl`.
+    // Spelled "GlobalHotkey", NOT "Global" - fifth word-boundary trap (see
+    // Tablet/Table, Dial/Dialog, Hid/Hidpi, Media/MediaType below); nothing
+    // else in the API starts with it today. `GlobalHotkeyError` and the
+    // Result/Option wrappers are routed by the structural rules first.
+    ("GlobalHotkey", "app"),
+    ("HotkeyModifiers", "app"),
     // "Tablet*" collides with the css keyword "table".
     ("Tablet", "gesture"),
     // "Haptic*" has no keyword in any module, so it fell through to "misc".

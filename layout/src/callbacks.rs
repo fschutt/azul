@@ -1909,7 +1909,60 @@ impl CallbackInfo {
     /// (`_NET_ACTIVE_WINDOW`); Wayland refuses by design (`xdg_activation`
     /// needs an input serial this request cannot have). A refusal is logged.
     pub fn raise_window(&mut self) {
-        // RED SKELETON: queues nothing yet.
+        self.push_change(CallbackChange::RaiseWindow);
+    }
+
+    /// Register a SYSTEM-WIDE hotkey: `callback` runs with `data` whenever
+    /// the combination is pressed, even while another application has the
+    /// keyboard focus.
+    ///
+    /// App-wide, not per window: every platform grabs a hotkey for the
+    /// process, so the callback runs against the app's first window (the
+    /// tray's menu clicks take the same route) and the registration outlives
+    /// the window that made it. Call [`Self::raise_window`] from the callback
+    /// to bring the app forward.
+    ///
+    /// Answered NOW: `Err` when the combination is not a usable hotkey
+    /// (`InvalidAccelerator` - e.g. a bare letter, which would swallow typing
+    /// everywhere), this app holds it already (`AlreadyRegistered`), another
+    /// application or the system owns it (`TakenByAnotherApp`), or the
+    /// platform has no global hotkeys (`Unsupported` / `Unavailable`). On a
+    /// Wayland desktop the portal may still ask the user, so a registration
+    /// can be `Pending` and later `Failed` - see
+    /// [`Self::get_global_hotkey_status`].
+    ///
+    /// # Errors
+    /// See above.
+    pub fn register_global_hotkey(
+        &mut self,
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: CoreCallback,
+    ) -> azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError {
+        crate::managers::global_hotkey::register(
+            hotkey,
+            azul_core::menu::CoreMenuCallback {
+                refany: data,
+                callback,
+            },
+        )
+        .into()
+    }
+
+    /// Release a global hotkey. Returns whether `id` was registered.
+    pub fn unregister_global_hotkey(&mut self, id: azul_core::global_hotkey::GlobalHotkeyId) -> bool {
+        crate::managers::global_hotkey::unregister(id)
+    }
+
+    /// Where a global-hotkey registration stands: `Active`, `Pending` (the
+    /// desktop has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`.
+    #[must_use]
+    pub fn get_global_hotkey_status(
+        &self,
+        id: azul_core::global_hotkey::GlobalHotkeyId,
+    ) -> azul_core::global_hotkey::GlobalHotkeyStatus {
+        crate::managers::global_hotkey::status(id)
     }
 
     /// Queue multiple window state changes to be applied in sequence.

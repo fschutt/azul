@@ -113,9 +113,6 @@ pub struct GlobalHotkeyRegistry {
     fired: Vec<GlobalHotkeyId>,
 }
 
-// RED SKELETON: the types and the process-wide wrappers are final; the
-// registry logic is stubbed so `layout/tests/global_hotkeys.rs` compiles and
-// fails. The next commit implements it.
 impl GlobalHotkeyRegistry {
     #[must_use]
     pub const fn new() -> Self {
@@ -133,45 +130,110 @@ impl GlobalHotkeyRegistry {
         self.backend
     }
 
-    /// Install `backend`.
+    /// Install `backend`, MOVING every live registration onto it: each is
+    /// released from the previous backend and grabbed again on the new one.
+    /// A registration the new backend refuses becomes `Failed` with its
+    /// reason, and is returned.
+    ///
+    /// This is what lets an app register before `App::run` and still end up
+    /// on the headless simulation when the run turns out to be headless.
     pub fn set_backend(
         &mut self,
         backend: GlobalHotkeyBackend,
     ) -> Vec<(GlobalHotkeyId, GlobalHotkeyError)> {
-        self.backend = Some(backend);
-        Vec::new()
+        let previous = self.backend.replace(backend);
+        let mut refused = Vec::new();
+        for entry in &mut self.entries {
+            if !entry.status.is_live() {
+                continue;
+            }
+            if let Some(old) = previous {
+                (old.unregister)(entry.id);
+            }
+            entry.status = match (backend.register)(entry.id, &entry.hotkey) {
+                Ok(BackendGrant::Active) => GlobalHotkeyStatus::Active,
+                Ok(BackendGrant::Pending) => GlobalHotkeyStatus::Pending,
+                Err(e) => {
+                    refused.push((entry.id, e.clone()));
+                    GlobalHotkeyStatus::Failed(e)
+                }
+            };
+        }
+        refused
     }
 
-    /// First half of a registration.
+    /// First half of a registration: validate, refuse a duplicate, reserve
+    /// the id. The caller asks the returned backend WITHOUT holding the
+    /// registry and hands the answer to [`Self::finish_register`].
     ///
     /// # Errors
-    /// Not implemented yet.
+    /// `InvalidAccelerator`, `Unsupported` (no backend installed) or
+    /// `AlreadyRegistered` with the id that holds the combination.
     pub fn begin_register(
         &mut self,
         hotkey: GlobalHotkey,
         callback: CoreMenuCallback,
     ) -> Result<(GlobalHotkeyId, GlobalHotkeyBackend), GlobalHotkeyError> {
-        let _ = (hotkey, callback, &self.entries, self.last_id);
-        Err(GlobalHotkeyError::Unsupported)
+        hotkey.validate()?;
+        let Some(backend) = self.backend else {
+            return Err(GlobalHotkeyError::Unsupported);
+        };
+        if let Some(held) = self
+            .entries
+            .iter()
+            .find(|e| e.hotkey == hotkey && e.status.is_live())
+        {
+            return Err(GlobalHotkeyError::AlreadyRegistered(held.id));
+        }
+        let id = self.next_id();
+        self.entries.push(Entry {
+            id,
+            hotkey,
+            callback,
+            // Reserved: counts as held, so a second request for the same
+            // combination while the backend answers is a duplicate.
+            status: GlobalHotkeyStatus::Pending,
+        });
+        Ok((id, backend))
     }
 
-    /// Second half of a registration.
+    /// Second half: record the backend's answer. An error removes the
+    /// reservation, so the same combination can be tried again later.
     ///
     /// # Errors
-    /// Not implemented yet.
+    /// The backend's error, or `Platform` if the reservation vanished.
     pub fn finish_register(
         &mut self,
         id: GlobalHotkeyId,
         outcome: Result<BackendGrant, GlobalHotkeyError>,
     ) -> Result<GlobalHotkeyId, GlobalHotkeyError> {
-        let _ = (id, outcome);
-        Err(GlobalHotkeyError::Platform("not implemented yet".into()))
+        let Some(index) = self.entries.iter().position(|e| e.id == id) else {
+            return Err(GlobalHotkeyError::Platform(
+                "the registration was withdrawn while the platform answered".into(),
+            ));
+        };
+        match outcome {
+            Ok(BackendGrant::Active) => {
+                self.entries[index].status = GlobalHotkeyStatus::Active;
+                Ok(id)
+            }
+            Ok(BackendGrant::Pending) => {
+                self.entries[index].status = GlobalHotkeyStatus::Pending;
+                Ok(id)
+            }
+            Err(e) => {
+                self.entries.remove(index);
+                Err(e)
+            }
+        }
     }
 
-    /// Register in one step.
+    /// Register in one step, asking the backend while `self` is borrowed.
+    /// For tests and single-owner use; the process-wide [`register`] splits
+    /// this so the backend runs without the lock.
     ///
     /// # Errors
-    /// Not implemented yet.
+    /// See [`Self::begin_register`] and the backend's own errors.
     pub fn register(
         &mut self,
         hotkey: GlobalHotkey,
@@ -182,74 +244,128 @@ impl GlobalHotkeyRegistry {
         self.finish_register(id, outcome)
     }
 
-    /// Forget `id`.
+    /// Forget `id` and drop its queued fires. Returns whether it existed.
+    /// Does NOT tell the backend - [`Self::unregister`] and the process-wide
+    /// [`unregister`] do.
     pub fn remove(&mut self, id: GlobalHotkeyId) -> bool {
-        let _ = (id, &self.fired);
-        false
+        let before = self.entries.len();
+        self.entries.retain(|e| e.id != id);
+        self.fired.retain(|f| *f != id);
+        self.entries.len() != before
     }
 
-    /// Forget `id` and release its grab.
+    /// Forget `id` and release its grab. Returns whether it existed.
     pub fn unregister(&mut self, id: GlobalHotkeyId) -> bool {
-        self.remove(id)
+        if !self.remove(id) {
+            return false;
+        }
+        if let Some(backend) = self.backend {
+            (backend.unregister)(id);
+        }
+        true
     }
 
-    /// A backend's late answer.
+    /// A backend's late answer for a `Pending` registration. Ignored for an
+    /// id that was unregistered in the meantime.
     pub fn report(&mut self, id: GlobalHotkeyId, outcome: Result<(), GlobalHotkeyError>) {
-        let _ = (id, outcome);
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
+            entry.status = match outcome {
+                Ok(()) => GlobalHotkeyStatus::Active,
+                Err(e) => GlobalHotkeyStatus::Failed(e),
+            };
+        }
     }
 
     /// Where `id` stands.
     #[must_use]
     pub fn status(&self, id: GlobalHotkeyId) -> GlobalHotkeyStatus {
-        let _ = id;
-        GlobalHotkeyStatus::NotRegistered
+        self.entries
+            .iter()
+            .find(|e| e.id == id)
+            .map_or(GlobalHotkeyStatus::NotRegistered, |e| e.status.clone())
     }
 
     /// The live registration holding `hotkey`, if any.
     #[must_use]
     pub fn find(&self, hotkey: &GlobalHotkey) -> Option<GlobalHotkeyId> {
-        let _ = hotkey;
-        None
+        self.entries
+            .iter()
+            .find(|e| e.hotkey == *hotkey && e.status.is_live())
+            .map(|e| e.id)
     }
 
-    /// Every registration.
+    /// Every registration, live or failed, in registration order.
     #[must_use]
     pub fn registrations(&self) -> Vec<(GlobalHotkeyId, GlobalHotkey, GlobalHotkeyStatus)> {
-        Vec::new()
+        self.entries
+            .iter()
+            .map(|e| (e.id, e.hotkey, e.status.clone()))
+            .collect()
     }
 
     /// Is any registration live?
     #[must_use]
     pub fn has_registrations(&self) -> bool {
-        false
+        self.entries.iter().any(|e| e.status.is_live())
     }
 
     /// Must the run loop wake up by itself right now?
     #[must_use]
     pub fn needs_loop_polling(&self) -> bool {
-        false
+        self.backend.is_some_and(|b| b.needs_loop_polling) && self.has_registrations()
     }
 
-    /// Park one fire.
+    /// Park one fire. Not de-duplicated: two presses between two loop
+    /// iterations are two presses. Bounded by [`MAX_PENDING_FIRES`].
     pub fn push_fired(&mut self, id: GlobalHotkeyId) {
-        let _ = id;
+        if self.fired.len() < MAX_PENDING_FIRES {
+            self.fired.push(id);
+        }
     }
 
     /// Anything parked?
     #[must_use]
     pub fn has_pending_fires(&self) -> bool {
-        false
+        !self.fired.is_empty()
     }
 
-    /// Take every parked fire.
+    /// Take every parked fire, in arrival order, with the callback to run.
+    /// A fire whose registration is gone (unregistered between the press and
+    /// this drain) or `Failed` is dropped.
     pub fn take_fired(&mut self) -> Vec<FiredHotkey> {
-        Vec::new()
+        let fired = core::mem::take(&mut self.fired);
+        fired
+            .into_iter()
+            .filter_map(|id| {
+                self.entries
+                    .iter()
+                    .find(|e| e.id == id && e.status.is_live())
+                    .map(|e| FiredHotkey {
+                        id: e.id,
+                        hotkey: e.hotkey,
+                        callback: e.callback.clone(),
+                    })
+            })
+            .collect()
     }
 
-    /// Press `hotkey` as if the OS had reported it.
+    /// Press `hotkey` as if the OS had reported it: park a fire for the live
+    /// registration holding it. `false` when nothing holds it.
     pub fn simulate(&mut self, hotkey: &GlobalHotkey) -> bool {
-        let _ = hotkey;
-        false
+        match self.find(hotkey) {
+            Some(id) => {
+                self.push_fired(id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn next_id(&mut self) -> GlobalHotkeyId {
+        // Never reused: a stale id held by the app must not start meaning a
+        // different combination. 0 is skipped so it can mean "none" in C.
+        self.last_id = self.last_id.wrapping_add(1).max(1);
+        GlobalHotkeyId { id: self.last_id }
     }
 }
 

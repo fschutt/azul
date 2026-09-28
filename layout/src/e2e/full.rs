@@ -2479,6 +2479,21 @@ pub enum DebugEvent {
         set: serde_json::Value,
     },
 
+    /// `{ "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" }` - press a
+    /// registered SYSTEM-WIDE hotkey, as if the OS had reported it.
+    ///
+    /// The accelerator is parsed like `GlobalHotkey::parse` (case, spacing
+    /// and modifier order are irrelevant; `CmdOrCtrl` is the host's primary
+    /// modifier). The fire is parked in the process-wide mailbox and the run
+    /// loop delivers it - the callback has run by the next `wait_frame`. An
+    /// error when the accelerator does not parse or no registration holds
+    /// it. Under `AZ_BACKEND=headless` nothing is grabbed at the OS (the
+    /// simulated backend is installed); on a real backend this presses the
+    /// registration without the keyboard.
+    GlobalHotkey {
+        accelerator: String,
+    },
+
     /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
     ///
     /// Scenario-level `printf`. Without it the only way to see what an op
@@ -14776,6 +14791,32 @@ pub fn process_debug_event(
             Ok(()) => send_ok(request, None, None),
             Err(e) => send_err(request, e),
         },
+
+        DebugEvent::GlobalHotkey { accelerator } => {
+            match azul_core::global_hotkey::GlobalHotkey::parse(accelerator) {
+                Err(e) => send_err(request, format!("global_hotkey: {e}")),
+                Ok(hotkey) => {
+                    if crate::managers::global_hotkey::simulate(&hotkey) {
+                        // Wake the loop: the fire is delivered by the run
+                        // loop's hotkey pump, not inside this op.
+                        needs_update = true;
+                        send_ok(request, None, None);
+                    } else {
+                        send_err(
+                            request,
+                            format!(
+                                "global_hotkey: no registration holds {} (registered: {:?})",
+                                hotkey.to_display_string().as_str(),
+                                crate::managers::global_hotkey::registrations()
+                                    .iter()
+                                    .map(|(_, h, _)| h.to_display_string().as_str().to_string())
+                                    .collect::<Vec<_>>()
+                            ),
+                        );
+                    }
+                }
+            }
+        }
 
         DebugEvent::TakeScreenshot => {
             log(
