@@ -6570,4 +6570,86 @@ mod tests {
             tab_index: TabIndex::Auto,
         });
     }
+
+    /// Arrow keys walk a scroll box the css-nav-1 way in the HEADLESS runner,
+    /// driven through `key_down`, with the live scroll state.
+    ///
+    /// `body(0) > [scroller(1) > [a0(2), a1(3), a2(4), a3(5)], outside(6)]`:
+    /// the scroller is 80px tall (`overflow-y: auto`) and holds four 40px
+    /// items, so two are visible at a time; `outside` sits right under it.
+    ///
+    /// Down from the top: move to the next VISIBLE item; when the next one is
+    /// scrolled out of view, SCROLL the box instead; once the box is at its
+    /// bottom, leave it for `outside`. Ten presses are more than the eight the
+    /// walk needs, and the two spare ones must change nothing.
+    #[test]
+    fn arrow_down_walks_a_scroll_box_scrolling_it_and_then_leaves_it() {
+        use azul_core::dom::TabIndex;
+
+        let item = |h: u32| {
+            Dom::create_div()
+                .with_tab_index(TabIndex::OverrideInParent(0))
+                .with_css(
+                    format!("display: block; width: 100px; height: {h}px; margin: 0; padding: 0;")
+                        .as_str(),
+                )
+        };
+        let dom = Dom::create_body()
+            .with_css("margin: 0; padding: 0;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: block; width: 200px; height: 80px; margin: 0; padding: 0; \
+                         overflow-y: auto;",
+                    )
+                    .with_child(item(40))
+                    .with_child(item(40))
+                    .with_child(item(40))
+                    .with_child(item(40)),
+            )
+            .with_child(item(20));
+        let styled_dom = StyledDom::create_from_dom(dom);
+
+        let mut steps = vec![
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "key_down", "key": "Tab" }),
+            serde_json::json!({ "op": "key_up", "key": "Tab" }),
+            serde_json::json!({ "op": "wait_frame" }),
+        ];
+        for _ in 0..10 {
+            steps.push(serde_json::json!({ "op": "key_down", "key": "Down" }));
+            steps.push(serde_json::json!({ "op": "key_up", "key": "Down" }));
+            steps.push(serde_json::json!({ "op": "wait_frame" }));
+        }
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "arrow_down_walks_a_scroll_box",
+            "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+            "steps": steps,
+        }))
+        .expect("scenario json");
+
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let outside = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(6))),
+        };
+        assert_eq!(
+            runner.layout_window.focus_manager.focused_node,
+            Some(outside),
+            "Down must walk the list, scrolling it, and leave it for the box underneath once the \
+             list is at its bottom",
+        );
+        let offset = runner
+            .layout_window
+            .scroll_manager
+            .get_current_offset(DomId::ROOT_ID, NodeId::new(1))
+            .unwrap_or_default();
+        assert!(
+            offset.y >= 60.0,
+            "the arrow keys must have scrolled the box to (near) its 80px maximum, got {:.1}",
+            offset.y,
+        );
+    }
 }
