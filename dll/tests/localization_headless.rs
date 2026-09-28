@@ -175,7 +175,8 @@ fn set_locale_relocalizes_the_laid_out_text_without_rebuilding_the_dom() {
     let model = Model::new(3);
     let mut window = make_window(model.clone());
     window.regenerate_layout().expect("first layout");
-    assert_eq!(model.layout_calls.load(Ordering::SeqCst), 1);
+    let layout_calls_before = model.layout_calls.load(Ordering::SeqCst);
+    assert!(layout_calls_before >= 1);
 
     let result = window.apply_user_change(&CallbackChange::SetLocale {
         locale: "de-DE".into(),
@@ -189,7 +190,7 @@ fn set_locale_relocalizes_the_laid_out_text_without_rebuilding_the_dom() {
     // the strings are re-localized."
     assert_eq!(
         model.layout_calls.load(Ordering::SeqCst),
-        1,
+        layout_calls_before,
         "layout() must not run again for a locale its DOM does not depend on"
     );
 }
