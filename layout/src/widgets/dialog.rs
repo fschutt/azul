@@ -724,7 +724,9 @@ pub(crate) struct DialogClasses {
     pub invoker: &'static [IdOrClass],
     pub window: &'static [IdOrClass],
     pub panel: &'static [IdOrClass],
+    pub title: &'static [IdOrClass],
     pub content: &'static [IdOrClass],
+    pub close: &'static [IdOrClass],
 }
 
 impl DialogClasses {
@@ -733,7 +735,9 @@ impl DialogClasses {
         invoker: &[],
         window: &[],
         panel: &[],
+        title: &[],
         content: &[],
+        close: &[],
     };
 }
 
@@ -824,9 +828,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     if !title.as_str().is_empty() {
         panel_children.push(
             crate::widgets::widget_p_with_text(title.clone())
-                .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
-                    AzString::from_const_str(DIALOG_TITLE_CLASS)
-                )]))
+                .with_ids_and_classes(classes(DIALOG_TITLE_CLASS, extra.title))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     DIALOG_TITLE_STYLE,
                 )),
@@ -850,9 +852,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         // that should be the content's first control, not "close".
         panel_children.push(
             crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
-                .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
-                    AzString::from_const_str(DIALOG_CLOSE_CLASS)
-                )]))
+                .with_ids_and_classes(classes(DIALOG_CLOSE_CLASS, extra.close))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     DIALOG_CLOSE_STYLE,
                 ))
@@ -1202,7 +1202,7 @@ static DIALOG_INVOKER_STYLE: &[CssPropertyWithConditions] = &[
 
 /// The default `::backdrop`: the modal dialog's whole window, dimmed, with
 /// the panel centred on it.
-fn default_backdrop_style() -> CssPropertyWithConditionsVec {
+pub(crate) fn default_backdrop_style() -> CssPropertyWithConditionsVec {
     let bg_vec = StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
         BACKDROP_COLOR
     )]);

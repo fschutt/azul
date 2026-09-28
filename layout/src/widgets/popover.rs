@@ -385,7 +385,9 @@ impl Popover {
                 invoker: POPOVER_TRIGGER_CLASS,
                 window: &[],
                 panel: POPOVER_CONTENT_CLASS,
+                title: &[],
                 content: &[],
+                close: &[],
             },
         })
     }

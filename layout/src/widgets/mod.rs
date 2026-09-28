@@ -233,10 +233,10 @@ pub mod menubar;
 ///
 /// See `microphone.rs`.
 pub mod microphone;
-/// Modal / dialog widget.
+/// Modal widget.
 ///
-/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state
-/// toggle; see `modal.rs`.
+/// HTML `showModal()`: a titled panel over a dimmed backdrop covering the window, Escape closes
+/// it; a front-end over `dialog`; see `modal.rs`.
 pub mod modal;
 /// Node graph widget
 pub mod node_graph;
