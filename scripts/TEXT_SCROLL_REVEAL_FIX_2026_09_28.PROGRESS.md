@@ -28,21 +28,18 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 - 5472f5e7f fix step 2: `is_engine_seek`, `retire_engine_seek` in scroll_timer.rs; finger/
   momentum arm retires; wheel arm filters engine targets for its base.
 
+- 1c52c2f4e chore: this progress file.
+- 1ab63b01d test(layout) RED step 3: `layout/tests/a_selection_reveal_shows_its_focus_end.rs`
+  (registered) — range 0..150 reveal must show the focus; control 160..170 shown whole.
+
 ## IN PROGRESS
 
-- Step 3 RED test (not yet written): new file
-  `layout/tests/a_selection_reveal_shows_its_focus_end.rs` — real TextInput, 200-char value,
-  200px window, press to open session, `set_focused_selection_from_byte_range(0, 150)`
-  (focus = end = 150), finalize (register), `scroll_selection_into_view(Selection, Instant)`
-  with `SystemAnimations::disabled()`; assert `get_focused_cursor_rect_viewport()` (primary
-  cursor of a Range = `r.end` = focus) is inside the value `<p>` box. Today: bounding rect
-  (0..150) wider than the port -> left edge tested first -> offset clamps to 0 -> focus off-screen.
+- Step 3 fix: in `scroll_selection_into_view` (window.rs), `SelectionScrollType::Selection`
+  reveals the bounding rect only when it fits the scrollport, else the focus-end caret rect
+  (`get_focused_cursor_rect()` = primary cursor = range end).
 
 ## NEXT (in order)
 
-1. Step 3 fix: in `scroll_selection_into_view`, `SelectionScrollType::Selection` reveals the
-   bounding rect only when it fits the scrollport, else the focus-end caret rect
-   (`get_focused_cursor_rect()` = primary cursor = range end). Same for multi-range.
 2. Step 4 (structural, RED impossible; contract tests in the same commit): replace
    `ScrollManager::last_view_action`/`ViewAction`/`note_reveal_intent` with
    `pending_reveal: Option<RevealRequest>` (`RevealRequest::{Caret, Selection}`),
