@@ -591,7 +591,7 @@ mod video_status_contract {
     #[test]
     fn progress_is_the_position_over_the_length_clamped() {
         let at = |position_s: f32, duration_s: f32| {
-            VideoStatus::new(VideoPhase::Playing, position_s, duration_s).progress()
+            VideoStatus::create(VideoPhase::Playing, position_s, duration_s).progress()
         };
         assert_eq!(at(2.5, 10.0), 0.25);
         assert_eq!(at(12.0, 10.0), 1.0);

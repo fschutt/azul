@@ -1773,7 +1773,7 @@ impl CallbackInfo {
     }
 
     /// css-nav-1 `element.focusableAreas({ mode })`: the focusable
-    /// descendants of `node_id` in document order (the Tab pool: tabindex −1
+    /// descendants of `node_id` in document order (the Tab pool: tabindex -1
     /// excluded). `FocusableAreaSearchMode::Visible` keeps only the ones at
     /// least partly on screen - inside every scrollport above them.
     #[must_use]

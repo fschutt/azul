@@ -249,7 +249,7 @@ fn invalid(why: String) -> GlobalHotkeyError {
 impl GlobalHotkey {
     /// A combination from its parts. Not validated - see [`Self::validate`].
     #[must_use]
-    pub const fn new(modifiers: HotkeyModifiers, key: VirtualKeyCode) -> Self {
+    pub const fn create(modifiers: HotkeyModifiers, key: VirtualKeyCode) -> Self {
         Self { modifiers, key }
     }
 

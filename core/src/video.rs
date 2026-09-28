@@ -144,12 +144,12 @@ impl VideoStatus {
     /// Nothing decoded yet: the status a video starts in.
     #[must_use]
     pub const fn loading() -> Self {
-        Self::new(VideoPhase::Loading, 0.0, 0.0)
+        Self::create(VideoPhase::Loading, 0.0, 0.0)
     }
 
     /// `phase` at `position_s` of a video `duration_s` long, with no message.
     #[must_use]
-    pub const fn new(phase: VideoPhase, position_s: f32, duration_s: f32) -> Self {
+    pub const fn create(phase: VideoPhase, position_s: f32, duration_s: f32) -> Self {
         Self {
             message: AzString::from_const_str(""),
             position_s,

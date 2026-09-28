@@ -8222,6 +8222,34 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "is_window_active": {
+                                "doc": [
+                                    "Does this window hold the OS keyboard focus - is it the active / key",
+                                    "window? THE one reading of the two flags that say so.",
+                                    "",
+                                    "Every backend writes `window_focused` on activation (macOS",
+                                    "`windowDidBecomeKey`, X11 `FocusIn`, Wayland `wl_keyboard.enter`,",
+                                    "Win32 `WM_SETFOCUS`); only Win32 also writes `flags.has_focus`, which",
+                                    "is an OS-SYNCED request flag (setting it asks for the foreground) and",
+                                    "therefore stays at its default `true` everywhere else. Reading one",
+                                    "flag or the other made \"is the window focused\" platform-dependent:",
+                                    "the cascade read `has_focus` (so `:backdrop` could only ever match on",
+                                    "Windows) while the caret blink read `window_focused`. Both default to",
+                                    "`true`, so a window no OS ever reported on (headless, a test) counts",
+                                    "as active."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_window_active()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "IOSHandle": {
@@ -9350,6 +9378,35 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_dll::unified::capability::PlatformCapability::video_codec()"
+                            },
+                            "global_hotkeys": {
+                                "doc": [
+                                    "Probe system-wide (global) hotkeys - `CallbackInfo::register_global_hotkey`.",
+                                    "",
+                                    "macOS: Carbon `RegisterEventHotKey`, no permission needed. Windows:",
+                                    "`RegisterHotKey`. Linux under X11: `XGrabKey` (needs `$DISPLAY`).",
+                                    "Linux under Wayland: the xdg-desktop-portal `GlobalShortcuts`",
+                                    "interface, asked for REAL (one D-Bus round trip, cached) - vanilla",
+                                    "setups without a backend implementing it report `false` with the",
+                                    "reason. iOS / Android / web: `false`. A headless run reports the",
+                                    "simulation. `available` is about the platform; a combination can",
+                                    "still be refused (another app owns it) at registration."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::capability::PlatformCapability::global_hotkeys()"
+                            },
+                            "notifications": {
+                                "doc": [
+                                    "Probe native desktop notifications (`CallbackInfo::post_notification`).",
+                                    "macOS: `UNUserNotificationCenter`, available only when the process runs",
+                                    "from a `.app` bundle with a `CFBundleIdentifier` (an unbundled binary",
+                                    "reports `false` and says why - UN would abort it). Linux: a real query",
+                                    "of `org.freedesktop.Notifications` on the session bus (cached 10 s).",
+                                    "Windows: a notification-area balloon (no buttons, one at a time).",
+                                    "Headless, mobile and web: `false`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::capability::PlatformCapability::notifications()"
                             }
                         },
                         "repr": "C"
@@ -19111,6 +19168,256 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_media_muted(node)"
+                            },
+                            "register_global_hotkey": {
+                                "doc": [
+                                    "Register a SYSTEM-WIDE hotkey: `callback` runs with `data` whenever",
+                                    "the combination is pressed, even while another application has the",
+                                    "keyboard focus.",
+                                    "",
+                                    "App-wide, not per window: every platform grabs a hotkey for the",
+                                    "process, so the callback runs against the app's first window (the",
+                                    "tray's menu clicks take the same route) and the registration outlives",
+                                    "the window that made it. Call [`Self::raise_window`] from the callback",
+                                    "to bring the app forward.",
+                                    "",
+                                    "Answered NOW: `Err` when the combination is not a usable hotkey",
+                                    "(`InvalidAccelerator` - e.g. a bare letter, which would swallow typing",
+                                    "everywhere), this app holds it already (`AlreadyRegistered`), another",
+                                    "application or the system owns it (`TakenByAnotherApp`), or the",
+                                    "platform has no global hotkeys (`Unsupported` / `Unavailable`). On a",
+                                    "Wayland desktop the portal may still ask the user, so a registration",
+                                    "can be `Pending` and later `Failed` - see",
+                                    "[`Self::get_global_hotkey_status`].",
+                                    "",
+                                    "# Errors",
+                                    "See above."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultGlobalHotkeyIdGlobalHotkeyError"
+                                },
+                                "fn_body": "object.register_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "set_tab_index": {
+                                "doc": [
+                                    "Move a node into or out of the Tab order (applied after the callback",
+                                    "returns).",
+                                    "",
+                                    "`TabIndex::Auto` makes `node_id` a tab stop; `TabIndex::NoKeyboardFocus`",
+                                    "takes it out of sequential navigation while it stays focusable by click",
+                                    "and through [`Self::set_focus`]. A composite widget uses the pair to keep",
+                                    "its ROVING tab stop on the active item: the whole group is one stop, and",
+                                    "the arrow key that moves the active item moves the stop with it.",
+                                    "",
+                                    "A `DomNodeId` that names no node is ignored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "tab_index": "TabIndex"
+                                    }
+                                ],
+                                "fn_body": "object.set_tab_index(node_id, tab_index)"
+                            },
+                            "spatial_navigation_search": {
+                                "doc": [
+                                    "css-nav-1 `element.spatialNavigationSearch(dir, options)`: the node an",
+                                    "arrow in `direction` would pick from `node_id`, among",
+                                    "`options.candidates` (or the visible focusable areas of the container)",
+                                    "inside `options.container` (or the node's nearest container), by that",
+                                    "container's `spatial-navigation-function`. It does not climb out of the",
+                                    "container and never scrolls; `None` when nothing lies that way."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "direction": "FocusDirection"
+                                    },
+                                    {
+                                        "options": "SpatialNavigationSearchOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDomNodeId"
+                                },
+                                "fn_body": "object.spatial_navigation_search(node_id, direction, options).into()"
+                            },
+                            "get_spatial_navigation_container": {
+                                "doc": [
+                                    "css-nav-1 `element.getSpatialNavigationContainer()`: the nearest",
+                                    "ANCESTOR of `node_id` that is a spatial navigation container (a scroll",
+                                    "container, or `spatial-navigation-contain: contain`) - never the node",
+                                    "itself - or its DOM's root node (the document) when there is none.",
+                                    "`None` only for a node that does not exist."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDomNodeId"
+                                },
+                                "fn_body": "object.get_spatial_navigation_container(node_id).into()"
+                            },
+                            "post_notification": {
+                                "doc": [
+                                    "Show a native desktop notification: a banner in macOS's Notification",
+                                    "Center, a freedesktop notification on Linux, a balloon/toast from the",
+                                    "notification area on Windows.",
+                                    "",
+                                    "Returns immediately. Posting a notification whose id is still showing",
+                                    "replaces it. What the user then does with it - a click, a button, a",
+                                    "dismissal - or why it could not be shown arrives at the notification's",
+                                    "own callback (`Notification::with_callback`), which reads it with",
+                                    "[`CallbackInfo::get_notification_event`]. Whether this platform can",
+                                    "show one at all: `PlatformCapability::notifications()`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "notification": "Notification"
+                                    }
+                                ],
+                                "fn_body": "object.post_notification(notification)"
+                            },
+                            "withdraw_notification": {
+                                "doc": [
+                                    "Take the notification posted under `id` off the screen. Its callback",
+                                    "is forgotten: a withdrawn notification reports nothing more."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.withdraw_notification(id)"
+                            },
+                            "get_notification_event": {
+                                "doc": [
+                                    "Inside a notification's callback: what happened to it (clicked, a",
+                                    "button, dismissed, failed to show). `None` in any other callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNotificationEvent"
+                                },
+                                "fn_body": "object.get_notification_event().into()"
+                            },
+                            "raise_window": {
+                                "doc": [
+                                    "Bring this window - and the app - to the front, taking the keyboard",
+                                    "focus. The natural answer to a global hotkey that summons the app.",
+                                    "",
+                                    "A REQUEST, which each platform answers by its own focus-stealing",
+                                    "policy: macOS activates the app and orders the window front; Windows",
+                                    "allows it only while this process may take the foreground, which it",
+                                    "may right after one of its global hotkeys fired (the press counts as",
+                                    "input to this process); X11 asks the window manager",
+                                    "(`_NET_ACTIVE_WINDOW`); Wayland refuses by design (`xdg_activation`",
+                                    "needs an input serial this request cannot have). A refusal is logged."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.raise_window()"
+                            },
+                            "unregister_global_hotkey": {
+                                "doc": [
+                                    "Release a global hotkey. Returns whether `id` was registered."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "GlobalHotkeyId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.unregister_global_hotkey(id)"
+                            },
+                            "get_global_hotkey_status": {
+                                "doc": [
+                                    "Where a global-hotkey registration stands: `Active`, `Pending` (the",
+                                    "desktop has not answered yet - Wayland), `Failed` with the reason, or",
+                                    "`NotRegistered`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "id": "GlobalHotkeyId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyStatus"
+                                },
+                                "fn_body": "object.get_global_hotkey_status(id)"
+                            },
+                            "get_focusable_areas": {
+                                "doc": [
+                                    "css-nav-1 `element.focusableAreas({ mode })`: the focusable",
+                                    "descendants of `node_id` in document order (the Tab pool: tabindex -1",
+                                    "excluded). `FocusableAreaSearchMode::Visible` keeps only the ones at",
+                                    "least partly on screen - inside every scrollport above them."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "mode": "FocusableAreaSearchMode"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "object.get_focusable_areas(node_id, mode)"
                             }
                         },
                         "repr": "C"
@@ -22050,6 +22357,49 @@
                             ],
                             "returns": {
                                 "type": "VideoSetup"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OnVideoStatusCallbackType": {
+                        "external": "azul_layout::widgets::video::OnVideoStatusCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "VideoStatus"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TreeViewOnNodeToggleCallbackType": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeToggleCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                },
+                                {
+                                    "type": "bool"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
                             }
                         },
                         "repr": "C"
@@ -32525,6 +32875,91 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TreeViewOnNodeToggleCallback": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeToggleCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "TreeViewOnNodeToggleCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnVideoStatusCallback": {
+                        "external": "azul_layout::widgets::video::OnVideoStatusCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnVideoStatusCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FocusableAreaSearchMode": {
+                        "external": "azul_core::callbacks::FocusableAreaSearchMode",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Visible": {},
+                                "All": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -33534,6 +33969,9 @@
                                 },
                                 "SpatialNavigationContain": {
                                     "type": "StyleSpatialNavigationContainValue"
+                                },
+                                "SpatialNavigationFunction": {
+                                    "type": "StyleSpatialNavigationFunctionValue"
                                 },
                                 "MixBlendMode": {
                                     "type": "StyleMixBlendModeValue"
@@ -46194,6 +46632,7 @@
                                 "AppRegion": {},
                                 "SpatialNavigationAction": {},
                                 "SpatialNavigationContain": {},
+                                "SpatialNavigationFunction": {},
                                 "MixBlendMode": {},
                                 "Filter": {},
                                 "BackdropFilter": {},
@@ -53852,6 +54291,37 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleSpatialNavigationFunctionValue": {
+                        "external": "azul_css::props::property::StyleSpatialNavigationFunctionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleSpatialNavigationFunction"
+                            ]
+                        }
+                    },
+                    "StyleSpatialNavigationFunction": {
+                        "external": "azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Grid": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -57217,74 +57687,34 @@
                         "struct_fields": [
                             {
                                 "columns": {
-                                    "type": "StringVec",
-                                    "doc": [
-                                        "Column names"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "StringVec"
+                                },
                                 "rows": {
-                                    "type": "ListViewRowVec",
-                                    "doc": [
-                                        "Currently rendered rows. Note that the ListView does not have to render all rows at once, usually you'd only render the top 100 rows"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "ListViewRowVec"
+                                },
                                 "sorted_by": {
-                                    "type": "OptionUsize",
-                                    "doc": [
-                                        "Which column is the list view sorted by (default = None)?"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionUsize"
+                                },
                                 "scroll_offset": {
-                                    "type": "PixelValueNoPercent",
-                                    "doc": [
-                                        "Offset to add to the rows used when layouting row positions during lazy-loaded scrolling. Also affects the scroll position"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "PixelValueNoPercent"
+                                },
                                 "content_height": {
-                                    "type": "OptionPixelValueNoPercent",
-                                    "doc": [
-                                        "Height of the content, if not all rows are loaded"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionPixelValueNoPercent"
+                                },
                                 "column_context_menu": {
-                                    "type": "OptionMenu",
-                                    "doc": [
-                                        "Context menu for the columns (usually opens a context menu to select which columns to show)"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionMenu"
+                                },
                                 "on_lazy_load_scroll": {
-                                    "type": "OptionListViewOnLazyLoadScroll",
-                                    "doc": [
-                                        "Indicates that this ListView is being lazily loaded, allows control over what happens when the user scrolls the ListView."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionListViewOnLazyLoadScroll"
+                                },
                                 "on_column_click": {
-                                    "type": "OptionListViewOnColumnClick",
-                                    "doc": [
-                                        "What to do when the user left-clicks the column (usually used for storing which column to sort by)"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionListViewOnColumnClick"
+                                },
                                 "on_row_click": {
-                                    "type": "OptionListViewOnRowClick",
-                                    "doc": [
-                                        "What to do when the user left-clicks a row (usually used for selecting the row depending on the state)"
-                                    ]
+                                    "type": "OptionListViewOnRowClick"
+                                },
+                                "selected_row": {
+                                    "type": "OptionUsize"
                                 }
                             }
                         ],
@@ -57536,6 +57966,38 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_row_click(refany, on_row_click)"
+                            },
+                            "set_selected_row": {
+                                "doc": [
+                                    "Which row is selected: the row Tab lands on (the list is one Tab stop).",
+                                    "`None` - or an index past the last row - puts the stop on the first row."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "selected_row": "OptionUsize"
+                                    }
+                                ],
+                                "fn_body": "object.set_selected_row(selected_row)"
+                            },
+                            "with_selected_row": {
+                                "doc": [
+                                    "Builder form of [`Self::set_selected_row`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "selected_row": "OptionUsize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ListView"
+                                },
+                                "fn_body": "object.with_selected_row(selected_row)"
                             }
                         },
                         "repr": "C"
@@ -58226,6 +58688,9 @@
                                 },
                                 "on_node_click": {
                                     "type": "OptionTreeViewOnNodeClick"
+                                },
+                                "on_node_toggle": {
+                                    "type": "OptionTreeViewOnNodeToggle"
                                 }
                             }
                         ],
@@ -58283,6 +58748,43 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_on_node_toggle": {
+                                "doc": [
+                                    "Sets the callback invoked when the keyboard asks to open or close a node."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TreeViewOnNodeToggleCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_node_toggle(data, callback)"
+                            },
+                            "with_on_node_toggle": {
+                                "doc": [
+                                    "Builder method: sets the node-toggle callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TreeViewOnNodeToggleCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeView"
+                                },
+                                "fn_body": "object.with_on_node_toggle(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -59035,6 +59537,9 @@
                                 },
                                 "on_mount": {
                                     "type": "OptionVideoMount"
+                                },
+                                "on_status": {
+                                    "type": "OptionOnVideoStatus"
                                 }
                             }
                         ],
@@ -59176,6 +59681,47 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_mount(data, callback)"
+                            },
+                            "set_on_status": {
+                                "doc": [
+                                    "Set a hook fired whenever the video's pipeline reports a",
+                                    "[`VideoStatus`]: loading, the first frame on screen (held as a poster",
+                                    "or playing), the position about four times a second while it plays,",
+                                    "the end, or a failure with a message for the user. This is where an",
+                                    "app drives its play button, its time display and its error text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "OnVideoStatusCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_status(data, callback)"
+                            },
+                            "with_on_status": {
+                                "doc": [
+                                    "Builder form of [`set_on_status`](Self::set_on_status)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "OnVideoStatusCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "VideoWidget"
+                                },
+                                "fn_body": "object.with_on_status(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -68433,6 +68979,38 @@
                                 },
                                 "callback": {
                                     "type": "VideoMountCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TreeViewOnNodeToggle": {
+                        "external": "azul_layout::widgets::tree_view::TreeViewOnNodeToggle",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "TreeViewOnNodeToggleCallback"
                                 }
                             }
                         ],
@@ -86138,6 +86716,26 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CssSpatialNavigationFunctionParseErrorOwned": {
+                        "external": "azul_css::props::style::spatial_nav::CssSpatialNavigationFunctionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -113394,6 +113992,215 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "NotificationActionVecDestructorType": {
+                        "external": "azul_core::notification::NotificationActionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "NotificationActionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "NotificationActionVecDestructor": {
+                        "external": "azul_core::notification::NotificationActionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "NotificationActionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NotificationActionVec": {
+                        "external": "azul_core::notification::NotificationActionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NotificationAction",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "NotificationActionVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `NotificationActionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "NotificationActionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `NotificationActionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NotificationActionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "notification_action_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "notification_action_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "notification_action_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `NotificationActionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "NotificationAction"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NotificationActionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `NotificationActionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const NotificationAction"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NotificationActionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNotificationAction"
+                                },
+                                "fn_body": "notification_action_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `NotificationActionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NotificationActionVecSlice"
+                                },
+                                "fn_body": "notification_action_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NotificationActionVecSlice"
+                                },
+                                "fn_body": "notification_action_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -120222,6 +121029,175 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionOnVideoStatus": {
+                        "external": "azul_layout::widgets::video::OptionOnVideoStatus",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnVideoStatus"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTreeViewOnNodeToggle": {
+                        "external": "azul_layout::widgets::tree_view::OptionTreeViewOnNodeToggle",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TreeViewOnNodeToggle"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SpatialNavigationSearchOptions": {
+                        "external": "azul_core::callbacks::SpatialNavigationSearchOptions",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "candidates": {
+                                    "type": "OptionDomNodeIdVec"
+                                },
+                                "container": {
+                                    "type": "OptionDomNodeId"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OptionNotificationCallback": {
+                        "external": "azul_core::notification::OptionNotificationCallback",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "NotificationCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDomNodeIdVec": {
+                        "external": "azul_core::dom::OptionDomNodeIdVec",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DomNodeIdVec"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNotificationEvent": {
+                        "external": "azul_core::notification::OptionNotificationEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "NotificationEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNotificationAction": {
+                        "external": "azul_core::notification::OptionNotificationAction",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "NotificationAction",
+                                    "doc": [
+                                        "Some value of type NotificationAction"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -122423,6 +123399,9 @@
                                 "SpatialNavigationContain": {
                                     "type": "CssSpatialNavigationContainParseErrorOwned"
                                 },
+                                "SpatialNavigationFunction": {
+                                    "type": "CssSpatialNavigationFunctionParseErrorOwned"
+                                },
                                 "MixBlendMode": {
                                     "type": "MixBlendModeParseErrorOwned"
                                 },
@@ -122870,6 +123849,94 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "GlobalHotkeyError": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyError",
+                        "custom_impls": [
+                            "Display"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidAccelerator": {
+                                    "type": "String"
+                                },
+                                "AlreadyRegistered": {
+                                    "type": "GlobalHotkeyId"
+                                },
+                                "TakenByAnotherApp": {},
+                                "KeyNotMappable": {},
+                                "Denied": {},
+                                "Unavailable": {
+                                    "type": "String"
+                                },
+                                "Unsupported": {},
+                                "Platform": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "to_display_string": {
+                                "doc": [
+                                    "The message [`fmt::Display`] prints, as an `AzString` for the C API."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.to_display_string().into()"
+                            }
+                        },
+                        "repr": "C, u8"
+                    },
+                    "ResultGlobalHotkeyIdGlobalHotkeyError": {
+                        "external": "azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "GlobalHotkeyId"
+                                },
+                                "Err": {
+                                    "type": "GlobalHotkeyError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultGlobalHotkeyGlobalHotkeyError": {
+                        "external": "azul_core::global_hotkey::ResultGlobalHotkeyGlobalHotkeyError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "GlobalHotkey"
+                                },
+                                "Err": {
+                                    "type": "GlobalHotkeyError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -123165,6 +124232,61 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_tray_available()"
+                            },
+                            "register_global_hotkey": {
+                                "doc": [
+                                    "Register a SYSTEM-WIDE hotkey before `run()`: `callback` runs with",
+                                    "`data` whenever the combination is pressed, even while another app",
+                                    "has the keyboard focus. The same registry as",
+                                    "`CallbackInfo::register_global_hotkey` - use this one where no",
+                                    "callback runs before the hotkey is needed (a tray-only utility's",
+                                    "summon key).",
+                                    "",
+                                    "Takes effect immediately on the platforms that answer immediately",
+                                    "(macOS, Windows, X11); on a Wayland desktop the portal may ask the",
+                                    "user once the app runs. A run that turns out headless moves the",
+                                    "registration onto the simulation (nothing grabbed at the OS).",
+                                    "",
+                                    "# Errors",
+                                    "See `GlobalHotkeyError`: not a usable combination, already held by",
+                                    "this app, owned by another app, or no global hotkeys here."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultGlobalHotkeyIdGlobalHotkeyError"
+                                },
+                                "fn_body": "object.register_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "unregister_global_hotkey": {
+                                "doc": [
+                                    "Release a global hotkey registered through this `App` or a callback.",
+                                    "Returns whether `id` was registered."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "GlobalHotkeyId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.unregister_global_hotkey(id)"
                             }
                         },
                         "repr": "C"
@@ -123341,6 +124463,234 @@
                                 "System": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyId": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyId",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyStatus": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NotRegistered": {},
+                                "Pending": {},
+                                "Active": {},
+                                "Failed": {
+                                    "type": "GlobalHotkeyError"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "is_live": {
+                                "doc": [
+                                    "`Pending` or `Active`: the registration counts as held."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_live()"
+                            }
+                        },
+                        "repr": "C, u8"
+                    },
+                    "HotkeyModifiers": {
+                        "external": "azul_core::global_hotkey::HotkeyModifiers",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ctrl": {
+                                    "type": "bool"
+                                },
+                                "alt": {
+                                    "type": "bool"
+                                },
+                                "shift": {
+                                    "type": "bool"
+                                },
+                                "meta": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "primary": {
+                                "doc": [
+                                    "[`Self::primary_for`] for the host this process runs on."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::global_hotkey::HotkeyModifiers::primary()"
+                            }
+                        },
+                        "functions": {
+                            "is_empty": {
+                                "doc": [
+                                    "No modifier is required."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_empty()"
+                            },
+                            "union": {
+                                "doc": [
+                                    "Both sets together."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "other": "HotkeyModifiers"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HotkeyModifiers"
+                                },
+                                "fn_body": "object.union(other)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkey": {
+                        "external": "azul_core::global_hotkey::GlobalHotkey",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "modifiers": {
+                                    "type": "HotkeyModifiers"
+                                },
+                                "key": {
+                                    "type": "VirtualKeyCode"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A combination from its parts. Not validated - see [`Self::validate`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "modifiers": "HotkeyModifiers"
+                                    },
+                                    {
+                                        "key": "VirtualKeyCode"
+                                    }
+                                ],
+                                "fn_body": "azul_core::global_hotkey::GlobalHotkey::create(modifiers, key)"
+                            },
+                            "parse": {
+                                "doc": [
+                                    "Parse an accelerator string for the host platform, e.g.",
+                                    "`\"Cmd+Shift+K\"`, `\"Ctrl+Alt+K\"`, `\"CmdOrCtrl+Shift+Space\"`, `\"F13\"`.",
+                                    "",
+                                    "See [`Self::parse_for`] for the grammar.",
+                                    "",
+                                    "# Errors",
+                                    "[`GlobalHotkeyError::InvalidAccelerator`] with the reason."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "accelerator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultGlobalHotkeyGlobalHotkeyError"
+                                },
+                                "fn_body": "azul_core::global_hotkey::GlobalHotkey::parse(accelerator.as_str()).into()"
+                            },
+                            "from_combo": {
+                                "doc": [
+                                    "Convert a menu-style [`VirtualKeyCodeCombo`] for the host platform.",
+                                    "",
+                                    "# Errors",
+                                    "See [`Self::from_combo_for`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "combo": "VirtualKeyCodeCombo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultGlobalHotkeyGlobalHotkeyError"
+                                },
+                                "fn_body": "azul_core::global_hotkey::GlobalHotkey::from_combo(&combo).into()"
+                            }
+                        },
+                        "functions": {
+                            "to_display_string": {
+                                "doc": [
+                                    "The combination as a person reads it on the host platform:",
+                                    "`Cmd+Shift+K` on macOS, `Ctrl+Alt+K` on Windows (`Win` for the Windows",
+                                    "key) and Linux (`Super`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.to_display_string().into()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -130918,6 +132268,9 @@
                                 "looping": {
                                     "type": "bool"
                                 },
+                                "paused": {
+                                    "type": "bool"
+                                },
                                 "output_format": {
                                     "type": "RawImageFormat"
                                 }
@@ -130969,6 +132322,142 @@
                                 },
                                 "bytes": {
                                     "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VideoStatus": {
+                        "external": "azul_core::video::VideoStatus",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "message": {
+                                    "type": "String"
+                                },
+                                "position_s": {
+                                    "type": "f32"
+                                },
+                                "duration_s": {
+                                    "type": "f32"
+                                },
+                                "phase": {
+                                    "type": "VideoPhase"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "loading": {
+                                "doc": [
+                                    "Nothing decoded yet: the status a video starts in."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::video::VideoStatus::loading()"
+                            },
+                            "failed": {
+                                "doc": [
+                                    "The pipeline failed; `message` says why, in words for the user."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::VideoStatus::failed(message)"
+                            },
+                            "create": {
+                                "doc": [
+                                    "`phase` at `position_s` of a video `duration_s` long, with no message."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "phase": "VideoPhase"
+                                    },
+                                    {
+                                        "position_s": "f32"
+                                    },
+                                    {
+                                        "duration_s": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::VideoStatus::create(phase, position_s, duration_s)"
+                            }
+                        },
+                        "functions": {
+                            "progress": {
+                                "doc": [
+                                    "How far through the video the position is, `0.0..=1.0`: `0.0` while",
+                                    "the length is unknown, so a progress bar with no end stays empty."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.progress()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "VideoPhase": {
+                        "external": "azul_core::video::VideoPhase",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Loading": {},
+                                "Paused": {},
+                                "Playing": {},
+                                "Ended": {},
+                                "Failed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnVideoStatus": {
+                        "external": "azul_layout::widgets::video::OnVideoStatus",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnVideoStatusCallback"
                                 }
                             }
                         ],
@@ -132929,6 +134418,380 @@
                             {
                                 "ptr": {
                                     "type": "FmtArg",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "notification": {
+                "classes": {
+                    "NotificationAction": {
+                        "external": "azul_core::notification::NotificationAction",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "String"
+                                },
+                                "label": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "id": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationAction::create(id, label)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "NotificationCallback": {
+                        "external": "azul_core::notification::NotificationCallback",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "refany": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "CoreCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NotificationEvent": {
+                        "external": "azul_core::notification::NotificationEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "NotificationEventType"
+                                },
+                                "notification_id": {
+                                    "type": "String"
+                                },
+                                "action_id": {
+                                    "type": "String"
+                                },
+                                "reason": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "activated": {
+                                "fn_args": [
+                                    {
+                                        "notification_id": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationEvent::activated(notification_id)"
+                            },
+                            "dismissed": {
+                                "fn_args": [
+                                    {
+                                        "notification_id": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationEvent::dismissed(notification_id)"
+                            },
+                            "action_invoked": {
+                                "fn_args": [
+                                    {
+                                        "notification_id": "String"
+                                    },
+                                    {
+                                        "action_id": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationEvent::action_invoked(notification_id, action_id)"
+                            },
+                            "dismissed_because": {
+                                "doc": [
+                                    "A dismissal with the platform's reason attached."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "notification_id": "String"
+                                    },
+                                    {
+                                        "reason": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationEvent::dismissed_because(notification_id, reason)"
+                            },
+                            "failed": {
+                                "fn_args": [
+                                    {
+                                        "notification_id": "String"
+                                    },
+                                    {
+                                        "reason": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::NotificationEvent::failed(notification_id, reason)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "NotificationEventType": {
+                        "external": "azul_core::notification::NotificationEventType",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Activated": {},
+                                "ActionInvoked": {},
+                                "Dismissed": {},
+                                "Failed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Notification": {
+                        "external": "azul_core::notification::Notification",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "String"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "body": {
+                                    "type": "String"
+                                },
+                                "icon": {
+                                    "type": "OptionString"
+                                },
+                                "actions": {
+                                    "type": "NotificationActionVec"
+                                },
+                                "sound": {
+                                    "type": "NotificationSound"
+                                },
+                                "callback": {
+                                    "type": "OptionNotificationCallback"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A notification with a title, no body, no icon, no actions, the",
+                                    "platform's default sound and no callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "id": "String"
+                                    },
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::notification::Notification::create(id, title)"
+                            }
+                        },
+                        "functions": {
+                            "with_body": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "body": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_body(body)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "See [`Notification::icon`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_icon(path)"
+                            },
+                            "with_action": {
+                                "doc": [
+                                    "Append one button."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "id": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_action(id, label)"
+                            },
+                            "with_actions": {
+                                "doc": [
+                                    "Replace all buttons."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "actions": "NotificationActionVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_actions(actions)"
+                            },
+                            "with_sound": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "sound": "NotificationSound"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_sound(sound)"
+                            },
+                            "with_callback": {
+                                "doc": [
+                                    "Report this notification's click / action / dismissal / failure to",
+                                    "`callback`, with `data`. Inside it, `CallbackInfo::get_notification_event`",
+                                    "says which of them it was."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_callback(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "NotificationSound": {
+                        "external": "azul_core::notification::NotificationSound",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Default": {},
+                                "Silent": {},
+                                "Named": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "NotificationActionVecSlice": {
+                        "external": "azul_core::notification::NotificationActionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NotificationAction",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"

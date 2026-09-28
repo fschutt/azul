@@ -1084,7 +1084,7 @@ impl VideoPlayback {
         if !due {
             return None;
         }
-        let status = VideoStatus::new(phase, position_s, self.duration_s);
+        let status = VideoStatus::create(phase, position_s, self.duration_s);
         self.reported = Some(status.clone());
         Some(status)
     }
@@ -3191,7 +3191,7 @@ mod autotest_generated {
         let mut new = base_state(VideoConfig::default());
         new.on_status = status_hook_into(&log);
         let mut old = base_state(VideoConfig::default());
-        old.status = VideoStatus::new(VideoPhase::Playing, 3.0, 10.0);
+        old.status = VideoStatus::create(VideoPhase::Playing, 3.0, 10.0);
 
         let mut merged = merge_video_state(RefAny::new(new), RefAny::new(old));
 
@@ -3201,7 +3201,7 @@ mod autotest_generated {
         assert!(hooked, "the fresh build's hook wins");
         assert_eq!(
             stored_status(&mut merged),
-            Some(VideoStatus::new(VideoPhase::Playing, 3.0, 10.0)),
+            Some(VideoStatus::create(VideoPhase::Playing, 3.0, 10.0)),
             "a rebuild must not forget what the worker reported"
         );
     }
@@ -3228,7 +3228,7 @@ mod autotest_generated {
         let mut s = base_state(VideoConfig::default());
         s.on_status = status_hook_into(&log);
         let mut data = RefAny::new(s);
-        let poster = VideoStatus::new(VideoPhase::Paused, 0.0, 10.0);
+        let poster = VideoStatus::create(VideoPhase::Paused, 0.0, 10.0);
         let payload = RefAny::new(poster.clone());
 
         let (update, changes) =
