@@ -18,7 +18,7 @@ use azul_core::{
     events::MouseButton,
     hit_test::FullHitTest,
     menu::Menu,
-    styled_dom::{NodeHierarchyItemId, StyledDom},
+    styled_dom::{NodeHierarchyItem, NodeHierarchyItemId, StyledDom},
 };
 use azul_css::system::Platform;
 
@@ -84,7 +84,7 @@ pub fn nearest_context_menu<'a>(
                 break;
             }
             budget -= 1;
-            current = hierarchy.get(node).and_then(|h| h.parent_id());
+            current = hierarchy.get(node).and_then(NodeHierarchyItem::parent_id);
         }
         // Past the dom's root: a child dom goes on at the node hosting it.
         let (host_dom, host_node) = host_of(dom)?;
