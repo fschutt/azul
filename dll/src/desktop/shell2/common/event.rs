@@ -4789,6 +4789,7 @@ pub trait PlatformWindow {
         self.set_window_mouse_transparent(following);
         match poll_popup(self.get_current_window_state()) {
             PopupAction::Close => {
+                self.blur_focus_before_close();
                 let _ = self.request_window_close("transient.closed_by_parent");
             }
             PopupAction::Place { origin, size } => {
@@ -4802,6 +4803,56 @@ pub trait PlatformWindow {
                 self.sync_window_state();
             }
             PopupAction::Nothing => {}
+        }
+    }
+
+    /// `<transient-window>`, popup side: this popup is about to close (the
+    /// parent closed it, or it dismissed itself). Its focused control hears
+    /// `FocusLost` first - Blur, then the bubbling FocusOut - exactly as if
+    /// focus had moved away, because to the user it has: a closing window
+    /// takes its `FocusManager` with it and no Blur ever reached the node.
+    /// The picker's hex field commits on focus loss, so a typed colour was
+    /// dropped by a click back into the parent. A close is not a cancel.
+    ///
+    /// A callback that asked for a refresh refreshes every window: the popup
+    /// only mirrors the parent's subtree, and it is going away.
+    fn blur_focus_before_close(&mut self) {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+
+        let Some(focused) = self
+            .get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+        else {
+            return;
+        };
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.focus_manager
+                .set_focused_node_with_visibility(None, false);
+        }
+        let now = azul_core::task::Instant::now();
+        let events = [
+            SyntheticEvent::new(
+                EventType::Blur,
+                EventSource::User,
+                focused,
+                now.clone(),
+                EventData::None,
+            ),
+            SyntheticEvent::new(
+                EventType::FocusOut,
+                EventSource::User,
+                focused,
+                now,
+                EventData::None,
+            ),
+        ];
+        let (_, update, _, _) = self.dispatch_events_propagated(&events);
+        focus_trace!("closing popup blurred {focused:?} (callback update {update:?})");
+        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            self.request_regeneration_all_windows();
         }
     }
 
@@ -4830,6 +4881,9 @@ pub trait PlatformWindow {
                 // keyboard_state`). The parent still hears the key through its
                 // OWN window state; only this closing popup's copy is spent.
                 self.discard_input_delta("transient.dismissed");
+                // Escape CLOSES, it does not cancel: a value typed into the
+                // popup commits on the way out, like a light dismiss.
+                self.blur_focus_before_close();
                 let _ = self.request_window_close("transient.dismissed");
                 self.request_regeneration_all_windows();
             }
