@@ -24,14 +24,18 @@ file is deleted in that last commit.
     ime_document, ime_surrounding_text, set_focused_selection_from_byte_range,
     seat Backspace + seat typing block, Ctrl+D, paste per caret, preedit
     splice with affinity, Wayland surrounding text + cursor/anchor swap).
+- Task 2 (Shift+Arrow):
+  - 0c088f5b2 test: `layout/tests/shift_arrows_extend_a_document_selection.rs`
+    (registered) - 4 REDs + 1 guard.
 
 ## IN PROGRESS
 
-(nothing uncommitted)
+Task 2 fix: `extend_document_selection` in window.rs, hooked at the top of
+`apply_selection_op_for_seat` (primary seat, Extend).
 
 ## NEXT (in order)
 
-2. Task 2: RED + fix Shift+Arrow over a document selection (extend the focus
+2. Task 2 fix: RED done; Shift+Arrow over a document selection (extend the focus
    of `cross_block`; at a block edge cross into the adjacent block of
    `selection_extent(anchor)`; collapse back to a single-block range when the
    focus returns to the anchor block). Hook in `apply_selection_op_for_seat`
