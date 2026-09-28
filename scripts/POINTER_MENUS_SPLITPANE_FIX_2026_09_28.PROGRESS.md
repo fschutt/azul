@@ -58,9 +58,16 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
 - `b363231cf` S3 FIX: `on_split_key` (divider, Focus VirtualKeyDown), KEY_STEP 0.01 /
   KEY_STEP_COARSE 0.10, DIVIDER_NAME "Resize panes"; tab stop + Grip + value moved to the divider.
 
+- `a5281d2b6` S4 RED: `the_divider_stays_under_the_cursor_that_drags_it`,
+  `the_grab_zone_is_centred_on_an_off_centre_divider`, `a_non_finite_move_leaves_the_split_where_it_was`
+  (helper `laid_out_divider_centre`).
+
 ## IN PROGRESS
 
-- S4 RED (divider tracks the cursor: `delta / (W - 6)`; NaN cursor keeps the ratio), NEXT 4.
+- S4 FIX: `pane_space` / `divider_centre` helpers (no mul_add!), NaN guard in move; update pins
+  (0.75 -> 0.5+50/194 in: pointer_move_applies_the_cursor_delta..., is_anchor_relative (0.6),
+  uses_the_axis (vertical 94), fires_the_hook (0.75), pointer_up_ends_the_drag (0.75),
+  a_released_drag_ignores_further_motion (0.75)); delete the two `..._poisons_the_ratio` pins.
 
 ## NEXT (in order)
 
