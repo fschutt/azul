@@ -136,6 +136,8 @@ mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
 mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "a_context_menu_opens_from_a_secondary_press.rs"]
 mod a_context_menu_opens_from_a_secondary_press;
+#[path = "a_drag_selection_owns_the_scroll_of_its_field.rs"]
+mod a_drag_selection_owns_the_scroll_of_its_field;
 #[path = "a_press_on_an_overflowing_field_selects.rs"]
 mod a_press_on_an_overflowing_field_selects;
 #[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
