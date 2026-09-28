@@ -10908,6 +10908,11 @@ impl LayoutWindow {
     /// start for a character step backward, its end forward, its focus for
     /// any other step. Re-seating the session there ends the selection.
     /// `false` when there was none.
+    ///
+    /// The caret opens like every other ([`Self::open_session`]): keyed on
+    /// its host and in the focus scope it now sits in - opened with
+    /// `initialize_editing` directly, the caret tween kept the scope the
+    /// session had before and glided out of a text field into the paragraph.
     fn collapse_document_selection_for_move(
         &mut self,
         dom_id: DomId,
@@ -10933,8 +10938,13 @@ impl LayoutWindow {
             (SelectionStep::Character, SelectionDirection::Forward) => end,
             _ => focus,
         };
-        let key = self.contenteditable_session_key(dom_id, block.container());
-        self.text_edit_manager.initialize_editing(caret, block, key);
+        self.open_session(
+            block,
+            SelectionRange {
+                start: caret,
+                end: caret,
+            },
+        );
         true
     }
 
