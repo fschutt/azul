@@ -228,3 +228,62 @@ fn a_csd_titlebars_title_sits_on_the_line_of_its_controls() {
         WINDOW_WIDTH / 2.0
     );
 }
+
+/// A macOS titlebar has no fill of its own, and the system separator under it.
+///
+/// With a transparent titlebar (`NoTitle`, `NoTitleAutoInject`) the window's
+/// own background shows through the bar, so the widget paints none. The line
+/// under a standard titlebar is one device pixel (0.5pt): #D0D0D0 in light
+/// mode, #000000 in dark mode (measured through AppKit, reference section
+/// 4.1). The widget had no separator at all, so the bar ran into the content
+/// with nothing between them.
+#[test]
+fn the_macos_titlebar_has_no_fill_and_the_system_separator() {
+    use azul_css::props::{basic::color::ColorU, property::CssProperty, style::BorderStyle};
+
+    for (style, line) in [
+        (
+            defaults::macos_modern_light(),
+            ColorU::new_rgb(0xD0, 0xD0, 0xD0),
+        ),
+        (defaults::macos_modern_dark(), ColorU::new_rgb(0, 0, 0)),
+    ] {
+        let theme = style.theme;
+        let bar = Titlebar::from_system_style("Window Title".into(), &style).dom();
+        let resting: Vec<CssProperty> = bar
+            .root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, conditions)| conditions.as_ref().is_empty())
+            .map(|(p, _)| p.clone())
+            .collect();
+
+        assert!(
+            !resting
+                .iter()
+                .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+            "{theme:?}: the bar paints a fill of its own"
+        );
+        let colour = resting.iter().find_map(|p| match p {
+            CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        });
+        assert_eq!(colour, Some(line), "{theme:?}: the separator's colour");
+        let width = resting.iter().find_map(|p| match p {
+            CssProperty::BorderBottomWidth(v) => v.get_property().map(|w| w.inner.number.get()),
+            _ => None,
+        });
+        assert!(
+            width.is_some_and(|w| w > 0.0),
+            "{theme:?}: the separator has no width ({width:?})"
+        );
+        assert!(
+            resting.iter().any(|p| matches!(
+                p,
+                CssProperty::BorderBottomStyle(v)
+                    if v.get_property().is_some_and(|s| s.inner == BorderStyle::Solid)
+            )),
+            "{theme:?}: the separator is not a solid line"
+        );
+    }
+}
