@@ -926,7 +926,12 @@ macro_rules! impl_vec_clone {
                         flags: self.flags,
                     },
                     $destructor_name::External(_) | $destructor_name::DefaultRust => {
-                        Self::from_vec(self.as_ref().to_vec())
+                        // `from_vec` starts a fresh buffer with `flags: 0`; the
+                        // flags describe the VALUE (e.g. "this string is a
+                        // translation key"), so a copy keeps them.
+                        let mut copy = Self::from_vec(self.as_ref().to_vec());
+                        copy.flags = self.flags;
+                        copy
                     }
                 }
             }
