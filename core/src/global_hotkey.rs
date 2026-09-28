@@ -398,6 +398,112 @@ impl_option!(
     [Debug, Clone, Copy, PartialEq, Eq, Hash]
 );
 
+// ---------------------------------------------------------------------------
+// The declaration recorder
+// ---------------------------------------------------------------------------
+
+/// More distinct global hotkeys than any real app declares; a callback
+/// exceeding this is generating them programmatically. The tail is dropped
+/// and the drain says so (`overflowed`).
+pub const GLOBAL_HOTKEY_DECLARATION_CAP: usize = 256;
+
+/// What one `layout()` (or `AppConfig` hotkeys callback) call declared,
+/// drained on the same thread right after it returns.
+#[derive(Debug, Clone, Default)]
+pub struct RecordedGlobalHotkeys {
+    /// One entry per accelerator; a duplicate replaced the earlier one.
+    pub declared: alloc::vec::Vec<GlobalHotkeyCallbackData>,
+    /// The call read a status: re-run it when a status changes.
+    pub read_status: bool,
+    /// More than [`GLOBAL_HOTKEY_DECLARATION_CAP`] declarations: the tail
+    /// was dropped.
+    pub overflowed: bool,
+}
+
+/// Thread-local recorder behind `LayoutCallbackInfo::add_global_hotkey` and
+/// [`GlobalHotkeysCallbackInfo::add_global_hotkey`].
+///
+/// A thread-local (rather than a field on the FFI-frozen, `Copy` info
+/// structs) for the reason the size-query and style-dependency recorders use
+/// one: the callback runs SYNCHRONOUSLY on the calling thread, and the engine
+/// drains what it declared right after it returns.
+#[cfg(feature = "std")]
+mod recorder {
+    use super::{GlobalHotkeyCallbackData, RecordedGlobalHotkeys, GLOBAL_HOTKEY_DECLARATION_CAP};
+
+    std::thread_local! {
+        static RECORDED: core::cell::RefCell<RecordedGlobalHotkeys> =
+            const {
+                core::cell::RefCell::new(RecordedGlobalHotkeys {
+                    declared: alloc::vec::Vec::new(),
+                    read_status: false,
+                    overflowed: false,
+                })
+            };
+    }
+
+    pub(super) fn declare(item: GlobalHotkeyCallbackData) {
+        RECORDED.with(|recorded| {
+            let mut recorded = recorded.borrow_mut();
+            let earlier = recorded
+                .declared
+                .iter()
+                .position(|d| d.hotkey == item.hotkey);
+            if let Some(index) = earlier {
+                // The last declaration of an accelerator wins.
+                recorded.declared.remove(index);
+            } else if recorded.declared.len() >= GLOBAL_HOTKEY_DECLARATION_CAP {
+                recorded.overflowed = true;
+                return;
+            }
+            recorded.declared.push(item);
+        });
+    }
+
+    pub(super) fn read_status() {
+        RECORDED.with(|recorded| recorded.borrow_mut().read_status = true);
+    }
+
+    pub(super) fn take() -> RecordedGlobalHotkeys {
+        RECORDED.with(|recorded| core::mem::take(&mut *recorded.borrow_mut()))
+    }
+}
+
+/// Record one declaration of the running callback.
+#[cfg(feature = "std")]
+pub(crate) fn record_declaration(item: GlobalHotkeyCallbackData) {
+    recorder::declare(item);
+}
+
+/// Without `std` there is no thread-local to record into, and no platform
+/// with global hotkeys: the declaration is accepted and dropped.
+#[cfg(not(feature = "std"))]
+pub(crate) fn record_declaration(_item: GlobalHotkeyCallbackData) {}
+
+/// Record that the running callback read a status.
+#[cfg(feature = "std")]
+pub(crate) fn record_status_read() {
+    recorder::read_status();
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn record_status_read() {}
+
+/// Drain what was declared since the last drain on THIS thread. Call right
+/// after a `layout()` / `AppConfig` hotkeys callback returns, on the same
+/// thread - and once right before it, to clear anything stale.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
+    recorder::take()
+}
+
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
+    RecordedGlobalHotkeys::default()
+}
+
 impl_result!(
     GlobalHotkey,
     GlobalHotkeyError,

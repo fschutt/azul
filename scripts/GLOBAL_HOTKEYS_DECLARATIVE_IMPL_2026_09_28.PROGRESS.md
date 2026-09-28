@@ -52,15 +52,15 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    half and the commit-12 removal half.)
 3. `d0ee0d7ac` test(core): add_global_hotkey is recorded per layout call (RED, does not compile:
    `core/src/callbacks_test.rs` module `global_hotkey_recorder_tests`).
+   (`9e7d1c173` = this checkpoint file.)
+4. feat(core): LayoutCallbackInfo declares global hotkeys (recorder in `core/src/global_hotkey.rs`,
+   `LayoutCallbackInfoRefData.global_hotkeys`, the four `LayoutCallbackInfo` methods; empty
+   snapshot + recorder clear in `common/layout.rs` and `web/html_render.rs`). The commit whose
+   subject starts `feat(core): LayoutCallbackInfo declares` - see `git log`.
 
 ## IN PROGRESS
 
-4. feat(core): LayoutCallbackInfo declares global hotkeys. Uncommitted edits (complete, about to
-   commit): recorder + `RecordedGlobalHotkeys` + `GLOBAL_HOTKEY_DECLARATION_CAP` +
-   `take_recorded_global_hotkeys` in `core/src/global_hotkey.rs`; `LayoutCallbackInfoRefData.
-   global_hotkeys` + `LayoutCallbackInfo::{add_global_hotkey, add_global_hotkey_with_description,
-   get_global_hotkey_status, get_global_hotkeys}` in `core/src/callbacks.rs`; empty snapshot +
-   recorder clear in `dll/src/desktop/shell2/common/layout.rs` and `dll/src/web/html_render.rs`.
+(nothing uncommitted)
 
 ## NEXT
 

@@ -907,6 +907,11 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// place it matters. A mobile app that must not draw under the status bar
     /// had no way to ask how tall it is.
     pub safe_area: azul_css::system::SafeAreaInsets,
+    /// SNAPSHOT of the app's global hotkeys (status, trigger, owner relative
+    /// to THIS window), taken right before the layout call - a snapshot for
+    /// the same `no_std` reason as `monitors`. What
+    /// `LayoutCallbackInfo::get_global_hotkey_status` answers from.
+    pub global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec,
 }
 
 /// What triggered the current `layout()` invocation.
@@ -1469,6 +1474,81 @@ impl LayoutCallbackInfo {
         } else {
             unsafe { (*self.callable_ptr).clone() }
         }
+    }
+
+    /// Declare that, in the state this layout is built from, `hotkey` is a
+    /// SYSTEM-WIDE hotkey - pressed while any app has the keyboard focus -
+    /// running `callback` with `data`. The shape of `Dom::with_callback`,
+    /// with the accelerator in the event filter's place.
+    ///
+    /// Declarations are the WHOLE wanted set: an accelerator this call does
+    /// not declare (and no other window and no `AppConfig` declares) is
+    /// released after the pass. Re-declaring an accelerator with a new
+    /// callback or data swaps them without touching the OS, so declaring on
+    /// every `layout()` costs nothing. Declaring the same accelerator twice
+    /// in one pass: the last declaration wins.
+    ///
+    /// ```ignore
+    /// if state.summon_enabled {
+    ///     info.add_global_hotkey(summon_key(), data.clone(), on_summon);
+    /// }
+    /// ```
+    pub fn add_global_hotkey<C: Into<CoreCallback>>(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        crate::global_hotkey::record_declaration(
+            crate::global_hotkey::GlobalHotkeyCallbackData::create(hotkey, data, callback.into()),
+        );
+    }
+
+    /// [`Self::add_global_hotkey`] with the text the desktop shows for it:
+    /// the Wayland portal asks the user with it and lists it in the
+    /// desktop's shortcut settings.
+    pub fn add_global_hotkey_with_description<C: Into<CoreCallback>>(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        description: AzString,
+        data: RefAny,
+        callback: C,
+    ) {
+        crate::global_hotkey::record_declaration(crate::global_hotkey::GlobalHotkeyCallbackData {
+            hotkey,
+            description,
+            callback: callback.into(),
+            refany: data,
+        });
+    }
+
+    /// Where `hotkey` stood when this pass began: `Active`, `Pending` (the
+    /// desktop has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`.
+    ///
+    /// RECORDED: when a status changes later (the grab answered, the user
+    /// approved or declined, another app took it), this window's `layout()`
+    /// runs once more so it can show it.
+    #[must_use]
+    pub fn get_global_hotkey_status(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+    ) -> crate::global_hotkey::GlobalHotkeyStatus {
+        crate::global_hotkey::record_status_read();
+        // SAFETY: `ref_data` is set for the duration of the layout call.
+        let snapshot = unsafe { &(*self.ref_data).global_hotkeys };
+        crate::global_hotkey::status_in(snapshot.as_ref(), &hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get,
+    /// with its status, the trigger the desktop shows and its owner (this
+    /// window, another window, the app, or nobody). RECORDED like
+    /// [`Self::get_global_hotkey_status`].
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> crate::global_hotkey::GlobalHotkeyInfoVec {
+        crate::global_hotkey::record_status_read();
+        // SAFETY: `ref_data` is set for the duration of the layout call.
+        unsafe { (*self.ref_data).global_hotkeys.clone() }
     }
 
     /// Declare that the DOM this callback returns depends on `dep`.

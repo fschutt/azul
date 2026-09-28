@@ -482,6 +482,7 @@ pub fn regenerate_layout(
         // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
         // macOS from `NSView`).
         safe_area: layout_window.safe_area_insets,
+        global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
     };
 
     let callback_info = LayoutCallbackInfo::new_with_reason(
@@ -499,6 +500,7 @@ pub fn regenerate_layout(
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
     let _ = azul_core::callbacks::take_recorded_style_dependencies();
+    let _ = azul_core::global_hotkey::take_recorded_global_hotkeys();
     layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
     layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
 
