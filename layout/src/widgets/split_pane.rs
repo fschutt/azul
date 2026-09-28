@@ -3458,6 +3458,95 @@ mod autotest_generated {
         assert!(css_changes(&changes).is_empty(), "{changes:?}");
     }
 
+    // ==================================================================
+    // The grab area
+    // ==================================================================
+
+    /// The visible divider is a thin 6px bar, but a press grabs it up to
+    /// `GRAB_THRESHOLD` px either side of its centre - and only the bar
+    /// showed the resize cursor, so two thirds of the grab zone looked like
+    /// plain pane content. The divider carries a transparent SASH exactly as
+    /// wide as the grab zone, centred on it, with the resize cursor, laid
+    /// over the panes' edges without taking their space.
+    #[test]
+    fn the_grab_area_reaches_past_the_thin_visible_line() {
+        use azul_css::props::layout::LayoutPosition;
+
+        for dir in BOTH_DIRECTIONS {
+            let dom = plain(dir).dom();
+            let divider = child(&dom, 1);
+            assert!(
+                inline_properties(divider).iter().any(|p| matches!(
+                    p,
+                    CssProperty::Position(v) if v.get_property() == Some(&LayoutPosition::Relative)
+                )),
+                "{dir:?}: the divider must be the sash's containing block"
+            );
+            assert_eq!(
+                divider.children.as_ref().len(),
+                1,
+                "{dir:?}: the divider has no grab area wider than itself"
+            );
+            let sash = inline_properties(child(divider, 0));
+            let position = sash.iter().find_map(|p| match p {
+                CssProperty::Position(v) => v.get_property().copied(),
+                _ => None,
+            });
+            assert_eq!(
+                position,
+                Some(LayoutPosition::Absolute),
+                "{dir:?}: the sash must take no layout space"
+            );
+            let sash_cursor = sash.iter().find_map(|p| match p {
+                CssProperty::Cursor(c) => c.get_property().copied(),
+                _ => None,
+            });
+            assert_eq!(
+                sash_cursor,
+                cursor_style(&divider_style(dir)),
+                "{dir:?}: the whole grab area shows the resize cursor"
+            );
+            let (extent, offset) = match dir {
+                SplitDirection::Horizontal => (
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Width(w) => match w.get_property() {
+                            Some(LayoutWidth::Px(pv)) => Some(px(*pv)),
+                            _ => None,
+                        },
+                        _ => None,
+                    }),
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Left(l) => l.get_property().map(|l| px(l.inner)),
+                        _ => None,
+                    }),
+                ),
+                SplitDirection::Vertical => (
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Height(h) => match h.get_property() {
+                            Some(LayoutHeight::Px(pv)) => Some(px(*pv)),
+                            _ => None,
+                        },
+                        _ => None,
+                    }),
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Top(t) => t.get_property().map(|t| px(t.inner)),
+                        _ => None,
+                    }),
+                ),
+            };
+            assert_eq!(
+                extent,
+                Some(2.0 * GRAB_THRESHOLD),
+                "{dir:?}: the sash is exactly the grab zone"
+            );
+            assert_eq!(
+                offset,
+                Some(DIVIDER_THICKNESS as f32 / 2.0 - GRAB_THRESHOLD),
+                "{dir:?}: the sash is centred on the divider"
+            );
+        }
+    }
+
     /// A press on a pane (not the divider) is the pane's: nothing captured.
     #[test]
     fn a_press_beside_the_divider_captures_nothing() {
