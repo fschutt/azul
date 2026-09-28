@@ -967,8 +967,6 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         gesture_drag_manager: _,
         focus_manager: _,
         text_edit_manager: _,
-        last_revealed_caret_rect: _,
-        last_revealed_caret_key: _,
         // NOT WALKED: transient reconcile input, alive only between the
         // funnel's stash and the next re-materialization; typically empty at
         // report time.
@@ -1106,8 +1104,9 @@ pub struct TextChangesetResult {
 pub struct LandedTextEdit {
     /// The queued edits, applied ([`LayoutWindow::apply_text_changeset`]).
     pub changeset: TextChangesetResult,
-    /// The caret reveal moved the view. Always `false` when nothing landed:
-    /// a pass that typed nothing reveals nothing.
+    /// The pending reveal moved the view. Only an input issues one (a landed
+    /// edit, a caret op earlier in the same pass), so a pass that typed and
+    /// moved nothing reveals nothing.
     pub revealed: bool,
 }
 
@@ -1456,31 +1455,6 @@ pub struct LayoutWindow {
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
     /// Unified text editing manager (cursor + selection + dirty flag)
     pub text_edit_manager: crate::managers::text_edit::TextEditManager,
-    /// Caret rect the automatic reveal last acted on, in STATIC layout space.
-    ///
-    /// `scroll_focused_cursor_into_view` runs after EVERY successful layout,
-    /// and a layout happens whenever the user scrolls, hovers or resizes, or an
-    /// animation ticks. Revealing unconditionally meant that scrolling a page
-    /// containing a focused text field yanked the view straight back to the
-    /// caret — the user could not scroll away from their own cursor. The reveal
-    /// belongs to an EDIT or a caret MOVE, not to the frame.
-    ///
-    /// The caret's STATIC rect is exactly that signal: scrolling does not move
-    /// it (the reveal works in static coordinates and compares against a
-    /// scrolled `visible_area`), while typing, clicking and reflow do.
-    pub last_revealed_caret_rect: Option<LogicalRect>,
-    /// The caret's LOGICAL identity the automatic reveal last acted on:
-    /// `(contenteditable_key, primary cursor, document_text_revision)`.
-    ///
-    /// The static rect alone is not a caret-move signal inside a
-    /// `VirtualView`: scrolling re-materializes the page window, the nested
-    /// DOM is rebuilt and the page's content shifts within it, so the caret's
-    /// rect changes while the user did nothing but turn the wheel. The reveal
-    /// then dragged the view back to the caret on every wheel step. Like a
-    /// browser, the reveal belongs to a change of the CARET: a new cursor
-    /// position, an edit (the revision), or a different editable. The key
-    /// survives DOM rebuilds (`contenteditable_key` is stable across them).
-    pub last_revealed_caret_key: Option<(u64, TextCursor, u64)>,
     /// Anchor of an in-flight text-selection drag: where the PRESS that began
     /// it landed, latched — and only set when that press was on an editable.
     ///
@@ -2193,8 +2167,6 @@ impl LayoutWindow {
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
-            last_revealed_caret_rect: None,
-            last_revealed_caret_key: None,
             text_selection_drag_anchor: None,
             previous_child_arenas: BTreeMap::new(),
             prev_left_down: false,
@@ -2598,6 +2570,12 @@ impl LayoutWindow {
         if result.is_ok() {
             if let Some(resume) = self.pending_caret_restore.take() {
                 restored_dom = self.restore_caret_from_resume_point(&resume);
+                // The caret a structural edit (Enter split, merge, their
+                // undo) resumes at is that edit's caret: show it, after this
+                // very layout.
+                if restored_dom.is_some() {
+                    self.request_session_reveal();
+                }
             }
         }
 
@@ -9038,13 +9016,11 @@ impl LayoutWindow {
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
         now: Instant,
     ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
-        // THE LAST ACTION WINS. Every node reveal the engine issues comes
-        // through here - a focus change, an a11y `Focus`, an app's
-        // `scroll_node_into_view` - and every one of them is an input in its
-        // own right, so it takes the claim on the view. That is what lets a
-        // key press reach a component the user has scrolled off-screen and
-        // still pull it back.
-        self.scroll_manager.note_reveal_intent();
+        // A node reveal is performed HERE, now, by the input that asked for
+        // it (a focus change, an a11y `Focus`, an app's
+        // `scroll_node_into_view`). It is not a caret reveal and issues no
+        // `RevealRequest`: the caret a focus seeds asks for its own
+        // (`finalize_pending_focus_changes`).
         // Precomputed, because the resolver would otherwise borrow `self`
         // immutably while `scroll_manager` is borrowed mutably below.
         let hops = self.nested_dom_hops();
@@ -10554,6 +10530,10 @@ impl LayoutWindow {
                 end: cursor,
             },
         );
+        // Focus seeded a caret: an input that asks for it to be shown - a
+        // field focused with its text scrolled away shows its caret. (Once,
+        // like every reveal: the layout that follows performs it.)
+        self.request_session_reveal();
         true
     }
 
@@ -11038,7 +11018,26 @@ impl LayoutWindow {
     /// `apply_selection_op` for the caret of seat `seat_id` (9b-ii-a-i-d-ii-b):
     /// a second seat's arrows, Shift+arrows, Backspace and Delete act on ITS
     /// caret in ITS node, never on the primary's session.
+    ///
+    /// A primary-seat op that moved or edited something is an INPUT that asks
+    /// for the result to be shown ([`Self::request_session_reveal`]): the
+    /// shells perform it right away (`ScrollSelectionIntoView`), the e2e
+    /// runner at its pass tail or after the next layout.
     pub fn apply_selection_op_for_seat(
+        &mut self,
+        seat_id: u64,
+        target: DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        let applied = self.apply_selection_op_for_seat_unrevealed(seat_id, target, op);
+        if applied && seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.request_session_reveal();
+        }
+        applied
+    }
+
+    /// [`Self::apply_selection_op_for_seat`] without the reveal request.
+    fn apply_selection_op_for_seat_unrevealed(
         &mut self,
         seat_id: u64,
         target: DomNodeId,
@@ -14496,13 +14495,15 @@ impl LayoutWindow {
         scroll_type: SelectionScrollType,
         scroll_mode: ScrollMode,
     ) -> bool {
-        // THE LAST ACTION WINS. Every caret and selection reveal comes
-        // through here, and each of its callers is a real input - a
-        // keystroke's changeset, a caret move, a paste, an a11y focus. The
-        // one caller that is NOT an input is
-        // `scroll_focused_cursor_into_view`, which asks
-        // `reveal_may_move_view()` before it gets this far.
-        self.scroll_manager.note_reveal_intent();
+        // PURE COMPUTE AND APPLY: this neither reads nor writes the view
+        // arbiter (`ScrollManager::pending_reveal`). Whether a reveal should
+        // run at all is decided by its caller - an input performing the
+        // request it issued (`Self::reveal_for_input`,
+        // `Self::apply_pending_text_and_reveal`) or the post-layout
+        // consumer (`Self::scroll_focused_cursor_into_view`). It used to
+        // re-arm the arbiter itself, so every caller became "the last
+        // action", including the shells' per-pass tail that was no input
+        // at all.
         // The FOCUS end: the primary cursor, which for a range is its end -
         // the end the user is extending (`MultiCursorState::get_primary_cursor`).
         let focus_rect = self.get_focused_cursor_rect();
@@ -14719,67 +14720,96 @@ impl LayoutWindow {
         }
     }
 
-    /// Scrolls the focused cursor into view after layout.
+    /// Performs the pending caret / selection reveal after a layout, against
+    /// the geometry that layout just produced.
     ///
-    /// Delegates to `scroll_selection_into_view` with cursor mode.
-    /// Called internally from `layout_and_generate_display_list()`.
+    /// Called from `layout_and_generate_display_list()`, AFTER
+    /// `register_scroll_nodes` (publish before consume). It CONSUMES the
+    /// request an input issued ([`crate::managers::scroll_state::RevealRequest`]):
+    /// a layout with nothing requested - a hover restyle, an animation tick,
+    /// a layout a wheel step caused - reveals nothing, so the user can scroll
+    /// away from their own caret, and a VirtualView re-materializing under
+    /// the wheel (which moves the caret's rect without anyone moving the
+    /// caret) is no reason to reveal either. That used to be decided by a
+    /// latch on the caret's rect and content revision, which a peer's edit
+    /// tripped as well.
     fn scroll_focused_cursor_into_view(&mut self) -> bool {
-        // THE LAST ACTION WINS, and this is the only reveal in the engine
-        // that is RE-ASSERTED rather than issued: it runs after every
-        // successful layout, which includes every layout a wheel step causes.
-        // The caret gate below asks "did the caret change?", which is a
-        // question about CONTENT - it cannot tell a fresh intent from the
-        // same intent asserted one frame later, and it is blind to what the
-        // user did in between. Asking the scroll manager first is what stops
-        // the reveal fighting the wheel. Before the latch, deliberately: an
-        // abandoned reveal must not be recorded as satisfied, so the next
-        // keystroke still finds the caret unrevealed and shows it.
-        if !self.scroll_manager.reveal_may_move_view() {
+        let Some(request) = self.scroll_manager.pending_reveal() else {
             return false;
-        }
-        // ONLY when the caret actually moved — see `last_revealed_caret_rect`.
-        // This is called after EVERY successful layout, so without the gate the
-        // user cannot scroll away from a focused text field: every frame drags
-        // the view back to the cursor.
-        let current = self.get_focused_cursor_rect();
-        if current.is_none() {
-            return false;
-        }
-        let key = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let cursor = self.text_edit_manager.get_primary_cursor()?;
-            Some((mc.contenteditable_key, cursor, self.document_text_revision))
-        });
-        let unchanged = match key {
-            // The caret did not change; its rect may have (a VirtualView
-            // re-materialized under a wheel scroll). The user's scroll wins.
-            Some(_) => key == self.last_revealed_caret_key,
-            // No logical identity to key on: the rect is the only signal.
-            None => current == self.last_revealed_caret_rect,
         };
-        if unchanged {
-            return false;
-        }
-        // Do NOT latch a reveal that cannot structurally run. `find_scrollable_
-        // ancestor` requires a REGISTERED scroll state, and a box that has only
-        // just started overflowing acquires one at the end of this frame. The
-        // gate recording such an attempt as satisfied is how that keystroke's
-        // reveal was lost for good.
-        let anchor = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .map(|mc| mc.block.container_dom_node())
-            .or(self.focus_manager.focused_node);
-        if anchor
-            .and_then(|a| self.find_scrollable_ancestor(a))
-            .is_none()
+        // A caret this layout has not placed (its block is not laid out yet)
+        // keeps the request for the layout that places it. Without an
+        // editing session there is no caret to reveal at all.
+        if self.text_edit_manager.multi_cursor.is_some() && self.get_focused_cursor_rect().is_none()
         {
             return false;
         }
-        self.last_revealed_caret_rect = current;
-        self.last_revealed_caret_key = key;
-        // Redirect to unified scroll system
-        self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant)
+        let _ = self.scroll_manager.take_pending_reveal();
+        if self.text_edit_manager.multi_cursor.is_none() {
+            return false;
+        }
+        self.scroll_selection_into_view(selection_scroll_type_of(request), ScrollMode::Instant)
+    }
+
+    /// Perform the reveal an input asked for, now.
+    ///
+    /// `keep_for_layout`: leave the request pending after performing it, for
+    /// a reveal made AHEAD of a relayout that may still move the caret (a
+    /// landed edit that changed its text's extent); the post-layout pass
+    /// ([`Self::scroll_focused_cursor_into_view`]) performs it once more
+    /// against the fresh geometry, and consumes it.
+    pub fn perform_pending_reveal(&mut self, keep_for_layout: bool) -> bool {
+        let request = if keep_for_layout {
+            self.scroll_manager.pending_reveal()
+        } else {
+            self.scroll_manager.take_pending_reveal()
+        };
+        match request {
+            Some(request) => self
+                .scroll_selection_into_view(selection_scroll_type_of(request), ScrollMode::Instant),
+            None => false,
+        }
+    }
+
+    /// An INPUT asks for the caret or selection to be shown, and it is shown
+    /// now: the shells' `ScrollSelectionIntoView` (after a click, a caret or
+    /// selection op, cut / paste / undo / redo / select-all) and an app's or
+    /// an assistive technology's `ScrollActiveCursorIntoView`.
+    pub fn reveal_for_input(
+        &mut self,
+        request: crate::managers::scroll_state::RevealRequest,
+    ) -> bool {
+        self.scroll_manager.request_reveal(request);
+        self.perform_pending_reveal(false)
+    }
+
+    /// Ask for the editing session to be revealed - its selection when the
+    /// primary selection is a range, else its caret. For the input sites
+    /// that change the LOCAL caret (a click, a caret or selection op, a
+    /// landed edit, a seeded or restored caret); performed by the reveal
+    /// that input's pass runs, or after the next layout.
+    pub(crate) fn request_session_reveal(&mut self) {
+        use crate::managers::scroll_state::RevealRequest;
+        let has_range = self.text_edit_manager.multi_cursor.as_ref().is_some_and(|mc| {
+            mc.local_selections()
+                .any(|s| matches!(s.selection, Selection::Range(_)))
+        });
+        self.scroll_manager.request_reveal(if has_range {
+            RevealRequest::Selection
+        } else {
+            RevealRequest::Caret
+        });
+    }
+}
+
+/// The reveal a [`crate::managers::scroll_state::RevealRequest`] asks
+/// [`LayoutWindow::scroll_selection_into_view`] for.
+const fn selection_scroll_type_of(
+    request: crate::managers::scroll_state::RevealRequest,
+) -> SelectionScrollType {
+    match request {
+        crate::managers::scroll_state::RevealRequest::Caret => SelectionScrollType::Cursor,
+        crate::managers::scroll_state::RevealRequest::Selection => SelectionScrollType::Selection,
     }
 }
 
@@ -17043,9 +17073,10 @@ impl LayoutWindow {
                                 // here anchored on the focused node, padded by 0,
                                 // teleported, and called a caret clipped at the
                                 // bottom edge "visible".
-                                self.scroll_selection_into_view(
-                                    SelectionScrollType::Cursor,
-                                    ScrollMode::Instant,
+                                // An assistive technology's focus is an input:
+                                // it asks, and the caret is shown now.
+                                self.reveal_for_input(
+                                    crate::managers::scroll_state::RevealRequest::Caret,
                                 );
                             }
                         } else {
@@ -17516,7 +17547,16 @@ impl LayoutWindow {
         let mut needs_relayout = false;
 
         while let Some(queued) = self.text_input_manager.take_next_changeset() {
-            let result = self.apply_one_text_changeset(queued.edit, queued.seat_id);
+            let seat_id = queued.seat_id;
+            let result = self.apply_one_text_changeset(queued.edit, seat_id);
+            // An edit the LOCAL user's keyboard landed is an input that asks
+            // for its caret to be shown. Another seat's edit shifts the
+            // primary caret without asking (it is somebody else's typing).
+            if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+                && !result.dirty_nodes.is_empty()
+            {
+                self.request_session_reveal();
+            }
             needs_relayout |= result.needs_relayout;
             for node in result.dirty_nodes {
                 if !dirty_nodes.contains(&node) {
@@ -17548,10 +17588,17 @@ impl LayoutWindow {
     /// the user had just scrolled away from back to its caret - the "wheel
     /// fights the caret" jitter. The runner gated on a landed edit, which is
     /// why no headless test ever saw it.
+    ///
+    /// The landed edit issues its own reveal request
+    /// ([`crate::managers::scroll_state::RevealRequest`]); this performs what
+    /// is pending and nothing else, so a pass that landed nothing - with any
+    /// earlier request dropped by the user's scrolling - reveals nothing, gate
+    /// or no gate. When the edit changed its text's extent a relayout
+    /// follows, and the request is kept for it: the post-layout pass reveals
+    /// once more against the geometry the relayout produced.
     pub fn apply_pending_text_and_reveal(&mut self) -> LandedTextEdit {
         let changeset = self.apply_text_changeset();
-        let revealed = !changeset.dirty_nodes.is_empty()
-            && self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+        let revealed = self.perform_pending_reveal(changeset.needs_relayout);
         LandedTextEdit {
             changeset,
             revealed,
@@ -20419,9 +20466,26 @@ impl LayoutWindow {
     /// ## Returns
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit
     ///   text
+    ///
+    /// A click that placed a caret or a selection is an INPUT that asks for
+    /// it to be shown ([`Self::request_session_reveal`]).
+    pub fn process_mouse_click_for_selection(
+        &mut self,
+        position: LogicalPosition,
+        time_ms: u64,
+    ) -> Option<Vec<DomNodeId>> {
+        let affected = self.place_selection_at_click(position, time_ms);
+        if affected.is_some() {
+            self.request_session_reveal();
+        }
+        affected
+    }
+
+    /// [`Self::process_mouse_click_for_selection`] without the reveal
+    /// request.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
-    pub fn process_mouse_click_for_selection(
+    fn place_selection_at_click(
         &mut self,
         position: LogicalPosition,
         time_ms: u64,
@@ -21775,6 +21839,7 @@ impl LayoutWindow {
                 // caret; rebuild it so the caret is painted where it landed.
                 if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
                     self.regenerate_display_list_for_dom(dom_id);
+                    self.request_session_reveal();
                 }
             }
         }
@@ -21957,12 +22022,6 @@ impl LayoutWindow {
             hover_manager,
             virtual_view_manager,
             transient_windows,
-            // Geometry from the PREVIOUS arena. It only gates the reveal, so
-            // dropping it costs one redundant reveal after a reconcile; keeping
-            // it would compare against a rect that no longer means anything.
-            last_revealed_caret_rect: _,
-            // Logical, survives the remap: kept as it is.
-            last_revealed_caret_key: _,
             text_selection_drag_anchor: _,
             // OLD-arena data BY DESIGN: this is the reconcile INPUT for child
             // doms, keyed by DomId and holding pre-remap NodeIds on purpose.

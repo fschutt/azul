@@ -2868,10 +2868,8 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::ScrollActiveCursorIntoView => {
-                self.layout_window.scroll_selection_into_view(
-                    azul_layout::window::SelectionScrollType::Cursor,
-                    azul_layout::window::ScrollMode::Instant,
-                );
+                self.layout_window
+                    .reveal_for_input(crate::managers::scroll_state::RevealRequest::Caret);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 

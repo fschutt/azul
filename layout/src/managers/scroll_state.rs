@@ -408,31 +408,37 @@ pub enum ScrollPhaseTransition {
     Ended,
 }
 
-/// What last laid claim to where the view is looking.
+/// A ONE-SHOT request to bring the editing session's caret - or its
+/// selection - into view: THE view-intent arbiter of a window
+/// ([`ScrollManager::request_reveal`]).
 ///
-/// Two mechanisms move a scroll container that the user did not ask for by
-/// name: the user's own scrolling (wheel, trackpad, touch pan, a scrollbar
-/// thumb) and the engine's REVEAL (`scroll_into_view`,
-/// `scroll_selection_into_view`), which drags a focused node or a caret back
-/// on screen. Both are correct and neither may be deleted - without the
-/// reveal, typing into a field the user has scrolled past shows nothing;
-/// without the user's scroll, the page is nailed to whatever was clicked
-/// last.
+/// Two mechanisms move a scroll container the user did not name: the
+/// user's own scrolling (wheel, trackpad, touch pan, a scrollbar thumb, a
+/// drag selection's autoscroll) and the engine's caret REVEAL. Both are
+/// correct and neither may be deleted - without the reveal, typing into a
+/// field the user has scrolled past shows nothing; without the user's
+/// scroll, the view is nailed to the caret. WHICH CAME LAST decides, and a
+/// request is how "last" is carried:
 ///
-/// Which one applies is decided by WHICH CAME LAST, and this is the whole
-/// record of that. A reveal re-asserted after the user has turned the wheel
-/// is a STALE reveal and must move nothing; a reveal asked for AFTER the
-/// wheel - a keystroke, a caret move, a focus change - is the newest thing
-/// the user did and wins, however recently they scrolled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ViewAction {
-    /// A reveal: focus moved, the caret moved, a key reached an editable, the
-    /// app asked for a node to be shown. The default, so that a window nobody
-    /// has scrolled yet still reveals what it focuses.
-    #[default]
-    Reveal,
-    /// The user moved the view themselves.
-    UserScroll,
+/// - only an INPUT issues one - an edit that landed, a caret or selection
+///   op, a click that placed the caret, a focus that seeded one, an app or
+///   assistive-technology request; nothing re-derives one from state;
+/// - the user moving the view drops it ([`ScrollManager::note_user_scroll`]);
+/// - it is consumed ONCE - by the reveal the input's own pass performs, or
+///   after the next layout against fresh geometry - and then gone.
+///
+/// It replaced a per-window "last view action" bit that every reveal
+/// re-armed, including the one the shells ran on every pass whether or not
+/// anything was typed: after each wheel event the bit read "reveal" again
+/// and the view was dragged back to the caret. And a post-layout caret
+/// latch keyed on the caret's content, which a peer's edit tripped too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealRequest {
+    /// The primary caret - for a range, its FOCUS end.
+    Caret,
+    /// The primary selection: whole while it fits the scrollport, else its
+    /// focus end.
+    Selection,
 }
 
 // Core Scroll Manager
@@ -533,13 +539,12 @@ pub struct ScrollManager {
     /// Phase transitions observed since the last drain, oldest first. Drained
     /// by `EventProvider::get_pending_events`.
     pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
-    /// THE LAST ACTION WINS: which of the two things that move the view
-    /// without being asked - the user's own scrolling, or a reveal - did so
-    /// most recently. See [`ViewAction`]; written by
-    /// [`ScrollManager::note_user_scroll`] and
-    /// [`ScrollManager::note_reveal_intent`], read by
-    /// [`ScrollManager::reveal_may_move_view`].
-    last_view_action: ViewAction,
+    /// THE LAST ACTION WINS: the reveal an input asked for and nothing has
+    /// performed yet. See [`RevealRequest`]; issued by
+    /// [`ScrollManager::request_reveal`], dropped by
+    /// [`ScrollManager::note_user_scroll`], consumed by
+    /// [`ScrollManager::take_pending_reveal`].
+    pending_reveal: Option<RevealRequest>,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -779,30 +784,38 @@ impl ScrollManager {
     // ========================================================================
 
     /// The user just moved the view themselves: a wheel step, a trackpad or
-    /// touch pan, a scrollbar thumb. Any reveal asked for BEFORE this is
-    /// abandoned.
+    /// touch pan, a scrollbar thumb, a drag selection's autoscroll. Any
+    /// reveal requested BEFORE this is dropped.
     pub const fn note_user_scroll(&mut self) {
-        self.last_view_action = ViewAction::UserScroll;
+        self.pending_reveal = None;
     }
 
-    /// A reveal's intent arose just now: focus moved, the caret moved, a key
-    /// was pressed, the app asked for a node to be shown. From here until the
-    /// user scrolls again, a reveal may move the view.
-    pub const fn note_reveal_intent(&mut self) {
-        self.last_view_action = ViewAction::Reveal;
+    /// An INPUT asks for the caret or the selection to be shown: an edit
+    /// landed, a caret or selection op ran, a click placed the caret, a focus
+    /// seeded one, the app or an assistive technology asked. Nothing else may
+    /// call this - a reveal re-derived from state ("there is a caret", "this
+    /// pass had events") is what fought the wheel. The newest request wins.
+    pub const fn request_reveal(&mut self, request: RevealRequest) {
+        self.pending_reveal = Some(request);
     }
 
-    /// Whether a reveal may move the view: only while it is still the last
-    /// thing that happened.
-    ///
-    /// Asked by the ONE reveal that is re-asserted rather than issued -
-    /// `LayoutWindow::scroll_focused_cursor_into_view`, which runs after
-    /// every successful layout, including the layouts a wheel step itself
-    /// causes. Every other reveal is an input in its own right and simply
-    /// says so with [`Self::note_reveal_intent`].
+    /// The reveal an input asked for that nothing has performed yet.
+    #[must_use]
+    pub const fn pending_reveal(&self) -> Option<RevealRequest> {
+        self.pending_reveal
+    }
+
+    /// Consume the pending reveal: whoever performs it takes it, so it runs
+    /// exactly once.
+    pub fn take_pending_reveal(&mut self) -> Option<RevealRequest> {
+        self.pending_reveal.take()
+    }
+
+    /// Whether a reveal may still move the view: an input asked for one, and
+    /// neither a reveal has performed it nor has the user scrolled since.
     #[must_use]
     pub const fn reveal_may_move_view(&self) -> bool {
-        matches!(self.last_view_action, ViewAction::Reveal)
+        self.pending_reveal.is_some()
     }
 
     // ========================================================================
@@ -2047,7 +2060,7 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 
 #[cfg(test)]
 mod last_action_wins {
-    use super::{ScrollInputSource, ScrollManager};
+    use super::{RevealRequest, ScrollInputSource, ScrollManager};
 
     /// THE LAW, as the user stated it (2026-09-21):
     ///
@@ -2067,18 +2080,17 @@ mod last_action_wins {
     fn a_reveal_moves_the_view_only_while_it_is_the_last_thing_that_happened() {
         let mut sm = ScrollManager::new();
 
-        // Nothing has happened yet. A reveal is free to move the view, or a
-        // freshly opened window could never scroll its focused field on
-        // screen.
+        // Nothing has happened yet, so nothing is to be revealed: a reveal is
+        // CAUSED by an input (a focus that seeds a caret requests one).
         assert!(
-            sm.reveal_may_move_view(),
-            "a window nobody has scrolled must still reveal what it focuses",
+            !sm.reveal_may_move_view(),
+            "no input has asked for a reveal: none is pending",
         );
 
         // A focus change asks for a reveal - and THEN the user turns the
         // wheel. The wheel is the last action, so the reveal asked for before
-        // it is stale.
-        sm.note_reveal_intent();
+        // it is dropped.
+        sm.request_reveal(RevealRequest::Caret);
         sm.note_user_scroll();
         assert!(
             !sm.reveal_may_move_view(),
@@ -2089,21 +2101,74 @@ mod last_action_wins {
         // The wheel does not disable the reveal for good. Key input to a
         // component the user has just scrolled off-screen is now the last
         // thing that happened, so it reveals.
-        sm.note_reveal_intent();
+        sm.request_reveal(RevealRequest::Caret);
         assert!(
             sm.reveal_may_move_view(),
             "key input AFTER a user scroll is the last action: the off-screen component it \
              reaches must be scrolled into view",
         );
 
-        // ...and the next wheel step takes the view back again. This is the
-        // case that matters most: the caret reveal is re-asserted after EVERY
-        // successful layout, so it asks this question once per wheel step.
+        // ...and the next wheel step takes the view back again.
         sm.note_user_scroll();
         assert!(
             !sm.reveal_may_move_view(),
-            "a reveal re-asserted on the pass a wheel step caused must not move the view",
+            "a reveal still pending when the wheel turns must not move the view",
         );
+    }
+
+    /// Contract 1: a request is consumed exactly once - whoever performs it
+    /// takes it, and the next layout finds nothing left to reveal.
+    #[test]
+    fn a_reveal_request_is_consumed_exactly_once() {
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Selection);
+        assert_eq!(sm.pending_reveal(), Some(RevealRequest::Selection));
+        assert_eq!(sm.take_pending_reveal(), Some(RevealRequest::Selection));
+        assert_eq!(
+            sm.take_pending_reveal(),
+            None,
+            "a performed reveal is gone: re-performing it every layout is what fought the wheel"
+        );
+    }
+
+    /// Contracts 2 and 3: a user scroll after a request drops it; a request
+    /// issued after a user scroll wins. And the newest request replaces an
+    /// older one - a caret move after a selection op reveals the caret.
+    #[test]
+    fn the_newest_of_a_request_and_a_user_scroll_wins() {
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Selection);
+        sm.note_user_scroll();
+        assert_eq!(sm.pending_reveal(), None, "the wheel came last");
+
+        sm.note_user_scroll();
+        sm.request_reveal(RevealRequest::Caret);
+        assert_eq!(sm.pending_reveal(), Some(RevealRequest::Caret), "the key came last");
+
+        sm.request_reveal(RevealRequest::Selection);
+        assert_eq!(
+            sm.pending_reveal(),
+            Some(RevealRequest::Selection),
+            "the newest request replaces the older one"
+        );
+    }
+
+    /// A thumb drag is the user's hand too: it drops a pending reveal.
+    #[test]
+    fn a_scrollbar_thumb_drag_drops_a_pending_reveal() {
+        use azul_core::{
+            dom::{DomId, NodeId, ScrollbarOrientation},
+            task::Instant,
+        };
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Caret);
+        sm.begin_thumb_drag(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            ScrollbarOrientation::Vertical,
+            Instant::now(),
+        );
+        assert_eq!(sm.pending_reveal(), None);
     }
 
     /// Only the user's own hand counts as a user scroll. The engine puts its

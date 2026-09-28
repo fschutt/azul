@@ -6399,11 +6399,10 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::ScrollActiveCursorIntoView => {
+                // The app (or an assistive technology) asks for the caret:
+                // an input like any other, performed now.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
+                    lw.reveal_for_input(azul_layout::managers::scroll_state::RevealRequest::Caret);
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -8492,9 +8491,9 @@ pub trait PlatformWindow {
             // === Scroll ===
             SystemChange::ScrollSelectionIntoView => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    use azul_layout::window::{ScrollMode, SelectionScrollType};
+                    use azul_layout::managers::scroll_state::RevealRequest;
 
-                    let scroll_type =
+                    let request =
                         if let Some(_focused_node) = layout_window.focus_manager.focused_node {
                             let has_range = layout_window
                                 .text_edit_manager
@@ -8512,15 +8511,20 @@ pub trait PlatformWindow {
                                 })
                                 .unwrap_or(false);
                             if has_range {
-                                SelectionScrollType::Selection
+                                RevealRequest::Selection
                             } else {
-                                SelectionScrollType::Cursor
+                                RevealRequest::Caret
                             }
                         } else {
                             return ProcessEventResult::DoNothing;
                         };
 
-                    layout_window.scroll_selection_into_view(scroll_type, ScrollMode::Instant);
+                    // The input this change follows (a click, a caret or
+                    // selection op, cut / paste / undo / redo / select-all)
+                    // asks for its result to be shown, and it is shown NOW -
+                    // which consumes the request, so the next layout does not
+                    // perform it a second time.
+                    layout_window.reveal_for_input(request);
                     return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                 }
                 ProcessEventResult::DoNothing
@@ -8541,18 +8545,15 @@ pub trait PlatformWindow {
             }
 
             SystemChange::ScrollCursorIntoViewAfterTextInput => {
-                // The canonical reveal, not a second one. This arm used to
-                // carry its own inline copy — 5px padding, an INSTANT
-                // `scroll_manager.scroll_by`, blind to `caret_scroll_glide` —
-                // while `CreateTextInput` already called
-                // `scroll_selection_into_view` for the same keystroke. Typing
-                // therefore issued TWO reveals per pass with different
-                // semantics, and the one the user saw was whichever ran last.
+                // The canonical reveal, not a second one - and only the one
+                // an input ASKED for. The shell's own tail no longer emits
+                // this (`LayoutWindow::apply_pending_text_and_reveal`), but a
+                // custom post-filter may, on any pass: performing the pending
+                // `RevealRequest` (a landed edit issues one) rather than
+                // revealing unconditionally keeps such a filter from dragging
+                // the view back to the caret on every wheel pass.
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    if layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    ) {
+                    if layout_window.perform_pending_reveal(false) {
                         return ProcessEventResult::ShouldReRenderCurrentWindow;
                     }
                 }
