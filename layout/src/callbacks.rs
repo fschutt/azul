@@ -3031,9 +3031,29 @@ impl CallbackInfo {
     /// for (HTML: `event.preventDefault()` in a `cancel` handler keeps the
     /// dialog open). Only this callback's own changes are visible; an
     /// earlier handler on the propagation path has its own change set.
+    #[cfg(feature = "std")]
     #[must_use]
     pub fn is_default_prevented(&self) -> bool {
-        false
+        // SAFETY: the pointer is valid for the lifetime of the callback.
+        unsafe {
+            (*self.changes).lock().is_ok_and(|changes| {
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault))
+            })
+        }
+    }
+
+    /// See the `std` variant.
+    #[cfg(not(feature = "std"))]
+    #[must_use]
+    pub fn is_default_prevented(&self) -> bool {
+        // SAFETY: the pointer is valid for the lifetime of the callback.
+        unsafe {
+            (*self.changes)
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault))
+        }
     }
 
     // Cursor Blinking Api (for system timer control)
@@ -3122,8 +3142,18 @@ impl CallbackInfo {
     /// the parent's popups.
     #[must_use]
     pub fn is_transient_window_open(&self, node: DomNodeId) -> bool {
-        let _ = node;
-        false
+        if node.dom != DomId::ROOT_ID {
+            return false;
+        }
+        let Some(n) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let manager = &self.get_layout_window().transient_windows;
+        if manager.dismissed_nodes().contains(&n) {
+            return false;
+        }
+        manager.forced_open_nodes().contains(&n)
+            || manager.open_windows().iter().any(|w| w.source_node == n)
     }
 
     /// Tear the open `<transient-window>` at `node` off into a free toplevel
