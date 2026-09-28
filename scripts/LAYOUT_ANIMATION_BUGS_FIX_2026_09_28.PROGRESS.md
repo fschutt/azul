@@ -44,8 +44,13 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 - 3648c0565 FIX bug 3 engine: window.rs `size_transition_start` + laid_out_size in
   apply_node_css_change (from auto -> laid-out px for width/height toward a length).
 
+- d6ec5401c FIX bug 3 widget: accordion.rs body_style/body_animation/body_content_height/body_animates,
+  handler rewrite, unit tests rewritten (display -> height).
+
 ## IN PROGRESS
-- FIX bug 3 widget (accordion.rs): body = display flow-root + overflow clip, closed = height 0 +
+- Final report + delete this file. (Optional before it: C demo / switch reduced-motion - NOT doing.)
+
+## (old note) FIX bug 3 widget (accordion.rs): body = display flow-root + overflow clip, closed = height 0 +
   padding-top/bottom 0, open = height auto + padding 12; declared animation (height, padding-top,
   padding-bottom, 220ms ease-in-out) only under PrefersReducedMotion(False). Handler: animated =
   body resolves an `animation` AND system style not reduced; OPEN = full write [height auto, pt 12,
