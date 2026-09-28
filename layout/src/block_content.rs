@@ -15,9 +15,17 @@
 //! items left out), and [`BlockContent::flat_byte_of`] /
 //! [`BlockContent::caret_at`] are the one converter pair between the two:
 //! affinity resolved, in logical order.
+//!
+//! A node that holds several blocks - an editing host with paragraphs -
+//! speaks [`FlatByte`]s into its [`ScopeText`]: its blocks' flat texts in
+//! document order, one `'\n'` between two of them. That is the text a screen
+//! reader reads as the host's value and sets its selection in.
 
-use azul_core::selection::{
-    CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextBlock, TextCursor,
+use azul_core::{
+    dom::DomNodeId,
+    selection::{
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextBlock, TextCursor,
+    },
 };
 
 use crate::{
@@ -256,6 +264,90 @@ fn caret_in_run(run: usize, text: &str, byte: usize) -> TextCursor {
     at(start, CursorAffinity::Leading)
 }
 
+/// The flat text of a node that may hold several text blocks, and where each
+/// block's text starts in it: the blocks' flat texts in document order, one
+/// `'\n'` between two of them. A node whose own text is in ONE block (a
+/// paragraph, a flat editable, a text leaf) reads that block's text alone.
+///
+/// What a screen reader reads as a host's value and indexes its selection in:
+/// the offsets the accessibility tree publishes and the ones a
+/// `SetTextSelection` brings back are one space, and an offset in the
+/// host's second paragraph names the second paragraph.
+#[derive(Debug, Clone, Default)]
+pub struct ScopeText {
+    text: String,
+    /// Each block, the [`FlatByte`] its text starts at in `text`, its content.
+    blocks: Vec<(TextBlock, FlatByte, BlockContent)>,
+}
+
+impl ScopeText {
+    /// The text.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The blocks, in document order.
+    pub fn blocks(&self) -> impl Iterator<Item = TextBlock> + '_ {
+        self.blocks.iter().map(|(block, _, _)| *block)
+    }
+
+    /// Where `cursor`, a caret in `block`, stands in the text. `None` when
+    /// `block` is not one of this scope's.
+    #[must_use]
+    pub fn flat_byte_of(&self, block: TextBlock, cursor: &TextCursor) -> Option<FlatByte> {
+        let (_, start, content) = self.blocks.iter().find(|(b, _, _)| *b == block)?;
+        Some(FlatByte(start.0 + content.flat_byte_of(cursor).0))
+    }
+
+    /// The block and the caret at `at` in the text. The line break between
+    /// two blocks is the end of the first; past the end is the end of the
+    /// last. `None` for a scope that holds no block.
+    #[must_use]
+    pub fn caret_at(&self, at: FlatByte) -> Option<(TextBlock, TextCursor)> {
+        let mut chosen = self.blocks.first()?;
+        for entry in &self.blocks {
+            if (entry.1).0 > at.0 {
+                break;
+            }
+            chosen = entry;
+        }
+        let (block, start, content) = chosen;
+        let caret = content.caret_at(FlatByte(at.0.saturating_sub(start.0)))?;
+        Some((*block, caret))
+    }
+
+    /// The [`FlatByte`] of CHARACTER `index` (what accessibility speaks); past
+    /// the end, the end.
+    #[must_use]
+    pub fn flat_byte_at_char(&self, index: usize) -> FlatByte {
+        FlatByte(
+            self.text
+                .char_indices()
+                .nth(index)
+                .map_or(self.text.len(), |(byte, _)| byte),
+        )
+    }
+}
+
+/// A selection as a screen reader sees it: the node it is read on, that
+/// node's [`ScopeText`], and the anchor and the focus in it
+/// ([`LayoutWindow::accessible_selection`]).
+#[derive(Debug, Clone)]
+pub struct AccessibleSelection {
+    /// The node the text and the selection are published on: the session's
+    /// editing host, else the element of the session's block.
+    pub node: DomNodeId,
+    /// Whether `node` is an editing host (the text is its value).
+    pub is_host: bool,
+    /// `node`'s text.
+    pub text: ScopeText,
+    /// The anchor, in `text`.
+    pub anchor: FlatByte,
+    /// The focus, in `text`.
+    pub focus: FlatByte,
+}
+
 impl LayoutWindow {
     /// The content a caret in `block` indexes ([`BlockContent`]).
     ///
@@ -284,5 +376,78 @@ impl LayoutWindow {
             .take_while(|item| matches!(item, InlineContent::Marker { .. }))
             .count();
         BlockContent::new(items, generated)
+    }
+
+    /// `node`'s [`ScopeText`]: the block its text is in, when it is in one;
+    /// else every block inside it, in document order.
+    #[must_use]
+    pub fn scope_text(&self, node: DomNodeId) -> ScopeText {
+        let blocks = match self.text_block_of(node) {
+            Some(block) => vec![block],
+            None => self.text_blocks_within(node),
+        };
+        let mut text = String::new();
+        let mut entries = Vec::with_capacity(blocks.len());
+        for (i, block) in blocks.into_iter().enumerate() {
+            if i > 0 {
+                text.push('\n');
+            }
+            let content = self.block_content(block);
+            let start = FlatByte(text.len());
+            text.push_str(&content.flat_text());
+            entries.push((block, start, content));
+        }
+        ScopeText {
+            text,
+            blocks: entries,
+        }
+    }
+
+    /// The editing session's selection as a screen reader reads it
+    /// ([`AccessibleSelection`]): on the session's editing host - the text
+    /// field, the document - with the host's [`ScopeText`], or on the
+    /// block's own element outside any host. A document selection has its
+    /// two ends in two blocks of that text; one that does not lie in it is
+    /// read as the session's own selection. `None` with no session.
+    ///
+    /// The tree published the caret on the session's BLOCK with the raw
+    /// `start_byte_in_run` of its cluster - no run, no affinity - and a host
+    /// with paragraphs published neither a value nor a selection.
+    #[must_use]
+    pub fn accessible_selection(&self) -> Option<AccessibleSelection> {
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let block = mc.block;
+        let host = self.find_contenteditable_host(block.container_dom_node());
+        let node = host.map_or_else(
+            || block.container_dom_node(),
+            crate::text_block::EditHost::dom_node,
+        );
+        let text = self.scope_text(node);
+        let document = self
+            .text_edit_manager
+            .get_cross_block_selection()
+            .and_then(|cb| {
+                Some((
+                    text.flat_byte_of(cb.anchor.block, &cb.anchor.cursor)?,
+                    text.flat_byte_of(cb.focus.block, &cb.focus.cursor)?,
+                ))
+            });
+        let (anchor, focus) = match document {
+            Some(ends) => ends,
+            None => {
+                let (a, f) = match mc.get_primary()?.selection {
+                    Selection::Cursor(c) => (c, c),
+                    Selection::Range(r) => (r.start, r.end),
+                };
+                (text.flat_byte_of(block, &a)?, text.flat_byte_of(block, &f)?)
+            }
+        };
+        Some(AccessibleSelection {
+            node,
+            is_host: host.is_some(),
+            text,
+            anchor,
+            focus,
+        })
     }
 }

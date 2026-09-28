@@ -13368,24 +13368,16 @@ impl LayoutWindow {
     pub fn update_a11y_tree(&mut self) {
         // After EVERY layout, animation frames included - the whole tree.
         let _p = crate::probe::Probe::span("a11y_update_tree");
-        let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
-            let node_id = mc.block.container();
-            let primary = mc.get_primary()?;
-            let (anchor_offset, focus_offset) = match &primary.selection {
-                Selection::Cursor(c) => {
-                    let off = c.cluster_id.start_byte_in_run as usize;
-                    (off, off)
-                }
-                Selection::Range(r) => (
-                    r.start.cluster_id.start_byte_in_run as usize,
-                    r.end.cluster_id.start_byte_in_run as usize,
-                ),
-            };
+        // The selection on the node a screen reader reads it on - the
+        // session's editing host - in that node's text, every paragraph of it
+        // (`accessible_selection`).
+        let accessible = self.accessible_selection();
+        let cursor_a11y_info = accessible.as_ref().and_then(|sel| {
             Some(crate::managers::a11y::CursorA11yInfo {
-                dom_id: mc.block.dom(),
-                node_id,
-                anchor_offset,
-                focus_offset,
+                dom_id: sel.node.dom,
+                node_id: sel.node.node.into_crate_internal()?,
+                anchor_offset: sel.anchor.0,
+                focus_offset: sel.focus.0,
             })
         });
 
@@ -13398,6 +13390,14 @@ impl LayoutWindow {
                 (dom_id, node_id),
                 crate::overlay::flatten_inline_content(&dirty_node.content),
             );
+        }
+        // The host the selection is published on reads the text its offsets
+        // index. A host whose text is in paragraphs has no text child of its
+        // own, and published no value at all.
+        if let Some(sel) = accessible.as_ref().filter(|sel| sel.is_host) {
+            if let Some(host) = sel.node.node.into_crate_internal() {
+                dirty_text_overrides.insert((sel.node.dom, host), sel.text.text().to_string());
+            }
         }
 
         let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -13450,6 +13450,36 @@ impl LayoutWindow {
         )
     }
 
+    /// The accessibility children of `node_id`: its nearest descendants the
+    /// tree exposes, in document order - the links the full build makes
+    /// (`A11yManager::update_tree`'s nearest-exposed-ancestor pass).
+    #[cfg(feature = "a11y")]
+    fn a11y_children_of(&self, dom_id: DomId, node_id: NodeId) -> Vec<accesskit::NodeId> {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+        let mut out = Vec::new();
+        let mut stack = child_nodes(&hierarchy, node_id);
+        stack.reverse();
+        while let Some(child) = stack.pop() {
+            let exposed = node_data
+                .get(child)
+                .is_some_and(crate::managers::a11y::is_exposed_to_accessibility);
+            if exposed {
+                out.push(accesskit::NodeId(
+                    ((dom_id.inner as u64) << 32) | ((child.index() as u64) + 1),
+                ));
+            } else {
+                let mut grandchildren = child_nodes(&hierarchy, child);
+                grandchildren.reverse();
+                stack.extend(grandchildren);
+            }
+        }
+        out
+    }
+
     /// Incremental a11y update: only push the focused contenteditable node's
     /// updated value + cursor/selection.  Falls back to full rebuild if the
     /// tree hasn't been initialized yet or there's no active editing.
@@ -13461,60 +13491,22 @@ impl LayoutWindow {
             return self.update_a11y_tree();
         }
 
-        // Only worth doing incremental if we have an active editing node
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+        // Only worth doing incremental if we have an active editing node.
+        //
+        // The node is the one the full tree publishes the selection on - the
+        // session's editing host, else the block's element - with the text
+        // its offsets index (`accessible_selection`): every paragraph of a
+        // host, the overlay first, so a keystroke ships the fresh value. This
+        // used to publish on the session's BLOCK, whatever the host, with the
+        // raw `start_byte_in_run` of the caret's cluster as its offset.
+        let Some(accessible) = self.accessible_selection() else {
             return; // No cursor — nothing to update incrementally
         };
-
-        let dom_id = mc.block.dom();
-        let node_id = mc.block.container();
-
-        // Get current text content (from dirty overrides or StyledDom).
-        // Edits are recorded against the FOCUSED host (the contenteditable
-        // container) while the editing session is keyed on the IFC root
-        // inside it — look the overlay up by both, or the increment ships
-        // the pre-edit DOM text and screen readers read a stale value on
-        // every keystroke (caught by the a11y consumer contract test).
-        let overlay_text = self
-            .content_overlay
-            .text_for_node(dom_id, node_id)
-            .or_else(|| {
-                let host = self.focus_manager.get_focused_node().copied()?;
-                if host.dom != dom_id {
-                    return None;
-                }
-                let host_node = host.node.into_crate_internal()?;
-                self.content_overlay.text_for_node(dom_id, host_node)
-            });
-        let text_content = if let Some(dirty) = overlay_text {
-            self.extract_text_from_inline_content(&dirty.content)
-        } else {
-            // Fall back to StyledDom text
-            let Some(lr) = self.layout_results.get(&dom_id) else {
-                return self.update_a11y_tree();
-            };
-            let node_data = lr.styled_dom.node_data.as_ref();
-            let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
-            let mut text = String::new();
-            if let Some(item) = hierarchy.get(node_id.index()) {
-                let mut child = item.first_child_id(node_id);
-                while let Some(child_id) = child {
-                    if let Some(cd) = node_data.get(child_id.index()) {
-                        if let NodeType::Text(t) = &cd.node_type {
-                            if !text.is_empty() {
-                                text.push(' ');
-                            }
-                            text.push_str(t.as_str());
-                        }
-                    }
-                    if child_id.index() >= hierarchy.len() {
-                        break;
-                    }
-                    child = hierarchy[child_id.index()].next_sibling_id();
-                }
-            }
-            text
+        let dom_id = accessible.node.dom;
+        let Some(node_id) = accessible.node.node.into_crate_internal() else {
+            return;
         };
+        let text_content = accessible.text.text().to_string();
 
         // Build the a11y node ID (same encoding as update_tree)
         let a11y_node_id =
@@ -13540,20 +13532,13 @@ impl LayoutWindow {
         node.add_action(accesskit::Action::SetTextSelection);
         node.add_action(accesskit::Action::ReplaceSelectedText);
         node.add_action(accesskit::Action::SetValue);
+        // An increment REPLACES the node: without its children the consumer
+        // drops a host's paragraphs from the tree until the next full build.
+        node.set_children(self.a11y_children_of(dom_id, node_id));
 
         // Set cursor/selection
-        let primary = mc.get_primary();
-        if let Some(identified) = primary {
-            let (anchor_off, focus_off) = match &identified.selection {
-                Selection::Cursor(c) => {
-                    let off = c.cluster_id.start_byte_in_run as usize;
-                    (off, off)
-                }
-                Selection::Range(r) => (
-                    r.start.cluster_id.start_byte_in_run as usize,
-                    r.end.cluster_id.start_byte_in_run as usize,
-                ),
-            };
+        {
+            let (anchor_off, focus_off) = (accessible.anchor.0, accessible.focus.0);
 
             let char_lengths: Vec<u8> = text_content.chars().map(|c| c.len_utf16() as u8).collect();
             node.set_character_lengths(char_lengths.clone());
@@ -17674,32 +17659,52 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetTextSelection(selection) => {
-                // The selection is in the text block the node names (its own
-                // text's, or - a text field's host - the first one inside it),
-                // with both ends the screen reader set: anchor
-                // `selection_start`, focus `selection_end`. It opens the
-                // session there, as a click would, whatever session was open
-                // before: its offsets index THIS block, so writing them into
-                // another block's session put the caret at an unrelated place,
-                // and without a session the action did nothing. Text a
-                // selection may not cover (`user-select`) is refused, as it is
-                // for the mouse.
-                let target = self
-                    .text_block_named_by(DomNodeId {
-                        dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-                    })
-                    .and_then(|block| self.text_target(block))
-                    .filter(|t| t.selectable);
-                let selected = target.and_then(|t| {
-                    let range = SelectionRange {
-                        start: t.caret_at_byte(selection.selection_start)?,
-                        end: t.caret_at_byte(selection.selection_end)?,
-                    };
-                    Some((t.block, range))
+                // The offsets are CHARACTER indices into the text the tree
+                // publishes for the node: its `ScopeText` - the one block its
+                // text is in, or, for a host with paragraphs, all of them, one
+                // line break between two. Each end lands in the block ITS
+                // offset names, whatever session was open before; ends in two
+                // blocks make a document selection. Resolved against the first
+                // block alone (and as bytes), an offset in a host's second
+                // paragraph clamped to the end of the first. Text a selection
+                // may not cover (`user-select`) is refused, as it is for the
+                // mouse.
+                let scope = self.scope_text(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                 });
-                if let Some((block, range)) = selected {
-                    self.open_session(block, range);
+                let anchor = scope.caret_at(scope.flat_byte_at_char(selection.selection_start));
+                let focus = scope.caret_at(scope.flat_byte_at_char(selection.selection_end));
+                if let (Some((anchor_block, anchor)), Some((focus_block, focus))) = (anchor, focus)
+                {
+                    let selectable = |block: TextBlock| {
+                        self.text_target(block).is_some_and(|t| t.selectable)
+                    };
+                    if selectable(anchor_block) && selectable(focus_block) {
+                        if anchor_block == focus_block {
+                            self.open_session(
+                                anchor_block,
+                                SelectionRange {
+                                    start: anchor,
+                                    end: focus,
+                                },
+                            );
+                        } else {
+                            self.open_session(
+                                anchor_block,
+                                SelectionRange {
+                                    start: anchor,
+                                    end: anchor,
+                                },
+                            );
+                            let _ = self.set_cross_block_selection(
+                                anchor_block,
+                                anchor,
+                                focus_block,
+                                focus,
+                            );
+                        }
+                    }
                 }
             }
 
