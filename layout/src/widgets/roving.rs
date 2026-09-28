@@ -240,7 +240,7 @@ pub(crate) mod test_support {
 
     use azul_core::{
         callbacks::{FocusTarget, Update},
-        dom::{DomId, DomNodeId, EventFilter, NodeId, TabIndex},
+        dom::{DomId, DomNodeId, EventFilter},
         events::FocusEventFilter,
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
@@ -265,18 +265,10 @@ pub(crate) mod test_support {
         window_state::FullWindowState,
     };
 
-    /// Flattened node `idx` of the root DOM.
-    pub(crate) fn node(idx: usize) -> DomNodeId {
-        DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
-        }
-    }
-
     /// A `DomLayoutResult` with an EMPTY layout tree: the Tab order and the
     /// hierarchy walks a key handler does read only the styled DOM, so no
     /// real layout (and no font) is needed.
-    pub(crate) fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+    fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
         DomLayoutResult {
             styled_dom,
             layout_tree: LayoutTree {
@@ -325,12 +317,6 @@ pub(crate) mod test_support {
             }
         }
         out
-    }
-
-    /// The tab index `node` was built with.
-    pub(crate) fn tab_index_of(styled: &StyledDom, node: DomNodeId) -> Option<TabIndex> {
-        let id = node.node.into_crate_internal()?;
-        styled.node_data.as_container().get(id)?.get_tab_index()
     }
 
     /// Applies the `SetNodeTabIndex` writes in `changes` to `styled`, as the
