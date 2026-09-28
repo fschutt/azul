@@ -358,6 +358,8 @@ mod selection_skips_unselectable_text;
 mod session_regression;
 #[path = "single_block_copy.rs"]
 mod single_block_copy;
+#[path = "spatial_navigation.rs"]
+mod spatial_navigation;
 #[path = "stale_document_selection.rs"]
 mod stale_document_selection;
 #[path = "statusbar_live_label.rs"]
