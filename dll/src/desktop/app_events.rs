@@ -148,13 +148,27 @@ fn candidate<K: Copy>(key: K, common: &CommonWindowState) -> AppTargetCandidate<
     }
 }
 
-/// Say that collected events had nowhere to run. Not silent: a dropped
-/// callback is indistinguishable from a broken one otherwise.
-fn report_undelivered(events: &AppEvents) {
-    crate::plog_debug!(
-        "[app-events] {} tray / notification / hotkey event(s) had no window to run against",
-        events.len()
-    );
+/// Collected events had nowhere to run. Notification deliveries are parked
+/// (`notifications::defer_deliveries`) - the tap that launches an app arrives
+/// before its first window - and the next pump that has a window runs them.
+/// The rest is said, not silent: a dropped callback is indistinguishable from
+/// a broken one otherwise.
+fn report_undelivered(events: AppEvents) {
+    let AppEvents {
+        tray_menu,
+        tray,
+        notifications,
+        hotkeys,
+    } = events;
+    if !notifications.is_empty() {
+        crate::desktop::notifications::defer_deliveries(notifications);
+    }
+    let dropped = tray_menu.len() + tray.len() + hotkeys.len();
+    if dropped > 0 {
+        crate::plog_debug!(
+            "[app-events] {dropped} tray / hotkey event(s) had no window to run against"
+        );
+    }
 }
 
 /// macOS: the RunForever drain timer and both points of the manual loop (the
@@ -174,7 +188,7 @@ pub(crate) fn deliver_to_macos_windows() {
             .map(|p| candidate(p, unsafe { &(*p).common }))
             .collect();
     let Some(wptr) = pick_app_target(&candidates) else {
-        report_undelivered(&events);
+        report_undelivered(events);
         return;
     };
     // Safe: registry pointers stay valid while registered, and this runs on
@@ -202,7 +216,7 @@ pub(crate) fn deliver_to_win32_windows() {
             .map(|p| candidate(p, unsafe { &(*p).common }))
             .collect();
     let Some(wptr) = pick_app_target(&candidates) else {
-        report_undelivered(&events);
+        report_undelivered(events);
         return;
     };
     // Safe: see the macOS twin; the Win32 loop runs this outside any window
@@ -237,7 +251,7 @@ pub(crate) fn deliver_to_linux_windows() {
         })
         .collect();
     let Some(wptr) = pick_app_target(&candidates) else {
-        report_undelivered(&events);
+        report_undelivered(events);
         return;
     };
     // Safe: see the macOS twin; the Linux loop runs this before it polls its

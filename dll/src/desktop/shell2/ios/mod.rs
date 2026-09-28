@@ -1059,6 +1059,18 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // per-frame slot `run.rs` gives the four desktop backends.
         #[cfg(feature = "a11y")]
         window.process_accessibility_actions();
+        // Native notifications: queued posts out to UNUserNotificationCenter,
+        // taps / buttons / dismissals (queued by the UN delegate on its own
+        // queue) routed to their callbacks - or to the app-level handler for
+        // the tap that launched the app - and run against this window. The
+        // display tick is iOS's only per-frame slot, so it is the pump; UN
+        // needs no wake-up here, unlike the parked macOS loop.
+        let deliveries = crate::desktop::notifications::pump_notifications();
+        if !deliveries.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(window, deliveries)
+        {
+            window.request_redraw();
+        }
         // The APP's explicit soft-keyboard request. `CallbackInfo::
         // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
         // `TextEditManager::pending_soft_keyboard` was drained on Android only,
@@ -1368,6 +1380,13 @@ extern "C" fn did_finish_launching(
                     return false;
                 }
             };
+
+        // The UNUserNotificationCenter delegate, BEFORE this method returns:
+        // a tap on a notification of an app that was not running launches it,
+        // and UN delivers that response only to a delegate set while launching.
+        // Also reads the stored authorization for
+        // `get_permission_status(Capability::Notifications)`.
+        crate::desktop::notifications::install_launch_hooks();
 
         let window = match IOSWindow::new(
             root_window,

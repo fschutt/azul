@@ -1,54 +1,64 @@
-//! Native desktop notifications  -  platform dispatch. The system tray's
-//! sibling (`desktop/tray/`), built the same way.
+//! Native notifications  -  platform dispatch. The system tray's sibling
+//! (`desktop/tray/`), built the same way.
 //!
 //! The data model is `azul_core::notification`; the request queue, the event
 //! mailbox, the routing and the headless recorder are
 //! `azul_layout::managers::notification`. This module is the OS plumbing and
 //! the one service that owns it.
 //!
-//! | | macOS | Linux | Windows |
-//! |---|---|---|---|
-//! | mechanism | `UNUserNotificationCenter` (UserNotifications.framework, dlopen'd) | `org.freedesktop.Notifications` over D-Bus (the tray's libdbus + session connection) | `Shell_NotifyIconW` balloon (`NIF_INFO`) on a hidden top-level window |
-//! | buttons | a `UNNotificationCategory` per button set | the `actions` list, where the server advertises it | none (dropped) |
-//! | events arrive | the center's delegate, on UN's own queue | `ActionInvoked` / `NotificationClosed`, in a D-Bus filter | `NIN_BALLOON*`, in the hidden window's procedure |
-//! | can it be absent? | **yes**: an unbundled binary has no bundle identifier | **yes**: no server on the session bus | practically no |
+//! | | macOS / iOS | Linux | Windows | Android |
+//! |---|---|---|---|---|
+//! | mechanism | `UNUserNotificationCenter` (UserNotifications.framework, dlopen'd) | `org.freedesktop.Notifications` over D-Bus (the tray's libdbus + session connection) | a WinRT toast under an AUMID registered in HKCU at first use; the `Shell_NotifyIconW` balloon when that fails | `NotificationManager` + a channel, through `AzulNotifications.java` over JNI |
+//! | buttons | a `UNNotificationCategory` per button set | the `actions` list, where the server advertises it | toast `<action>`s (none on the balloon) | up to three `Notification.Action`s |
+//! | events arrive | the center's delegate, on UN's own queue | `ActionInvoked` / `NotificationClosed` (+ `ActivationToken`), in a D-Bus filter | `ToastNotification.Activated/Dismissed/Failed` on a thread-pool thread | the launch / `onNewIntent` intent and a manifest receiver, forwarded by the Java helper |
+//! | can it be absent? | **yes** on macOS: an unbundled binary has no bundle identifier | **yes**: no server on the session bus | practically no | no (Android 13+ needs the permission) |
 //!
 //! # Flow - the tray's
 //!
 //! 1. A callback calls `CallbackInfo::post_notification`; the request is parked in the layout
-//!    queue (a `CallbackInfo` cannot reach an OS API).
+//!    queue (a `CallbackInfo` cannot reach an OS API). A post the queue has no room for becomes a
+//!    `Failed` delivery right there.
 //! 2. [`dispatch_queued_requests`] hands it to the backend, on the main thread: from the capability
 //!    pump at the top of every event pass (every target, mobile included), and from
-//!    [`pump_notifications`], which each desktop run loop calls next to its tray pump.
+//!    [`pump_notifications`], which each run loop calls next to its tray pump (the iOS display
+//!    tick and the Android loop included).
 //! 3. The OS reports a click on whatever thread it likes; the backend queues a `NotificationEvent`
-//!    into the layout mailbox (the tray's `queue_tray_event`) and, on macOS, wakes the run loop.
+//!    into the layout mailbox (the tray's `queue_tray_event`) and wakes the run loop where it has
+//!    to.
 //! 4. [`pump_notifications`] routes the mailbox to the callbacks of the notifications the events
-//!    name, and the run loop's app-event collector (`desktop::app_events`) runs them with
+//!    name - or to the APP-LEVEL handler (`AppConfig::notification_handler`, installed by
+//!    [`set_app_handler`]) for events no live callback owns, such as the tap that launched the
+//!    app - and the run loop's app-event collector (`desktop::app_events`) runs them with
 //!    [`invoke_deliveries`] - through `invoke_menu_callback` against the most recently focused
 //!    window (else the oldest), exactly as it runs a tray menu item's callback, with the event
 //!    installed for `CallbackInfo::get_notification_event`.
+//! 5. A loop with no window parks the deliveries with [`defer_deliveries`]; the next pump that has
+//!    one runs them.
 //!
 //! # Failures are events
 //!
-//! A backend that cannot start (an unbundled macOS binary, no freedesktop server, a mobile target)
-//! turns every post into a `Failed` event carrying the reason, and logs it. Nothing is dropped in
-//! silence, and `PlatformCapability::notifications()` reports the same reason up front.
+//! A backend that cannot start (an unbundled macOS binary, no freedesktop server, an Android build
+//! without JNI) turns every post into a `Failed` event carrying the reason, and logs it. Nothing is
+//! dropped in silence, and `PlatformCapability::notifications()` reports the same reason up front.
 
 use core::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use azul_core::notification::{Notification, NotificationEvent};
+use azul_core::notification::{Notification, NotificationEvent, OptionNotificationCallback};
 use azul_css::AzString;
-use azul_layout::managers::notification::{
-    self as queue, NotificationDelivery, NotificationRegistry, NotificationRequest,
+use azul_layout::managers::{
+    notification::{self as queue, NotificationDelivery, NotificationRegistry, NotificationRequest},
+    permission::{push_async_result, Capability, PermissionQuality, PermissionState},
 };
 
 use crate::desktop::extra::capability::PlatformCapability;
 
+#[cfg(all(target_os = "android", feature = "jni"))]
+mod android;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod apple;
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux;
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -57,9 +67,15 @@ mod windows;
 static HEADLESS: AtomicBool = AtomicBool::new(false);
 
 /// Why a target without a backend cannot show a notification.
-const UNSUPPORTED: &str =
-    "native notifications are not implemented on this target yet (desktop only: macOS, Linux, \
-     Windows)";
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "windows",
+    all(target_os = "linux", not(target_arch = "wasm32")),
+    all(target_os = "android", feature = "jni")
+)))]
+const UNSUPPORTED: &str = "native notifications are not implemented on this target (macOS, iOS, \
+                           Android with the `jni` feature, Linux and Windows have them)";
 
 /// Record instead of show. Called by the headless run loop before its window
 /// exists, i.e. before anything can post.
@@ -67,12 +83,90 @@ pub fn use_headless_backend() {
     HEADLESS.store(true, Ordering::Relaxed);
 }
 
+/// Install the app-level handler (`AppConfig::notification_handler`): where
+/// events go that no notification callback owns. Called by `App::run` before
+/// the run loop starts, so the tap that launched the app finds it.
+pub fn set_app_handler(handler: OptionNotificationCallback) {
+    queue::set_app_notification_handler(handler);
+}
+
+/// What must happen before the app finishes launching, so a notification
+/// click that LAUNCHED the app is not lost: on macOS and iOS the
+/// `UNUserNotificationCenter` delegate (the response is only delivered to a
+/// delegate set before launch completes) and a first read of the stored
+/// authorization. Called between the app delegate and `finishLaunching` on
+/// macOS and from `application:didFinishLaunchingWithOptions:` on iOS. Android
+/// needs nothing here: its launch intent is forwarded by `AzulActivity`.
+pub fn install_launch_hooks() {
+    if HEADLESS.load(Ordering::Relaxed) {
+        return;
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    apple::install_launch_hooks();
+}
+
+/// `applicationDidFinishLaunching:` (macOS): remember which notification, if
+/// any, launched the app, so its response is reported with
+/// `NotificationEvent::launched_app`. `notification` is the `NSNotification`
+/// that method receives.
+///
+/// # Safety
+///
+/// `notification` must be null or a live `NSNotification`.
+#[cfg(target_os = "macos")]
+pub unsafe fn note_launch_notification(notification: *mut core::ffi::c_void) {
+    if HEADLESS.load(Ordering::Relaxed) {
+        return;
+    }
+    unsafe { apple::note_launch_notification(notification.cast()) };
+}
+
+/// Re-read the notification permission the OS keeps for this app - the user
+/// may have changed it in System Settings while the app was in the background.
+/// Called when the app becomes active. Only macOS and iOS store a decision
+/// that can change behind the app's back and be read cheaply.
+pub fn refresh_permission() {
+    if HEADLESS.load(Ordering::Relaxed) {
+        return;
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    apple::refresh_authorization();
+}
+
+/// The notification permission as last read from `UNUserNotificationCenter`
+/// (`NotDetermined` before the first reading). What the Apple permission
+/// backends answer for `Capability::Notifications`.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[must_use]
+pub fn apple_permission_state() -> PermissionState {
+    apple::permission_state()
+}
+
+/// The `ActivationToken` a freedesktop server sent with the last click on one
+/// of this app's notifications, taken. On Wayland it is what lets the app
+/// raise its window (`xdg_activation_v1.activate`): a click on a notification
+/// carries no input serial, so nothing else may.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+#[must_use]
+pub fn take_activation_token() -> Option<String> {
+    linux::take_activation_token()
+}
+
+/// No freedesktop server, no activation token.
+#[cfg(not(all(target_os = "linux", not(target_arch = "wasm32"))))]
+#[must_use]
+pub fn take_activation_token() -> Option<String> {
+    None
+}
+
 /// Whatever shows (or records) the notifications.
 enum Backend {
     /// `AZ_BACKEND=headless`: record, never show.
     Headless,
-    #[cfg(target_os = "macos")]
-    MacOs(macos::PlatformNotifier),
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Apple(apple::PlatformNotifier),
+    #[cfg(all(target_os = "android", feature = "jni"))]
+    Android(android::PlatformNotifier),
     #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
     Linux(linux::PlatformNotifier),
     #[cfg(target_os = "windows")]
@@ -81,10 +175,18 @@ enum Backend {
     Unavailable(String),
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn platform_backend() -> Backend {
-    match macos::PlatformNotifier::new() {
-        Ok(n) => Backend::MacOs(n),
+    match apple::PlatformNotifier::new() {
+        Ok(n) => Backend::Apple(n),
+        Err(reason) => Backend::Unavailable(reason),
+    }
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn platform_backend() -> Backend {
+    match android::PlatformNotifier::new() {
+        Ok(n) => Backend::Android(n),
         Err(reason) => Backend::Unavailable(reason),
     }
 }
@@ -107,8 +209,10 @@ fn platform_backend() -> Backend {
 
 #[cfg(not(any(
     target_os = "macos",
+    target_os = "ios",
     target_os = "windows",
-    all(target_os = "linux", not(target_arch = "wasm32"))
+    all(target_os = "linux", not(target_arch = "wasm32")),
+    all(target_os = "android", feature = "jni")
 )))]
 fn platform_backend() -> Backend {
     Backend::Unavailable(UNSUPPORTED.to_string())
@@ -144,8 +248,10 @@ impl NotificationService {
                 queue::record_posted_notification(&notification);
                 Ok(())
             }
-            #[cfg(target_os = "macos")]
-            Backend::MacOs(n) => n.post(&notification),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            Backend::Apple(n) => n.post(&notification),
+            #[cfg(all(target_os = "android", feature = "jni"))]
+            Backend::Android(n) => n.post(&notification),
             #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
             Backend::Linux(n) => n.post(&notification),
             #[cfg(target_os = "windows")]
@@ -159,10 +265,10 @@ impl NotificationService {
                 reason
             );
             // Routed by the next pump to the notification's own callback.
-            queue::queue_notification_event(NotificationEvent::failed(
-                notification.id.clone(),
-                AzString::from(reason),
-            ));
+            let mut event =
+                NotificationEvent::failed(notification.id.clone(), AzString::from(reason));
+            event.payload = notification.payload.clone();
+            queue::queue_notification_event(event);
         }
     }
 
@@ -172,8 +278,10 @@ impl NotificationService {
             Backend::Headless => {
                 queue::record_withdrawn_notification(id);
             }
-            #[cfg(target_os = "macos")]
-            Backend::MacOs(n) => n.withdraw(id),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            Backend::Apple(n) => n.withdraw(id),
+            #[cfg(all(target_os = "android", feature = "jni"))]
+            Backend::Android(n) => n.withdraw(id),
             #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
             Backend::Linux(n) => n.withdraw(id),
             #[cfg(target_os = "windows")]
@@ -182,8 +290,9 @@ impl NotificationService {
         }
     }
 
-    /// Let the backend read what the OS reported since the last call. macOS
-    /// has nothing to read: its delegate queues events as they happen.
+    /// Let the backend read what the OS reported since the last call. macOS,
+    /// iOS and Android have nothing to read: their callbacks queue events as
+    /// they happen.
     fn pump_platform(&mut self) {
         #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
         if let Backend::Linux(n) = &mut self.backend {
@@ -207,7 +316,8 @@ thread_local! {
     /// The live service, owned by the event-loop thread - a thread-local, like
     /// the tray, because the macOS backend holds Objective-C objects and the
     /// Windows one a window that belong to that thread. Started lazily by the
-    /// first request, so an app that never posts pays nothing.
+    /// first request (or the first event, e.g. the tap that launched the
+    /// app), so an app that never posts pays nothing.
     static SERVICE: RefCell<Option<NotificationService>> = const { RefCell::new(None) };
 }
 
@@ -225,9 +335,13 @@ fn with_service<R>(f: impl FnOnce(&mut NotificationService) -> R) -> Option<R> {
         .flatten()
 }
 
-/// Hand every queued post / withdraw to the backend. Main thread only; a
-/// no-op (the service is not even started) while nothing is queued.
+/// Hand every queued post / withdraw - and a pending permission request - to
+/// the backend. Main thread only; a no-op (the service is not even started)
+/// while nothing is queued.
 pub fn dispatch_queued_requests() {
+    if queue::take_notification_permission_request() {
+        request_permission();
+    }
     let requests = queue::drain_notification_requests();
     if requests.is_empty() {
         return;
@@ -251,24 +365,119 @@ pub fn dispatch_queued_requests() {
     }
 }
 
+/// `CallbackInfo::request_notification_permission`, on the main thread. The
+/// answer reaches the permission manager (`Capability::Notifications`) through
+/// its async channel - at once where there is nothing to ask, from the
+/// prompt's completion where there is.
+fn request_permission() {
+    if HEADLESS.load(Ordering::Relaxed) {
+        // Every post is recorded: as granted as it gets.
+        push_async_result(
+            Capability::Notifications,
+            PermissionState::Granted(PermissionQuality::Full),
+        );
+        return;
+    }
+    platform_request_permission();
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn platform_request_permission() {
+    apple::request_permission();
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn platform_request_permission() {
+    android::request_permission();
+}
+
+/// freedesktop has no permission to ask for: notifications can be shown if a
+/// server answers, and cannot otherwise - which no prompt changes.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+fn platform_request_permission() {
+    let (available, _, _) = linux::probe();
+    push_async_result(
+        Capability::Notifications,
+        if available {
+            PermissionState::Granted(PermissionQuality::Full)
+        } else {
+            PermissionState::Restricted
+        },
+    );
+}
+
+/// Windows has no prompt either; the toast notifier says whether the user
+/// (or a policy) turned this app's notifications off.
+#[cfg(target_os = "windows")]
+fn platform_request_permission() {
+    push_async_result(Capability::Notifications, windows::permission_state());
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "windows",
+    all(target_os = "linux", not(target_arch = "wasm32")),
+    all(target_os = "android", feature = "jni")
+)))]
+fn platform_request_permission() {
+    push_async_result(Capability::Notifications, PermissionState::Restricted);
+}
+
 /// Per-iteration run-loop work, next to the tray's `pump_tray`: dispatch
 /// queued requests, let the backend read the OS's reports, and route the
-/// mailbox. Returns the callbacks to run - with [`invoke_deliveries`] against
-/// a window, because a `CallbackInfo` needs one and a notification has none.
+/// mailbox. Returns the callbacks to run - deliveries that waited for a window
+/// first, oldest first - with [`invoke_deliveries`] against a window, because a
+/// `CallbackInfo` needs one and a notification has none. A loop with no window
+/// hands them to [`defer_deliveries`].
 #[must_use]
 pub fn pump_notifications() -> Vec<NotificationDelivery> {
     dispatch_queued_requests();
+    let mut out = queue::drain_notification_deliveries();
     let started = SERVICE
         .try_with(|cell| cell.try_borrow().map(|s| s.is_some()).unwrap_or(false))
         .unwrap_or(false);
     if !started && !queue::has_queued_events() {
-        return Vec::new();
+        return out;
     }
-    with_service(|service| {
+    let routed = with_service(|service| {
         service.pump_platform();
-        service.registry.route(queue::drain_notification_events())
+        let events = queue::drain_notification_events();
+        if events.is_empty() {
+            return Vec::new();
+        }
+        service
+            .registry
+            .set_app_handler(queue::app_notification_handler());
+        service.registry.route(events)
     })
-    .unwrap_or_default()
+    .unwrap_or_default();
+    out.extend(routed);
+    out
+}
+
+/// Keep deliveries a loop could not run - it has no window right now (the
+/// last one closed, a tray-only phase) - until the next pump that has one.
+/// Bounded: beyond the queue's limit the oldest waiting ones stay and the
+/// newest are dropped, with a warning.
+pub fn defer_deliveries(deliveries: Vec<NotificationDelivery>) {
+    let count = deliveries.len();
+    let mut dropped = 0usize;
+    for delivery in deliveries {
+        if !queue::queue_notification_delivery(delivery) {
+            dropped += 1;
+        }
+    }
+    if dropped > 0 {
+        crate::plog_warn!(
+            "[notifications] {dropped} of {count} event(s) dropped: no window to run them \
+             against, and the queue of waiting ones is full"
+        );
+    } else {
+        crate::plog_debug!(
+            "[notifications] {count} event(s) wait for a window to run against"
+        );
+    }
 }
 
 /// Is a notification outstanding, or a request / event waiting? (The Linux
@@ -366,10 +575,20 @@ pub fn probe() -> PlatformCapability {
     platform_probe()
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn platform_probe() -> PlatformCapability {
-    let (available, reason) = macos::probe();
+    let (available, reason) = apple::probe();
     cap(available, "UNUserNotificationCenter".to_string(), reason)
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn platform_probe() -> PlatformCapability {
+    let (available, reason) = android::probe();
+    cap(
+        available,
+        "NotificationManager (AzulNotifications.java)".to_string(),
+        reason,
+    )
 }
 
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
@@ -380,18 +599,16 @@ fn platform_probe() -> PlatformCapability {
 
 #[cfg(target_os = "windows")]
 fn platform_probe() -> PlatformCapability {
-    let (available, reason) = windows::probe();
-    cap(
-        available,
-        "Shell_NotifyIconW balloon (NIF_INFO)".to_string(),
-        reason,
-    )
+    let (available, backend, reason) = windows::probe();
+    cap(available, backend, reason)
 }
 
 #[cfg(not(any(
     target_os = "macos",
+    target_os = "ios",
     target_os = "windows",
-    all(target_os = "linux", not(target_arch = "wasm32"))
+    all(target_os = "linux", not(target_arch = "wasm32")),
+    all(target_os = "android", feature = "jni")
 )))]
 fn platform_probe() -> PlatformCapability {
     cap(false, "none".to_string(), UNSUPPORTED.to_string())

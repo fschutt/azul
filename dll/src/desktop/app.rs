@@ -322,6 +322,9 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
+        // A tray utility is exactly the app that notifies - and whose
+        // notifications get clicked after it restarted.
+        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
 
         #[cfg(target_os = "macos")]
         {
@@ -366,6 +369,11 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
+
+        // The app-level notification handler, before any run loop exists: the
+        // tap that LAUNCHED the app is delivered during launch, and there is
+        // no notification callback in this fresh process for it to reach.
+        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
 
         // Publish the AppConfig snapshot the engine services read outside
         // callbacks: the updater (manifest URL, version, mode) and the

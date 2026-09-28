@@ -949,6 +949,13 @@ pub fn run(
             app.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
             core::mem::forget(delegate);
         }
+        // The UNUserNotificationCenter delegate, NOW: a click on a
+        // notification of an app that was not running launches it, and UN
+        // delivers that response only to a delegate set before launching
+        // finishes (`finishLaunching` below). Installing it at the first post
+        // - where it used to happen - lost exactly that click. A no-op for an
+        // unbundled binary, which UN would abort.
+        crate::desktop::notifications::install_launch_hooks();
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
@@ -2887,6 +2894,9 @@ pub fn run_tray_only(
         // Accessory, NOT Regular: see the note above.
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     }
+    // Before `app.run()` finishes launching: see `run()` - the response of a
+    // notification click that launched the app needs the delegate by then.
+    crate::desktop::notifications::install_launch_hooks();
 
     // The callback context. `WindowCreateOptions::default()` is never shown -
     // HeadlessWindow creates no OS window - it only shapes the stub's state.

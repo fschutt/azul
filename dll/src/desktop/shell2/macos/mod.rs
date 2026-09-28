@@ -2910,6 +2910,27 @@ define_class!(
         #[unsafe(method(applicationDidBecomeActive:))]
         fn application_did_become_active(&self, _notification: Option<&objc2::runtime::AnyObject>) {
             Self::order_front_registered_windows();
+            // The user may have turned this app's notifications on or off in
+            // System Settings while it was in the background.
+            crate::desktop::notifications::refresh_permission();
+        }
+
+        /// Launching finished. If a notification click launched the app, the
+        /// userInfo names it (`NSApplicationLaunchUserNotificationKey`); its
+        /// response - delivered to the UN delegate installed before this - is
+        /// then reported with `launched_app`.
+        #[unsafe(method(applicationDidFinishLaunching:))]
+        fn application_did_finish_launching(
+            &self,
+            notification: Option<&objc2::runtime::AnyObject>,
+        ) {
+            let ptr = notification.map_or(core::ptr::null_mut(), |n| {
+                (n as *const objc2::runtime::AnyObject)
+                    .cast_mut()
+                    .cast::<core::ffi::c_void>()
+            });
+            // SAFETY: null or the live NSNotification AppKit hands this method.
+            unsafe { crate::desktop::notifications::note_launch_notification(ptr) };
         }
 
         /// Dock icon clicked while the app runs with no visible window:

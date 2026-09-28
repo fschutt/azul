@@ -1,9 +1,16 @@
-//! macOS native notifications  -  `UNUserNotificationCenter`.
+//! macOS and iOS native notifications  -  `UNUserNotificationCenter`.
 //!
 //! UserNotifications.framework is dlopen'd and driven through `msg_send!` on
 //! runtime classes, the way `extra/media_keys/apple.rs` drives MediaPlayer: an
 //! app that never posts pays nothing, and a system without the framework
 //! (before 10.14) degrades to "unavailable" instead of failing to launch.
+//!
+//! The same file serves iOS: UN is the same framework with the same API
+//! there. Two things differ and are `#[cfg]`'d: the run-loop wake (macOS posts
+//! an app-defined `NSEvent`; the iOS display tick pumps every frame anyway) and
+//! the launch-notification lookup (`NSApplicationLaunchUserNotificationKey` is
+//! AppKit). An iOS app is always a bundle, so the bundle rule below always
+//! passes there.
 //!
 //! # The bundle rule this file is built around
 //!
@@ -29,13 +36,32 @@
 //!   Editor, has no buttons and reports nothing back - it would look like a working backend while
 //!   every callback stayed silent.
 //!
+//! # The delegate is installed at LAUNCH
+//!
+//! A click on a notification of an app that is not running launches it and
+//! delivers the response to the center's delegate - only if the delegate is
+//! set "before the app finishes launching". [`install_launch_hooks`] runs
+//! from the run loop's setup, between the app delegate and `finishLaunching`
+//! (and from `application:didFinishLaunchingWithOptions:` on iOS), not at the
+//! first post. The response's event then has no live callback in this process
+//! and goes to the app-level handler, with the payload from `userInfo`.
+//!
 //! # Authorization
 //!
-//! `requestAuthorizationWithOptions:completionHandler:` is asked on every post:
-//! after the user's first answer it returns the stored decision at once, and a
-//! request added before the answer is refused. The request is therefore built
-//! and added inside the completion handler. A denial is a `Failed` event, and
-//! the permission manager hears the decision (`Capability::Notifications`).
+//! The OS keeps the user's decision across launches; this file READS it
+//! (`getNotificationSettingsWithCompletionHandler:`) at launch, whenever the
+//! app becomes active (the user may have flipped the switch in System Settings
+//! meanwhile) and - throttled - when `PlatformCapability::notifications()`
+//! asks. So the probe no longer says "available" after the user turned
+//! notifications off. Every reading also reaches the permission manager as
+//! `Capability::Notifications`.
+//!
+//! `requestAuthorizationWithOptions:completionHandler:` prompts:
+//! `CallbackInfo::request_notification_permission` asks in context, and a post
+//! still asks too - after the user's first answer that returns the stored
+//! decision at once, and a request added before the answer is refused. The
+//! request is therefore built and added inside the completion handler. A
+//! denial is a `Failed` event.
 //!
 //! # Foreground presentation
 //!
@@ -54,14 +80,18 @@ use std::{
     collections::BTreeMap,
     ffi::{c_char, CStr, CString},
     sync::{
-        atomic::{AtomicU64, AtomicU8, Ordering},
+        atomic::{AtomicI64, AtomicU64, Ordering},
         Mutex, OnceLock, PoisonError,
     },
+    time::{Duration, Instant},
 };
 
 use azul_core::notification::{Notification, NotificationAction, NotificationEvent, NotificationSound};
 use azul_css::AzString;
-use azul_layout::managers::notification::{queue_notification_event, wire};
+use azul_layout::managers::{
+    notification::{queue_notification_event, wire},
+    permission::{push_async_result, Capability, PermissionState},
+};
 use block2::{Block, RcBlock};
 use objc2::{
     define_class, msg_send,
@@ -84,11 +114,37 @@ const ACTION_OPTION_FOREGROUND: usize = 1 << 2;
 /// reports a dismissal at all.
 const CATEGORY_OPTION_CUSTOM_DISMISS: usize = 1 << 0;
 
-/// The user's answer to the permission prompt, as last reported.
-const PERMISSION_UNKNOWN: u8 = 0;
-const PERMISSION_GRANTED: u8 = 1;
-const PERMISSION_DENIED: u8 = 2;
-static PERMISSION: AtomicU8 = AtomicU8::new(PERMISSION_UNKNOWN);
+/// `UNNotificationSettings.authorizationStatus` as last READ from the OS
+/// (`wire::apple_authorization_status` maps it), or [`STATUS_UNREAD`] before
+/// the first reading came back.
+static AUTH_STATUS: AtomicI64 = AtomicI64::new(STATUS_UNREAD);
+const STATUS_UNREAD: i64 = -1;
+/// `UNAuthorizationStatusDenied`.
+const STATUS_DENIED: i64 = 1;
+/// `UNAuthorizationStatusAuthorized`.
+const STATUS_AUTHORIZED: i64 = 2;
+/// `UNAuthorizationStatusProvisional`.
+const STATUS_PROVISIONAL: i64 = 3;
+
+/// The request identifier of the notification whose click LAUNCHED the app
+/// (macOS: `NSApplicationLaunchUserNotificationKey`), until its response
+/// arrives and is marked `launched_app`.
+static LAUNCH_RESPONSE_ID: Mutex<Option<String>> = Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {
+    /// The global `NSApp`: nil until `+[NSApplication sharedApplication]` has
+    /// run on the main thread. Read (not `sharedApplication`) from UN's queue,
+    /// because calling that off the main thread would CREATE the application
+    /// object there when none exists yet.
+    #[allow(non_upper_case_globals)]
+    static NSApp: *mut AnyObject;
+    /// The `applicationDidFinishLaunching:` userInfo key holding the
+    /// `UNNotificationResponse` that launched the app.
+    #[allow(non_upper_case_globals)]
+    static NSApplicationLaunchUserNotificationKey: *mut AnyObject;
+}
 
 fn class(name: &str) -> Option<&'static AnyClass> {
     let c = CString::new(name).ok()?;
@@ -207,8 +263,9 @@ pub(super) fn bundle_status() -> Result<String, String> {
     }
 }
 
-/// `(available, reason)` for `PlatformCapability::notifications()`. Never
-/// touches UN (see [`bundle_status`]).
+/// `(available, reason)` for `PlatformCapability::notifications()`. Touches
+/// UN only once [`bundle_status`] passed, and then only to refresh the
+/// authorization reading (throttled; the answer lands for the NEXT probe).
 pub(super) fn probe() -> (bool, String) {
     if let Err(reason) = bundle_status() {
         return (false, reason);
@@ -220,42 +277,232 @@ pub(super) fn probe() -> (bool, String) {
                 .to_string(),
         );
     }
-    match PERMISSION.load(Ordering::Relaxed) {
-        PERMISSION_DENIED => (
+    refresh_authorization_throttled();
+    match AUTH_STATUS.load(Ordering::Acquire) {
+        STATUS_DENIED => (
             false,
             "notifications are turned off for this app (System Settings > Notifications)"
                 .to_string(),
         ),
-        PERMISSION_GRANTED => (true, String::new()),
-        _ => (
+        STATUS_PROVISIONAL => (
             true,
-            "the notification permission is asked on the first post".to_string(),
+            "provisional: notifications are delivered quietly to Notification Center".to_string(),
         ),
+        STATUS_UNREAD => (
+            true,
+            "the notification permission has not been read from the system yet".to_string(),
+        ),
+        0 => (
+            true,
+            "the notification permission is asked by \
+             CallbackInfo::request_notification_permission, or at the first post"
+                .to_string(),
+        ),
+        _ => (true, String::new()),
     }
 }
 
-/// Remember the user's answer and tell the permission manager, which turns a
-/// change into a `PermissionChanged` event for `Capability::Notifications`.
-fn report_permission(granted: bool) {
-    PERMISSION.store(
-        if granted {
-            PERMISSION_GRANTED
-        } else {
-            PERMISSION_DENIED
-        },
-        Ordering::Relaxed,
-    );
-    use azul_layout::managers::permission::{
-        push_async_result, Capability, PermissionQuality, PermissionState,
-    };
+/// The notification permission as last read from the OS - what
+/// `extra::permission::{macos, ios}::probe_status` answer for
+/// `Capability::Notifications`.
+pub(super) fn permission_state() -> PermissionState {
+    match AUTH_STATUS.load(Ordering::Acquire) {
+        STATUS_UNREAD => PermissionState::NotDetermined,
+        status => wire::apple_authorization_status(status),
+    }
+}
+
+/// Remember an authorization status and tell the permission manager, which
+/// turns a change into a `PermissionChanged` event for
+/// `Capability::Notifications`.
+fn store_status(status: i64) {
+    AUTH_STATUS.store(status, Ordering::Release);
     push_async_result(
         Capability::Notifications,
-        if granted {
-            PermissionState::Granted(PermissionQuality::Full)
-        } else {
-            PermissionState::Denied
-        },
+        wire::apple_authorization_status(status),
     );
+}
+
+/// The answer of a `requestAuthorization...` prompt. A grant is refined by a
+/// settings read right after (it may be provisional).
+fn report_permission(granted: bool) {
+    store_status(if granted {
+        STATUS_AUTHORIZED
+    } else {
+        STATUS_DENIED
+    });
+    if granted {
+        refresh_authorization();
+    }
+}
+
+/// The shared center - or `None` where touching UN would abort (unbundled)
+/// or cannot work (no framework). Never calls `currentNotificationCenter`
+/// before [`bundle_status`] has passed.
+fn center() -> Option<*mut AnyObject> {
+    bundle_status().ok()?;
+    framework()?;
+    let center_cls = class("UNUserNotificationCenter")?;
+    let center: *mut AnyObject = unsafe { msg_send![center_cls, currentNotificationCenter] };
+    (!center.is_null()).then_some(center)
+}
+
+/// Read the authorization status the OS stored for this app
+/// (`getNotificationSettingsWithCompletionHandler:`). The answer arrives on
+/// UN's queue and lands in [`AUTH_STATUS`] and the permission manager.
+pub(super) fn refresh_authorization() {
+    let Some(center) = center() else {
+        return;
+    };
+    let handler = RcBlock::new(|settings: *mut AnyObject| {
+        if settings.is_null() {
+            return;
+        }
+        let status: isize = unsafe { msg_send![settings, authorizationStatus] };
+        store_status(status as i64);
+    });
+    unsafe {
+        let _: () = msg_send![center, getNotificationSettingsWithCompletionHandler: &*handler];
+    }
+}
+
+/// [`refresh_authorization`] at most every two seconds - the capability probe
+/// may be asked from a layout callback on every frame.
+fn refresh_authorization_throttled() {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(PoisonError::into_inner);
+    if last.is_some_and(|at| at.elapsed() < Duration::from_secs(2)) {
+        return;
+    }
+    *last = Some(Instant::now());
+    drop(last);
+    refresh_authorization();
+}
+
+/// Everything that must happen before the app finishes launching: set the
+/// center's delegate, so the response that launched the app is delivered at
+/// all, and read the stored authorization. A no-op for an unbundled process
+/// (see the module docs); idempotent.
+pub(super) fn install_launch_hooks() {
+    let Some(center) = center() else {
+        return;
+    };
+    unsafe { install_delegate(center) };
+    refresh_authorization();
+}
+
+/// `CallbackInfo::request_notification_permission`: show the prompt (once;
+/// afterwards UN answers from the stored choice). The answer reaches the
+/// permission manager; until then the capability reads `Requested`, which
+/// keeps the capability pump draining.
+pub(super) fn request_permission() {
+    let Some(center) = center() else {
+        // Unbundled: UN cannot be asked at all, and nothing the user does in
+        // a prompt changes that.
+        push_async_result(Capability::Notifications, PermissionState::Restricted);
+        return;
+    };
+    unsafe { install_delegate(center) };
+    push_async_result(Capability::Notifications, PermissionState::Requested);
+    let handler = RcBlock::new(|granted: Bool, _error: *mut AnyObject| {
+        report_permission(granted.as_bool());
+    });
+    unsafe {
+        let _: () = msg_send![
+            center,
+            requestAuthorizationWithOptions: AUTH_SOUND_ALERT,
+            completionHandler: &*handler
+        ];
+    }
+}
+
+/// `applicationDidFinishLaunching:`: if a notification click launched the
+/// app, remember which one, so its response is reported with
+/// `launched_app = true`. `notification` is that method's `NSNotification`.
+#[cfg(target_os = "macos")]
+pub(super) unsafe fn note_launch_notification(notification: *mut AnyObject) {
+    if notification.is_null() {
+        return;
+    }
+    unsafe {
+        let info: *mut AnyObject = msg_send![notification, userInfo];
+        if info.is_null() {
+            return;
+        }
+        let key: *mut AnyObject = NSApplicationLaunchUserNotificationKey;
+        if key.is_null() {
+            return;
+        }
+        let response: *mut AnyObject = msg_send![info, objectForKey: key];
+        if response.is_null() {
+            return;
+        }
+        // A `UNNotificationResponse`; the deprecated NSUserNotification API
+        // put an `NSUserNotification` here, which has no `notification`.
+        let is_response: Bool =
+            msg_send![response, respondsToSelector: objc2::sel!(notification)];
+        if !is_response.as_bool() {
+            return;
+        }
+        if let Some(id) = response_request_identifier(response) {
+            *LAUNCH_RESPONSE_ID
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(id);
+        }
+    }
+}
+
+/// `response.notification.request.identifier`.
+unsafe fn response_request_identifier(response: *mut AnyObject) -> Option<String> {
+    unsafe {
+        let notification: *mut AnyObject = msg_send![response, notification];
+        if notification.is_null() {
+            return None;
+        }
+        let request: *mut AnyObject = msg_send![notification, request];
+        if request.is_null() {
+            return None;
+        }
+        let id_ns: *mut AnyObject = msg_send![request, identifier];
+        rust_string(id_ns)
+    }
+}
+
+/// `response.notification.request.content.userInfo[APPLE_PAYLOAD_KEY]`, or
+/// empty.
+unsafe fn response_payload(response: *mut AnyObject) -> String {
+    unsafe {
+        let notification: *mut AnyObject = msg_send![response, notification];
+        if notification.is_null() {
+            return String::new();
+        }
+        let request: *mut AnyObject = msg_send![notification, request];
+        if request.is_null() {
+            return String::new();
+        }
+        let content: *mut AnyObject = msg_send![request, content];
+        if content.is_null() {
+            return String::new();
+        }
+        let info: *mut AnyObject = msg_send![content, userInfo];
+        if info.is_null() {
+            return String::new();
+        }
+        let value: *mut AnyObject = msg_send![info, objectForKey: nsstring(wire::APPLE_PAYLOAD_KEY)];
+        if value.is_null() {
+            return String::new();
+        }
+        // Only ever an NSString (we put it there), but `UTF8String` on
+        // anything else would raise - check rather than trust.
+        let Some(string_cls) = class("NSString") else {
+            return String::new();
+        };
+        let is_string: Bool = msg_send![value, isKindOfClass: string_cls];
+        if !is_string.as_bool() {
+            return String::new();
+        }
+        rust_string(value).unwrap_or_default()
+    }
 }
 
 /// Queue an event for the run loop and wake it: the manual loop parks in
@@ -265,6 +512,9 @@ fn report_permission(granted: bool) {
 /// posted NSEvent is discarded.
 fn queue_and_wake(event: NotificationEvent) {
     queue_notification_event(event);
+    // macOS: the shared loop waker posts the wake-up event (desktop::loop_waker);
+    // iOS needs none - the display tick pumps notifications every frame.
+    #[cfg(target_os = "macos")]
     crate::desktop::loop_waker::wake();
 }
 
@@ -330,26 +580,30 @@ unsafe fn handle_response(response: *mut AnyObject) {
     if response.is_null() {
         return;
     }
-    let (action, app_id) = unsafe {
+    let (action, app_id, payload) = unsafe {
         let action_ns: *mut AnyObject = msg_send![response, actionIdentifier];
-        let notification: *mut AnyObject = msg_send![response, notification];
-        if notification.is_null() {
-            return;
-        }
-        let request: *mut AnyObject = msg_send![notification, request];
-        if request.is_null() {
-            return;
-        }
-        let id_ns: *mut AnyObject = msg_send![request, identifier];
-        (rust_string(action_ns), rust_string(id_ns))
+        (
+            rust_string(action_ns),
+            response_request_identifier(response),
+            response_payload(response),
+        )
     };
     let (Some(action), Some(app_id)) = (action, app_id) else {
         return;
     };
     let (default_id, dismiss_id) = action_identifiers();
-    queue_and_wake(wire::apple_response_event(
-        &app_id, &action, default_id, dismiss_id,
-    ));
+    let mut event = wire::apple_response_event(&app_id, &action, default_id, dismiss_id);
+    event.payload = AzString::from(payload);
+    {
+        let mut launch = LAUNCH_RESPONSE_ID
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if launch.as_deref() == Some(app_id.as_str()) {
+            *launch = None;
+            event.launched_app = true;
+        }
+    }
+    queue_and_wake(event);
 }
 
 /// Set the delegate once per process. UN holds its delegate WEAKLY, so the
@@ -374,6 +628,7 @@ struct PendingPost {
     icon: Option<String>,
     actions: Vec<NotificationAction>,
     sound: NotificationSound,
+    payload: String,
 }
 
 impl PendingPost {
@@ -385,14 +640,15 @@ impl PendingPost {
             icon: n.icon.as_ref().map(|s| s.as_str().to_string()),
             actions: n.actions.as_ref().to_vec(),
             sound: n.sound.clone(),
+            payload: n.payload.as_str().to_string(),
         }
     }
 
     fn fail(&self, why: String) {
-        queue_and_wake(NotificationEvent::failed(
-            AzString::from(self.id.clone()),
-            AzString::from(why),
-        ));
+        let mut event =
+            NotificationEvent::failed(AzString::from(self.id.clone()), AzString::from(why));
+        event.payload = AzString::from(self.payload.clone());
+        queue_and_wake(event);
     }
 }
 
@@ -538,6 +794,21 @@ unsafe fn add_request(center: *mut AnyObject, post: &PendingPost) {
         let category = ensure_category(center, &post.actions);
         let _: () = msg_send![&*content, setCategoryIdentifier: nsstring(&category)];
 
+        // The payload travels WITH the notification, so a response delivered
+        // to a relaunched process still names it.
+        if !post.payload.is_empty() {
+            if let Some(dict_cls) = class("NSDictionary") {
+                let info: *mut AnyObject = msg_send![
+                    dict_cls,
+                    dictionaryWithObject: nsstring(&post.payload),
+                    forKey: nsstring(wire::APPLE_PAYLOAD_KEY)
+                ];
+                if !info.is_null() {
+                    let _: () = msg_send![&*content, setUserInfo: info];
+                }
+            }
+        }
+
         if let Some(icon) = post.icon.as_deref() {
             if let (Some(attachment), Some(array_cls)) = (attachment_for(icon), class("NSArray")) {
                 let list: *mut AnyObject = msg_send![array_cls, arrayWithObject: &*attachment];
@@ -560,16 +831,17 @@ unsafe fn add_request(center: *mut AnyObject, post: &PendingPost) {
         }
 
         let id = post.id.clone();
+        let payload = post.payload.clone();
         let done = RcBlock::new(move |error: *mut AnyObject| {
             if error.is_null() {
                 return;
             }
             let why = unsafe { error_description(error) }
                 .unwrap_or_else(|| "UNUserNotificationCenter refused the request".to_string());
-            queue_and_wake(NotificationEvent::failed(
-                AzString::from(id.clone()),
-                AzString::from(why),
-            ));
+            let mut event =
+                NotificationEvent::failed(AzString::from(id.clone()), AzString::from(why));
+            event.payload = AzString::from(payload.clone());
+            queue_and_wake(event);
         });
         let _: () = msg_send![center, addNotificationRequest: request, withCompletionHandler: &*done];
     }
@@ -593,12 +865,12 @@ impl PlatformNotifier {
                     .to_string(),
             );
         }
-        let center_cls = class("UNUserNotificationCenter")
+        class("UNUserNotificationCenter")
             .ok_or("UNUserNotificationCenter is missing (macOS 10.14 or later is required)")?;
-        let center: *mut AnyObject = unsafe { msg_send![center_cls, currentNotificationCenter] };
-        if center.is_null() {
-            return Err("+[UNUserNotificationCenter currentNotificationCenter] returned nil".into());
-        }
+        let center = center()
+            .ok_or("+[UNUserNotificationCenter currentNotificationCenter] returned nil")?;
+        // Normally installed at launch already (`install_launch_hooks`);
+        // idempotent, so a run loop that skipped that still gets it here.
         unsafe { install_delegate(center) };
         crate::plog_info!("[notifications] UNUserNotificationCenter ready");
         Ok(Self { center })
