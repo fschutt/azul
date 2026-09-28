@@ -2064,3 +2064,223 @@ mod autotest_generated {
         );
     }
 }
+
+/// WAI-ARIA APG single-select listbox (P2-12): the rows are ONE Tab stop and
+/// the arrow keys move focus - and the selection - between them.
+#[cfg(test)]
+mod roving_tabindex_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode,
+    };
+
+    use super::*;
+    use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+    /// Every row index an `on_row_click` hears.
+    struct RowLog {
+        seen: Vec<usize>,
+    }
+
+    extern "C" fn record_row(
+        mut data: RefAny,
+        _: CallbackInfo,
+        _: ListViewState,
+        row: usize,
+    ) -> Update {
+        if let Some(mut log) = data.downcast_mut::<RowLog>() {
+            log.seen.push(row);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows_heard(log: &mut RefAny) -> Vec<usize> {
+        log.downcast_ref::<RowLog>()
+            .expect("payload must still be a RowLog")
+            .seen
+            .clone()
+    }
+
+    fn empty_rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// A one-column list of `n` cell-less rows, with `on_row_click` logging
+    /// into `log` when one is given.
+    fn list(n: usize, log: Option<&RefAny>) -> ListView {
+        let lv = ListView::create(StringVec::from_vec(vec![AzString::from("name")]))
+            .with_rows(empty_rows(n));
+        match log {
+            Some(log) => {
+                let rcb: ListViewOnRowClickCallbackType = record_row;
+                lv.with_on_row_click(log.clone(), rcb)
+            }
+            None => lv,
+        }
+    }
+
+    /// A plain tab stop, the list, another plain tab stop. Flattened: root 0,
+    /// before 1, list container 2, header 3, column 4 (> label `<p>` 5 > text
+    /// 6), rows container 7, row `i` at `8 + i`, after at `8 + n`.
+    fn page(lv: ListView) -> StyledDom {
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), lv.dom(), stop()].into());
+        StyledDom::create_from_dom(page)
+    }
+
+    fn node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn before() -> DomNodeId {
+        node(1)
+    }
+
+    fn row(i: usize) -> DomNodeId {
+        node(8 + i)
+    }
+
+    fn after(n: usize) -> DomNodeId {
+        node(8 + n)
+    }
+
+    fn press_row(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, row(i), key, held)
+            .expect("every list row must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn with_no_row_selected_tab_lands_on_the_first_row_and_the_next_tab_leaves_the_list() {
+        let styled = page(list(4, None));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+            "the list is ONE tab stop, not one per row",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(0), before()],
+        );
+    }
+
+    #[test]
+    fn arrow_down_on_a_row_focuses_and_selects_the_next_row() {
+        let mut log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(4, Some(&log)));
+
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+
+        assert_eq!(rows_heard(&mut log), vec![1], "selection follows focus");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends_and_up_and_down_hold_there() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (focused row, key, selected row - or None when nothing moves)
+        for (from, key, to) in [
+            (2, K::Up, Some(1)),
+            (1, K::Down, Some(2)),
+            (2, K::Home, Some(0)),
+            (1, K::End, Some(3)),
+            (0, K::Up, None),
+            (3, K::Down, None),
+            (0, K::Home, None),
+            (3, K::End, None),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(4, Some(&log)));
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on row {from} must stay inside the list"
+            );
+            match to {
+                Some(to) => {
+                    assert_eq!(rows_heard(&mut log), vec![to], "{key:?} on row {from}");
+                    assert_eq!(rv::focus_request(&changes), Some(row(to)));
+                }
+                None => {
+                    assert!(
+                        rows_heard(&mut log).is_empty(),
+                        "{key:?} at the end re-selected row {from}"
+                    );
+                    assert_eq!(rv::focus_request(&changes), None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_row_is_the_only_tab_stop() {
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let mut styled = page(list(4, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(3), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(row(3)), false, 1),
+            vec![before()],
+        );
+    }
+
+    #[test]
+    fn a_list_without_on_row_click_still_moves_focus_with_the_arrows() {
+        let styled = page(list(3, None));
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn sideways_modified_and_unused_keys_on_a_row_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Left, None),
+            (K::Right, None),
+            (K::Tab, None),
+            (K::Down, Some(K::LAlt)),
+            (K::Up, Some(K::LControl)),
+            (K::Down, Some(K::LShift)),
+            (K::End, Some(K::LWin)),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(3, Some(&log)));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_row(&styled, 1, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                rows_heard(&mut log).is_empty(),
+                "{held:?}+{key:?} selected a row"
+            );
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+}
