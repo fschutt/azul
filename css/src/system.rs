@@ -254,6 +254,44 @@ impl SystemLanguage {
             is_rtl,
         }
     }
+
+    /// The language an OS locale name stands for, with its right-to-left-ness
+    /// taken from `known` (the app's `LocalizationConfig::known_languages`).
+    ///
+    /// The name is normalized to a BCP 47 tag first: POSIX `_` becomes `-`,
+    /// and an encoding or modifier suffix (`de_DE.UTF-8`, `en_US@rg=dezzzz`)
+    /// is dropped. Then an exact, case-insensitive match in `known` wins
+    /// outright; failing that, the first known language with the same primary
+    /// language subtag lends its `is_rtl` (`ar-DZ` is RTL because `ar-SA`
+    /// is); failing that, the language is taken as left-to-right.
+    #[must_use]
+    pub fn resolve(os_locale: &str, known: &[SystemLanguage]) -> Self {
+        let tag = os_locale
+            .split(|c: char| c == '.' || c == '@')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .replace('_', "-");
+        if let Some(exact) = known
+            .iter()
+            .find(|l| l.id.as_str().eq_ignore_ascii_case(&tag))
+        {
+            return exact.clone();
+        }
+        let primary_subtag = |t: &str| -> String {
+            t.split(|c: char| c == '-' || c == '_')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+        };
+        let language = primary_subtag(&tag);
+        let is_rtl = !language.is_empty()
+            && known
+                .iter()
+                .find(|l| primary_subtag(l.id.as_str()) == language)
+                .is_some_and(|l| l.is_rtl);
+        Self::new(&tag, is_rtl)
+    }
 }
 
 

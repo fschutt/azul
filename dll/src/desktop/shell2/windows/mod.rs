@@ -6846,7 +6846,13 @@ unsafe extern "system" fn window_proc(
                 return 0;
             }
             window.snapshot_window_state_baseline("windows.wm_settingchange");
-            let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style());
+            // The held language as the known list: it carries the RTL-ness the
+            // app's known languages resolved at startup (see the macOS
+            // `adopt_probed_theme`).
+            let held_language = window.common.system_style.language.clone();
+            let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
+                core::slice::from_ref(&held_language),
+            ));
             let new_theme = match new_style.theme {
                 azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
                 azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,

@@ -340,10 +340,10 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // ── CLI fallback discovery ───────────────────────────────────────
     discover_windows_cli_extras(&mut style);
     style.os_version = detect_windows_version();
-    
-        let bcp47 = detect_language_windows().as_str().to_string();
-        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
-        
+    style.language = azul_css::system::SystemLanguage::resolve(
+        detect_language_windows().as_str(),
+        known_languages,
+    );
 
     let rm = detect_windows_reduced_motion();
     if rm == BoolCondition::True {

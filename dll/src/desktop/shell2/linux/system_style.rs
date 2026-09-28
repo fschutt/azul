@@ -2606,10 +2606,10 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // titlebar is built from.
     adopt_desktop_titlebar_font(&mut style);
     style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
-    
-        let bcp47 = detect_language_linux().as_str().to_string();
-        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
-        
+    style.language = azul_css::system::SystemLanguage::resolve(
+        detect_language_linux().as_str(),
+        known_languages,
+    );
     style.os_version = detect_linux_version();
 
     // Accessibility — try GNOME first, then KDE
@@ -3240,7 +3240,15 @@ pub(crate) fn adopt_observed_theme(
     // scrollbar and the light titlebar, and only the `@theme` CSS conditions
     // moved. The whole palette belongs to the scheme, so the whole palette is
     // re-read.
-    Some(rediscovered_style_for(theme))
+    //
+    // The held language is the one the app's known languages resolved at
+    // startup; handing it back as the known list keeps its RTL-ness across
+    // the switch.
+    let held_language = common.system_style.language.clone();
+    Some(rediscovered_style_for(
+        theme,
+        core::slice::from_ref(&held_language),
+    ))
 }
 
 /// The re-discovered style for a theme, discovered ONCE per switch.
@@ -3252,7 +3260,10 @@ pub(crate) fn adopt_observed_theme(
 /// it was discovered for, so the second window through re-uses the first
 /// window's work and a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(
+    theme: azul_core::window::WindowTheme,
+    known_languages: &[azul_css::system::SystemLanguage],
+) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
@@ -3270,7 +3281,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
             return alloc::sync::Arc::clone(style);
         }
     }
-    let style = alloc::sync::Arc::new(discover());
+    let style = alloc::sync::Arc::new(discover(known_languages));
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }
@@ -3289,7 +3300,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
 pub fn dump_discovered_style() -> String {
     use core::fmt::Write;
 
-    let s = discover();
+    let s = discover(&[]);
     let mut o = String::new();
     let c = |v: &OptionColorU| -> String {
         v.as_option().map_or_else(

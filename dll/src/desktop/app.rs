@@ -753,6 +753,9 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 /// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
 /// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
 pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
+    // Read only by the three desktop branches below; the Miri and
+    // other-OS fallbacks resolve no OS locale.
+    let _ = known_languages;
     // Under Miri the platform `discover()` paths spawn external tools
     // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
     // ("can't call foreign function ..."). Fall back to the pure-Rust default

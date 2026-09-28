@@ -521,10 +521,9 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
                 &lib,
                 lib.send_id(cur_locale, lib.sel(b"localeIdentifier\0")),
             ) {
-                // Convert "en_US" → "en-US"
-                
-                let bcp47 = ident.replace('_', "-");
-                style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
+                // "en_US" → "en-US", RTL-ness from the app's known languages
+                style.language =
+                    azul_css::system::SystemLanguage::resolve(&ident, known_languages);
             }
         }
     }
@@ -687,10 +686,10 @@ fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_cs
 
     // ── Locale / language ───────────────────────────────────────────────
     if style.language.id.as_str().is_empty() {
-        
-        let bcp47 = detect_language_macos().as_str().to_string();
-        style.language = known_languages.iter().find(|l| l.id.as_str() == bcp47).cloned().unwrap_or_else(|| azul_css::system::SystemLanguage::new(&bcp47, false));
-        
+        style.language = azul_css::system::SystemLanguage::resolve(
+            detect_language_macos().as_str(),
+            known_languages,
+        );
     }
 }
 
@@ -981,7 +980,16 @@ fn adopt_probed_theme(
     // changed while leaving it every colour and metric from the OLD
     // appearance — an Aqua light/dark switch kept the light palette and only
     // the `@theme` CSS conditions moved.
-    Some(rediscovered_style_for(theme, &[]))
+    //
+    // The held language is the one the app's known languages resolved at
+    // startup; handing it back as the known list keeps its RTL-ness across
+    // the switch (an empty list re-resolved every language as LTR, so an
+    // Arabic UI flipped to left-to-right on its first appearance change).
+    let held_language = common.system_style.language.clone();
+    Some(rediscovered_style_for(
+        theme,
+        core::slice::from_ref(&held_language),
+    ))
 }
 
 /// The re-discovered style for an appearance, discovered ONCE per switch.
