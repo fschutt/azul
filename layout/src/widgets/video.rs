@@ -305,8 +305,19 @@ impl VideoWidget {
 }
 
 /// The `<img>` one decoded frame renders as, filling the widget.
+///
+/// Marked DECORATIVE (`role: Nothing`, no name): the frame is the picture
+/// behind the player, and the player's accessible surface is its controls,
+/// which the app names ("Play video", "Seek"). An `<img>` with no
+/// accessibility info at all is absent from the tree without saying so, and
+/// a named one would be announced again on every decoded frame.
 fn frame_image(img: ImageRef) -> Dom {
-    Dom::create_image(img).with_css("width: 100%; height: 100%;")
+    Dom::create_image(img)
+        .with_css("width: 100%; height: 100%;")
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Nothing,
+            ..Default::default()
+        })
 }
 
 /// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`

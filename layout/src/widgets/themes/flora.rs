@@ -1564,6 +1564,9 @@ pub fn progressbar_render_bar_impl(
             // `CallbackInfo::set_accessibility_value` on this node.
             .with_accessibility_info(AccessibilityInfo {
                 role: AccessibilityRole::ProgressBar,
+                // What the bar measures - only the caller knows; see
+                // `ProgressBar::with_accessibility_name`.
+                accessibility_name: this.accessibility_name.clone(),
                 accessibility_value: Some(AzString::from(alloc::format!(
                     "{:.0}%",
                     // NaN clamps to NaN and would read "NaN%"; an unknown

@@ -524,6 +524,7 @@ impl TimePicker {
                 on_hour_up as usize,
                 on_hour_down as usize,
                 on_hour_scroll as usize,
+                "hour",
             ),
             crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
@@ -536,6 +537,7 @@ impl TimePicker {
                 on_minute_up as usize,
                 on_minute_down as usize,
                 on_minute_scroll as usize,
+                "minute",
             ),
         ];
 
@@ -593,10 +595,11 @@ fn build_spinner(
     up_cb: usize,
     down_cb: usize,
     scroll_cb: usize,
+    unit: &str,
 ) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
+    let arrow_cell = |arrow: AzString, name: String, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
@@ -615,9 +618,11 @@ fn build_spinner(
             // A stepper arrow IS a button. It used to declare `ComboBox` (the
             // comment "the time field opens a chooser" belongs to a field, not
             // to an arrow) — a screen reader announced a combo box that offered
-            // nothing to choose.
+            // nothing to choose. Its glyph (▲ / ▼) is not a name, so it says
+            // what it changes: "Increase hour".
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: Some(AzString::from(name)).into(),
                 ..Default::default()
             })
     };
@@ -641,11 +646,11 @@ fn build_spinner(
         )
         .with_children(
             alloc::vec![
-                arrow_cell(UP_ARROW, up_cb, state.clone()),
+                arrow_cell(UP_ARROW, format!("Increase {unit}"), up_cb, state.clone()),
                 crate::widgets::widget_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
-                arrow_cell(DOWN_ARROW, down_cb, state),
+                arrow_cell(DOWN_ARROW, format!("Decrease {unit}"), down_cb, state),
             ]
             .into(),
         )
@@ -2691,6 +2696,7 @@ mod autotest_generated {
                 up,
                 down,
                 on_hour_scroll as usize,
+                "hour",
             );
             let cells = dom.children.as_ref();
             assert_eq!(cells.len(), 3);
@@ -2715,6 +2721,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            "hour",
         );
         assert_eq!(classes(&dom), vec![CLASS_SPINNER.to_string()]);
         let cells = dom.children.as_ref();
@@ -2747,7 +2754,7 @@ mod autotest_generated {
             long,
         ];
         for v in values {
-            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3);
+            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3, "hour");
             let shown = text_of(&dom.children.as_ref()[1]);
             assert_eq!(
                 shown.as_deref(),
@@ -2767,6 +2774,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            "hour",
         );
         let cells = dom.children.as_ref();
 
@@ -2802,6 +2810,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            "hour",
         );
         for (which, cell) in [("up", 0usize), ("down", 2usize)] {
             let cell = &dom.children.as_ref()[cell];
@@ -2824,7 +2833,7 @@ mod autotest_generated {
     #[test]
     fn build_spinner_reports_its_three_children() {
         for value in ["", "0", "999999"] {
-            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3);
+            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3, "hour");
             assert_eq!(dom.estimated_total_children, descendants(&dom));
             // Three cells (▲ / value / ▼), each a styled `<p>` wrapping its
             // bare text leaf per the label convention: 6 descendants.
