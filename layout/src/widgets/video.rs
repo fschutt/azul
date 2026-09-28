@@ -710,15 +710,27 @@ pub extern "C" fn video_writeback(
 /// is not a frame: nothing is re-rendered here, the app redraws its own
 /// controls if it asks to.
 pub extern "C" fn video_status_writeback(
-    writeback_data: RefAny,
-    status_data: RefAny,
+    mut writeback_data: RefAny,
+    mut status_data: RefAny,
     info: CallbackInfo,
 ) -> Update {
-    // RED stub: the status is neither stored nor handed to the hook yet.
-    drop(writeback_data);
-    drop(status_data);
-    let _ = info;
-    Update::DoNothing
+    let Some(status) = status_data
+        .downcast_ref::<VideoStatus>()
+        .map(|s| (*s).clone())
+    else {
+        return Update::DoNothing;
+    };
+    let hook = match writeback_data.downcast_mut::<VideoWidgetState>() {
+        Some(mut s) => {
+            s.status = status.clone();
+            s.on_status.clone()
+        }
+        None => OptionOnVideoStatus::None,
+    };
+    match hook {
+        OptionOnVideoStatus::Some(h) => (h.callback.cb)(h.refany, info, status),
+        OptionOnVideoStatus::None => Update::DoNothing,
+    }
 }
 
 /// Carry live state forward across relayout.
@@ -753,11 +765,24 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
                     ))));
                 }
             }
+            // Transport: a flipped `paused` holds or resumes the running
+            // worker, the way a changed timestamp seeks it.
+            if old_g.config.paused != new_g.config.paused {
+                if let Some(snd) = old_g.seek_sender.as_ref() {
+                    let transport = if new_g.config.paused {
+                        VideoTransport::Pause
+                    } else {
+                        VideoTransport::Resume
+                    };
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(transport))));
+                }
+            }
             // Adopt the app-driven config; keep every worker-facing field
             // (frames, current_frame, thread_id, seek_sender, started, the
             // reported status) in the allocation the worker actually writes to.
             old_g.config = new_g.config.clone();
             old_g.on_frame = new_g.on_frame.clone();
+            old_g.on_status = new_g.on_status.clone();
             // The hook is adopted; `setup` and the decode worker were installed on
             // mount and belong to the running widget, so they stay.
             old_g.on_mount = new_g.on_mount.clone();
@@ -929,32 +954,121 @@ impl VideoPlayback {
         }
     }
 
-    /// Add a decoded frame, shown from `pts_s` on.
+    /// Add a decoded frame, shown from `pts_s` on. Frames may arrive in any
+    /// order; the frame on screen stays the one on screen.
     pub fn push_frame(&mut self, pts_s: f32, frame: VideoFrame) {
-        // RED stub: appended in arrival order.
-        self.frames.push((pts_s, frame));
+        let pts_s = sanitize_position(pts_s);
+        let at = self.frames.partition_point(|(pts, _)| *pts <= pts_s);
+        self.frames.insert(at, (pts_s, frame));
+        if let Some(on_screen) = self.presented {
+            if at <= on_screen {
+                self.presented = Some(on_screen + 1);
+            }
+        }
     }
 
     /// Hold on the frame on screen.
     pub fn pause(&mut self, now_s: f64) {
-        let _ = now_s; // RED stub
+        if let PlaybackClock::Running { .. } = self.clock {
+            self.base_s = self.clamp_to_end(self.position(now_s));
+            self.clock = PlaybackClock::Held;
+        }
+        self.paused = true;
+        self.reported = None;
     }
 
-    /// Play on from the frame on screen.
+    /// Play on from the frame on screen, or from the start once the video
+    /// ended. Before the first frame this only arms playback: the clock
+    /// starts with the first frame.
     pub fn resume(&mut self, now_s: f64) {
-        let _ = now_s; // RED stub
+        if self.clock == PlaybackClock::Ended {
+            self.base_s = 0.0;
+            self.clock = PlaybackClock::Held;
+        }
+        self.paused = false;
+        if self.clock == PlaybackClock::Held && !self.frames.is_empty() {
+            self.clock = PlaybackClock::Running { since_s: now_s };
+        }
+        self.reported = None;
     }
 
-    /// Jump to `position_s`.
+    /// Jump to `position_s`, clamped into the video; a held video stays held,
+    /// a playing one plays on from there.
     pub fn seek(&mut self, position_s: f32, now_s: f64) {
-        let _ = (position_s, now_s); // RED stub
+        let target = self.clamp_to_end(sanitize_position(position_s));
+        self.base_s = target;
+        match self.clock {
+            PlaybackClock::Running { .. } => self.clock = PlaybackClock::Running { since_s: now_s },
+            PlaybackClock::Ended => {
+                if self.duration_s <= 0.0 || target < self.duration_s {
+                    self.clock = PlaybackClock::Held;
+                }
+            }
+            PlaybackClock::Held => {}
+        }
+        self.reported = None;
     }
 
     /// Advance to `now_s`: which frame is due, and what the app should hear.
     #[must_use]
     pub fn tick(&mut self, now_s: f64) -> VideoTick {
-        let _ = now_s; // RED stub: nothing is ever due
-        VideoTick::default()
+        let Some(newest) = self.frames.last().map(|(pts, _)| *pts) else {
+            let status = self.report(VideoPhase::Loading, self.base_s);
+            return VideoTick {
+                present: None,
+                status,
+            };
+        };
+        // The clock starts with the first frame on screen, not with the
+        // download.
+        if !self.paused && self.clock == PlaybackClock::Held {
+            self.clock = PlaybackClock::Running { since_s: now_s };
+        }
+        let mut position = self.position(now_s);
+        if let PlaybackClock::Running { .. } = self.clock {
+            let end = if self.duration_s > 0.0 {
+                self.duration_s
+            } else {
+                newest
+            };
+            if !self.complete && position > newest {
+                // Playback outran the decoder: wait for it on its newest frame.
+                self.rebase(newest, now_s);
+                position = newest;
+            } else if self.complete && position >= end {
+                if self.looping && end > 0.0 {
+                    position %= end;
+                    self.rebase(position, now_s);
+                    // The position jumped back: say so now.
+                    self.reported = None;
+                } else {
+                    position = end;
+                    self.base_s = end;
+                    self.clock = PlaybackClock::Ended;
+                    self.paused = true;
+                }
+            }
+        }
+        let index = if self.clock == PlaybackClock::Ended {
+            self.frames.len() - 1
+        } else {
+            self.frames
+                .partition_point(|(pts, _)| *pts <= position + PTS_TOLERANCE_S)
+                .saturating_sub(1)
+        };
+        let present = if self.presented == Some(index) {
+            None
+        } else {
+            self.presented = Some(index);
+            Some(index)
+        };
+        let phase = match self.clock {
+            PlaybackClock::Held => VideoPhase::Paused,
+            PlaybackClock::Running { .. } => VideoPhase::Playing,
+            PlaybackClock::Ended => VideoPhase::Ended,
+        };
+        let status = self.report(phase, position);
+        VideoTick { present, status }
     }
 
     /// The status to hand out, if the app has not heard it yet: a new phase,
