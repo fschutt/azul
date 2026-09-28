@@ -2598,6 +2598,92 @@ fn a_popup_opened_by_its_attribute_owes_focus_back_on_dismissal() {
     keys_up(&mut parent, "t.escape.up");
 }
 
+/// App state for the blur-on-close scenario: the popup's `open` flag and how
+/// often its field heard `FocusLost`.
+struct BlurProbe {
+    open: bool,
+    blurs: Arc<AtomicUsize>,
+}
+
+extern "C" fn on_field_blur(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(p) = data.downcast_ref::<BlurProbe>() {
+        p.blurs.fetch_add(1, Ordering::SeqCst);
+    }
+    Update::DoNothing
+}
+
+/// A swatch whose `outside`-dismissable popup holds one focusable field that
+/// commits on `FocusLost` - the shape of the picker's hex field.
+extern "C" fn blur_probe_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let open = data.downcast_ref::<BlurProbe>().map_or(false, |p| p.open);
+    let cfg = if open {
+        TransientWindowConfig::opened()
+    } else {
+        TransientWindowConfig::closed()
+    }
+    .with_dismiss(TransientDismiss::Outside);
+    let field = Dom::create_div()
+        .with_css("width: 120px; height: 24px;".into())
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_callback(
+            EventFilter::Focus(azul_core::events::FocusEventFilter::FocusLost),
+            data.clone(),
+            Callback {
+                cb: on_field_blur,
+                ctx: azul_core::refany::OptionRefAny::None,
+            }
+            .to_core(),
+        );
+    let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(cfg)))
+        .with_child(field);
+    let swatch = Dom::create_div()
+        .with_css("width: 60px; height: 24px; margin: 40px; background: #e66465;".into())
+        .with_child(popup);
+    Dom::create_body().with_child(swatch)
+}
+
+/// P1-8: a popup that closes takes its focused control's `FocusLost` with
+/// it. The picker's hex field COMMITS on focus loss, so typing `#00ff00`
+/// and then clicking back into the parent (a light dismiss) dropped the
+/// value: the popup window was destroyed with its `FocusManager`, and no
+/// Blur ever reached the field. A close is not a cancel.
+#[test]
+fn a_light_dismiss_blurs_the_popups_focused_field_before_it_closes() {
+    let blurs = Arc::new(AtomicUsize::new(0));
+    let app_data = Arc::new(RefCell::new(RefAny::new(BlurProbe {
+        open: true,
+        blurs: blurs.clone(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = blur_probe_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    assert!(
+        focused(&popup).is_some(),
+        "premise: the popup autofocused its field"
+    );
+
+    // A press in the parent: outside the popup, a light dismiss.
+    click_at(&mut parent, LogicalPosition::new(400.0, 400.0));
+    // The popup's next pass reads `closed` from its mailbox.
+    popup.regenerate_layout().expect("popup reads its mailbox");
+    assert!(close_requested(&popup), "premise: the popup closes itself");
+    assert_eq!(
+        blurs.load(Ordering::SeqCst),
+        1,
+        "the focused field heard FocusLost before its window went away"
+    );
+}
+
 /// A ComboBox whose list was opened by a click on its field: `(parent,
 /// popup, field)`, the popup after its first pass.
 fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
