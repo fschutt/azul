@@ -284,6 +284,8 @@ mod menubar_item_clip;
 mod mock_font_metrics;
 #[path = "multi_range_selection.rs"]
 mod multi_range_selection;
+#[path = "native_notifications.rs"]
+mod native_notifications;
 #[path = "drag_into_an_empty_line.rs"]
 mod drag_into_an_empty_line;
 #[path = "an_svg_without_a_viewbox.rs"]
