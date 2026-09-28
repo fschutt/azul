@@ -666,8 +666,20 @@ fn call_layout(
     let image_cache = ImageCache::default();
     let gl_context = OptionGlContextPtr::None;
     let system_style = Arc::new(SystemStyle::default());
+    // What `LayoutCallbackInfo::get_locale` / `is_rtl` answer: the (default)
+    // system language - the web target has no OS locale to read.
+    let locale = system_style.language.id.clone();
+    let text_direction = if system_style.language.is_rtl {
+        azul_core::callbacks::TextDirection::RightToLeft
+    } else {
+        azul_core::callbacks::TextDirection::LeftToRight
+    };
 
     let ref_data = LayoutCallbackInfoRefData {
+        locale: &locale,
+        accessed_locale: core::cell::Cell::new(false),
+        accessed_text_direction: core::cell::Cell::new(false),
+        text_direction,
         image_cache: &image_cache,
         gl_context: &gl_context,
         system_fonts: fc_cache.as_ref(),
