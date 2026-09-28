@@ -1205,7 +1205,7 @@ mod autotest_generated {
         hit_test::ScrollPosition,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
     use rust_fontconfig::FcFontCache;
@@ -1216,6 +1216,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -3743,5 +3744,197 @@ mod autotest_generated {
             "a click on the stale grid did not write the displayed day into the state",
         );
         assert!(!changes.is_empty(), "the stale grid was not restyled");
+    }
+
+    // ==================================================================
+    // Roving tabindex in the day grid (WAI-ARIA APG date grid, P2-12)
+    // ==================================================================
+
+    /// The calendar exactly as its popup WINDOW holds it: the panel is that
+    /// window's root DOM (in the parent the whole subtree sits under the
+    /// `<transient-window>` node and is out of the parent's Tab order). Hands
+    /// back the shared state too.
+    ///
+    /// February 2024 opens on a Thursday, so its week rows are
+    /// `[_ _ _ _ 1 2 3] [4..10] [11..17] [18..24] [25..29 _ _]`.
+    fn calendar(year: u32, month: u32, day: u32) -> (StyledDom, RefAny) {
+        let dom = DatePicker::create(year, month, day).dom();
+        let styled = StyledDom::create_from_dom(panel_of(&dom).clone());
+        let shared = shared_state(&styled);
+        (styled, shared)
+    }
+
+    fn cell_of(styled: &StyledDom, day: u32) -> DomNodeId {
+        day_cell(styled, day).0
+    }
+
+    /// Presses `key` on the cell of `day`; panics when the cell has no key
+    /// handler - the state of every day cell before P2-12.
+    fn press_day(
+        styled: &StyledDom,
+        day: u32,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, cell_of(styled, day), key, held)
+            .expect("every day cell must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_into_the_day_grid_lands_on_the_selected_day_and_the_next_tab_leaves_it() {
+        let (styled, _) = calendar(2024, 2, 14);
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 14), prev],
+            "the grid is ONE tab stop: the selected day, then round to the header",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(prev), false, 2),
+            vec![cell_of(&styled, 14), next],
+        );
+    }
+
+    #[test]
+    fn with_the_selected_day_out_of_range_the_first_day_is_the_tab_stop() {
+        let mut picker = DatePicker::create(2024, 2, 14);
+        picker.state.inner.day = 40;
+        let dom = picker.dom();
+        let styled = StyledDom::create_from_dom(panel_of(&dom).clone());
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 1), prev],
+        );
+    }
+
+    #[test]
+    fn arrows_move_focus_by_a_day_and_by_a_week_without_picking_the_day() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, to) in [(K::Right, 15), (K::Left, 13), (K::Down, 21), (K::Up, 7)] {
+            let (styled, shared) = calendar(2024, 2, 14);
+            let (update, changes) = press_day(&styled, 14, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(cell_of(&styled, to)),
+                "{key:?} from the 14th must focus the {to}th",
+            );
+            assert!(rv::prevented(&changes), "{key:?} must cancel spatial navigation");
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(
+                read_state(&shared).day,
+                14,
+                "moving focus is not choosing: Enter / a click picks the day",
+            );
+            assert!(transient_writes(&changes).is_empty(), "{key:?} closed the calendar");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_start_and_end_of_the_week() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (focused day, key, focused day after) - the first and the last row
+        // are partial weeks, so the ends are the first / last DAY of the row.
+        for (from, key, to) in [
+            (14, K::Home, 11),
+            (14, K::End, 17),
+            (2, K::Home, 1),
+            (2, K::End, 3),
+            (27, K::Home, 25),
+            (27, K::End, 29),
+        ] {
+            let (styled, _) = calendar(2024, 2, 14);
+            let (_, changes) = press_day(&styled, from, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(cell_of(&styled, to)),
+                "{key:?} from the {from}th",
+            );
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn an_arrow_past_the_displayed_month_stays_on_the_grid_and_goes_nowhere() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key) in [(1, K::Left), (3, K::Up), (29, K::Right), (27, K::Down)] {
+            let (styled, _) = calendar(2024, 2, 14);
+            let (_, changes) = press_day(&styled, from, key, &[]);
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on the {from}th must not let spatial navigation leave the grid",
+            );
+            assert_eq!(rv::focus_request(&changes), None, "{key:?} on the {from}th");
+        }
+    }
+
+    #[test]
+    fn page_up_and_page_down_turn_the_month_like_the_header_buttons() {
+        let (styled, shared) = calendar(2024, 2, 14);
+        let (_, changes) = press_day(&styled, 14, VirtualKeyCode::PageDown, &[]);
+        assert!(rv::prevented(&changes), "PageDown must not scroll the page");
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2024,
+                month: 3,
+                day: 14
+            },
+        );
+
+        let (styled, shared) = calendar(2024, 1, 31);
+        let (_, changes) = press_day(&styled, 31, VirtualKeyCode::PageUp, &[]);
+        assert!(rv::prevented(&changes));
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2023,
+                month: 12,
+                day: 31
+            },
+        );
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_day_is_the_grids_only_tab_stop() {
+        let (mut styled, _) = calendar(2024, 2, 14);
+        let (_, changes) = press_day(&styled, 14, VirtualKeyCode::Down, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 21), prev],
+        );
+    }
+
+    #[test]
+    fn modified_and_unused_keys_on_a_day_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Down, Some(K::LShift)),
+            (K::PageDown, Some(K::LControl)),
+            (K::Home, Some(K::RWin)),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Return, None),
+        ] {
+            let (styled, shared) = calendar(2024, 2, 14);
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_day(&styled, 14, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+            assert_eq!(read_state(&shared).month, 2, "{held:?}+{key:?} turned the month");
+        }
     }
 }
