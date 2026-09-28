@@ -40,9 +40,13 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
 - `32e554055` S1 FIX: container `.with_dataset(state).with_merge_callback(merge_split_pane_state)`;
   demo `Showcase.split_ratio` (stored in `on_splitpane`, passed to `with_ratio`).
 
+- `2562870f4` S2 RED: `a_drag_that_leaves_the_divider_keeps_resizing_until_the_release`,
+  `a_press_on_the_divider_captures_the_pointer_for_the_split_pane` (+ 2 guards); harness
+  `drive_in`, `button_held`, `registered`.
+
 ## IN PROGRESS
 
-- S2 RED (leave mid-drag keeps the drag; press captures the pointer), see NEXT 2.
+- S2 FIX (capture on press + `on_split_pointer_leave`), see NEXT 2.
 
 ## NEXT (in order)
 
