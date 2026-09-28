@@ -10953,6 +10953,175 @@ impl LayoutWindow {
                 || self.node_is_self_or_descendant(target.dom, cb.focus.block.first_node(), host))
     }
 
+    /// Shift+arrow (`SelectionMode::Extend`) for a selection that spans text
+    /// blocks, or is about to. `true` when it handled the key.
+    ///
+    /// With a document selection in `target`'s host, its FOCUS moves - in its
+    /// own block's layout, and at the edge of that block into the neighbouring
+    /// block in document order, within the selection's extent (selectable
+    /// text, inside the anchor's editing host). With a one-block session only
+    /// a step off the edge of its block makes it a document selection; every
+    /// other step is the session's own range growing, which the caller does.
+    /// A focus that comes back into the anchor's block leaves a range there.
+    ///
+    /// The Extend step used to move only the session's caret, inside its one
+    /// block: with a document selection standing it changed a caret nobody
+    /// saw (the selection painted, copied and deleted stayed as it was), and
+    /// with none the keyboard could never start one.
+    ///
+    /// Ctrl+Shift+Home/End go to the extent's first / last caret. Home/End
+    /// (`Line`) never leave their line. Down/Up off a block's last/first line
+    /// land on the next block's first / the previous block's last caret, not
+    /// at the same x.
+    fn extend_document_selection(
+        &mut self,
+        target: DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
+        let Some(target_node) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let document = self.document_selection_belongs_to(target);
+        let (anchor, mut focus) = if document {
+            let Some(cb) = self.text_edit_manager.get_cross_block_selection() else {
+                return false;
+            };
+            (
+                (cb.anchor.block, cb.anchor.cursor),
+                (cb.focus.block, cb.focus.cursor),
+            )
+        } else {
+            let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+                return false;
+            };
+            // Several carets each grow inside their own block.
+            if mc.local_len() != 1 {
+                return false;
+            }
+            let block = mc.block;
+            let Some(primary) = mc.get_primary() else {
+                return false;
+            };
+            let (a, f) = match primary.selection {
+                Selection::Cursor(c) => (c, c),
+                Selection::Range(r) => (r.start, r.end),
+            };
+            // Only a session in the host the key went to.
+            if block.dom() != target.dom
+                || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
+            {
+                return false;
+            }
+            ((block, a), (block, f))
+        };
+
+        let blocks = self.text_blocks(anchor.0.dom(), self.selection_extent(anchor.0));
+        for _ in 0..op.repeat.max(1) {
+            match self.step_document_focus(focus, op, &blocks) {
+                Some(next) => focus = next,
+                None => break,
+            }
+        }
+
+        if focus.0 == anchor.0 {
+            if !document {
+                // A step inside the session's block: its own range grows.
+                return false;
+            }
+            // Back in the anchor's block: one block, one range.
+            let collapsed = self.same_caret_position(anchor.0, anchor.1, focus.1);
+            let range = SelectionRange {
+                start: anchor.1,
+                end: if collapsed { anchor.1 } else { focus.1 },
+            };
+            self.text_edit_manager.clear_cross_block_selection();
+            if self.text_edit_manager.get_editing_block() == Some(anchor.0) {
+                if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                    if collapsed {
+                        mc.set_single_cursor(anchor.1);
+                    } else {
+                        mc.set_single_range(range);
+                    }
+                }
+                self.text_edit_manager.mark_dirty();
+            } else {
+                self.open_session(anchor.0, range);
+            }
+            return true;
+        }
+
+        if !self.set_cross_block_selection(anchor.0, anchor.1, focus.0, focus.1) {
+            // A document selection the key could not move is still not the
+            // session's to change behind it.
+            return document;
+        }
+        // The session stands at the anchor, as a drag leaves it: a later drag
+        // or handle grab extends from there.
+        if self.text_edit_manager.get_editing_block() == Some(anchor.0) {
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_cursor(anchor.1);
+            }
+        }
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// One Extend step of a document selection's focus
+    /// ([`Self::extend_document_selection`]) over `blocks`, the selection's
+    /// extent in document order. `None` when the focus's block is not laid
+    /// out.
+    fn step_document_focus(
+        &self,
+        focus: (TextBlock, TextCursor),
+        op: &azul_core::events::SelectionOp,
+        blocks: &[TextBlock],
+    ) -> Option<(TextBlock, TextCursor)> {
+        use azul_core::events::{SelectionDirection, SelectionStep};
+
+        let forward = matches!(op.direction, SelectionDirection::Forward);
+        if matches!(op.step, SelectionStep::Document) {
+            let edge = if forward { blocks.last() } else { blocks.first() };
+            let edge = edge.copied().unwrap_or(focus.0);
+            let caret = self.block_edge_caret(edge, forward)?;
+            return Some((edge, caret));
+        }
+        let target = self.text_target(focus.0)?;
+        let stepped = Self::resolve_step_with(
+            target.dense.as_deref(),
+            &target.layout,
+            &focus.1,
+            op.direction,
+            op.step,
+        );
+        let edge_caret = if forward {
+            target.last_caret()
+        } else {
+            target.first_caret()
+        };
+        let at_edge = edge_caret.is_some_and(|edge| self.same_caret_position(focus.0, focus.1, edge));
+        let moved = !self.same_caret_position(focus.0, stepped, focus.1);
+        if moved && !at_edge {
+            return Some((focus.0, stepped));
+        }
+        // At the block's edge. Home/End stay in their line.
+        if matches!(op.step, SelectionStep::Line) {
+            return Some((focus.0, stepped));
+        }
+        let at = blocks.iter().position(|b| *b == focus.0);
+        let neighbour = if forward {
+            at.and_then(|i| blocks.get(i + 1))
+        } else {
+            at.and_then(|i| i.checked_sub(1)).and_then(|i| blocks.get(i))
+        };
+        let Some(&next) = neighbour else {
+            return Some((focus.0, stepped));
+        };
+        // Into the next block at its first caret, into the previous one at
+        // its last.
+        let caret = self.block_edge_caret(next, !forward)?;
+        Some((next, caret))
+    }
+
     /// Apply a unified selection operation (navigation, extend, or delete).
     ///
     /// Single entry point that replaces the separate `ArrowKeyNavigation` and
@@ -11012,6 +11181,16 @@ impl LayoutWindow {
                 self.regenerate_display_list_for_dom(dom_id);
                 return true;
             }
+        }
+
+        // Shift+arrow over a DOCUMENT selection moves its focus, across
+        // blocks; off the edge of a one-block session it starts one.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT
+            && matches!(op.mode, SelectionMode::Extend)
+            && self.extend_document_selection(target, op)
+        {
+            self.regenerate_display_list_for_dom(dom_id);
+            return true;
         }
 
         // The keyboard selection/delete op targets the focused editable HOST,
