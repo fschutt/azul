@@ -1341,6 +1341,34 @@ mod manager_tests {
         assert_eq!(m.open_windows()[0].content_dom, popup2);
     }
 
+    /// `set_transient_window_open(node, false)` is documented to close the
+    /// popup "regardless of its `open` attribute". A popup the app opened
+    /// through its attribute must close when a callback closes it, and stay
+    /// closed until the attribute goes false and true again - the same edge
+    /// a user dismissal re-arms on.
+    #[test]
+    fn closing_through_the_api_wins_over_an_open_attribute() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(opened.opened.len(), 1, "premise: the attribute opens it");
+
+        assert!(
+            m.set_forced_open(NodeId::new(4), false),
+            "closing an open window is a change"
+        );
+        let d = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(
+            d.closed, opened.opened,
+            "the API close wins over the open attribute"
+        );
+        assert!(m.open_windows().is_empty());
+
+        // The attribute going false re-arms the node; true opens it again.
+        let _ = m.reconcile(&[], sized);
+        let d = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(d.opened.len(), 1, "false then true opens it again");
+    }
+
     #[test]
     fn a_window_without_tearoff_ignores_drops() {
         let mut m = TransientWindowManager::new();
