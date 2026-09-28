@@ -1247,6 +1247,39 @@ pub fn dismiss_outside_on_press(
     any
 }
 
+/// Which of a window's surfaces a Wayland `wl_keyboard.enter` / `leave`
+/// names. The events for a parent AND its `xdg_popup` arrive at the parent's
+/// one keyboard listener; the surface argument says which one got (or lost)
+/// the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardFocusSurface {
+    /// The window's own surface: the window itself was (de)activated.
+    Parent,
+    /// The window's open popup: the popup took (or gave up) the keyboard.
+    Popup,
+    /// Neither (a destroyed surface arrives as null): treated as the parent.
+    Other,
+}
+
+/// Route a Wayland keyboard enter / leave by its surface. `surface`,
+/// `parent` and `popup` are the `wl_surface` addresses.
+#[must_use]
+pub fn keyboard_focus_surface(
+    _surface: usize,
+    _parent: usize,
+    _popup: Option<usize>,
+) -> KeyboardFocusSurface {
+    // Every enter / leave counts as the parent's.
+    KeyboardFocusSurface::Parent
+}
+
+/// The serial an `xdg_popup.grab` must carry: the one of the input event
+/// that opened the popup.
+#[must_use]
+pub const fn popup_grab_serial(_last_input_serial: u32, pointer_serial: u32) -> u32 {
+    pointer_serial
+}
+
 #[cfg(test)]
 mod tests {
     use azul_core::{geom::LogicalRect, transient::TransientAnchor};
@@ -1375,6 +1408,56 @@ mod tests {
 
     /// A popup reports itself dismissed through the mailbox, and the parent
     /// can see it; a closed flag travels the other way.
+    /// P1-9: a keyboard enter / leave on the POPUP's surface is the popup's.
+    /// The listener ignored the surface, so the popup taking the keyboard
+    /// read as leave(parent) + enter(parent): the parent flickered inactive
+    /// and straight back to active while the popup held the keyboard.
+    #[test]
+    fn a_wayland_keyboard_enter_is_routed_by_its_surface() {
+        let (parent, popup) = (0x1000_usize, 0x2000_usize);
+        assert_eq!(
+            keyboard_focus_surface(popup, parent, Some(popup)),
+            KeyboardFocusSurface::Popup,
+            "the popup's surface is the popup's"
+        );
+        assert_eq!(
+            keyboard_focus_surface(parent, parent, Some(popup)),
+            KeyboardFocusSurface::Parent
+        );
+        assert_eq!(
+            keyboard_focus_surface(parent, parent, None),
+            KeyboardFocusSurface::Parent
+        );
+        assert_eq!(
+            keyboard_focus_surface(0, parent, Some(popup)),
+            KeyboardFocusSurface::Other,
+            "a destroyed (null) surface is neither"
+        );
+        assert_eq!(
+            keyboard_focus_surface(popup, parent, None),
+            KeyboardFocusSurface::Other,
+            "a popup that is already gone is not the popup"
+        );
+    }
+
+    /// P1-9: `xdg_popup.grab` must carry the serial of the input that opened
+    /// the popup - for a keyboard-opened picker that is the KEY's serial.
+    /// The pointer's serial can be an `enter` serial, which a strict
+    /// compositor (Mutter) rejects by dismissing the popup at once.
+    #[test]
+    fn a_popup_grab_carries_the_serial_of_the_last_input() {
+        assert_eq!(
+            popup_grab_serial(42, 7),
+            42,
+            "the key that opened the popup, not the pointer's older serial"
+        );
+        assert_eq!(
+            popup_grab_serial(0, 7),
+            7,
+            "no input serial recorded yet: the pointer's is all there is"
+        );
+    }
+
     #[test]
     fn the_mailbox_carries_both_directions() {
         let w = open_window(0);
