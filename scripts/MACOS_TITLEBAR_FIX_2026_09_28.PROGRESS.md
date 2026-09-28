@@ -40,21 +40,18 @@ Source of truth: `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 
   today), and `the_demo_title_sits_on_the_traffic_lights_line` (19 today) in the traffic-lights
   file (`demo_bar()`, `DEMO_BAR` = NodeId 1, `DEMO_TITLE` = NodeId 2).
 
+- `b831d9868` checkpoint.
+- `a77a16309` FIX demo: 28px border-box bar, 0.5px system:separator, no fill, symmetric 78px
+  padding, position relative; title `system:title:bold`, flex 1 1 0, centred; label absolute at
+  the right with line-height 28px.
+
 ## IN PROGRESS
 
-- Demo FIX (NEXT 1 below).
+- Final report (NEXT 1 below).
 
 ## NEXT (in order)
 
-1. FIX demo `examples/azul-widgets/src/lib.rs` ~L825: `height: 28px; box-sizing: border-box;
-   display:flex; align-items:center; position: relative; padding-left/right: 78px; border-bottom:
-   0.5px solid system:separator;` no fill; title `font-family: system:title:bold; font-size:
-   13px; flex-grow:1; flex-basis:0px; min-width:0px; text-align:center; ...`; label `position:
-   absolute; top:0; right:12px; height:28px; display:flex; align-items:center; ...`. Keep the
-   literal order (titlebar style, "Azul Widget Showcase", title style, "custom titlebar", label
-   style, body style, scroll style) and only `system:` colours (the theme tests scan them).
-   Update the comment at L62-68.
-2. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
+1. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
    least-sure-to-compile spots, open items) and delete this file in the same commit.
 
 ## Open questions / risks
