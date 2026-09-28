@@ -51,6 +51,10 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   `the_arrow_keys_move_a_focused_divider`, `a_stacked_divider_moves_on_up_and_down_only`;
   harness `key_down`, `press_key_on_divider`, `prevented`.
 
+- `c14eae0e2` lints: #[must_use] + allow(single_use_lifetimes) in context_menu.rs, const
+  dom_node, #[must_use] merge_split_pane_state. POLICY NOTE: layout forbids `mul_add`
+  (clippy::suboptimal_flops allowed: results must stay bit-reproducible) - write `a + b * c`.
+
 ## IN PROGRESS
 
 - S3 FIX (on_split_key on the divider; tab stop/role/name/value moved from container), NEXT 3.
