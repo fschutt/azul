@@ -3334,3 +3334,133 @@ fn a_control_inside_the_dialog_closes_it_with_its_return_value() {
         vec!["ok".to_string()]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Modal: reopening after its close button closed it
+// ---------------------------------------------------------------------------
+
+/// The app behind the modal scenario: whether it shows the modal, and how
+/// often the modal told it it closed.
+struct ModalProbe {
+    open: bool,
+    closes: usize,
+}
+
+/// A well-behaved app: the modal's `on_close` drops the `open` flag.
+extern "C" fn modal_probe_closed(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    _state: azul_layout::widgets::modal::ModalState,
+) -> Update {
+    if let Some(mut p) = data.downcast_mut::<ModalProbe>() {
+        p.open = false;
+        p.closes += 1;
+    }
+    Update::RefreshDom
+}
+
+/// The widgets demo's Modal, opened and closed through the app's state.
+extern "C" fn modal_probe_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::modal::{Modal, ModalOnCloseCallbackType};
+    let open = data.downcast_ref::<ModalProbe>().map_or(false, |p| p.open);
+    let on_close: ModalOnCloseCallbackType = modal_probe_closed;
+    Dom::create_body().with_child(
+        Modal::create(Dom::create_p_with_text("Modal body goes here."))
+            .with_title("Example dialog".into())
+            .with_open(open)
+            .with_close_button(true)
+            .with_on_close(data.clone(), on_close)
+            .dom(),
+    )
+}
+
+fn with_modal_probe<R>(window: &HeadlessWindow, f: impl FnOnce(&mut ModalProbe) -> R) -> R {
+    let mut app = window.common.app_data.borrow_mut();
+    let mut probe = app
+        .downcast_mut::<ModalProbe>()
+        .expect("the app state is a ModalProbe");
+    f(&mut probe)
+}
+
+/// The rect of the first node whose classes contain `class` in `window`,
+/// if it is laid out there with a real box.
+fn laid_out_rect(window: &HeadlessWindow, class: &str) -> Option<azul_core::geom::LogicalRect> {
+    let lw = window.get_layout_window()?;
+    let root = lw.layout_results.get(&DomId::ROOT_ID)?;
+    let nodes = root.styled_dom.node_data.as_container();
+    let n = nodes.linear_iter().find(|n| {
+        nodes
+            .get(*n)
+            .is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains(class))
+    })?;
+    lw.get_node_layout_rect(DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+    })
+    .filter(|r| r.size.width > 0.0 && r.size.height > 0.0)
+}
+
+/// Whether the modal is on screen: its panel laid out in the parent, or an
+/// open transient window.
+fn modal_shown(parent: &HeadlessWindow) -> bool {
+    let popups = parent
+        .get_layout_window()
+        .map_or(0, |lw| lw.transient_windows.open_windows().len());
+    popups > 0 || laid_out_rect(parent, "__azul-native-modal-panel").is_some()
+}
+
+fn center_of(r: azul_core::geom::LogicalRect) -> LogicalPosition {
+    LogicalPosition::new(
+        r.origin.x + r.size.width / 2.0,
+        r.origin.y + r.size.height / 2.0,
+    )
+}
+
+/// The app opens its modal, the user closes it with its close button (the
+/// app hears `on_close` and drops its flag), then the app opens it again: it
+/// must show again.
+#[test]
+fn a_modal_the_app_reopens_after_its_close_button_closed_it_shows_again() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(ModalProbe {
+        open: false,
+        closes: 0,
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = modal_probe_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout");
+    assert!(!modal_shown(&parent), "premise: closed until the app opens it");
+
+    with_modal_probe(&parent, |p| p.open = true);
+    relayout(&mut parent);
+    assert!(modal_shown(&parent), "the app opened it");
+
+    // The user presses the close button, wherever the modal is shown: in
+    // the parent's own layout, or in the modal's window.
+    if let Some(x) = laid_out_rect(&parent, "-close") {
+        click_at(&mut parent, center_of(x));
+    } else {
+        let popup_opts = take_queued_popup(&mut parent);
+        let mut popup = headless(popup_opts, parent.common.app_data.clone());
+        popup.regenerate_layout().expect("popup layout");
+        let _ = popup.process_window_events(0);
+        let x = laid_out_rect(&popup, "-close").expect("the close button is in the modal's window");
+        click_at(&mut popup, center_of(x));
+    }
+    parent.regenerate_layout().expect("the app's rebuild");
+    assert_eq!(
+        with_modal_probe(&parent, |p| p.closes),
+        1,
+        "the app heard the close"
+    );
+    assert!(!modal_shown(&parent), "the close button closed it");
+
+    with_modal_probe(&parent, |p| p.open = true);
+    relayout(&mut parent);
+    assert!(modal_shown(&parent), "the reopened modal shows again");
+}
