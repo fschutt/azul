@@ -70,11 +70,13 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - a473f4d6a feat(dialog): real handlers (invoker, Escape, backdrop, close button, Dismissed, merge, close_from)
 - 70519f117 chore: checkpoint
 - aec8782ea fix(popover): Popover is a front-end over the dialog core (fixes 3ee347c7f); unit tests rewritten; handlers pub(crate)
+- 7390dee07 chore: checkpoint
+- 4d7e46cfe test(modal): reopened-after-close modal shows again (RED, dll e2e)
+- faf98ab34 fix(modal): Modal is a front-end over the core (modal, closedby Auto); DialogClasses gains title/close; tests rewritten
 
 ## IN PROGRESS
 
-- Modal: the RED dll test first (the app reopens a modal after its x
-  closed it -> it stays hidden), then Modal on the core.
+- Demo (examples/azul-widgets/src/lib.rs).
 
 ## NEXT (in order)
 
