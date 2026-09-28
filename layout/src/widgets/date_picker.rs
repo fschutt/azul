@@ -30,6 +30,12 @@
 //! documented limitation). Computing the initial grid from calendar math is NOT
 //! faked behaviour — only the live month rebuild is the limitation.
 //!
+//! KEYBOARD (WAI-ARIA APG date grid): the day cells are ONE Tab stop - the
+//! selected day. Left/Right move focus by a day, Up/Down by a week, Home/End
+//! to the ends of the week row; Enter/Space (a click) picks the focused day;
+//! PageUp/PageDown act as ‹ / ›. An arrow past the displayed month goes
+//! nowhere, for the same TODO2 reason: the grid cannot rebuild itself.
+//!
 //! Key types: [`DatePicker`], [`DatePickerState`], [`DatePickerOnChange`].
 
 use std::vec::Vec;
@@ -902,6 +908,14 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
     let dim = days_in_month(year, month);
     let total = leading + dim;
     let rows = total.div_ceil(7);
+    // WAI-ARIA APG date grid: the days are ONE Tab stop - the selected day,
+    // or the 1st when the selected day is not in this month. The arrow keys
+    // move focus within the grid (`on_day_key`).
+    let stop_day = if (1..=dim).contains(&sel_day) {
+        sel_day
+    } else {
+        1
+    };
 
     let mut week_rows: Vec<Dom> = Vec::with_capacity(rows as usize);
     for r in 0..rows {
@@ -912,7 +926,14 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
                 cells.push(build_blank_cell());
             } else {
                 let day = i - leading + 1;
-                cells.push(build_day_cell(day, day == sel_day, shared.clone()));
+                let tab_index = if day == stop_day {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                };
+                cells.push(
+                    build_day_cell(day, day == sel_day, shared.clone()).with_tab_index(tab_index),
+                );
             }
         }
         week_rows.push(
@@ -937,24 +958,40 @@ fn build_blank_cell() -> Dom {
         ))
 }
 
+/// One day of the grid: the click picks it, the arrow keys move focus from it
+/// (both share the cell's payload). The Tab index is `build_grid`'s to set -
+/// only the grid knows which day holds its one Tab stop.
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
-    use azul_core::dom::{EventFilter, HoverEventFilter};
+    use azul_core::{
+        dom::{EventFilter, HoverEventFilter},
+        events::FocusEventFilter,
+    };
 
+    let data = RefAny::new(DayCellData { day, state: shared });
     crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
         .with_css_props(day_cell_style(selected))
         .with_callbacks(
-            alloc::vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                callback: CoreCallback {
-                    cb: on_day_click as usize,
-                    ctx: OptionRefAny::None,
+            alloc::vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: on_day_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
                 },
-                refany: RefAny::new(DayCellData { day, state: shared }),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: on_day_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data,
+                },
+            ]
             .into(),
         )
-        .with_tab_index(TabIndex::Auto)
         // The date field opens a chooser.
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
             role: azul_core::a11y::AccessibilityRole::ComboBox,
@@ -1025,6 +1062,94 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
 
     update
+}
+
+/// Arrow keys on the focused day (WAI-ARIA APG date grid): Left/Right move
+/// focus by a day, Up/Down by a week, Home/End to the first / last DAY of the
+/// week row; the target becomes the grid's one Tab stop. Moving is not
+/// choosing - Enter or Space (the activation default, i.e. a click) picks the
+/// focused day and closes the calendar. PageUp/PageDown turn the month exactly
+/// like the header's ‹ / › (see the module's TODO2: the host rebuilds the
+/// grid). Every handled key is `prevent_default`-ed; an arrow past the
+/// displayed month is consumed and goes nowhere, because the grid cannot
+/// rebuild itself into the neighbouring month. Any key held with Alt, Ctrl,
+/// Cmd or Shift, and every other key, keeps its default.
+extern "C" fn on_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving;
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    if !matches!(
+        key,
+        K::Left | K::Right | K::Up | K::Down | K::Home | K::End | K::PageUp | K::PageDown
+    ) {
+        return Update::DoNothing;
+    }
+    let shared = {
+        let Some(cell) = data.downcast_ref::<DayCellData>() else {
+            return Update::DoNothing;
+        };
+        cell.state.clone()
+    };
+
+    match key {
+        K::PageUp => {
+            info.prevent_default();
+            return month_nav(shared, info, -1);
+        }
+        K::PageDown => {
+            info.prevent_default();
+            return month_nav(shared, info, 1);
+        }
+        _ => {}
+    }
+
+    // The day cells in reading order, with the week row each sits in. A blank
+    // cell has no children; a day cell is a `<p>` around its number.
+    let focused = info.get_hit_node();
+    let Some(grid) = info.get_parent(focused).and_then(|week| info.get_parent(week)) else {
+        return Update::DoNothing;
+    };
+    let mut days: Vec<(azul_core::dom::DomNodeId, usize)> = Vec::new();
+    let mut row = 0usize;
+    let mut week = info.get_first_child(grid);
+    while let Some(w) = week {
+        let mut cell = info.get_first_child(w);
+        while let Some(c) = cell {
+            if info.get_first_child(c).is_some() {
+                days.push((c, row));
+            }
+            cell = info.get_next_sibling(c);
+        }
+        row += 1;
+        week = info.get_next_sibling(w);
+    }
+    let Some(current) = days.iter().position(|(n, _)| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let week_of_current = days[current].1;
+    let target = match key {
+        K::Left => current.checked_sub(1),
+        K::Right => Some(current + 1).filter(|t| *t < days.len()),
+        K::Up => current.checked_sub(7),
+        K::Down => Some(current + 7).filter(|t| *t < days.len()),
+        K::Home => days.iter().position(|(_, r)| *r == week_of_current),
+        K::End => days.iter().rposition(|(_, r)| *r == week_of_current),
+        _ => None,
+    };
+
+    // The key is the grid's either way: spatial navigation must not walk out
+    // of the calendar from its edge.
+    info.prevent_default();
+    let Some(target) = target.filter(|t| *t != current) else {
+        return Update::DoNothing;
+    };
+    let items: Vec<azul_core::dom::DomNodeId> = days.iter().map(|(n, _)| *n).collect();
+    roving::move_stop(&mut info, &items, target);
+    Update::DoNothing
 }
 
 /// Accents the clicked cell and neutralises every other grid cell (blanks
@@ -2745,14 +2870,25 @@ mod autotest_generated {
                 "a grid cell lost the day class",
             );
             let cbs = cell.root.callbacks.as_ref();
-            if text_of(cell).is_some() {
-                assert_eq!(cbs.len(), 1, "a day cell must register exactly one handler");
+            if let Some(day) = text_of(cell) {
+                assert_eq!(cbs.len(), 2, "a day cell registers the click and the arrow keys");
                 assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
                 assert_eq!(cbs[0].callback.cb, on_day_click as usize);
                 assert_eq!(
+                    cbs[1].event,
+                    EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+                );
+                assert_eq!(cbs[1].callback.cb, on_day_key as usize);
+                // ONE Tab stop per grid: the selected day (the 10th here); the
+                // other days are reached with the arrow keys.
+                assert_eq!(
                     cell.root.flags.get_tab_index(),
-                    Some(TabIndex::Auto),
-                    "a day cell is not keyboard-focusable",
+                    Some(if day == "10" {
+                        TabIndex::Auto
+                    } else {
+                        TabIndex::NoKeyboardFocus
+                    }),
+                    "day {day} has the wrong tab index",
                 );
                 with_handler += 1;
             } else {
@@ -2774,11 +2910,15 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(DatePicker::create(2024, 2, 1).dom());
         let mut seen: Vec<u32> = Vec::new();
         for nd in styled.node_data.as_ref() {
+            // One payload per cell: the click and the arrow-key handler share
+            // it, so a cell is counted once.
             for cb in nd.callbacks.as_ref() {
                 let mut r = cb.refany.clone();
-                if let Some(cell) = r.downcast_ref::<DayCellData>() {
-                    seen.push(cell.day);
-                };
+                let day = r.downcast_ref::<DayCellData>().map(|cell| cell.day);
+                if let Some(day) = day {
+                    seen.push(day);
+                    break;
+                }
             }
         }
         seen.sort_unstable();
@@ -2993,7 +3133,12 @@ mod autotest_generated {
                 );
 
                 let cbs = cell.root.callbacks.as_ref();
-                assert_eq!(cbs.len(), 1);
+                assert_eq!(cbs.len(), 2, "the click and the arrow-key handler");
+                assert_eq!(
+                    cbs[0].refany.get_data_ptr(),
+                    cbs[1].refany.get_data_ptr(),
+                    "both handlers read the same cell payload",
+                );
                 let mut r = cbs[0].refany.clone();
                 let baked = r
                     .downcast_ref::<DayCellData>()
