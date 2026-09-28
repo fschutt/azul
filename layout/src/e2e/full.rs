@@ -1667,50 +1667,82 @@ pub struct DomSelectionInfo {
 }
 
 /// Information about a single selection range
+///
+/// Every position is a BYTE offset into the text block's flat text with the
+/// caret's affinity resolved - a `Trailing` caret is after its character -
+/// so a select-all over "hello world" reads `start: 0, end: 11`. (These used
+/// to be the raw `start_byte_in_run` of the caret's cluster: without its run,
+/// and with a `Trailing` end one character short.) The affinities are
+/// reported beside them.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionRangeInfo {
     /// Selection type: "cursor", "range", or "block"
     pub selection_type: String,
-    /// For cursor: the cursor position (character index)
+    /// For cursor: the caret's byte offset in the block's text
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor_position: Option<usize>,
-    /// For range: start character index
+    /// For cursor: "leading" or "trailing"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_affinity: Option<String>,
+    /// For range: the anchor's byte offset in the block's text
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<usize>,
-    /// For range: end character index
+    /// For range: the anchor's affinity, "leading" or "trailing"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_affinity: Option<String>,
+    /// For range: the focus's byte offset in the block's text
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<usize>,
+    /// For range: the focus's affinity, "leading" or "trailing"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_affinity: Option<String>,
     /// Direction: "forward", "backward", or "none"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
 }
 
 /// One selection of the editing session in `block`, as `get_selection_state`
-/// reports it.
+/// reports it: byte offsets into the block's flat text, affinity resolved
+/// (`LayoutWindow::byte_offset_of_cursor`, the IME's reading), and the
+/// affinities beside them.
 #[cfg(feature = "std")]
 fn selection_range_info(
-    _lw: &azul_layout::window::LayoutWindow,
-    _block: azul_core::selection::TextBlock,
+    lw: &azul_layout::window::LayoutWindow,
+    block: azul_core::selection::TextBlock,
     selection: &azul_core::selection::Selection,
 ) -> SelectionRangeInfo {
-    use azul_core::selection::Selection;
+    use azul_core::selection::{CursorAffinity, Selection, TextCursor};
+    let byte = |c: &TextCursor| lw.byte_offset_of_cursor(block, c);
+    let affinity = |c: &TextCursor| {
+        match c.affinity {
+            CursorAffinity::Leading => "leading",
+            CursorAffinity::Trailing => "trailing",
+        }
+        .to_string()
+    };
     match selection {
         Selection::Cursor(cursor) => SelectionRangeInfo {
             selection_type: "cursor".to_string(),
-            cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
+            cursor_position: byte(cursor),
+            cursor_affinity: Some(affinity(cursor)),
             start: None,
+            start_affinity: None,
             end: None,
+            end_affinity: None,
             direction: None,
         },
         Selection::Range(range) => {
-            let sp = range.start.cluster_id.start_byte_in_run as usize;
-            let ep = range.end.cluster_id.start_byte_in_run as usize;
+            let sp = byte(&range.start);
+            let ep = byte(&range.end);
             SelectionRangeInfo {
                 selection_type: "range".to_string(),
                 cursor_position: None,
-                start: Some(sp),
-                end: Some(ep),
+                cursor_affinity: None,
+                start: sp,
+                start_affinity: Some(affinity(&range.start)),
+                end: ep,
+                end_affinity: Some(affinity(&range.end)),
                 direction: Some(if sp <= ep { "forward" } else { "backward" }.to_string()),
             }
         }
