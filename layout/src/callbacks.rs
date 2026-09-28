@@ -8388,6 +8388,82 @@ mod autotest_generated {
         });
     }
 
+    fn summon_key() -> azul_core::global_hotkey::GlobalHotkey {
+        azul_core::global_hotkey::GlobalHotkey {
+            modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            key: azul_core::window::VirtualKeyCode::K,
+        }
+    }
+
+    /// An EVENT callback reads the LIVE manager (not a layout snapshot):
+    /// what this window declared is `Active` and owned by this window, what
+    /// nobody declared is `NotRegistered`.
+    #[test]
+    fn callback_info_reads_the_live_global_hotkey_status_by_accelerator() {
+        use azul_core::global_hotkey::{GlobalHotkeyCallbackData, GlobalHotkeyOwner, GlobalHotkeyStatus};
+        with_info(node_none(), |info| {
+            let window = &info.get_layout_window().global_hotkeys;
+            window.shared().install_simulated_backend();
+            window.shared().declare(
+                window.source(),
+                vec![GlobalHotkeyCallbackData::create(
+                    summon_key(),
+                    RefAny::new(()),
+                    CoreCallback {
+                        cb: 1,
+                        ctx: OptionRefAny::None,
+                    },
+                )],
+                false,
+            );
+            let _ = window.shared().sync();
+
+            assert_eq!(
+                info.get_global_hotkey_status(summon_key()),
+                GlobalHotkeyStatus::Active
+            );
+            let mut other = summon_key();
+            other.key = azul_core::window::VirtualKeyCode::J;
+            assert_eq!(
+                info.get_global_hotkey_status(other),
+                GlobalHotkeyStatus::NotRegistered
+            );
+            let infos = info.get_global_hotkeys();
+            assert_eq!(infos.len(), 1);
+            assert_eq!(infos.as_ref()[0].owner, GlobalHotkeyOwner::ThisWindow);
+        });
+    }
+
+    /// `get_global_hotkey_event()` is `Some` exactly while a global hotkey's
+    /// own callback runs - how one callback serving several accelerators
+    /// tells them apart - and `None` in any other callback.
+    #[test]
+    fn the_global_hotkey_event_is_only_readable_inside_the_fired_callback() {
+        use azul_core::global_hotkey::{GlobalHotkeyEvent, GlobalHotkeyState, OptionGlobalHotkeyEvent};
+        let event = GlobalHotkeyEvent {
+            hotkey: summon_key(),
+            state: GlobalHotkeyState::Pressed,
+            timestamp_ms: 42,
+        };
+        with_info(node_none(), |info| {
+            assert_eq!(info.get_global_hotkey_event(), OptionGlobalHotkeyEvent::None);
+            let inside = crate::managers::global_hotkey::with_delivered_event(event, || {
+                info.get_global_hotkey_event()
+            });
+            assert_eq!(inside, OptionGlobalHotkeyEvent::Some(event));
+            assert_eq!(
+                info.get_global_hotkey_event(),
+                OptionGlobalHotkeyEvent::None,
+                "the event does not outlive its callback"
+            );
+        });
+    }
+
     #[test]
     fn callback_info_flag_mutators_queue_exactly_one_matching_change() {
         macro_rules! assert_queues {
@@ -8442,6 +8518,19 @@ mod autotest_generated {
         assert_queues!(
             |i: &mut CallbackInfo| i.raise_window(),
             CallbackChange::RaiseWindow
+        );
+        // "Ctrl+Alt+K is taken - Retry": the only way past a sticky failure.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.retry_global_hotkey(azul_core::global_hotkey::GlobalHotkey {
+                modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                    ctrl: true,
+                    alt: true,
+                    shift: false,
+                    meta: false,
+                },
+                key: azul_core::window::VirtualKeyCode::K,
+            }),
+            CallbackChange::RetryGlobalHotkey { .. }
         );
         assert_queues!(
             |i: &mut CallbackInfo| i.commit_undo_snapshot(),
