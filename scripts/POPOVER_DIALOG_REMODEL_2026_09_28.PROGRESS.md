@@ -66,13 +66,12 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - 0f418384c feat(transient): Viewport implemented (resolve, resolve_within, dll reconcile maps `cover_viewport(window size)`, Wayland, web)
 - 0b928f480 chore: this checkpoint file
 - 7e12cc7fd test(dialog): dialog.rs with STUBBED handlers + 15 unit tests + 4 dll e2e tests (RED)
+- 9a797a7b8 chore: checkpoint
+- a473f4d6a feat(dialog): real handlers (invoker, Escape, backdrop, close button, Dismissed, merge, close_from)
 
 ## IN PROGRESS
 
-- F2: the real handlers in dialog.rs. The full final version is in the
-  scratchpad (`dialog_final.rs`); if it is lost, re-derive it from the
-  design above. It replaces the "RED STUBS" block, `close_from` and
-  `request_close_from`.
+- Popover on the dialog core (fixes RED 3ee347c7f).
 
 ## NEXT (in order)
 
