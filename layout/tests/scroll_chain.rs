@@ -460,3 +460,106 @@ fn an_absolute_box_is_not_moved_or_clipped_by_a_scroll_box_that_is_not_its_conta
         "the pointer at (275, 45) must find the absolute box painted there"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The two other readers of "where is this box on screen"
+// ---------------------------------------------------------------------------
+
+/// `body > [fixed focusable 100x50 at (0,0), 1000px]` in a 400x300 window,
+/// scrolled by 150.
+fn scrolled_page_with_a_fixed_focusable_box() -> LayoutWindow {
+    let mut fixed = Dom::create_div()
+        .with_css("position: fixed; top: 0px; left: 0px; width: 100px; height: 50px;");
+    fixed.set_tab_index(azul_core::dom::TabIndex::Auto);
+    let mut lw = window_with(
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(fixed)
+            .with_child(Dom::create_div().with_css("height: 1000px;")),
+    );
+    scroll_viewport_to(&mut lw, 150.0);
+    lw
+}
+
+/// The keyboard focus ring is inserted INSIDE the scroll frame its node is
+/// painted in, so it travels with the node on a scroll (`enclosing_scroll_id`).
+/// It picked that frame by walking the DOM for an ancestor holding scroll
+/// state - the page's, for a fixed box the page does not move.
+#[test]
+fn a_fixed_boxs_focus_ring_is_painted_around_it_on_a_scrolled_page() {
+    let mut lw = scrolled_page_with_a_fixed_focusable_box();
+    lw.system_animations_override = Some(azul_core::resources::SystemAnimations {
+        focus_ring_duration_ms: 10_000,
+        ..azul_core::resources::SystemAnimations::disabled()
+    });
+    lw.focus_manager.focus_is_visible = true;
+    lw.focus_manager.set_focused_node(Some(dom_node(FIXED_BOX)));
+    lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+
+    // The ring: the box's border box inflated by 2px, where the frames open
+    // around it put it on screen (`pos - offset`, the raster's rule).
+    let lr = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("the page is laid out");
+    let offsets = lw
+        .scroll_manager
+        .build_scroll_offset_map(DomId::ROOT_ID, &lr.scroll_id_to_node_id);
+    let mut frames: Vec<(f32, f32)> = Vec::new();
+    let mut ring_y = None;
+    for item in &lr.display_list.items {
+        use azul_layout::solver3::display_list::DisplayListItem;
+        match item {
+            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                frames.push(offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0)));
+            }
+            DisplayListItem::PopScrollFrame => {
+                frames.pop();
+            }
+            DisplayListItem::Border { bounds, .. }
+                if (bounds.0.size.width - 104.0).abs() < 0.01
+                    && (bounds.0.size.height - 54.0).abs() < 0.01 =>
+            {
+                let dy: f32 = frames.iter().map(|f| f.1).sum();
+                ring_y = Some(bounds.0.origin.y - dy);
+            }
+            _ => {}
+        }
+    }
+    let ring_y = ring_y.expect("harness: keyboard focus on the fixed box paints a ring");
+    assert_eq!(
+        ring_y, -2.0,
+        "the ring must be painted around the fixed box at y=0, but it is painted at y={ring_y}: \
+         it was put in the page's scroll frame"
+    );
+}
+
+/// The accessibility tree reports every node where it is on screen: its
+/// static position minus the scroll of the frames it is painted in. It
+/// subtracted every DOM ancestor's scroll offset - the page's, for a fixed
+/// box the page does not move - so a screen reader drew its cursor 150px
+/// above the box.
+#[cfg(feature = "a11y")]
+#[test]
+fn a_fixed_box_is_reported_to_assistive_technology_where_it_is_painted() {
+    let mut lw = scrolled_page_with_a_fixed_focusable_box();
+    // Whatever the layout pass parked, then the tree the scroll rebuilds.
+    let _ = lw.a11y_manager.take_pending();
+    lw.update_a11y_tree();
+    let update = lw
+        .a11y_manager
+        .take_pending()
+        .expect("the rebuild parks a full tree");
+    // A11y ids are `(dom << 32) | (node + 1)`.
+    let id = accesskit::NodeId(FIXED_BOX.index() as u64 + 1);
+    let bounds = update
+        .nodes
+        .iter()
+        .find(|(node, _)| *node == id)
+        .and_then(|(_, node)| node.bounds())
+        .expect("the fixed box has bounds");
+    assert!(
+        bounds.y0.abs() < 0.5,
+        "the fixed box is on screen at y=0, the a11y tree says y={}",
+        bounds.y0
+    );
+}
