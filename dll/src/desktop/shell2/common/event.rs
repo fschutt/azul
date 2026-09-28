@@ -10191,8 +10191,14 @@ pub trait PlatformWindow {
         //
         // Only a popup that TAKES focus: a combobox's list leaves it on the
         // field (WAI-ARIA combobox), so typing keeps editing the field.
+        //
+        // And ONCE per popup (P2-11): "focus is None" is also what a click on
+        // nothing inside the popup leaves behind, and re-arming on it put the
+        // plane - ringed, with the modality inherited at creation - back
+        // under a pointer user's click.
         if super::transient::mailbox_of(self.get_current_window_state()).is_some()
             && super::transient::popup_takes_focus(self.get_current_window_state())
+            && !super::transient::popup_autofocused(self.get_current_window_state())
         {
             let needs_autofocus = self
                 .get_layout_window()
@@ -10248,6 +10254,7 @@ pub trait PlatformWindow {
                         visible: inherit,
                     });
                     restored = restored.max(r);
+                    super::transient::mark_popup_autofocused(self.get_current_window_state());
                 }
             }
         }

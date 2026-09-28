@@ -977,6 +977,7 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
         focus_visible: d.focus_visible,
         forwarded_keys: d.forwarded_keys.clone(),
         takes_focus: d.takes_focus,
+        autofocused: d.autofocused,
     }
 }
 

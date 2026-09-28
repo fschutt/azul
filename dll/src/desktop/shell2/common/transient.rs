@@ -131,6 +131,10 @@ pub struct TransientWindowData {
     /// See `azul_layout::transient::transient_takes_focus`. A popup that
     /// leaves it does not autofocus its first control.
     pub takes_focus: bool,
+    /// Popup → popup: the autofocus of its first control has happened. It
+    /// happens ONCE per window: a click on nothing that clears focus later
+    /// must not be undone by the next pass.
+    pub autofocused: bool,
 }
 
 /// One keyboard transition a parent received while its popup held the
@@ -228,6 +232,22 @@ pub fn popup_takes_focus(state: &FullWindowState) -> bool {
     mailbox_of(state)
         .and_then(|m| read(&m, |d| d.takes_focus))
         .unwrap_or(true)
+}
+
+/// Has this popup already autofocused its first control? `true` for a
+/// window that is not a transient (nothing to autofocus there).
+#[must_use]
+pub fn popup_autofocused(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.autofocused))
+        .unwrap_or(true)
+}
+
+/// Record that this popup's one autofocus has happened.
+pub fn mark_popup_autofocused(state: &FullWindowState) {
+    if let Some(m) = mailbox_of(state) {
+        write(&m, |d| d.autofocused = true);
+    }
 }
 
 /// The mailbox of the popup that holds `lw`'s keyboard (see
@@ -357,6 +377,7 @@ pub fn popup_create_options(
         following: false,
         forwarded_keys: Vec::new(),
         takes_focus: true,
+        autofocused: false,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -426,6 +447,7 @@ pub fn toplevel_create_options(
         following: false,
         forwarded_keys: Vec::new(),
         takes_focus: true,
+        autofocused: false,
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
