@@ -6,15 +6,16 @@
 //! Sections toggle independently (any number may be open at once). Clicking a
 //! header flips that section's `is_open` flag in a per-header [`RefAny`] (the
 //! self-contained per-row data pattern of `tree_view`), invokes the optional
-//! user `on_toggle(section_index)`, and shows/hides the section body by setting
-//! `display: block | none` on it via `set_css_property` (mirroring tree_view /
-//! check_box live restyling).
+//! user `on_toggle(section_index)`, and opens or closes the section body with a
+//! height tween: a closed body is laid out at `height: 0` (clipped), and the
+//! click writes its new height and vertical padding through `set_css_property`,
+//! which the body's declared `animation` turns into a transition - the
+//! mechanism that slides the switch's knob. With reduced motion the body
+//! declares no animation and snaps.
 //!
 //! TODO2: the header is a plain styled clickable bar with no animated disclosure
 //! chevron — a glyph cannot be re-textured via `set_css_property` without a
-//! relayout, so an indicator that flips on toggle is deferred. The `display`
-//! toggle itself follows the proven live-restyle pattern but the `display:none`
-//! relayout is not GUI-verified in this build.
+//! relayout, so an indicator that flips on toggle is deferred.
 //!
 //! Key types: [`Accordion`], [`AccordionSection`], [`AccordionOnToggle`].
 
@@ -23,8 +24,8 @@ use std::vec::Vec;
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
+        Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
 };
@@ -39,8 +40,9 @@ use azul_css::{
             StyleFontSize,
         },
         layout::{
-            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow,
-            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutHeight,
+            LayoutMinHeight, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop,
         },
         property::{CssProperty, CssPropertyType},
         style::{
@@ -326,47 +328,98 @@ static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
-/// Body style when the section is OPEN: a padded block with a top separator.
-static ACCORDION_BODY_STYLE_OPEN: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        12,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(12),
-    )),
-];
+/// An open body's padding, on every side; a closed body keeps it on the
+/// left and right only.
+const BODY_PADDING: isize = 12;
 
-/// Body style when the section is CLOSED: not laid out at all.
+/// How long a section takes to open or close.
+const BODY_TWEEN_MS: u32 = 220;
+
+/// What a body declares so opening and closing TWEEN instead of snapping: its
+/// `height` and its vertical padding, the properties the click handler
+/// writes - the same mechanism that slides the switch's knob (an imperative
+/// write honours a declared `animation`).
 ///
-/// This MUST declare everything the open style declares except `display`.
-/// The runtime toggle (`on_accordion_header_click`) writes ONLY `display`, so
-/// any property that exists solely in the open table is missing from a body
-/// that reached the open state by CLICK rather than by being built open. That
-/// is exactly what happened: the padding lived only in the open table, so a
-/// clicked-open section rendered its text flush against the container's
-/// rounded border while a born-open section was correctly inset by 12 px.
-static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::None)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        12,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(12),
-    )),
-];
+/// Declared only under `prefers-reduced-motion: no-preference`: with reduced
+/// motion the body has no animation, nothing is seeded, and a section opens
+/// and closes at once (the handler asks the same question,
+/// `body_animates`).
+fn body_animation() -> CssPropertyWithConditions {
+    use azul_css::{
+        dynamic_selector::{BoolCondition, DynamicSelector},
+        props::basic::{
+            animation::{AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec},
+            time::CssDuration,
+        },
+    };
+    let tween = |property: &'static str| StyleAnimation {
+        name: AzString::from_const_str(property),
+        duration: CssDuration::from_millis(BODY_TWEEN_MS),
+        delay: CssDuration::from_millis(0),
+        iterations: AnimationIterationCount::Count(1),
+        timing: AnimationTiming::EaseInOut,
+        clip: true,
+    };
+    CssPropertyWithConditions::with_condition(
+        CssProperty::Animation(azul_css::props::property::StyleAnimationVecValue::Exact(
+            StyleAnimationVec::from_vec(alloc::vec![
+                tween("height"),
+                tween("padding-top"),
+                tween("padding-bottom"),
+            ]),
+        )),
+        DynamicSelector::PrefersReducedMotion(BoolCondition::False),
+    )
+}
+
+/// A section's body: a block formatting context that CLIPS its content,
+/// collapsed to zero height when closed.
+///
+/// A closed body is laid out - `height: 0` and no vertical padding, not
+/// `display: none` - so the height its content needs is known the moment
+/// its header is clicked, and the click can tween the body from 0 to it
+/// (`on_accordion_header_click`). `display: none` was a discrete switch with
+/// nothing between its two values: the section snapped open and shut.
+///
+/// `flow-root` keeps the content's margins inside the body in both states
+/// (a zero-padding block would let them collapse through its edges), and
+/// `overflow: clip` hides what does not fit yet without making the body a
+/// scroll container. `min-height: 0` lets a flex column shrink it below its
+/// content.
+///
+/// Both states declare the same properties apart from `height` and the
+/// vertical padding - the ones the click handler writes - so a body that
+/// reached a state by click looks like one built in it.
+fn body_style(open: bool) -> CssPropertyWithConditionsVec {
+    let vertical_padding = if open { BODY_PADDING } else { 0 };
+    let mut style = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::FlowRoot)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Clip)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Clip)),
+        CssPropertyWithConditions::simple(CssProperty::const_min_height(
+            LayoutMinHeight::const_px(0),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(vertical_padding),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(vertical_padding),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(BODY_PADDING),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(BODY_PADDING),
+        )),
+        body_animation(),
+    ];
+    if !open {
+        style.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+            LayoutHeight::const_px(0),
+        )));
+    }
+    CssPropertyWithConditionsVec::from_vec(style)
+}
 
 impl Accordion {
     /// Creates a new accordion from the given sections, with no toggle callback.
@@ -471,14 +524,9 @@ impl Accordion {
                 )
                 .with_children(DomVec::from_vec(alloc::vec![title]));
 
-            let body_style = if section.is_open {
-                ACCORDION_BODY_STYLE_OPEN
-            } else {
-                ACCORDION_BODY_STYLE_CLOSED
-            };
             let body = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_BODY_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(body_style))
+                .with_css_props(body_style(section.is_open))
                 .with_children(DomVec::from_vec(alloc::vec![section.content.clone()]));
 
             section_doms.push(
@@ -534,6 +582,11 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     let Some(body) = info.get_next_sibling(header) else {
         return Update::DoNothing;
     };
+    // Read off the layout on screen, before anything changes: how tall the
+    // body's content is (a closed body lays it out at zero height), and
+    // whether the body tweens at all.
+    let content_height = body_content_height(&info, body);
+    let animated = body_animates(&info, body);
 
     let (now_open, result) = {
         let Some(mut hd) = data.downcast_mut::<HeaderClickData>() else {
@@ -561,19 +614,67 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     // open could never close again, and vice versa. That latch, not the toggle
     // itself, is what made the accordion "not properly expand/collapse".
     //
-    // - Host rebuilds (`RefreshDom*`): it owns the flag. CLEAR the override (`initial` removes it)
-    //   and let the rebuilt DOM's own style decide.
-    // - Host does nothing: the widget owns the flag, so write the override — that is what makes a
-    //   self-contained accordion work with no host state.
-    if matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows) {
-        info.set_css_property(body, CssProperty::initial(CssPropertyType::Display));
-    } else {
-        let display = if now_open {
-            LayoutDisplay::Block
-        } else {
-            LayoutDisplay::None
+    // - The body tweens (`animated`): write the target state. Each write seeds a transition
+    //   (the body declares an `animation` for exactly these properties), and a transition that
+    //   settles REMOVES its override: a host that rebuilds ends up with its rebuilt DOM's own
+    //   style, a widget that owns its flag with the written inline values. Opening writes
+    //   `height: auto` - the open state - and then, on the override channel only, the content
+    //   height the tween walks to: an `auto` target does not interpolate. Closing starts from
+    //   `auto`, which the engine resolves to the laid-out height.
+    // - No tween (reduced motion) and the host rebuilds: it owns the flag. CLEAR the overrides
+    //   (`initial` removes one) and let the rebuilt DOM's own style decide.
+    // - No tween and nobody rebuilds: the widget owns the flag, so write the new state - that is
+    //   what makes a self-contained accordion work with no host state.
+    let host_rebuilds = matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows);
+    if let Some(body_node) = body.node.into_crate_internal() {
+        let vertical_padding = |px: isize| {
+            [
+                CssProperty::const_padding_top(LayoutPaddingTop::const_px(px)),
+                CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(px)),
+            ]
         };
-        info.set_css_property(body, CssProperty::const_display(display));
+        if !animated && host_rebuilds {
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![
+                    CssProperty::initial(CssPropertyType::Height),
+                    CssProperty::initial(CssPropertyType::PaddingTop),
+                    CssProperty::initial(CssPropertyType::PaddingBottom),
+                ]
+                .into(),
+            );
+        } else if now_open {
+            let [top, bottom] = vertical_padding(BODY_PADDING);
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![CssProperty::const_height(LayoutHeight::Auto), top, bottom].into(),
+            );
+            if let (true, Some(height)) = (animated, content_height) {
+                info.override_node_css_properties(
+                    body.dom,
+                    body_node,
+                    vec![CssProperty::height(LayoutHeight::px(height))].into(),
+                );
+            }
+        } else {
+            let [top, bottom] = vertical_padding(0);
+            // A body with nothing in it has no height to walk down from: no
+            // transition is seeded for it, so nothing would remove the
+            // written override, and a host's rebuild would inherit it for
+            // good. Clear it instead - the rebuilt DOM says 0 anyway.
+            let height = if host_rebuilds && content_height.is_none() {
+                CssProperty::initial(CssPropertyType::Height)
+            } else {
+                CssProperty::const_height(LayoutHeight::const_px(0))
+            };
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![height, top, bottom].into(),
+            );
+        }
     }
 
     // The header's ANNOUNCED state must follow the rendered one. This toggle
@@ -592,6 +693,29 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     );
 
     result
+}
+
+/// The height `body`'s content needs - what the body grows to when it opens -
+/// read off the layout on screen. A closed body is laid out at zero height
+/// with its content laid out inside it (`body_style`), so this is known before
+/// the section ever opened. `None` without a layout (or with nothing inside).
+fn body_content_height(info: &CallbackInfo, body: DomNodeId) -> Option<f32> {
+    let node = body.node.into_crate_internal()?;
+    let result = info.get_layout_window().get_layout_result(&body.dom)?;
+    let index = *result.layout_tree.dom_to_layout.get(&node)?.first()?;
+    let height = result.layout_tree.get_content_size(index).height;
+    (height.is_finite() && height > 0.0).then_some(height)
+}
+
+/// Does `body` tween its height? Only while it declares the animation - which
+/// it does unless the user asked for reduced motion (`body_animation`). Asked
+/// through the same cascade the engine seeds transitions from.
+fn body_animates(info: &CallbackInfo, body: DomNodeId) -> bool {
+    matches!(
+        info.get_computed_css_property(body, CssPropertyType::Animation),
+        Some(CssProperty::Animation(value))
+            if value.get_property().is_some_and(|anims| !anims.as_ref().is_empty())
+    )
 }
 
 impl From<Accordion> for Dom {
@@ -665,6 +789,17 @@ mod autotest_generated {
             .iter_inline_properties()
             .find_map(|(p, _)| match p {
                 CssProperty::Display(v) => v.get_property().copied(),
+                _ => None,
+            })
+    }
+
+    /// The `height` value in a node's *inline* style, if it sets one.
+    fn inline_height(node: &Dom) -> Option<LayoutHeight> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .find_map(|(p, _)| match p {
+                CssProperty::Height(v) => v.get_property().cloned(),
                 _ => None,
             })
     }
@@ -791,6 +926,29 @@ mod autotest_generated {
                     if let CssProperty::Display(v) = p {
                         if let Some(d) = v.get_property() {
                             out.push((node_id.index(), *d));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every concrete `height` write recorded in the change log (the full
+    /// channel, not the override one), as `(node index, height)`.
+    fn height_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutHeight)> {
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Height(v) = p {
+                        if let Some(h) = v.get_property() {
+                            out.push((node_id.index(), h.clone()));
                         }
                     }
                 }
@@ -994,7 +1152,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_display_follows_is_open() {
+    fn dom_height_follows_is_open() {
         let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
             AccordionSection::new(
                 "closed",
@@ -1015,9 +1173,13 @@ mod autotest_generated {
         assert!(has_class(h0, "__azul-native-accordion-header"));
         assert!(has_class(b0, "__azul-native-accordion-body"));
 
-        // a closed section is `display: none`, an open one `display: block`
-        assert_eq!(inline_display(b0), Some(LayoutDisplay::None));
-        assert_eq!(inline_display(b1), Some(LayoutDisplay::Block));
+        // Both bodies are laid out (a closed one must be measurable for its
+        // opening tween); a closed body is collapsed to zero height, an open
+        // one is as tall as its content.
+        assert_eq!(inline_display(b0), Some(LayoutDisplay::FlowRoot));
+        assert_eq!(inline_display(b1), Some(LayoutDisplay::FlowRoot));
+        assert_eq!(inline_height(b0), Some(LayoutHeight::const_px(0)));
+        assert_eq!(inline_height(b1), None);
 
         // the body wraps exactly the caller's content
         assert_eq!(text_of(&b0.children.as_ref()[0]), Some("c0"));
@@ -1062,12 +1224,47 @@ mod autotest_generated {
             assert_eq!(hd.is_open, i % 3 == 0);
             assert!(hd.on_toggle.is_none(), "no user callback was set");
             assert_eq!(
-                inline_display(body),
-                Some(if i % 3 == 0 {
-                    LayoutDisplay::Block
+                inline_height(body),
+                if i % 3 == 0 {
+                    None
                 } else {
-                    LayoutDisplay::None
-                })
+                    Some(LayoutHeight::const_px(0))
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn a_body_declares_its_tween_only_without_reduced_motion() {
+        use azul_css::dynamic_selector::{BoolCondition, DynamicSelector};
+
+        for open in [false, true] {
+            let style = body_style(open);
+            let animations: Vec<&CssPropertyWithConditions> = style
+                .as_ref()
+                .iter()
+                .filter(|p| matches!(p.property, CssProperty::Animation(_)))
+                .collect();
+            assert_eq!(animations.len(), 1, "open={open}: one animation declaration");
+            assert_eq!(
+                animations[0].apply_if.as_ref(),
+                &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)][..],
+                "open={open}: the tween must be conditional on no reduced motion"
+            );
+            let CssProperty::Animation(value) = &animations[0].property else {
+                unreachable!("filtered on Animation above");
+            };
+            let names: Vec<&str> = value
+                .get_property()
+                .expect("an exact animation list")
+                .as_ref()
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect();
+            assert_eq!(
+                names,
+                ["height", "padding-top", "padding-bottom"],
+                "open={open}: the tween covers what the click handler writes"
             );
         }
     }
@@ -1230,19 +1427,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn header_click_toggles_body_display_and_flips_state() {
+    fn header_click_toggles_body_height_and_flips_state() {
+        // The fixture's body declares no animation (and has no layout to
+        // measure), so this is the reduced-motion path: the new state is
+        // written at once. The tween itself is pinned end to end in
+        // layout/tests/accordion_animation.rs.
         let mut data = RefAny::new(HeaderClickData {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
         });
 
-        // closed -> open
+        // closed -> open: as tall as the content
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)]
+            height_writes(&changes),
+            alloc::vec![(2usize, LayoutHeight::Auto)]
+        );
+        assert!(
+            display_writes(&changes).is_empty(),
+            "the body stays laid out"
         );
         assert!(payload_is_open(&mut data));
 
@@ -1250,8 +1455,8 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::None)]
+            height_writes(&changes),
+            alloc::vec![(2usize, LayoutHeight::const_px(0))]
         );
         assert!(!payload_is_open(&mut data));
     }
@@ -1273,12 +1478,14 @@ mod autotest_generated {
 
         // the user's return value wins over the internal DoNothing
         assert_eq!(update, Update::RefreshDom);
-        // The host asked for a rebuild, so it owns the open flag: the widget
-        // must CLEAR its `display` override instead of writing one. A written
-        // override survives the rebuild (`migrate_user_overrides_from`) and
-        // outranks the freshly cascaded style, which latched the section open
-        // (or shut) forever — the "accordion doesn't properly expand/collapse"
-        // bug. `initial` is what removes an override (`restyle_user_property`).
+        // The host asked for a rebuild, so it owns the open flag. Without a
+        // tween to settle it (the fixture's body declares none, as under
+        // reduced motion) the widget must CLEAR its overrides instead of
+        // writing values. A written override survives the rebuild
+        // (`migrate_user_overrides_from`) and outranks the freshly cascaded
+        // style, which latched the section open (or shut) forever — the
+        // "accordion doesn't properly expand/collapse" bug. `initial` is what
+        // removes an override (`restyle_user_property`).
         let writes: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
@@ -1299,14 +1506,21 @@ mod autotest_generated {
             .collect();
         assert_eq!(
             writes,
-            alloc::vec![(2usize, alloc::vec![CssPropertyType::Display])],
-            "a rebuild-requesting toggle must still address the body's display",
+            alloc::vec![(
+                2usize,
+                alloc::vec![
+                    CssPropertyType::Height,
+                    CssPropertyType::PaddingTop,
+                    CssPropertyType::PaddingBottom,
+                ]
+            )],
+            "a rebuild-requesting toggle must still address what the click writes",
         );
         assert!(
-            display_writes(&changes).is_empty(),
+            height_writes(&changes).is_empty() && display_writes(&changes).is_empty(),
             "…but as `initial` (override cleared), never as a concrete value that would outrank \
              the rebuilt DOM: {:?}",
-            display_writes(&changes),
+            height_writes(&changes),
         );
         assert_eq!(
             log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
