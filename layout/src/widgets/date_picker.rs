@@ -4083,4 +4083,68 @@ mod autotest_generated {
             assert_eq!(read_state(&shared).month, 2, "{held:?}+{key:?} turned the month");
         }
     }
+
+    // ==================================================================
+    // Accessibility: what a screen reader hears on the calendar
+    // ==================================================================
+
+    /// The accessibility name a node declares, if any.
+    fn a11y_name(dom: &Dom) -> Option<String> {
+        dom.root
+            .accessibility
+            .as_ref()
+            .and_then(|info| info.accessibility_name.as_ref().map(|s| s.as_str().to_string()))
+    }
+
+    /// Every day of the roving date grid is a button named by its FULL date.
+    /// "23" alone does not say which month or weekday it is, and the grid is
+    /// one Tab stop, so the name is all a screen-reader user gets per arrow key.
+    #[test]
+    fn every_day_cell_is_a_button_named_by_its_full_date() {
+        let dom = DatePicker::create(2026, 6, 23).dom();
+        let (_, _, grid) = sections(&dom);
+        let days: Vec<&Dom> = grid_cells(grid)
+            .into_iter()
+            .filter(|cell| text_of(cell).is_some())
+            .collect();
+        assert_eq!(days.len(), 30, "June 2026 has 30 days");
+        for cell in &days {
+            let info = cell
+                .root
+                .accessibility
+                .as_ref()
+                .expect("a day cell declares accessibility");
+            assert_eq!(
+                info.role,
+                azul_core::a11y::AccessibilityRole::PushButton,
+                "a day cell is a button of the date grid, not a combo box"
+            );
+            assert!(
+                a11y_name(cell).is_some(),
+                "day {:?} has no accessible name",
+                text_of(cell)
+            );
+        }
+        let day_23 = days
+            .iter()
+            .find(|cell| text_of(cell).as_deref() == Some("23"))
+            .expect("the 23rd is in the grid");
+        assert_eq!(a11y_name(day_23).as_deref(), Some("Tuesday, 23 June 2026"));
+        let day_1 = days
+            .iter()
+            .find(|cell| text_of(cell).as_deref() == Some("1"))
+            .expect("the 1st is in the grid");
+        assert_eq!(a11y_name(day_1).as_deref(), Some("Monday, 1 June 2026"));
+    }
+
+    /// The header's ‹ / › glyphs are not names; the buttons say what they do.
+    #[test]
+    fn the_month_navigation_buttons_are_named() {
+        let dom = DatePicker::create(2026, 6, 23).dom();
+        let (header, _, _) = sections(&dom);
+        let kids = header.children.as_ref();
+        assert_eq!(kids.len(), 3, "header is [prev, label, next]");
+        assert_eq!(a11y_name(&kids[0]).as_deref(), Some("Previous month"));
+        assert_eq!(a11y_name(&kids[2]).as_deref(), Some("Next month"));
+    }
 }

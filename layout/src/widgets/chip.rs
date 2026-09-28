@@ -2983,4 +2983,29 @@ mod autotest_generated {
             "after the x was clicked, the label handler must see a hidden chip"
         );
     }
+
+    // ------------------------------------------------------------------
+    // Accessibility of the remove affordance
+    // ------------------------------------------------------------------
+
+    /// The remove "×" is its own button, and its glyph is not a name: the
+    /// button is named after the chip it removes, which only the widget knows.
+    #[test]
+    fn the_remove_button_is_named_after_the_chip_it_removes() {
+        let dom = Chip::create(AzString::from("Rust"))
+            .with_removable(true)
+            .dom();
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 2, "container is [label, remove]");
+        let info = kids[1]
+            .root
+            .accessibility
+            .as_ref()
+            .expect("the remove button declares accessibility");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::PushButton);
+        assert_eq!(
+            info.accessibility_name.as_ref().map(|s| s.as_str()),
+            Some("Remove Rust")
+        );
+    }
 }
