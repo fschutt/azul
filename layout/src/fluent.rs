@@ -1085,6 +1085,74 @@ fn translate_node(
     if let azul_core::dom::NodeType::Text(text_box) = &mut node.node_type {
         *text_box = azul_css::css::BoxOrStatic::heap(translated);
     }
+    // The key is gone from the text now; remember it, so a locale change can
+    // translate this node again in place (`localize_styled_dom`).
+    node.set_localization_key(Some(azul_css::corety::AzString::from(key)));
+}
+
+/// Translate the localizable text of an already-built `StyledDom` into
+/// `locale`, in place: text nodes that still hold an `AzString::tr` key, and
+/// text nodes an earlier pass translated (they remember their key). A text
+/// node's arguments are its own `fluent_args`, else its parent's - the rule
+/// [`translate_texts_in_dom`] applies to a `Dom`.
+///
+/// This is what a locale change runs on the DOMs a window has already laid
+/// out: only the strings change, `layout()` is not called again. Returns
+/// whether any text changed - the caller owes the relayout.
+pub fn localize_styled_dom(
+    styled_dom: &mut azul_core::styled_dom::StyledDom,
+    localizer: &FluentLocalizerHandle,
+    locale: &str,
+) -> bool {
+    use azul_core::dom::NodeType;
+
+    let parents: Vec<Option<usize>> = styled_dom
+        .node_hierarchy
+        .as_ref()
+        .iter()
+        .map(|item| item.parent_id().map(|parent| parent.index()))
+        .collect();
+    let nodes = styled_dom.node_data.as_mut();
+    let mut changed = false;
+
+    for idx in 0..nodes.len() {
+        let key: String = match nodes[idx].get_node_type() {
+            NodeType::Text(text) if text.as_ref().is_localizable() => text.as_ref().as_str().to_owned(),
+            NodeType::Text(_) => match nodes[idx].get_localization_key() {
+                Some(key) => key.as_str().to_owned(),
+                None => continue,
+            },
+            _ => continue,
+        };
+        let fmt_args = {
+            let parent_args = parents
+                .get(idx)
+                .copied()
+                .flatten()
+                .and_then(|parent| nodes.get(parent))
+                .and_then(|parent| parent.fluent_args.as_deref());
+            extract_fluent_args(nodes[idx].fluent_args.as_deref().or(parent_args))
+        };
+        let translated = localizer.translate(
+            azul_css::corety::AzString::from(locale),
+            azul_css::corety::AzString::from(key.as_str()),
+            fmt_args,
+        );
+
+        let node = &mut nodes[idx];
+        let unchanged = match node.get_node_type() {
+            NodeType::Text(text) => {
+                !text.as_ref().is_localizable() && text.as_ref().as_str() == translated.as_str()
+            }
+            _ => false,
+        };
+        node.set_localization_key(Some(azul_css::corety::AzString::from(key)));
+        if !unchanged {
+            node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(translated)));
+            changed = true;
+        }
+    }
+    changed
 }
 
 #[inline(always)]

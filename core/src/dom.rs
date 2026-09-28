@@ -2389,6 +2389,11 @@ pub struct NodeDataExt {
     /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
     /// own DOM, not in app-global state.
     pub animation_callbacks: Vec<crate::resources::AnimationFunction>,
+    /// The Fluent message key this (text) node was translated from. The
+    /// translation pass replaces an `AzString::tr` key with its translation
+    /// and records the key here, so a later locale change can translate the
+    /// SAME node again in place, without rebuilding the DOM.
+    pub l10n_key: Option<AzString>,
 }
 
 // The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
@@ -2397,9 +2402,13 @@ pub struct NodeDataExt {
 // otherwise identical nodes must compare equal across rebuilds, or every
 // marked node would look "changed" to the DOM diff on every frame, defeating
 // reconciliation for exactly the widgets the fast path is for.
+//
+// `l10n_key` is excluded for a related reason: it only records where the
+// node's text CAME from; the text itself (the translation) is the node's
+// content and is compared as such.
 impl NodeDataExt {
-    /// Every field EXCEPT `marker`, as one comparable/hashable tuple - the
-    /// single place that decides what "same ext" means.
+    /// Every field EXCEPT `marker` and `l10n_key`, as one comparable/hashable
+    /// tuple - the single place that decides what "same ext" means.
     #[allow(clippy::type_complexity)]
     const fn cmp_key(
         &self,
@@ -3314,6 +3323,29 @@ impl NodeData {
     #[must_use]
     pub fn get_marker(&self) -> Option<&AzString> {
         self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
+    }
+
+    /// The Fluent key this node's text was translated from, if it was (see
+    /// `NodeDataExt::l10n_key`).
+    #[must_use]
+    pub fn get_localization_key(&self) -> Option<&AzString> {
+        self.extra.as_ref().and_then(|ext| ext.l10n_key.as_ref())
+    }
+
+    /// Record (or forget) the Fluent key this node's text was translated from.
+    pub fn set_localization_key(&mut self, key: Option<AzString>) {
+        match key {
+            None => {
+                if let Some(ext) = self.extra.as_mut() {
+                    ext.l10n_key = None;
+                }
+            }
+            Some(key) => {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .l10n_key = Some(key);
+            }
+        }
     }
 
     /// Builder form of [`Self::set_marker`].

@@ -454,16 +454,19 @@ pub fn regenerate_layout(
     let image_cache_snapshot = ImageCache {
         image_id_map: layout_window.image_cache.image_id_map.clone(),
     };
+    // What `get_locale()` / `is_rtl()` answer: the app's `set_locale` choice,
+    // else the system language (the style was installed above).
+    let active_language = layout_window.active_language();
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
-        locale: &system_style.language.id,
+        locale: &active_language.id,
         accessed_locale: core::cell::Cell::new(false),
         accessed_text_direction: core::cell::Cell::new(false),
-        text_direction: if system_style.language.is_rtl {
+        text_direction: if active_language.is_rtl {
             azul_core::callbacks::TextDirection::RightToLeft
         } else {
             azul_core::callbacks::TextDirection::LeftToRight

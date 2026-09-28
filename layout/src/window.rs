@@ -925,8 +925,12 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
         recorded_style_dependencies: _,
-            depends_on_locale: _,
-            depends_on_text_direction: _,
+        // Two flags, one language, and the app's language list - bounded by
+        // the app's configuration, not by the document.
+        depends_on_locale: _,
+        depends_on_text_direction: _,
+        locale_override: _,
+        known_languages: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -1286,8 +1290,19 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    /// The last `layout()` call read `LayoutCallbackInfo::get_locale`: its
+    /// DOM depends on the locale, so a locale change rebuilds it.
     pub depends_on_locale: bool,
+    /// The last `layout()` call read `LayoutCallbackInfo::is_rtl`: its DOM
+    /// depends on the text direction, so a direction change rebuilds it.
     pub depends_on_text_direction: bool,
+    /// The language the app chose with `CallbackInfo::set_locale`, resolved
+    /// against [`Self::known_languages`]; `None` follows the system language.
+    /// See [`Self::active_language`].
+    pub locale_override: Option<azul_css::system::SystemLanguage>,
+    /// The app's known languages (`AppConfig::localization`): where a locale
+    /// chosen at runtime gets its right-to-left-ness from.
+    pub known_languages: azul_css::system::SystemLanguageVec,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -2005,11 +2020,17 @@ impl LayoutWindow {
         if old.theme != new.theme {
             return true;
         }
-        
-        let locale_changed = old.language.id != new.language.id;
-        let rtl_changed = old.language.is_rtl != new.language.is_rtl;
-        if (locale_changed && self.depends_on_locale) || (rtl_changed && self.depends_on_text_direction) {
-            return true;
+
+        // The OS language only reaches `layout()` while the app has not chosen
+        // its own (`set_locale`).
+        if self.locale_override.is_none() {
+            let change = LocaleChange {
+                locale_changed: old.language.id != new.language.id,
+                direction_changed: old.language.is_rtl != new.language.is_rtl,
+            };
+            if change.needs_new_dom(self.depends_on_locale, self.depends_on_text_direction) {
+                return true;
+            }
         }
 
         self.recorded_style_dependencies
@@ -2078,6 +2099,8 @@ impl LayoutWindow {
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
             depends_on_locale: false,
             depends_on_text_direction: false,
+            locale_override: None,
+            known_languages: azul_css::system::SystemLanguageVec::from_const_slice(&[]),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -15588,7 +15611,14 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
+            // The app's chosen locale (`set_locale`) outranks the system's:
+            // this runs on every layout pass, and re-deriving the formatter
+            // from the system language here used to undo `set_locale`.
+            let language = match self.locale_override.as_ref() {
+                Some(chosen) => &chosen.id,
+                None => &system_style.language.id,
+            };
+            self.icu_localizer = IcuLocalizerHandle::from_system_language(language);
         }
         self.system_style = Some(system_style);
     }
@@ -15608,13 +15638,94 @@ impl LayoutWindow {
     /// next to handing it `config.routes` - without it no window ever
     /// translates anything.
     pub fn set_app_localization(&mut self, config: &azul_core::resources::AppConfig) {
+        self.known_languages = config.localization.known_languages.clone();
         #[cfg(feature = "fluent")]
         {
             self.fluent_localizer =
                 FluentLocalizerHandle::from_locale_sources(config.fluent_locales.as_ref());
         }
+    }
+
+    /// The language this window's text is in: the one the app chose with
+    /// `CallbackInfo::set_locale` if it chose one, else the system's.
+    ///
+    /// What the translation pass translates into, what the ICU formatter
+    /// formats for, and what `LayoutCallbackInfo::get_locale` / `is_rtl`
+    /// report.
+    #[must_use]
+    pub fn active_language(&self) -> azul_css::system::SystemLanguage {
+        if let Some(chosen) = self.locale_override.as_ref() {
+            return chosen.clone();
+        }
+        self.system_style
+            .as_ref()
+            .map(|style| style.language.clone())
+            .unwrap_or_default()
+    }
+
+    /// Make `locale` this window's language (`CallbackInfo::set_locale`),
+    /// its right-to-left-ness resolved against the app's known languages
+    /// ([`azul_css::system::SystemLanguage::resolve`]).
+    ///
+    /// Only records the choice (and re-points the ICU formatter); what has to
+    /// be redone because of it is the caller's: [`LocaleChange`] says which
+    /// input of `layout()` moved, [`Self::relocalize_laid_out_text`] redoes
+    /// the strings.
+    pub fn set_locale(&mut self, locale: &str) -> LocaleChange {
+        let before = self.active_language();
+        let chosen =
+            azul_css::system::SystemLanguage::resolve(locale, self.known_languages.as_ref());
+        let change = LocaleChange {
+            locale_changed: before.id != chosen.id,
+            direction_changed: before.is_rtl != chosen.is_rtl,
+        };
+        #[cfg(feature = "icu")]
+        self.icu_localizer.set_locale(chosen.id.as_str());
+        self.locale_override = Some(chosen);
+        change
+    }
+
+    /// Re-translate the text of every DOM this window has laid out into
+    /// [`Self::active_language`], in place: the "only the strings are
+    /// re-localized" half of a locale change, which does not call `layout()`
+    /// again.
+    ///
+    /// Returns whether any text changed; the caller owes the relayout
+    /// (`ProcessEventResult::ShouldIncrementalRelayout`).
+    pub fn relocalize_laid_out_text(&mut self) -> bool {
+        #[cfg(feature = "fluent")]
+        {
+            let Some(localizer) = self.fluent_localizer.clone() else {
+                return false;
+            };
+            let language = self.active_language();
+            let mut changed_doms = Vec::new();
+            for (dom_id, layout_result) in self.layout_results.iter_mut() {
+                if crate::fluent::localize_styled_dom(
+                    &mut layout_result.styled_dom,
+                    &localizer,
+                    language.id.as_str(),
+                ) {
+                    changed_doms.push(*dom_id);
+                }
+            }
+            if changed_doms.is_empty() {
+                return false;
+            }
+            // The invalidation `CallbackChange::ChangeNodeText` performs for the
+            // same reason: the incremental cache keys its shaped text runs on
+            // the DOM, which an in-place text change does not replace, and the
+            // display list still carries the old glyphs.
+            self.layout_cache.reset_incremental();
+            for dom_id in changed_doms {
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+            true
+        }
         #[cfg(not(feature = "fluent"))]
-        let _ = config;
+        {
+            false
+        }
     }
 
     /// Hand this window the app's icon storage. Called by the shell next to
@@ -15660,8 +15771,9 @@ impl LayoutWindow {
     pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
         #[cfg(feature = "fluent")]
         if let Some(localizer) = self.fluent_localizer.as_ref() {
-            let lang = self.system_style.as_ref().map(|s| s.language.id.as_str()).unwrap_or("en-US");
-            translate_texts_in_dom(&mut dom, localizer, lang);
+            // The app's `set_locale` choice, else the system language.
+            let language = self.active_language();
+            translate_texts_in_dom(&mut dom, localizer, language.id.as_str());
         }
         let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {
@@ -15685,6 +15797,27 @@ impl LayoutWindow {
             system_style,
             context,
         )
+    }
+}
+
+/// What a [`LayoutWindow::set_locale`] moved - the two locale inputs a
+/// `layout()` callback can read (`LayoutCallbackInfo::get_locale` /
+/// `is_rtl`, recorded in `depends_on_locale` / `depends_on_text_direction`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LocaleChange {
+    /// The language tag is a different one.
+    pub locale_changed: bool,
+    /// The text direction flipped (LTR <-> RTL).
+    pub direction_changed: bool,
+}
+
+impl LocaleChange {
+    /// Does a `layout()` that recorded these dependencies have to run again?
+    /// (`false`: only the strings changed - re-localize them in place.)
+    #[must_use]
+    pub const fn needs_new_dom(&self, depends_on_locale: bool, depends_on_text_direction: bool) -> bool {
+        (self.locale_changed && depends_on_locale)
+            || (self.direction_changed && depends_on_text_direction)
     }
 }
 
@@ -21702,8 +21835,11 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            // Flags and languages, keyed by nothing.
             depends_on_locale: _,
             depends_on_text_direction: _,
+            locale_override: _,
+            known_languages: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,

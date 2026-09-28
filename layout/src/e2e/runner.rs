@@ -3507,8 +3507,16 @@ impl Runner {
                 self.unsupported("SwitchRoute", "no layout callback — the runner mounts XML")
             }
             CallbackChange::SetLocale { locale } => {
-                // Just trigger a new replacement of existing strings
-                ProcessEventResult::ShouldIncrementalRelayout
+                // The runner mounts XML and runs no `layout()` callback, so
+                // nothing here can depend on the locale beyond its strings:
+                // re-localize the mounted text in place (the shell's path for
+                // a `layout()` that never read the locale).
+                let _ = self.layout_window.set_locale(locale.as_str());
+                if self.layout_window.relocalize_laid_out_text() {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
         }
     }

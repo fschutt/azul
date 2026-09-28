@@ -1342,6 +1342,12 @@ impl core::fmt::Debug for LayoutCallbackInfo {
 }
 
 impl LayoutCallbackInfo {
+    /// The window's active locale (BCP 47): the one the app chose with
+    /// `CallbackInfo::set_locale`, else the system language.
+    ///
+    /// Reading it declares that the returned DOM depends on the locale, so a
+    /// locale change re-runs this callback instead of only re-translating the
+    /// DOM's `AzString::tr` strings in place.
     pub fn get_locale(&self) -> &AzString {
         unsafe {
             (*self.ref_data).accessed_locale.set(true);
@@ -1349,6 +1355,11 @@ impl LayoutCallbackInfo {
         }
     }
 
+    /// Is the active locale written right-to-left?
+    ///
+    /// Reading it declares that the returned DOM depends on the text
+    /// direction (a mirrored layout, say), so a locale change that flips the
+    /// direction re-runs this callback.
     pub fn is_rtl(&self) -> bool {
         unsafe {
             (*self.ref_data).accessed_text_direction.set(true);

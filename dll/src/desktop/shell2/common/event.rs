@@ -7534,10 +7534,30 @@ pub trait PlatformWindow {
                 }
             }
             CallbackChange::SetLocale { locale } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.set_icu_locale(locale.as_str());
+                // The guide's contract ("Changing Locale"): the strings are
+                // re-localized in place and `layout()` does NOT run again -
+                // unless the last `layout()` read the locale or the direction
+                // (`get_locale` / `is_rtl`) and that input moved, in which case
+                // its DOM is stale and has to be rebuilt.
+                let rebuild = match self.get_layout_window_mut() {
+                    Some(lw) => {
+                        let change = lw.set_locale(locale.as_str());
+                        change.needs_new_dom(lw.depends_on_locale, lw.depends_on_text_direction)
+                    }
+                    None => return ProcessEventResult::DoNothing,
+                };
+                if rebuild {
+                    // The rebuilt DOM is translated into the new locale.
+                    return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
+                if self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.relocalize_laid_out_text())
+                {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
         }
     }
@@ -10012,6 +10032,15 @@ pub trait PlatformWindow {
             self.get_common_mut()
                 .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
             return true;
+        }
+        // The OS language moved but the DOM does not depend on it (or this
+        // would be the full rebuild above): only the strings change. Re-
+        // translate them in place before the restyle re-solves the layout -
+        // a no-op while the app has chosen its own locale (`set_locale`).
+        if old_style.language != new_style.language {
+            if let Some(lw) = self.get_layout_window_mut() {
+                let _ = lw.relocalize_laid_out_text();
+            }
         }
         let mut debug_messages = None;
         if let Err(e) =
