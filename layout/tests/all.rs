@@ -148,6 +148,8 @@ mod a_scroll_box_scrolls_to_its_end_padding;
 mod a_selection_drag_autoscrolls_the_box_its_text_scrolls_in;
 #[path = "a_selection_reveal_shows_its_focus_end.rs"]
 mod a_selection_reveal_shows_its_focus_end;
+#[path = "a_screen_reader_reads_a_host_with_paragraphs.rs"]
+mod a_screen_reader_reads_a_host_with_paragraphs;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
