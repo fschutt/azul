@@ -1030,7 +1030,7 @@ mod icon_cache_tests {
             SharedIconProvider::from_handle(IconProviderHandle::with_resolver(sys_style_resolver));
         let style_a = SystemStyle::default();
         let mut style_b = SystemStyle::default();
-        style_b.language = azul_css::AzString::from("xx-ZZ");
+        style_b.language.id = azul_css::AzString::from("xx-ZZ");
         assert_ne!(style_a, style_b);
 
         let mut sd = dom_with_icons(&["home"]);

@@ -3763,7 +3763,7 @@ mod autotest_generated {
         assert_eq!(d.theme, Theme::Light);
         assert!(d.app_specific_stylesheet.is_none());
         assert!(d.scrollbar.is_none());
-        assert!(d.language.as_str().is_empty());
+        assert!(d.language.id.as_str().is_empty());
         assert!(d.colors.text.is_none());
     }
 
@@ -3784,7 +3784,7 @@ mod autotest_generated {
                 "{name}: no monospace font"
             );
             assert!(
-                !style.language.as_str().is_empty(),
+                !style.language.id.as_str().is_empty(),
                 "{name}: empty language"
             );
             assert_ne!(
@@ -4005,7 +4005,7 @@ mod autotest_generated {
         // Quote / backslash / newline / unicode in an OS-reported string must
         // not panic the formatter.
         let mut style = SystemStyle::default();
-        style.language = AzString::from("\"\\\n\t\u{1F600}");
+        style.language.id = AzString::from("\"\\\n\t\u{1F600}");
         style.fonts.ui_font = OptionString::Some(AzString::from("a\"b\\c"));
         style.linux.gtk_theme = OptionString::Some(AzString::from("\u{202E}evil"));
 

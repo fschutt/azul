@@ -3345,7 +3345,7 @@ pub fn dump_discovered_style() -> String {
         kde_color_sources().len()
     );
     let _ = writeln!(o, "theme               {:?}", s.theme);
-    let _ = writeln!(o, "language            {}", s.language.as_str());
+    let _ = writeln!(o, "language            {}", s.language.id.as_str());
     let _ = writeln!(o, "-- fonts --");
     let _ = writeln!(
         o,

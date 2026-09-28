@@ -869,6 +869,7 @@ pub fn run(
                     fc_cache,
                     font_registry,
                     root_window,
+                    extra_windows,
                     tray,
                     font_manager,
                     app_icon,
@@ -2298,6 +2299,7 @@ pub fn run(
         fc_cache,
         font_registry,
         root_window,
+        extra_windows,
         tray,
         font_manager,
         app_icon,
@@ -2326,6 +2328,7 @@ fn run_linux_windows(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
     tray: Option<azul_core::tray::TrayIconData>,
     font_manager: Option<
         Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
@@ -2381,6 +2384,7 @@ fn run_linux_windows(
     };
     match &mut window {
         LinuxWindow::X11(w) => queue_extra_windows(w, extra_windows),
+        #[cfg(target_os = "linux")]
         LinuxWindow::Wayland(w) => queue_extra_windows(w, extra_windows),
     }
 

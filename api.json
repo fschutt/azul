@@ -11750,6 +11750,7 @@
                                     "type": "ListViewState"
                                 },
                                 {
+                                    "name": "column_clicked",
                                     "type": "usize"
                                 }
                             ],
@@ -11772,6 +11773,7 @@
                                     "type": "ListViewState"
                                 },
                                 {
+                                    "name": "row_clicked",
                                     "type": "usize"
                                 }
                             ],
@@ -21172,13 +21174,16 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "icon_data",
                                     "type": "OptionRefAny"
                                 },
                                 {
+                                    "name": "original_icon_node",
                                     "type": "NodeData",
                                     "ref_kind": "ref"
                                 },
                                 {
+                                    "name": "system_style",
                                     "type": "SystemStyle",
                                     "ref_kind": "ref"
                                 }
@@ -22532,12 +22537,15 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_id_to_remove",
                                     "type": "NodeGraphNodeId"
                                 }
                             ],
@@ -22551,15 +22559,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "input",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "input_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22573,12 +22585,15 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "drag_amount",
                                     "type": "GraphDragAmount"
                                 }
                             ],
@@ -22592,15 +22607,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "output",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "output_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22614,18 +22633,23 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "new_node_type",
                                     "type": "NodeTypeId"
                                 },
                                 {
+                                    "name": "new_node_id",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "new_node_position",
                                     "type": "NodeGraphNodePosition"
                                 }
                             ],
@@ -22639,21 +22663,27 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "input",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "input_index",
                                     "type": "usize"
                                 },
                                 {
+                                    "name": "output",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "output_index",
                                     "type": "usize"
                                 }
                             ],
@@ -22667,21 +22697,27 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_id",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "field_id",
                                     "type": "usize"
                                 },
                                 {
+                                    "name": "node_type",
                                     "type": "NodeTypeId"
                                 },
                                 {
+                                    "name": "new_value",
                                     "type": "NodeTypeFieldValue"
                                 }
                             ],
@@ -22695,15 +22731,19 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "refany",
                                     "type": "RefAny"
                                 },
                                 {
+                                    "name": "info",
                                     "type": "CallbackInfo"
                                 },
                                 {
+                                    "name": "node_dragged",
                                     "type": "NodeGraphNodeId"
                                 },
                                 {
+                                    "name": "drag_amount",
                                     "type": "NodeDragAmount"
                                 }
                             ],
@@ -98128,6 +98168,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundContentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98140,6 +98181,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundRepeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98186,6 +98228,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MenuItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98198,6 +98241,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccessibilityStateVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98210,6 +98254,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPropertyWithConditionsVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98222,6 +98267,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NormalizedLinearColorStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98234,6 +98280,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "F32Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98280,6 +98327,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundSizeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98309,6 +98357,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StringVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98338,6 +98387,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98367,6 +98417,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StringPairVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98379,6 +98430,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MimeTypeDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98425,6 +98477,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssRuleBlockVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98471,6 +98524,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AttributeTypeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98500,6 +98554,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleFilterVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98512,6 +98567,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U32Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98609,6 +98665,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ParentWithNodeDepthVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98638,6 +98695,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CoreCallbackDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98667,6 +98725,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CascadeInfoVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98679,6 +98738,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U8Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98691,6 +98751,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeHierarchyItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98720,6 +98781,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleBackgroundPositionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98732,6 +98794,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VirtualKeyCodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98778,6 +98841,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgVertexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98790,6 +98854,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VideoFrameVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98853,6 +98918,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ListViewRowVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98865,6 +98931,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GLuintVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98877,6 +98944,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleTransformVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98889,6 +98957,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TagIdToNodeIdMappingVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98935,6 +99004,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "U16Vec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98947,6 +99017,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GridTrackSizingVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -98959,6 +99030,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssDeclarationVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99022,6 +99094,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DynamicSelectorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99051,6 +99124,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NormalizedRadialColorStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99097,6 +99171,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccessibilityActionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99109,6 +99184,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GLintVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99138,6 +99214,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeDataVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99201,6 +99278,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleFontFamilyVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99298,6 +99376,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IdOrClassVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99310,6 +99389,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "XmlNodeChildVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99322,6 +99402,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99334,6 +99415,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPathSelectorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99346,6 +99428,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VertexAttributeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99595,6 +99678,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DebugMessageVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -99827,6 +99911,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ShapePointVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100243,6 +100328,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "VideoModeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100256,6 +100342,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ScanCodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100689,6 +100776,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MonitorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -100736,6 +100824,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "XWindowTypeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101386,6 +101475,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ContentGroupVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101416,6 +101506,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyledNodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101429,6 +101520,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SelectionRangeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101642,6 +101734,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DocumentSelectionSpanVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101855,6 +101948,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DocumentTextEditVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -101868,6 +101962,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102542,6 +102637,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TimerIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102792,6 +102888,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ThreadIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -102821,6 +102918,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyledTextRunVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103066,6 +103164,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TabletDeviceInfoVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103658,6 +103757,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PageSetupOverrideVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103671,6 +103771,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PageBreakPositionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103684,6 +103785,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "MarginBoxContentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -103913,6 +104015,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HidDeviceVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104125,6 +104228,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SelectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104554,6 +104658,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HttpHeaderVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -104566,6 +104671,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FmtArgVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105044,6 +105150,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "JsonVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105255,6 +105362,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DirEntryVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105499,6 +105607,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "JsonKeyValueVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105529,6 +105638,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NamedFontVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -105982,6 +106092,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ExternalResourceVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106012,6 +106123,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeHierarchyItemIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106397,6 +106509,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CalcAstItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106630,6 +106743,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "GridAreaDefinitionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106825,6 +106939,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDataFieldVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -106871,6 +106986,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDefVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107245,6 +107361,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentLibraryVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107274,6 +107391,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentDataModelVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107485,6 +107603,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentEnumModelVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107714,6 +107833,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentEnumVariantVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107909,6 +108029,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentCallbackArgVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -107922,6 +108043,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "ComponentFieldOverrideVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108354,6 +108476,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgPathElementVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108566,6 +108689,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SvgPathVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -108959,6 +109083,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonTabVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109153,6 +109278,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TreeViewNodeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109182,6 +109308,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RouteVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109398,6 +109525,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TouchPointVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109610,6 +109738,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LogicalRectVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -109830,6 +109959,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LayoutRectVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110054,6 +110184,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbValueVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110452,6 +110583,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "LoadedFontVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110481,6 +110613,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FluentLoadErrorVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -110890,6 +111023,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "AccordionSectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111105,6 +111239,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "CssPropertyVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111315,6 +111450,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IcuStringVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111526,6 +111662,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "IdentifiedSelectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -111555,6 +111692,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FullWindowStateVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112145,6 +112283,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonGalleryCellVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112157,6 +112296,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112350,6 +112490,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "RibbonGroupVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112584,6 +112725,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyframeStopVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -112800,6 +112942,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyframesVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113019,6 +113162,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StyleAnimationVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113234,6 +113378,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FrameConsumerVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113264,6 +113409,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "TrayIconImageVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113458,6 +113604,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StatusBarSegmentVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113849,6 +113996,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "BackstageNavItemVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -113861,6 +114009,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "StatusBarViewVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114252,6 +114401,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "QuickAccessActionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114498,6 +114648,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DomNodeIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114528,6 +114679,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "PointerSeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -114723,6 +114875,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "KeyboardSeatVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115117,6 +115270,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "HidReportVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115332,6 +115486,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FilePathVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115547,6 +115702,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbIndexSchemaVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115762,6 +115918,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbStoreSchemaVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115977,6 +116134,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "DbCollectionScopeVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -115990,6 +116148,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NotificationActionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -116039,6 +116198,9 @@
                                 },
                                 "destructor": {
                                     "type": "NotificationActionVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -116199,6 +116361,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputOutputTypeIdInfoMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -116211,6 +116374,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeTypeIdInfoMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -116223,6 +116387,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputOutputTypeIdVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117027,6 +117192,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeIdNodeMapVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117056,6 +117222,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "NodeTypeFieldVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117068,6 +117235,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputConnectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117640,6 +117808,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "InputNodeAndIndexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117652,6 +117821,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "OutputConnectionVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -117681,6 +117851,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "OutputNodeAndIndexVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -118106,6 +118277,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "FluentArgKVVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -118301,6 +118473,7 @@
                         "callback_typedef": {
                             "fn_args": [
                                 {
+                                    "name": "ptr",
                                     "type": "SystemLanguageVec",
                                     "ref_kind": "mutptr"
                                 }
@@ -131372,6 +131545,7 @@
                                     "ref_kind": "ref"
                                 },
                                 {
+                                    "name": "indent",
                                     "type": "usize"
                                 }
                             ],
