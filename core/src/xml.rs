@@ -6286,29 +6286,39 @@ fn apply_xml_node_attributes(
     }
 
     // ---- Fluent / l10n: `data-l10n="key"` ----
-    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` becomes a localizable
-    // Text node. The key is stored in a flagged AzString so `translate_texts_in_dom`
-    // can identify and replace it before the first render.
-    if let Some(l10n_key) = xml_node.attributes.get_key("data-l10n") {
-        let l10n_key = l10n_key.as_str();
-        if !l10n_key.is_empty() {
-            use azul_css::css::BoxOrStatic;
-            let localizable_text = AzString::tr(l10n_key);
-            node.set_node_type(NodeType::Text(BoxOrStatic::heap(localizable_text)));
-
-            // Collect data-l10n-* arguments.
-            let fluent_args = crate::dom::FluentArgKVVec::from_l10n_attributes(
-                xml_node
-                    .attributes
-                    .as_slice()
-                    .iter()
-                    .map(|pair| (pair.key.as_str(), pair.value.as_str())),
-            );
-            if !fluent_args.is_empty() {
-                node.fluent_args = Some(Box::new(fluent_args));
-            }
+    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a `<p>`: the
+    // builders give it the key as a localizable text child (see
+    // `l10n_key_of`), and the `data-l10n-*` arguments go on the element,
+    // where `translate_texts_in_dom` looks for them when it translates that
+    // child.
+    if l10n_key_of(xml_node).is_some() {
+        // Collect data-l10n-* arguments.
+        let fluent_args = crate::dom::FluentArgKVVec::from_l10n_attributes(
+            xml_node
+                .attributes
+                .as_slice()
+                .iter()
+                .map(|pair| (pair.key.as_str(), pair.value.as_str())),
+        );
+        if !fluent_args.is_empty() {
+            node.fluent_args = Some(Box::new(fluent_args));
         }
     }
+}
+
+/// The message key of a `data-l10n="key"` element, `None` without one (or
+/// with an empty one).
+///
+/// The key's translation is the element's text: every XML-to-DOM builder
+/// gives such an element the key as its FIRST child, a text node marked
+/// localizable (`AzString::tr`), and keeps the element itself - a
+/// `<p data-l10n>` is still a `<p>`.
+fn l10n_key_of(xml_node: &XmlNode) -> Option<&str> {
+    xml_node
+        .attributes
+        .get_key("data-l10n")
+        .map(AzString::as_str)
+        .filter(|key| !key.is_empty())
 }
 
 /// Parse the HTML `colspan` / `rowspan` presentational attributes into
@@ -6436,6 +6446,12 @@ fn xml_node_to_dom_fast<'a>(
 
     // Recursively convert children
     let mut children = Vec::new();
+    // `data-l10n="key"`: the key goes in first, as the element's text.
+    if let Some(key) = l10n_key_of(xml_node) {
+        children.push(Dom::create_text_do_not_use_without_block_level_wrapper(
+            AzString::tr(key),
+        ));
+    }
     // A `<style>` found INSIDE the tree - an SVG's own `<defs><style>`, above
     // all - is a stylesheet, not content. In azul a stylesheet is an ATTRIBUTE
     // of a node (`Dom.css`, scoped to that subtree by `scope_inline_css`)
@@ -6653,6 +6669,13 @@ fn xml_node_to_fast_dom<'a>(
     // still opened+closed) rather than crashing the process.
     // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
     if depth < MAX_XML_NESTING_DEPTH {
+        // `data-l10n="key"`: the key goes in first, as the element's text -
+        // the same shape `xml_node_to_dom_fast` builds.
+        if let Some(key) = l10n_key_of(xml_node) {
+            builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                AzString::tr(key),
+            ));
+        }
         // Recursively convert children
         for child in xml_node.children.as_ref() {
             match child {

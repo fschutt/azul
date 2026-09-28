@@ -560,23 +560,24 @@ fn parse_xml_to_fast_dom_with_css(
             }
 
             // ---- Fluent / l10n handling ----
-            // `<p data-l10n="greeting_key" data-l10n-name="Alice">` becomes a
-            // localizable Text node with fluent args populated. We do a second
-            // pass over the same attrs slice rather than keeping state inside the
-            // match because we need all of them to be visible at once.
-            if let Some((_, l10n_key)) = attrs.iter().find(|(k, _)| k == "data-l10n") {
-                if !l10n_key.is_empty() {
-                    // Build a localizable AzString carrying the key.
-                    let localizable_text = azul_css::corety::AzString::tr(l10n_key.as_str());
-                    nd.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(localizable_text)));
-
-                    // Collect data-l10n-* arguments.
-                    let fluent_args = azul_core::dom::FluentArgKVVec::from_l10n_attributes(
-                        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-                    );
-                    if !fluent_args.is_empty() {
-                        nd.fluent_args = Some(Box::new(fluent_args));
-                    }
+            // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
+            // `<p>`: its `data-l10n-*` arguments go on the element, and the key
+            // becomes its first child (below, once the element is open) - the
+            // shape core's XML builders produce. We do a second pass over the
+            // same attrs slice rather than keeping state inside the match
+            // because we need all of them to be visible at once.
+            let l10n_key = attrs
+                .iter()
+                .find(|(k, _)| k.as_str() == "data-l10n")
+                .map(|(_, v)| v.as_str())
+                .filter(|v| !v.is_empty());
+            if l10n_key.is_some() {
+                // Collect data-l10n-* arguments.
+                let fluent_args = azul_core::dom::FluentArgKVVec::from_l10n_attributes(
+                    attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                );
+                if !fluent_args.is_empty() {
+                    nd.fluent_args = Some(Box::new(fluent_args));
                 }
             }
 
@@ -589,6 +590,13 @@ fn parse_xml_to_fast_dom_with_css(
             }
 
             builder.open_node(nd);
+
+            // The key, marked localizable, as the element's first child.
+            if let Some(key) = l10n_key {
+                builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                    azul_css::corety::AzString::tr(key),
+                ));
+            }
         };
 
     let mut last_was_void = false;
