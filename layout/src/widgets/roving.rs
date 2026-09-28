@@ -130,6 +130,27 @@ pub(crate) fn children_of(info: &CallbackInfo, parent: DomNodeId) -> Vec<DomNode
     out
 }
 
+/// Whether `node` carries the class `class`.
+#[must_use]
+pub(crate) fn has_class(info: &CallbackInfo, node: DomNodeId, class: &str) -> bool {
+    info.get_node_classes(node)
+        .as_ref()
+        .iter()
+        .any(|c| c.as_str() == class)
+}
+
+/// The children of `parent` that carry `class`, in document order: a group's
+/// items, told apart by their class from anything else among the children
+/// (a tab list's spacers) - and from the inner nodes of an item, should a
+/// hit ever resolve to one of those.
+#[must_use]
+pub(crate) fn items_of(info: &CallbackInfo, parent: DomNodeId, class: &str) -> Vec<DomNodeId> {
+    children_of(info, parent)
+        .into_iter()
+        .filter(|n| has_class(info, *n, class))
+        .collect()
+}
+
 /// Makes `items[stop]` the group's one Tab stop WITHOUT moving focus - for a
 /// click, which has already focused the clicked item.
 ///

@@ -17,7 +17,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
@@ -50,8 +50,11 @@ use crate::callbacks::{Callback, CallbackInfo};
 
 static RADIO_GROUP_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-radio-group"))];
+/// The class every option row carries: how the key handler tells the group's
+/// rows apart from anything else.
+const RADIO_GROUP_ROW_CLASS_NAME: &str = "__azul-native-radio-group-row";
 static RADIO_GROUP_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-radio-group-row",
+    RADIO_GROUP_ROW_CLASS_NAME,
 ))];
 static RADIO_GROUP_CIRCLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-radio-group-circle",
@@ -442,12 +445,16 @@ impl RadioGroup {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
+            events::FocusEventFilter,
             refany::OptionRefAny,
         };
 
         let selected = self.radio_group_state.inner.selected_index;
         let horizontal = self.radio_group_state.horizontal;
         let count = self.options.as_ref().len();
+        // WAI-ARIA APG: the group is ONE Tab stop - the checked radio, or the
+        // first one when none is checked. The arrow keys move within it.
+        let tab_stop = crate::widgets::roving::stop_index(Some(selected), count);
 
         let row_style = build_row_style(horizontal);
 
@@ -488,17 +495,27 @@ impl RadioGroup {
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_ROW_CLASS))
                     .with_css_props(row_style.clone())
                     .with_callbacks(
-                        vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::Click),
-                            callback: CoreCallback {
-                                cb: on_radio_row_click as usize,
-                                ctx: OptionRefAny::None,
+                        vec![
+                            CoreCallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                callback: CoreCallback {
+                                    cb: on_radio_row_click as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
                             },
-                            refany: state.clone(),
-                        }]
+                            CoreCallbackData {
+                                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                callback: CoreCallback {
+                                    cb: on_radio_row_key as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
+                            },
+                        ]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto)
+                    .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
                     // Each row is its own radio button and must say whether IT
                     // is the chosen one. A group where every row announces the
                     // same thing is unusable: the user cannot tell which is
@@ -544,9 +561,10 @@ impl Default for RadioGroup {
 /// position among its siblings (the hit node resolves to the row the callback is
 /// registered on — currentTarget semantics — regardless of whether the dot,
 /// circle or label was clicked), updates the selection, invokes the user
-/// callback, and live-restyles every row's indicator dot.
-extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
+/// callback, and live-restyles every row's indicator dot. The clicked row also
+/// becomes the group's one Tab stop (the click itself already focused it).
+extern "C" fn on_radio_row_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    use crate::widgets::roving;
 
     let clicked = info.get_hit_node();
     let Some(parent) = info.get_parent(clicked) else {
@@ -554,27 +572,82 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     };
 
     // Collect the option rows in document order.
-    let mut rows: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        rows.push(node);
-        cur = info.get_next_sibling(node);
-    }
+    let rows = roving::children_of(&info, parent);
 
     let Some(selected) = rows.iter().position(|n| *n == clicked) else {
         return Update::DoNothing;
     };
 
+    let Some(result) = check_row(data, &mut info, &rows, selected) else {
+        return Update::DoNothing;
+    };
+
+    // Only real option rows take part in the Tab order; an inner node that
+    // reached this handler has no rows among its siblings to rewrite.
+    let items = roving::items_of(&info, parent, RADIO_GROUP_ROW_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        roving::set_stop(&mut info, &items, stop);
+    }
+
+    result
+}
+
+/// Arrow keys on the focused radio (WAI-ARIA APG radio group): Down and Right
+/// check the next option, Up and Left the previous one, wrapping at the ends.
+/// Focus and the group's one Tab stop move with the check, and the key's
+/// default action (spatial navigation) is cancelled. Every other key - and an
+/// arrow held with Alt, Ctrl, Cmd or Shift - keeps its default.
+extern "C" fn on_radio_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Down | K::Right) => Step::Next,
+        Some(K::Up | K::Left) => Step::Previous,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let rows = roving::items_of(&info, parent, RADIO_GROUP_ROW_CLASS_NAME);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, rows.len(), step, true) else {
+        return Update::DoNothing;
+    };
+    // Not our state (or already borrowed): leave the key alone rather than
+    // move focus onto a radio whose check could not follow.
+    if data.downcast_ref::<RadioGroupStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    // Moved BEFORE the user callback runs, so a focus it asks for wins.
+    roving::move_stop(&mut info, &rows, target);
+    check_row(data, &mut info, &rows, target).unwrap_or(Update::DoNothing)
+}
+
+/// Checks option `selected` of `rows`: updates the shared state, invokes the
+/// user callback and live-restyles every row's dot. `None` when the payload is
+/// not this widget's state (or is already borrowed) - nothing was changed.
+fn check_row(
+    mut data: RefAny,
+    info: &mut CallbackInfo,
+    rows: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) -> Option<Update> {
     let result = {
-        let Some(mut rg) = data.downcast_mut::<RadioGroupStateWrapper>() else {
-            return Update::DoNothing;
-        };
+        let mut rg = data.downcast_mut::<RadioGroupStateWrapper>()?;
         rg.inner.selected_index = selected;
         let inner = rg.inner;
         let rg = &mut *rg;
         match rg.on_change.as_mut() {
             Some(RadioGroupOnChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner)
+                (callback.cb)(refany.clone(), *info, inner)
             }
             None => Update::DoNothing,
         }
@@ -597,7 +670,7 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
         );
     }
 
-    result
+    Some(result)
 }
 
 impl From<RadioGroup> for Dom {
@@ -621,7 +694,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType, TabIndex},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -1792,10 +1865,16 @@ mod autotest_generated {
                 2,
                 "row {i} must be `circle, label`",
             );
+            // One Tab stop per group (WAI-ARIA APG): the checked radio - row 0
+            // of a fresh group. The others are reached with the arrow keys.
             assert_eq!(
                 row.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "row {i} is not keyboard reachable",
+                Some(if i == 0 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "row {i} has the wrong tab index",
             );
 
             let circle = &row.children.as_ref()[0];
@@ -1818,12 +1897,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_row_carries_exactly_one_mouse_up_handler_pointing_at_the_row_handler() {
+    fn every_row_carries_the_click_and_the_arrow_key_handler() {
         let dom = group(&["a", "b", "c"]).dom();
 
         for i in 0..3 {
             let cbs = row_of(&dom, i).root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "row {i} must have one callback");
+            assert_eq!(cbs.as_ref().len(), 2, "row {i} must have two callbacks");
             let cb = &cbs.as_ref()[0];
             assert_eq!(
                 cb.event,
@@ -1833,6 +1912,18 @@ mod autotest_generated {
             assert_eq!(
                 cb.callback.cb, on_radio_row_click as usize,
                 "row {i} is wired to the wrong handler",
+            );
+            let key = &cbs.as_ref()[1];
+            assert_eq!(
+                key.event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                "row {i} does not listen for the arrow keys",
+            );
+            assert_eq!(key.callback.cb, on_radio_row_key as usize);
+            assert_eq!(
+                key.refany.get_data_ptr(),
+                cb.refany.get_data_ptr(),
+                "row {i}'s key handler must share the group's state",
             );
         }
 
