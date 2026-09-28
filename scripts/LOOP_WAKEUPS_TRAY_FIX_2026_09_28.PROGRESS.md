@@ -32,14 +32,17 @@ This file is replaced by `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` in the la
   -> `Activate`; Linux callback-less dbusmenu picks -> `MenuItem`; `layout/tests/tray_events.rs`
   (5 tests). Greens the last RED test.
 
+- `3c59d79ea` fix(global-hotkey): X11 `connection_fd` / `has_queued_events` read the grab state
+  before resolving libX11, so a Wayland session's park check never dlopens libX11.
+- Review pass done: all 7 source invariants simulated green with a python scan of the tree.
+
 ## IN PROGRESS
 
-- Final review pass over the Linux / macOS code for compile risks.
+- Final report.
 
 ## NEXT (in order)
 
-1. Review pass (cfg gates, borrows, unsafe, clippy `deny(clippy::all)` in `dll/src/desktop`).
-2. Write `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` (commits + expected REDs, per-platform
+1. Write `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` (commits + expected REDs, per-platform
    behaviour, manual check recipes, least-sure-to-compile spots, open items, public API changes);
    delete this PROGRESS file in the same commit.
 
