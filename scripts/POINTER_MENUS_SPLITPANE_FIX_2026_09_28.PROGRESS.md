@@ -65,9 +65,14 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
 - `e1dd25104` S4 FIX: const `DIVIDER_THICKNESS_PX`, `pane_space`, `divider_centre`; NaN guard in
   move; pins via test helper `tracked(anchor, delta, main)`; NaN pins removed.
 
+- `e6684c365` S5 RED `the_grab_area_reaches_past_the_thin_visible_line`.
+
 ## IN PROGRESS
 
-- S5 RED (grab area wider than the visible line: sash child), NEXT 5.
+- S5 FIX: divider `position: relative` + sash child (abs, 18px, -6px, resize cursor); update pins
+  `divider_style_never_grows_or_shrinks_and_is_visible` (6 -> 7 props),
+  `dom_wraps_the_user_children_one_per_pane` (divider holds the sash), key test second pane
+  NodeId 4 -> 5 (`the_arrow_keys_move_a_focused_divider` + `press_key_on_divider` doc).
 
 ## NEXT (in order)
 
