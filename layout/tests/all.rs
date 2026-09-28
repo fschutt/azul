@@ -338,6 +338,8 @@ mod scroll_id_identity;
 mod scroll_shift_ghost;
 #[path = "scrollbar_fade_during_drag.rs"]
 mod scrollbar_fade_during_drag;
+#[path = "scrollbar_presence.rs"]
+mod scrollbar_presence;
 #[path = "seat_text_session.rs"]
 mod seat_text_session;
 #[path = "select_all_covers_its_host.rs"]

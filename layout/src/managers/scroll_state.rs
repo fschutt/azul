@@ -4459,6 +4459,75 @@ mod autotest_generated {
         }
     }
 
+    /// `scrollbar-width: none` scrolls WITHOUT a bar. What registration hands
+    /// the manager for such a box - the TextInput's value `<p>`, 200x14 over
+    /// 400px of text - reserves nothing and draws nothing, and the manager
+    /// must not invent a bar of its own: every shell hit-tests the bars before
+    /// the content, so an invented one takes every press on the text.
+    #[test]
+    fn a_box_whose_style_draws_no_bar_has_no_bar_to_press() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 200.0, 14.0),
+            size(400.0, 14.0),
+            at(0),
+            0.0, // `none` reserves no gutter
+            0.0, // ...and draws no bar
+            true,
+            false,
+        );
+        m.calculate_scrollbar_states();
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Horizontal)
+                .is_none(),
+            "a box whose style draws no bar has no horizontal bar state"
+        );
+        let press = m.hit_test_scrollbars(pos(100.0, 7.0));
+        assert!(
+            press.is_none(),
+            "a press on the text of a bar-less box is the text's, got {press:?}"
+        );
+    }
+
+    /// An `overflow-y: hidden` axis never has a bar, however far its content
+    /// reaches: CSS gives bars to `scroll` and `auto` only, and layout never
+    /// asks for one on the hidden axis. The size comparison alone put a
+    /// vertical bar down the right edge of every such box whose content was
+    /// taller than it.
+    #[test]
+    fn a_hidden_axis_gets_no_bar_even_when_its_content_overflows() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 200.0, 100.0),
+            size(400.0, 120.0),
+            at(0),
+            16.0,
+            16.0,
+            true,  // overflow-x: auto, overflowing
+            false, // overflow-y: hidden
+        );
+        m.calculate_scrollbar_states();
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+                .is_none(),
+            "the hidden vertical axis has no bar"
+        );
+        let press = m.hit_test_scrollbars(pos(195.0, 40.0));
+        assert!(
+            press.is_none(),
+            "a press where a vertical bar would run is the content's, got {press:?}"
+        );
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Horizontal)
+                .is_some(),
+            "the auto axis keeps the bar it asked for"
+        );
+    }
+
     #[test]
     fn calculate_scrollbar_states_zero_thickness_falls_back_to_the_default_width() {
         // An overlay scrollbar reports thickness 0 from layout; the geometry must
