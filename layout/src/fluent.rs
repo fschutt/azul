@@ -1372,6 +1372,38 @@ greeting = Hello, { $name }!
     }
 
     #[test]
+    fn app_config_check_translations_reports_the_keys_a_locale_lacks() {
+        // localization.md, "Translation Completeness":
+        //   let report = app_config.check_translations();
+        //   if !report.missing_keys.is_empty() { .. }
+        use azul_core::{
+            resources::AppConfig,
+            window::{AzStringPair, StringPairVec},
+        };
+
+        let mut app_config = AppConfig::default();
+        app_config.fluent_locales = StringPairVec::from_vec(vec![
+            AzStringPair::new("en".into(), "greeting = Hello\nfarewell = Bye\n".into()),
+            AzStringPair::new("de".into(), "greeting = Hallo\n".into()),
+        ]);
+
+        let report = app_config.check_translations();
+        assert_eq!(
+            report.missing_keys.get("de"),
+            Some(&vec!["farewell".to_string()]),
+            "{report}"
+        );
+        assert!(!report.missing_keys.contains_key("en"), "{report}");
+
+        // Complete translations: an empty report.
+        app_config.fluent_locales = StringPairVec::from_vec(vec![
+            AzStringPair::new("en".into(), "greeting = Hello\n".into()),
+            AzStringPair::new("de".into(), "greeting = Hallo\n".into()),
+        ]);
+        assert!(app_config.check_translations().missing_keys.is_empty());
+    }
+
+    #[test]
     fn test_syntax_check() {
         // Valid FTL
         let valid = "hello = Hello, world!";
