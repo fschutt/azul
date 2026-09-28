@@ -619,8 +619,14 @@ impl Dialog {
     /// runs in the app's window with this value. Returns whether `node` was
     /// inside a dialog.
     pub fn close_from(info: &mut CallbackInfo, node: DomNodeId, return_value: AzString) -> bool {
-        let _ = (info, node, return_value);
-        false
+        let Some((root, mut data)) = find_dialog(info, node) else {
+            return false;
+        };
+        if let Some(mut d) = data.downcast_mut::<DialogData>() {
+            d.return_value = return_value;
+        }
+        info.set_transient_window_open(root, false);
+        true
     }
 
     /// HTML `dialog.requestClose(returnValue)`, from a control inside the
@@ -632,8 +638,10 @@ impl Dialog {
         node: DomNodeId,
         return_value: AzString,
     ) -> Update {
-        let _ = (info, node, return_value);
-        Update::DoNothing
+        let Some((root, mut data)) = find_dialog(info, node) else {
+            return Update::DoNothing;
+        };
+        everywhere(request_close(&mut data, info, root, Some(return_value)))
     }
 }
 
@@ -954,31 +962,223 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
 // Handlers
 // ---------------------------------------------------------------------------
 
-// RED STUBS: every handler does nothing yet, and the merge keeps the fresh
-// build's state. The next commit implements them.
+/// A rebuild the app asked for from the dialog's own window must reach the
+/// app's window too.
+const fn everywhere(update: Update) -> Update {
+    match update {
+        Update::RefreshDom => Update::RefreshDomAllWindows,
+        other => other,
+    }
+}
 
-extern "C" fn on_dialog_invoker_click(_data: RefAny, _info: CallbackInfo) -> Update {
+/// The dialog `node` sits in: its window root (what closes it) and its
+/// state. Walks up to the panel, which carries the state as its dataset.
+fn find_dialog(info: &mut CallbackInfo, node: DomNodeId) -> Option<(DomNodeId, RefAny)> {
+    let mut current = Some(node);
+    for _ in 0..256 {
+        let n = current?;
+        if let Some(mut dataset) = info.get_dataset(n) {
+            let is_dialog = dataset.downcast_ref::<DialogData>().is_some();
+            if is_dialog {
+                let root = info.get_parent(n)?;
+                return Some((root, dataset));
+            }
+        }
+        current = info.get_parent(n);
+    }
+    None
+}
+
+/// The `close` event.
+fn fire_on_close(on_close: OptionDialogOnClose, info: CallbackInfo, state: DialogState) -> Update {
+    match on_close.into_option() {
+        Some(DialogOnClose { callback, refany }) => callback.invoke(refany, info, state),
+        None => Update::DoNothing,
+    }
+}
+
+impl DialogCompat {
+    /// Tell an older front-end's callback that the dialog opened / closed.
+    fn notify(&self, info: CallbackInfo, open: bool) -> Update {
+        match self {
+            Self::None => Update::DoNothing,
+            Self::Popover(on_toggle) => match on_toggle.as_ref() {
+                Some(PopoverOnToggle { callback, refany }) => {
+                    callback.invoke(refany.clone(), info, PopoverState { open })
+                }
+                None => Update::DoNothing,
+            },
+            Self::Modal(on_close) => match on_close.as_ref() {
+                Some(ModalOnClose { callback, refany }) if !open => {
+                    callback.invoke(refany.clone(), info, ModalState { open: false })
+                }
+                _ => Update::DoNothing,
+            },
+        }
+    }
+}
+
+/// A close request (Escape, a backdrop press, `request_close_from`): run
+/// `cancel`, and close the dialog - its window root `root` - unless the app
+/// prevented the default there.
+fn request_close(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    root: DomNodeId,
+    return_value: Option<AzString>,
+) -> Update {
+    let (on_cancel, state) = {
+        let Some(d) = data.downcast_ref::<DialogData>() else {
+            return Update::DoNothing;
+        };
+        (d.on_cancel.clone(), d.state(true))
+    };
+    let update = match on_cancel.into_option() {
+        Some(DialogOnCancel { callback, refany }) => callback.invoke(refany, *info, state),
+        None => Update::DoNothing,
+    };
+    if info.is_default_prevented() {
+        return update; // the app keeps it open
+    }
+    if let Some(value) = return_value {
+        if let Some(mut d) = data.downcast_mut::<DialogData>() {
+            d.return_value = value;
+        }
+    }
+    info.set_transient_window_open(root, false);
+    update
+}
+
+/// The invoker was clicked (app window): show the dialog, or close it if it
+/// is showing (the invoker of a modal one is covered, so that is a popup).
+extern "C" fn on_dialog_invoker_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let invoker = info.get_hit_node();
+    let Some(window) = info.get_next_sibling(invoker) else {
+        return Update::DoNothing;
+    };
+    let open = !info.is_transient_window_open(window);
+    let (on_close, compat, state) = {
+        let Some(mut d) = data.downcast_mut::<DialogData>() else {
+            return Update::DoNothing;
+        };
+        if open {
+            // A fresh showing: the last showing's value is not this one's.
+            d.return_value = AzString::from_const_str("");
+        }
+        (d.on_close.clone(), d.compat.clone(), d.state(open))
+    };
+    info.set_transient_window_open(window, open);
+    let mut update = compat.notify(info, open);
+    if !open {
+        // Closed through the API, which fires no `Dismissed`: this is the
+        // close event.
+        update = update.max(fire_on_close(on_close, info, state));
+    }
+    update
+}
+
+/// Escape (the dialog's window root, where every key bubbles): a close
+/// request, unless `closedby="none"`.
+extern "C" fn on_dialog_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    if key != Some(VirtualKeyCode::Escape) {
+        return Update::DoNothing;
+    }
+    let closes = {
+        let Some(d) = data.downcast_ref::<DialogData>() else {
+            return Update::DoNothing;
+        };
+        d.closed_by.allows_close_request(d.modal)
+    };
+    if !closes {
+        return Update::DoNothing;
+    }
+    let root = info.get_hit_node();
+    let update = request_close(&mut data, &mut info, root, None);
+    // The Escape was the dialog's: no default action (ClearFocus) on it.
+    info.prevent_default();
+    everywhere(update)
+}
+
+/// A press in a modal dialog's window: on the backdrop (outside the panel)
+/// it is a light dismiss, if `closedby="any"`.
+extern "C" fn on_dialog_backdrop_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let allowed = {
+        let Some(d) = data.downcast_ref::<DialogData>() else {
+            return Update::DoNothing;
+        };
+        d.modal && d.closed_by.allows_light_dismiss(true)
+    };
+    if !allowed {
+        return Update::DoNothing;
+    }
+    let root = info.get_hit_node();
+    // A press inside the panel bubbles here too: only one OUTSIDE it counts.
+    // No geometry (nothing laid out yet): not a light dismiss.
+    let Some(panel) = info.get_first_child(root) else {
+        return Update::DoNothing;
+    };
+    let (Some(cursor), Some(rect)) = (info.get_cursor_position(), info.get_node_rect(panel)) else {
+        return Update::DoNothing;
+    };
+    if rect.contains(cursor) {
+        return Update::DoNothing;
+    }
+    everywhere(request_close(&mut data, &mut info, root, None))
+}
+
+/// The "×" button: HTML `close()` - no `cancel`, the return value unchanged.
+extern "C" fn on_dialog_close_button(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let close = info.get_hit_node();
+    if let Some((root, _)) = find_dialog(&mut info, close) {
+        info.set_transient_window_open(root, false);
+    }
     Update::DoNothing
 }
 
-extern "C" fn on_dialog_key(_data: RefAny, _info: CallbackInfo) -> Update {
-    Update::DoNothing
+/// The engine closed the dialog (its own close request, the close button,
+/// `close_from`, a light dismiss): the `close` event, in the app's window.
+extern "C" fn on_dialog_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (on_close, compat, state) = {
+        let Some(d) = data.downcast_ref::<DialogData>() else {
+            return Update::DoNothing;
+        };
+        (d.on_close.clone(), d.compat.clone(), d.state(false))
+    };
+    let update = fire_on_close(on_close, info, state);
+    update.max(compat.notify(info, false))
 }
 
-extern "C" fn on_dialog_backdrop_press(_data: RefAny, _info: CallbackInfo) -> Update {
-    Update::DoNothing
-}
-
-extern "C" fn on_dialog_close_button(_data: RefAny, _info: CallbackInfo) -> Update {
-    Update::DoNothing
-}
-
-extern "C" fn on_dialog_dismissed(_data: RefAny, _info: CallbackInfo) -> Update {
-    Update::DoNothing
-}
-
-extern "C" fn merge_dialog_data(new_data: RefAny, _old_data: RefAny) -> RefAny {
-    new_data
+/// Reconcile: the old allocation survives (its return value), adopting the
+/// app's configuration and callbacks from the new build. The app's `open`
+/// going false -> true is a fresh showing: the old return value goes.
+extern "C" fn merge_dialog_data(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let merged = {
+        let new_guard = new_data.downcast_ref::<DialogData>();
+        let old_guard = old_data.downcast_mut::<DialogData>();
+        if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
+            old_g.modal = new_g.modal;
+            old_g.closed_by = new_g.closed_by;
+            old_g.on_cancel = new_g.on_cancel.clone();
+            old_g.on_close = new_g.on_close.clone();
+            old_g.compat = new_g.compat.clone();
+            if new_g.declared_open && !old_g.declared_open {
+                old_g.return_value = AzString::from_const_str("");
+            }
+            old_g.declared_open = new_g.declared_open;
+            true
+        } else {
+            false
+        }
+    };
+    if merged {
+        old_data
+    } else {
+        new_data
+    }
 }
 
 // ---------------------------------------------------------------------------
