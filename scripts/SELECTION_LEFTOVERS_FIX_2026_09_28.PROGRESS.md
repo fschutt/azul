@@ -38,18 +38,26 @@ file is deleted in that last commit.
     leaf has its own layout box).
   - 66444a72f fix: hover path via `owning_ifc_root`; `ifc_local_point_rebased`
     takes `Option<NodeId>`; unpositioned hit -> `window_point_to_ifc_local`.
+- Task 5 (verify review #5, #7): VERIFIED FIXED, no commit. #5: sessions and
+  `affected_blocks` keyed on `TextBlock` (text_edit.rs
+  `build_primary_text_selections_map`), paint looks the range up by
+  `tree.text_block_at` (display_list.rs `paint_selections`), focus path opens
+  its session via `open_session(block)` (window.rs
+  `finalize_pending_focus_changes`); guard keyboard_selection_is_painted.rs.
+  #7: edits keyed by `edit_element(scope, caret block)` = the block's
+  element; guard typing_into_a_formatted_paragraph.rs. Seat variant of #7
+  (typing keyed to the PRIMARY's block) fixed in ccd2b9e87.
+- Task 6 (N5 a11y):
+  - 5d7870735 test: `layout/tests/a_screen_reader_reads_a_host_with_paragraphs.rs`.
 
 ## IN PROGRESS
 
-(nothing uncommitted)
+Task 6 fix: `ScopeText` in block_content.rs + `LayoutWindow::scope_text`;
+a11y cursor info + incremental update + SetTextSelection through it.
 
 ## NEXT (in order)
 
-5. Task 5: re-verify review #5 (keyboard_selection_is_painted.rs, sessions
-   keyed on TextBlock, paint looks up by block) and #7
-   (typing_into_a_formatted_paragraph.rs, `edit_element`) - both look FIXED;
-   the seat variant of #7 is fixed by the N3 commit. Report only.
-6. Task 6 (N5): a11y offsets in a host's flat text: new scope text (blocks of
+6. Task 6 (N5) fix: a11y offsets in a host's flat text: new scope text (blocks of
    the host joined by '\n'), `update_a11y_tree` + `update_a11y_tree_incremental`
    publish host value + selection in it; `SetTextSelection` maps char index ->
    FlatByte -> (block, caret) per end, cross-block when the ends differ. RED
