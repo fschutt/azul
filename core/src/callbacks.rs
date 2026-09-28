@@ -850,6 +850,15 @@ impl Default for TimerCallbackReturn {
     }
 }
 
+/// The writing direction of the active locale, as
+/// [`LayoutCallbackInfo::is_rtl`] reports it.
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TextDirection {
+    LeftToRight,
+    RightToLeft,
+}
+
 /// Reference data container for `LayoutCallbackInfo` (all read-only fields).
 ///
 /// Gives the `layout()` function access to the `RendererResources` and the
@@ -861,14 +870,6 @@ impl Default for TimerCallbackReturn {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
-
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TextDirection {
-    LeftToRight,
-    RightToLeft,
-}
-
 #[derive(Debug)]
 #[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {

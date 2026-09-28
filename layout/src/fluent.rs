@@ -988,10 +988,8 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
     create_fluent_zip(entries)
 }
 
-/// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
-
-
-
+/// Replace every localizable text node of `dom` (a string made with
+/// `AzString::tr`) with its translation into `locale`.
 pub fn translate_texts_in_dom(dom: &mut azul_core::dom::Dom, localizer: &FluentLocalizerHandle, locale: &str) {
     translate_node(&mut dom.root, localizer, locale);
     
@@ -1051,10 +1049,8 @@ fn extract_fluent_args(node: &azul_core::dom::NodeData) -> crate::fmt::FmtArgVec
     crate::fmt::FmtArgVec::from_vec(fmt_args_vec)
 }
 
-
-
+/// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
-    
     let bundles = localizer
         .inner()
         .bundles

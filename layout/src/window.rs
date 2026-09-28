@@ -15593,13 +15593,16 @@ impl LayoutWindow {
         self.system_style = Some(system_style);
     }
 
-    /// Hand this window the app's icon storage. Called by the shell next to
-    /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
-    /// needs.
+    /// Hand this window the Fluent localizer [`Self::style_user_dom`]
+    /// translates `AzString::tr` text with.
     #[cfg(feature = "fluent")]
     pub fn set_fluent_localizer(&mut self, localizer: FluentLocalizerHandle) {
         self.fluent_localizer = Some(localizer);
     }
+
+    /// Hand this window the app's icon storage. Called by the shell next to
+    /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
+    /// needs.
     pub fn set_icon_provider(&mut self, provider: azul_core::icon::SharedIconProvider) {
         self.icon_provider = Some(provider);
     }

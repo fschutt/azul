@@ -288,20 +288,26 @@ impl AzString {
         }
     }
 
-    #[inline]
+    /// A translation KEY rather than display text: the string is `key`, marked
+    /// localizable, so the layout pass replaces it with the key's translation
+    /// in the active locale.
     #[must_use]
-    
-    
     pub fn tr(key: &str) -> Self {
         let mut s = Self::from(key);
         s.set_localizable(true);
         s
     }
 
+    /// Was this string made with [`Self::tr`] (or marked with
+    /// [`Self::set_localizable`])?
+    #[inline]
+    #[must_use]
     pub fn is_localizable(&self) -> bool {
         (self.vec.flags & 1) != 0
     }
 
+    /// Mark (or unmark) this string as a translation key.
+    #[inline]
     pub fn set_localizable(&mut self, localizable: bool) {
         if localizable {
             self.vec.flags |= 1;
@@ -310,6 +316,8 @@ impl AzString {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(self.vec.as_ref()) }
     }

@@ -1682,9 +1682,6 @@ impl AttributeType {
     }
 }
 
-/// Represents all data associated with a single DOM node, such as its type,
-/// classes, IDs, callbacks, and inline styles.
-
 /// A strongly-typed argument for Fluent localization strings.
 /// Supports standard pluralization and interpolation formatting.
 #[repr(C, u8)]
@@ -1696,6 +1693,8 @@ pub enum FluentArg {
     F32(f32),
 }
 
+/// One named argument of a Fluent message: `key` is the `$variable` name
+/// the `.ftl` pattern refers to, without the `$`.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct FluentArgKV {
@@ -1722,6 +1721,8 @@ azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);
 azul_css::impl_vec_clone!(FluentArgKV, FluentArgKVVec, FluentArgKVVecDestructor);
 azul_css::impl_vec_partialeq!(FluentArgKV, FluentArgKVVec);
 
+/// Represents all data associated with a single DOM node, such as its type,
+/// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
 #[derive(Debug)]
 pub struct NodeData {

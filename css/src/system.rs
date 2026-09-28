@@ -238,8 +238,8 @@ pub enum Theme {
     Dark,
 }
 
-/// A unified collection of discovered system style properties.
-
+/// A language as the OS (or the app) names it: a BCP 47 tag such as
+/// `"de-DE"`, and whether its script is written right-to-left.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemLanguage {
@@ -286,7 +286,7 @@ impl Default for SystemLanguage {
     }
 }
 
-
+/// A unified collection of discovered system style properties.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemStyle {
