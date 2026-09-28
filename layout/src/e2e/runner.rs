@@ -6302,4 +6302,130 @@ mod tests {
             "Tab continues from the swatch to the stop after it"
         );
     }
+
+    /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
+    /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
+    /// bar or a `scrollbar-width: none` bar exists at all is the
+    /// scrollbar-presence question, not the press router's.
+    fn classic_scroll_box() -> StyledDom {
+        let mut rows = Dom::create_div().with_css(
+            "width: 200px; height: 100px; overflow-y: scroll; \
+             -azul-scrollbar-visibility: always; scrollbar-width: auto;",
+        );
+        for _ in 0..20 {
+            rows = rows.with_child(Dom::create_div().with_css("height: 30px;"));
+        }
+        let dom = Dom::create_body()
+            .with_css("width: 300px; height: 300px;")
+            .with_child(rows);
+        StyledDom::create_from_dom(dom)
+    }
+
+    /// The classic box's scroll node, its vertical bar and its scroll range,
+    /// read off what the scroll manager built for it.
+    fn classic_bar(
+        runner: &Runner,
+    ) -> (
+        DomId,
+        NodeId,
+        azul_layout::managers::scroll_state::ScrollbarState,
+        f32,
+    ) {
+        use azul_core::dom::ScrollbarOrientation;
+
+        let sm = &runner.layout_window.scroll_manager;
+        let (dom, node) = sm
+            .state_keys()
+            .into_iter()
+            .find(|&(d, n)| {
+                sm.get_scrollbar_state(d, n, ScrollbarOrientation::Vertical)
+                    .is_some()
+            })
+            .expect("the overflowing box must carry a vertical scrollbar");
+        let bar = *sm
+            .get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
+            .expect("found above");
+        let max_scroll_y = sm
+            .get_scroll_node_info(dom, node)
+            .expect("a box with a bar has scroll state")
+            .max_scroll_y;
+        (dom, node, bar, max_scroll_y)
+    }
+
+    /// A SCRIPTED press on a scrollbar thumb must reach the same arbitration
+    /// as a physical one: scrollbar first, then content.
+    ///
+    /// The `mouse_down` op ends in `modify_window_state`, and this runner's
+    /// `ModifyWindowState` arm went straight to the event pass - there was no
+    /// scrollbar routing here at all, so the press became a `MouseDown` on
+    /// the box and the following `mouse_move` scrolled nothing. On a device
+    /// the same press grabs the thumb (the shell asks the scrollbars first).
+    /// That split is why no scenario could reproduce a press a scrollbar
+    /// stole from a text field.
+    #[test]
+    fn a_scripted_drag_on_a_scrollbar_thumb_scrolls_the_box_like_a_physical_drag() {
+        use azul_layout::managers::scroll_state::ScrollbarComponent;
+
+        const DRAG_PX: f32 = 20.0;
+
+        // Where the thumb is: lay the box out once and read the bar.
+        let settle: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "classic_scrollbar_settle",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+        let (_settled, laid_out) = run_e2e_test_keeping_runner(&settle, Some(classic_scroll_box()));
+        let (dom, node, bar, max_scroll_y) = classic_bar(&laid_out);
+        let x = bar.track_rect.origin.x + bar.track_rect.size.width / 2.0;
+        let y = bar.track_rect.origin.y + bar.button_size + bar.thumb_offset + bar.thumb_length / 2.0;
+        assert!(
+            matches!(
+                laid_out
+                    .layout_window
+                    .scroll_manager
+                    .hit_test_scrollbars(LogicalPosition::new(x, y))
+                    .map(|h| h.component),
+                Some(ScrollbarComponent::Thumb)
+            ),
+            "premise: ({x}, {y}) is on the thumb of the classic bar {bar:?}"
+        );
+        assert!(max_scroll_y > 0.0, "premise: the box overflows");
+
+        // The same layout again, driven by the ops a script uses.
+        let drag: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "classic_scrollbar_scripted_drag",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [
+                { "op": "mouse_move", "x": x, "y": y },
+                { "op": "mouse_down", "x": x, "y": y, "button": "left" },
+                { "op": "mouse_move", "x": x, "y": y + DRAG_PX },
+                { "op": "mouse_up", "x": x, "y": y + DRAG_PX, "button": "left" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&drag, Some(classic_scroll_box()));
+        assert_eq!(
+            result.status, "pass",
+            "the scripted drag itself must run: {:?}",
+            result.steps
+        );
+
+        // What a physical thumb drag scrolls: the pointer's travel over the
+        // thumb's free travel, times the scroll range.
+        let track = bar.track_rect.size.height;
+        let expected = (DRAG_PX / (track - bar.thumb_size_ratio * track)) * max_scroll_y;
+        let offset = runner
+            .layout_window
+            .scroll_manager
+            .get_current_offset(dom, node)
+            .unwrap_or_default();
+        assert!(
+            (offset.y - expected).abs() < 0.5,
+            "dragging the thumb {DRAG_PX}px by script must scroll the box by {expected:.1}px, as \
+             the same drag does on a device; the offset is {:.1} (the press went to the content, \
+             not to the scrollbar)",
+            offset.y,
+        );
+    }
 }
