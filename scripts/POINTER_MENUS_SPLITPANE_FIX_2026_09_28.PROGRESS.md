@@ -28,14 +28,14 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   verbatim; macOS shell uses it (events.rs `resolve_context_menu(position)`, mod.rs ctrl latch).
 - `418aa49b3` RED test `layout/tests/a_context_menu_opens_from_a_secondary_press.rs` (in all.rs):
   RED = `a_right_press_on_a_page_that_a_menu_box_hosts_opens_the_boxs_menu`; rest are guards.
+- `e1b6e8121` fix: walk crosses VirtualView hosts, doms front-most first; X11/Wayland/Windows use
+  `context_menu_under_pointer/_under_seat` (get_first_hovered_node removed, HitTestNode imports
+  dropped in x11/events.rs + wayland/mod.rs, FullHitTest import dropped in windows/mod.rs); Windows
+  WM_RBUTTONUP always runs the pass (menu is parked via PostMessage).
 
 ## IN PROGRESS
 
-- C3 fix commit: `layout/src/context_menu.rs` walk crosses VirtualView hosts + doms front-most first
-  (edited, uncommitted); then X11 (`x11/events.rs` try_show_context_menu/get_first_hovered_node),
-  Wayland (4 call sites 4270/4373/4603/6274 + get_first_hovered_node(_for) + try_show_context_menu),
-  Windows (`windows/mod.rs` try_show_context_menu + WM_RBUTTONUP always runs the pass) onto
-  `LayoutWindow::context_menu_under_pointer()` / `context_menu_under_seat(seat)`.
+- SplitPane S1 RED (reconciler test), see NEXT 1.
 
 ## NEXT (in order)
 
