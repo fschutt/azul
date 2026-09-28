@@ -26,21 +26,18 @@ first, then the fix. Stage explicit paths. Final report goes to
    - 209759f00 fix: fields reordered (8-aligned, 4-byte enums,
      remote_control, 4 bools). api.json needs autofix resync (NOT edited).
 
-## IN PROGRESS
-
 4. Windows accent
    - 752a87e1b RED: `azul_css::system::windows_accent` (css/src/system.rs,
-     after `windows_fonts`) with TODAY's logic moved there as text parsers
-     (`accent_from_reg_query`, `accent_palette_from_reg_query` -> None,
-     `apply_accent` copies into selection) + 6 tests.
-   - NEXT STEP: implement the three fns properly (AccentColorMenu /
-     AccentColor DWORD 0xAABBGGRR, else palette entry 3; palette = 8 x RGBA
-     from REG_BINARY, entries 0..6; apply_accent must NOT touch
-     selection_background), then rewire
-     `dll/src/desktop/shell2/windows/system_style.rs`: stop using
-     DwmGetColorizationColor as the accent (it is the frame colour), query
-     `reg` for Explorer\Accent then DWM AccentColor via the new fns, and stop
-     copying into selection. Keep `adopt_theme_palette` accent survival.
+     after `windows_fonts`) with TODAY's logic moved there + 6 tests.
+   - 8fffb732f fix: parse by value name (AccentColorMenu / AccentColor,
+     else AccentPalette[3]), palette parser, `apply_accent` writes only
+     `colors.accent`; system_style.rs drops the Dwmapi loader and queries
+     Explorer\Accent then DWM AccentColor. Palette parsed, not stored
+     (no SystemColors slot) -> open item.
+
+## IN PROGRESS
+
+(none)
 
 ## NEXT (in order)
 
