@@ -73,10 +73,12 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - 7390dee07 chore: checkpoint
 - 4d7e46cfe test(modal): reopened-after-close modal shows again (RED, dll e2e)
 - faf98ab34 fix(modal): Modal is a front-end over the core (modal, closedby Auto); DialogClasses gains title/close; tests rewritten
+- d74409e87 chore: checkpoint
+- f20fd0bee feat(examples): demo uses Dialog (modal with Keep/Delete + x; popover dialog with x)
 
 ## IN PROGRESS
 
-- Demo (examples/azul-widgets/src/lib.rs).
+- Final self-review of the uncompiled code, then the report.
 
 ## NEXT (in order)
 
