@@ -35,13 +35,21 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 - 3a7871e65 fix step 3: `scroll_selection_into_view` reveals the range rect only when it
   fits (`REVEAL_PADDING_PX` both sides), else the focus caret.
 
+- e9d07918d refactor step 4: `RevealRequest` arbiter (scroll_state.rs), `request_session_reveal`,
+  `reveal_for_input`, `perform_pending_reveal(keep_for_layout)` (pub), W5 = take+perform,
+  latch fields deleted; requests at: apply_text_changeset (primary landed),
+  apply_selection_op_for_seat (wrapper over `..._unrevealed`), process_mouse_click_for_selection
+  (wrapper over `place_selection_at_click`), finalize_pending_focus_changes, caret restores
+  (funnel + virtual-view path), a11y focus; dll W6/W7 + runner W7 via reveal_for_input;
+  legacy `ScrollCursorIntoViewAfterTextInput` arm performs pending only.
+
 ## IN PROGRESS
 
-- Step 4 (RevealRequest arbiter) — starting.
+- Step 5 RED (not yet written).
 
 ## NEXT (in order)
 
-2. Step 4 (structural, RED impossible; contract tests in the same commit): replace
+2. (DONE, kept for reference) Step 4 (structural, RED impossible; contract tests in the same commit): replace
    `ScrollManager::last_view_action`/`ViewAction`/`note_reveal_intent` with
    `pending_reveal: Option<RevealRequest>` (`RevealRequest::{Caret, Selection}`),
    `request_reveal`, `pending_reveal()`, `take_pending_reveal()`; `note_user_scroll()` drops it;
