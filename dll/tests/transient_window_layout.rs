@@ -2813,6 +2813,35 @@ fn escape_in_the_parent_closes_the_picker_and_shift_tab_moves_back_from_the_swat
     );
 }
 
+/// P2-11: a popup autofocuses its first control ONCE. The autofocus re-armed
+/// on every pass while nothing was focused, so a click on a non-focusable
+/// spot of the picker (its padding) - which clears focus, as a click on
+/// nothing does - was undone on the very next pass: the plane was focused
+/// again, with the keyboard ring the popup inherited when it opened.
+#[test]
+fn a_popup_autofocuses_only_once() {
+    let (_parent, mut popup, _swatch) = open_picker_between_stops_from_the_keyboard();
+    let plane = node_with_class(&popup, "color_picker_plane");
+    assert_eq!(
+        focused(&popup),
+        Some(plane),
+        "premise: the popup autofocused its plane"
+    );
+    let plane_rect = rect_of_class(&popup, "color_picker_plane");
+    // The panel's padding, left of the plane: nothing focusable is there.
+    let padding = LogicalPosition::new(
+        plane_rect.origin.x - 4.0,
+        plane_rect.origin.y + plane_rect.size.height / 2.0,
+    );
+    click_at(&mut popup, padding);
+    let _ = popup.process_window_events(0);
+    assert_eq!(
+        focused(&popup),
+        None,
+        "a click on nothing leaves nothing focused; the autofocus does not come back"
+    );
+}
+
 /// A ComboBox whose list was opened by a click on its field: `(parent,
 /// popup, field)`, the popup after its first pass.
 fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
