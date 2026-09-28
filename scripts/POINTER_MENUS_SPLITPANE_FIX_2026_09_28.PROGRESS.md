@@ -67,12 +67,12 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
 
 - `e6684c365` S5 RED `the_grab_area_reaches_past_the_thin_visible_line`.
 
+- `677786d04` S5 FIX: divider `position: relative` + sash (`sash_style`, SASH_REACH 6); pins updated.
+
 ## IN PROGRESS
 
-- S5 FIX: divider `position: relative` + sash child (abs, 18px, -6px, resize cursor); update pins
-  `divider_style_never_grows_or_shrinks_and_is_visible` (6 -> 7 props),
-  `dom_wraps_the_user_children_one_per_pane` (divider holds the sash), key test second pane
-  NodeId 4 -> 5 (`the_arrow_keys_move_a_focused_divider` + `press_key_on_divider` doc).
+- Final self-review of the diff (compile risks), then the report
+  `scripts/POINTER_MENUS_SPLITPANE_FIX_2026_09_28.md`, deleting this file in that commit.
 
 ## NEXT (in order)
 
