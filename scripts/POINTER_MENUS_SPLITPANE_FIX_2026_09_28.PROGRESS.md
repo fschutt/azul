@@ -33,9 +33,13 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   dropped in x11/events.rs + wayland/mod.rs, FullHitTest import dropped in windows/mod.rs); Windows
   WM_RBUTTONUP always runs the pass (menu is parked via PostMessage).
 
+- `2dcbe6868` S1 RED `a_divider_drag_survives_the_rebuild_its_on_resize_asks_for` (+ guard
+  `an_idle_split_pane_takes_the_ratio_the_app_rebuilds_it_with`); test helpers `split_container`,
+  `callback_state`, `rebuild`, `app_dom` at the end of split_pane.rs tests.
+
 ## IN PROGRESS
 
-- SplitPane S1 RED (reconciler test), see NEXT 1.
+- S1 FIX (merge callback + demo stores the ratio), see NEXT 1.
 
 ## NEXT (in order)
 
