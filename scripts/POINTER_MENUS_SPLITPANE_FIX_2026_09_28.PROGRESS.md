@@ -47,9 +47,13 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
 - `4b2745969` S2 FIX: press `capture_pointer(container)`; MouseLeave -> `on_split_pointer_leave`
   (ends only when `left_down` is false); pins updated.
 
+- `c24d3fa57` S3 RED: `the_divider_is_the_split_panes_focusable_separator`,
+  `the_arrow_keys_move_a_focused_divider`, `a_stacked_divider_moves_on_up_and_down_only`;
+  harness `key_down`, `press_key_on_divider`, `prevented`.
+
 ## IN PROGRESS
 
-- S3 RED (keyboard + focusable separator on the divider), see NEXT 3.
+- S3 FIX (on_split_key on the divider; tab stop/role/name/value moved from container), NEXT 3.
 
 ## NEXT (in order)
 
