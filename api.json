@@ -19477,6 +19477,43 @@
                                     }
                                 ],
                                 "fn_body": "object.set_locale(locale)"
+                            },
+                            "get_tray_event": {
+                                "doc": [
+                                    "Inside the tray's callback (`TrayIconData::with_callback`): which tray",
+                                    "event it runs for - a click on the icon (`Activate`), a middle click, a",
+                                    "scroll, a context-menu request, or a menu item that has no callback of",
+                                    "its own (with its command id). `None` in any other callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTrayEvent"
+                                },
+                                "fn_body": "object.get_tray_event().into()"
+                            },
+                            "request_notification_permission": {
+                                "doc": [
+                                    "Ask the user for permission to show notifications - in context, from",
+                                    "the button that makes notifications worth having, rather than at the",
+                                    "first post (which asks implicitly where the platform prompts at all).",
+                                    "",
+                                    "Returns immediately. The answer arrives as a `PermissionChanged` event",
+                                    "and is read with `get_permission_status(Capability::Notifications)`.",
+                                    "macOS and iOS show their prompt once and answer from the stored choice",
+                                    "afterwards; Android 13+ asks for `POST_NOTIFICATIONS` (older Android",
+                                    "answers from the app's notification setting); Windows and Linux have no",
+                                    "prompt and answer whether notifications can be shown at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.request_notification_permission()"
                             }
                         },
                         "repr": "C"
@@ -52837,106 +52874,58 @@
                         "struct_fields": [
                             {
                                 "button_side": {
-                                    "type": "TitlebarButtonSide",
-                                    "doc": [
-                                        "Which side the window control buttons are on"
-                                    ]
+                                    "type": "TitlebarButtonSide"
                                 },
                                 "buttons": {
-                                    "type": "TitlebarButtons",
-                                    "doc": [
-                                        "Which buttons are available"
-                                    ]
+                                    "type": "TitlebarButtons"
                                 },
                                 "height": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Height of the titlebar in pixels"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "button_area_width": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Width reserved for window control buttons (close/min/max)"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "padding_horizontal": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Horizontal padding inside the titlebar"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "safe_area": {
-                                    "type": "SafeAreaInsets",
-                                    "doc": [
-                                        "Safe area insets for notched/rounded displays"
-                                    ]
+                                    "type": "SafeAreaInsets"
                                 },
                                 "title_font": {
-                                    "type": "OptionString",
-                                    "doc": [
-                                        "Title text font"
-                                    ]
+                                    "type": "OptionString"
                                 },
                                 "title_font_size": {
-                                    "type": "OptionF32",
-                                    "doc": [
-                                        "Title text font size"
-                                    ]
+                                    "type": "OptionF32"
                                 },
                                 "title_font_weight": {
-                                    "type": "OptionU16",
-                                    "doc": [
-                                        "Title text font weight (400 = normal, 600 = semibold, 700 = bold)"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionU16"
+                                },
                                 "background_active": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "The titlebar's own background while the window HAS focus."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "background_inactive": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "The titlebar's background while the window does NOT have focus."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "text_active": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Title text colour while focused."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "text_inactive": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Title text colour while unfocused."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "button_hover_background": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Background a window-control button takes on hover."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "close_button_hover_background": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Background the CLOSE button takes on hover - its own colour on every platform."
-                                    ]
+                                    "type": "OptionColorU"
+                                },
+                                "separator_color": {
+                                    "type": "OptionColorU"
+                                },
+                                "separator_color_inactive": {
+                                    "type": "OptionColorU"
+                                },
+                                "separator_width": {
+                                    "type": "OptionPixelValue"
                                 }
                             }
                         ],
@@ -59879,46 +59868,30 @@
                                 },
                                 "title_color": {
                                     "type": "ColorU"
-                                }
-                            },
-                            {
+                                },
                                 "background_color": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "The titlebar's own background; None = the caller styles it."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "background_inactive": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "The titlebar's background while the window is unfocused."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "title_color_inactive": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Title text colour while the window is unfocused."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "button_hover_color": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Background a window-control button takes on hover."
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "OptionColorU"
+                                },
                                 "close_hover_color": {
-                                    "type": "OptionColorU",
-                                    "doc": [
-                                        "Background the CLOSE button takes on hover."
-                                    ]
+                                    "type": "OptionColorU"
+                                },
+                                "separator_color": {
+                                    "type": "OptionColorU"
+                                },
+                                "separator_color_inactive": {
+                                    "type": "OptionColorU"
+                                },
+                                "separator_width": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -60064,6 +60037,124 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom_with_buttons(&buttons, button_side)"
+                            },
+                            "set_background": {
+                                "doc": [
+                                    "Set the bar's own background, or clear it with `None` (the window's",
+                                    "background then shows through, as behind a transparent native bar)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "color": "OptionColorU"
+                                    }
+                                ],
+                                "fn_body": "object.set_background(color)"
+                            },
+                            "with_background": {
+                                "doc": [
+                                    "The bar with its own background colour."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Titlebar"
+                                },
+                                "fn_body": "object.with_background(color)"
+                            },
+                            "with_background_inactive": {
+                                "doc": [
+                                    "The bar's background while the window is unfocused (`:backdrop`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Titlebar"
+                                },
+                                "fn_body": "object.with_background_inactive(color)"
+                            },
+                            "set_border_bottom": {
+                                "doc": [
+                                    "Set the line under the bar: `width` CSS pixels of `color`, or no line",
+                                    "with `None`. The bar's height includes the line."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    },
+                                    {
+                                        "color": "OptionColorU"
+                                    }
+                                ],
+                                "fn_body": "object.set_border_bottom(width, color)"
+                            },
+                            "with_border_bottom": {
+                                "doc": [
+                                    "The bar with a `width`px line of `color` under it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Titlebar"
+                                },
+                                "fn_body": "object.with_border_bottom(width, color)"
+                            },
+                            "with_border_bottom_inactive": {
+                                "doc": [
+                                    "The line's colour while the window is unfocused (`:backdrop`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Titlebar"
+                                },
+                                "fn_body": "object.with_border_bottom_inactive(color)"
+                            },
+                            "without_border_bottom": {
+                                "doc": [
+                                    "The bar with no line under it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Titlebar"
+                                },
+                                "fn_body": "object.without_border_bottom()"
                             }
                         },
                         "repr": "C"
@@ -126328,6 +126419,28 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionTrayEvent": {
+                        "external": "azul_core::tray::OptionTrayEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TrayEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -129153,6 +129266,9 @@
                                 },
                                 "fluent_locales": {
                                     "type": "StringPairVec"
+                                },
+                                "notification_handler": {
+                                    "type": "OptionNotificationCallback"
                                 }
                             }
                         ],
@@ -129208,6 +129324,24 @@
                                     }
                                 ],
                                 "fn_body": "object.add_route(pattern, layout_callback)"
+                            },
+                            "set_notification_handler": {
+                                "doc": [
+                                    "Install the app-level notification handler (see",
+                                    "[`AppConfig::notification_handler`]), replacing any earlier one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.set_notification_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
                             }
                         },
                         "repr": "C"
@@ -133551,6 +133685,9 @@
                                 },
                                 "menu": {
                                     "type": "OptionMenu"
+                                },
+                                "callback": {
+                                    "type": "OptionCoreMenuCallback"
                                 }
                             }
                         ],
@@ -133657,6 +133794,28 @@
                                     "type": "OptionTrayIconImage"
                                 },
                                 "fn_body": "object.best_icon(target_px)"
+                            },
+                            "with_callback": {
+                                "doc": [
+                                    "Call `callback` with `data` for every tray event no menu item's own",
+                                    "callback handles - above all a plain click on the icon. Inside it,",
+                                    "`CallbackInfo::get_tray_event` says which event it runs for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconData"
+                                },
+                                "fn_body": "object.with_callback(data, azul_layout::callbacks::Callback::create(callback).to_core())"
                             }
                         },
                         "repr": "C"
@@ -139847,6 +140006,12 @@
                                 },
                                 "reason": {
                                     "type": "String"
+                                },
+                                "payload": {
+                                    "type": "String"
+                                },
+                                "launched_app": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -139954,6 +140119,9 @@
                                 },
                                 "sound": {
                                     "type": "NotificationSound"
+                                },
+                                "payload": {
+                                    "type": "String"
                                 },
                                 "callback": {
                                     "type": "OptionNotificationCallback"
@@ -140081,6 +140249,23 @@
                                     "type": "Notification"
                                 },
                                 "fn_body": "object.with_callback(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "with_payload": {
+                                "doc": [
+                                    "See [`Notification::payload`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "payload": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Notification"
+                                },
+                                "fn_body": "object.with_payload(payload)"
                             }
                         },
                         "repr": "C"

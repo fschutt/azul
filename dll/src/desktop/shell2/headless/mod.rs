@@ -9605,7 +9605,7 @@ mod tests {
         let mut handle = swatch.clone();
         if let Some(mut s) = handle.downcast_mut::<VvSwatch>() {
             s.rgba = rgba;
-        }
+        };
     }
 
     /// A 4x4 video frame of one colour.
