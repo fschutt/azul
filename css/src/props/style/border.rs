@@ -4,7 +4,10 @@ use alloc::string::{String, ToString};
 use core::fmt;
 
 #[cfg(feature = "parser")]
-use crate::props::basic::{color::parse_color_or_system_token, pixel::parse_pixel_value};
+use crate::props::basic::{
+    color::parse_color_or_system_token, parse::split_string_respect_whitespace,
+    pixel::parse_pixel_value,
+};
 use crate::{
     corety::AzString,
     css::PrintAsCssValue,
@@ -392,7 +395,8 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
         return Err(CssBorderSideParseError::InvalidDeclaration(input));
     }
 
-    for part in input.split_whitespace() {
+    // Parenthesis-aware, so `rgba(0, 0, 0, 0.1)` stays ONE component.
+    for part in split_string_respect_whitespace(input) {
         // Try to parse as a width.
         if width.is_none() {
             if let Ok(w) = parse_border_width_value(part) {
@@ -575,7 +579,8 @@ pub struct StyleBorderColors {
 /// Returns an error if `input` is not a valid CSS `border-color` value.
 pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssColorParseError<'_>> {
     let input = input.trim();
-    let parts: Vec<&str> = input.split_whitespace().collect();
+    // Parenthesis-aware: `rgb(255, 0, 0) blue` is TWO colours, not four tokens.
+    let parts: Vec<&str> = split_string_respect_whitespace(input);
 
     match parts.len() {
         1 => {

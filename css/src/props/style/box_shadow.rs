@@ -200,7 +200,11 @@ impl CssShadowParseErrorOwned {
 ///
 /// Returns an error if `input` is not a valid CSS `box-shadow` value.
 pub fn parse_style_box_shadow(input: &str) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {
-    let mut parts: Vec<&str> = input.split_whitespace().collect();
+    use crate::props::basic::parse::split_string_respect_whitespace;
+
+    // Parenthesis-aware: `rgba(16, 24, 40, 0.1)` is ONE component. A plain
+    // `split_whitespace` tore it into four and dropped the whole declaration.
+    let mut parts: Vec<&str> = split_string_respect_whitespace(input);
     let mut shadow = StyleBoxShadow::default();
 
     // The `inset` keyword can appear anywhere. Find it, set the flag, and remove it.
@@ -805,7 +809,7 @@ mod autotest_generated {
 
     #[test]
     fn parse_leading_trailing_junk_is_trimmed_or_rejected_deterministically() {
-        // Surrounding whitespace is absorbed by split_whitespace.
+        // Surrounding whitespace is absorbed by the component splitter.
         let padded = parse_style_box_shadow("   10px    5px   ").unwrap();
         assert_eq!(padded, parse_style_box_shadow("10px 5px").unwrap());
 
@@ -992,9 +996,10 @@ mod autotest_generated {
             let _ = parse_style_box_shadow(input); // must not panic
         }
 
-        // Unicode whitespace still splits tokens, so this is a valid shadow.
-        let nbsp = parse_style_box_shadow("10px\u{00a0}5px").unwrap();
-        assert_eq!(nbsp, parse_style_box_shadow("10px 5px").unwrap());
+        // CSS whitespace is ASCII only (space, tab, LF, CR), so a no-break
+        // space does NOT separate components: `10px\u{00a0}5px` is one
+        // unparseable token, as in a browser.
+        assert!(parse_style_box_shadow("10px\u{00a0}5px").is_err());
     }
 
     #[test]

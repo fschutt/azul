@@ -1095,7 +1095,9 @@ pub fn parse_style_scrollbar_color(
         return Ok(StyleScrollbarColor::Auto);
     }
 
-    let mut parts = input.split_whitespace();
+    // Parenthesis-aware, so `rgb(255, 0, 0) blue` is two colours, not four tokens.
+    let mut parts =
+        crate::props::basic::parse::split_string_respect_whitespace(input).into_iter();
     let thumb_str = parts
         .next()
         .ok_or(StyleScrollbarColorParseError::InvalidValue(input))?;
@@ -1914,24 +1916,18 @@ mod autotest_generated {
         ));
     }
 
-    /// Whitespace-splitting happens *before* the color parser runs, so a
-    /// functional color with spaces after its commas is torn into pieces.
-    /// `rgb(255, 0, 0) blue` is valid CSS but is rejected here; the space-free
-    /// spelling works. Pinned as a known limitation.
+    /// The component split is parenthesis-aware, so a functional color with
+    /// spaces after its commas stays ONE component (this pin used to record
+    /// `rgb(255, 0, 0) blue` being torn apart and rejected).
     #[cfg(feature = "parser")]
     #[test]
-    fn scrollbar_color_rejects_functional_colors_containing_spaces() {
-        assert_eq!(
-            parse_style_scrollbar_color("rgb(255,0,0) blue"),
-            Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
-                thumb: ColorU::RED,
-                track: ColorU::BLUE,
-            }))
-        );
-        assert!(matches!(
-            parse_style_scrollbar_color("rgb(255, 0, 0) blue"),
-            Err(StyleScrollbarColorParseError::InvalidValue(_))
-        ));
+    fn scrollbar_color_accepts_functional_colors_containing_spaces() {
+        let expected = Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU::RED,
+            track: ColorU::BLUE,
+        }));
+        assert_eq!(parse_style_scrollbar_color("rgb(255,0,0) blue"), expected);
+        assert_eq!(parse_style_scrollbar_color("rgb(255, 0, 0) blue"), expected);
     }
 
     #[cfg(feature = "parser")]
