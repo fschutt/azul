@@ -32,6 +32,12 @@ file is deleted in that last commit.
 - Task 3 (collapse -> open_session):
   - 2e13ff81a test: `layout/tests/an_arrow_collapses_a_document_selection_like_a_click.rs`
   - d84026094 fix.
+- Task 4 (hover click, anonymous roots):
+  - 3d2b1e2c4 test appended to `layout/tests/text_beside_a_block_is_selectable.rs`
+    (`a_hit_on_text_beside_a_block_places_the_caret_in_it`; premise: the text
+    leaf has its own layout box).
+  - 66444a72f fix: hover path via `owning_ifc_root`; `ifc_local_point_rebased`
+    takes `Option<NodeId>`; unpositioned hit -> `window_point_to_ifc_local`.
 
 ## IN PROGRESS
 
@@ -39,11 +45,6 @@ file is deleted in that last commit.
 
 ## NEXT (in order)
 
-4. Task 4: RED (synthetic hover hit on the text leaf "Item" beside a block,
-   click `position` far away) + fix: hover path resolves via
-   `LayoutTree::owning_ifc_root` + `text_target_at_layout_index`; anonymous
-   root -> no own scroll; unpositioned hit -> `window_point_to_ifc_local` of
-   `point_in_viewport`.
 5. Task 5: re-verify review #5 (keyboard_selection_is_painted.rs, sessions
    keyed on TextBlock, paint looks up by block) and #7
    (typing_into_a_formatted_paragraph.rs, `edit_element`) - both look FIXED;
