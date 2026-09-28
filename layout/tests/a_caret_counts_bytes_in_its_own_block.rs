@@ -317,6 +317,22 @@ fn ctrl_d_in_a_list_item_selects_the_next_occurrence() {
     );
 }
 
+#[test]
+fn a_line_per_caret_pastes_into_a_list_items_text() {
+    let mut lw = list_item("alpha");
+    caret_in_the_item(&mut lw, 1);
+    let _ = lw
+        .text_edit_manager
+        .multi_cursor
+        .as_mut()
+        .expect("a session is open")
+        .add_cursor(caret(1, 3, CursorAffinity::Leading));
+
+    assert!(lw.paste_one_line_per_caret("X\nY"));
+
+    assert_eq!(text_of(&lw, ITEM), "aXlpYha");
+}
+
 // ---------------------------------------------------------------------------
 // A second seat's keys, in a host with paragraphs
 // ---------------------------------------------------------------------------
