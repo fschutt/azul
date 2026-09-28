@@ -20015,3 +20015,90 @@ mod dom_id_envelope_tests {
         );
     }
 }
+
+/// `get_selection_state` reports where a selection's ends ARE. Cmd+A over
+/// "hello world" read `end: 10`: the start byte of the LAST cluster, whose
+/// `Trailing` affinity puts the caret after it - byte 11, all eleven
+/// characters. A script comparing that with the text's length read a
+/// select-all as one character short.
+#[cfg(all(test, feature = "std"))]
+mod selection_state_tests {
+    use azul_core::{
+        dom::{Dom, DomId, DomNodeId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        selection::{CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::selection_range_info;
+
+    fn at(byte: u32, affinity: CursorAffinity) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity,
+        }
+    }
+
+    /// `body(0) > div[contenteditable](1) > "hello world"(2)`
+    fn field() -> LayoutWindow {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello world",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str("body { font-size: 14px; }");
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        lw
+    }
+
+    #[test]
+    fn a_select_all_range_reports_the_byte_after_its_last_character() {
+        let lw = field();
+        let block = lw
+            .text_block_of(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            })
+            .expect("the field is a text block");
+        // Cmd+A's range: Leading on the first cluster, Trailing on the last.
+        let range = SelectionRange {
+            start: at(0, CursorAffinity::Leading),
+            end: at(10, CursorAffinity::Trailing),
+        };
+
+        let info = selection_range_info(&lw, block, &Selection::Range(range));
+
+        assert_eq!(info.start, Some(0));
+        assert_eq!(
+            info.end,
+            Some(11),
+            "Trailing on the last character (byte 10) is after it"
+        );
+
+        let caret = selection_range_info(
+            &lw,
+            block,
+            &Selection::Cursor(at(10, CursorAffinity::Trailing)),
+        );
+        assert_eq!(caret.cursor_position, Some(11));
+    }
+}
