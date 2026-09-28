@@ -6098,4 +6098,126 @@ mod tests {
             "with the ring it had when the popup opened"
         );
     }
+
+    /// The first node whose classes contain `needle`, in the root dom.
+    fn node_with_class(runner: &Runner, needle: &str) -> DomNodeId {
+        let lr = runner
+            .layout_window
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("root laid out");
+        let idx = lr
+            .styled_dom
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| format!("{:?}", n.get_ids_and_classes()).contains(needle))
+            .unwrap_or_else(|| panic!("no node with class {needle}"));
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    /// One key down and up through `ModifyWindowState`, as the `key_down` /
+    /// `key_up` ops drive it.
+    fn tap_key(runner: &mut Runner, key: VirtualKeyCode, held: &[VirtualKeyCode]) {
+        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        let mut state = runner.window_state.clone();
+        state.keyboard_state.current_virtual_keycode = Some(key).into();
+        state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed);
+        state.keyboard_state.sync_modifiers();
+        let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+        let mut state = runner.window_state.clone();
+        state.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::None;
+        state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
+        state.keyboard_state.sync_modifiers();
+        let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    }
+
+    /// USER RULING (open question 2), the runner half: Escape CLOSES a
+    /// picker the widget opened (no colour restore) and focus - with its
+    /// ring - stays on the swatch, so the next Tab continues from it. The
+    /// runner had no Escape dismissal at all: the key ran the default
+    /// `ClearFocus`, and the next Tab restarted from the FIRST stop.
+    #[test]
+    fn escape_closes_a_widget_opened_picker_and_tab_continues_from_its_swatch() {
+        use azul_core::dom::{IdOrClass, TabIndex};
+        use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+        let stop = |class: &str| {
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    class,
+                ));
+            d.set_tab_index(TabIndex::Auto);
+            d
+        };
+        let mut dom = Dom::create_body()
+            .with_child(stop("stop-before"))
+            .with_child(ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom())
+            .with_child(stop("stop-after"));
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "escape_closes_the_picker",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "key_up", "key": "Tab" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "key_up", "key": "Tab" },
+                { "op": "key_down", "key": "Space" },
+                { "op": "key_up", "key": "Space" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let swatch = node_with_class(&runner, "native_color_input");
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(swatch),
+            "premise: two Tabs reached the swatch"
+        );
+        assert_eq!(
+            runner.layout_window.transient_windows.forced_open_nodes().len(),
+            1,
+            "premise: Space opened the picker"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::Escape, &[]);
+        assert!(
+            runner
+                .layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .is_empty(),
+            "Escape closed the picker"
+        );
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(swatch),
+            "focus stays on the swatch"
+        );
+        assert!(
+            runner.layout_window.focus_manager.focus_is_visible,
+            "as KEYBOARD focus, ringed"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::Tab, &[]);
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(node_with_class(&runner, "stop-after")),
+            "Tab continues from the swatch to the stop after it"
+        );
+    }
 }
