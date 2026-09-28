@@ -3238,3 +3238,55 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+mod layout_callback_locale_tests {
+    use super::*;
+
+    /// `layout()`'s ICU helpers format for the ACTIVE locale - the one the
+    /// app chose with `CallbackInfo::set_locale` - and declare exactly that
+    /// dependency, so a locale change rebuilds the DOM they formatted.
+    #[test]
+    fn layout_icu_formatting_follows_the_active_locale_and_declares_it() {
+        use azul_core::callbacks::{
+            take_recorded_style_dependencies, LayoutCallbackInfoRefData, TextDirection,
+        };
+
+        let images = azul_core::resources::ImageCache::default();
+        let gl = azul_core::gl::OptionGlContextPtr::None;
+        let fonts = rust_fontconfig::FcFontCache::default();
+        let mut style = azul_css::system::SystemStyle::default();
+        style.language = azul_css::system::SystemLanguage::new("en-US", false);
+        // The window's active locale: the app chose German.
+        let active = AzString::from("de-DE");
+        let ref_data = LayoutCallbackInfoRefData {
+            locale: &active,
+            accessed_locale: core::cell::Cell::new(false),
+            accessed_text_direction: core::cell::Cell::new(false),
+            text_direction: TextDirection::LeftToRight,
+            image_cache: &images,
+            gl_context: &gl,
+            system_fonts: &fonts,
+            system_style: std::sync::Arc::new(style),
+            active_route: None,
+            monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
+            safe_area: azul_css::system::SafeAreaInsets::default(),
+        };
+        let info = LayoutCallbackInfo::new(
+            &ref_data,
+            azul_core::window::WindowSize::default(),
+            azul_core::window::WindowTheme::LightMode,
+        );
+        let _ = take_recorded_style_dependencies();
+
+        assert_eq!(info.icu_get_locale().as_str(), "de-DE", "the active locale, not the system's");
+        assert!(
+            ref_data.accessed_locale.get(),
+            "formatting for the locale makes the DOM depend on the locale"
+        );
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "...and not on every facet of the OS style (a theme switch would rebuild it)"
+        );
+    }
+}
