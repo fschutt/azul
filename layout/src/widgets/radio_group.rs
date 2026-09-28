@@ -628,7 +628,7 @@ mod autotest_generated {
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
         props::basic::{length::SizeMetric, pixel::PixelValue},
@@ -642,6 +642,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -2232,5 +2233,202 @@ mod autotest_generated {
                 "click #{click}: the pushed opacities disagree with the stored index",
             );
         }
+    }
+
+    // ==================================================================
+    // Roving tabindex (WAI-ARIA APG radio group, P2-12)
+    // ==================================================================
+
+    /// A plain tab stop, the group, another plain tab stop - the smallest page
+    /// on which "Tab leaves the group" means anything. Flattened: root 0,
+    /// before 1, group 2, option row `i` at `3 + 5 * i`, after at `3 + 5 * n`.
+    /// Also hands back the group's shared state.
+    fn page(rg: RadioGroup) -> (StyledDom, RefAny) {
+        let dom = rg.dom();
+        let state = row_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_before() -> DomNodeId {
+        node(1)
+    }
+
+    fn page_row(i: usize) -> DomNodeId {
+        node(3 + 5 * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        node(3 + 5 * n)
+    }
+
+    /// Presses `key` on option `row` of `page`; panics when the row has no key
+    /// handler at all - the state of every radio before P2-12.
+    fn press_row(
+        styled: &StyledDom,
+        row: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_row(row), key, held)
+            .expect("every radio must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_the_group_lands_on_the_checked_radio_and_the_next_tab_leaves() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(1), page_after(3)],
+            "the group is ONE tab stop: the checked radio, then out",
+        );
+    }
+
+    #[test]
+    fn shift_tab_from_the_item_after_the_group_lands_on_the_checked_radio_and_then_leaves() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_row(1), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_no_option_checked_the_first_radio_is_the_tab_stop() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(usize::MAX));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(0), page_after(3)],
+        );
+    }
+
+    #[test]
+    fn arrow_down_on_a_radio_checks_and_focuses_the_next_one() {
+        let (styled, state) = page(group(&["a", "b", "c"]));
+        let mut probe = state.clone();
+
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+
+        assert_eq!(
+            selected_index_of(&mut probe),
+            1,
+            "Down must CHECK the next radio"
+        );
+        assert_eq!(rv::focus_request(&changes), Some(page_row(1)));
+        assert!(
+            rv::prevented(&changes),
+            "a handled arrow must cancel spatial navigation"
+        );
+        let lit: Vec<f32> = pushed_opacities(&changes)
+            .iter()
+            .map(|(_, o)| *o)
+            .collect();
+        assert_eq!(lit, vec![0.0, 1.0, 0.0], "the dots follow the check");
+    }
+
+    #[test]
+    fn arrows_move_the_check_both_ways_and_wrap_around() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (checked, key, then checked) - Right/Down forward, Left/Up back.
+        for (from, key, to) in [
+            (0, K::Right, 1),
+            (1, K::Up, 0),
+            (1, K::Left, 0),
+            (2, K::Down, 0),
+            (2, K::Right, 0),
+            (0, K::Up, 2),
+            (0, K::Left, 2),
+        ] {
+            let (styled, state) = page(group(&["a", "b", "c"]).with_selected_index(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                to,
+                "{key:?} on radio {from} must check radio {to}",
+            );
+            assert_eq!(rv::focus_request(&changes), Some(page_row(to)));
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_group_is_still_one_tab_stop_on_the_newly_checked_radio() {
+        let (mut styled, _) = page(group(&["a", "b", "c"]));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(1), page_after(3)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_row(1)), false, 1),
+            vec![page_before()],
+            "Shift+Tab from the new radio must leave the group, not walk back to the old one",
+        );
+    }
+
+    #[test]
+    fn the_user_callback_hears_a_check_made_with_the_arrow_keys() {
+        let mut log = log_refany();
+        let (styled, _) =
+            page(group(&["a", "b", "c"]).with_on_change(log.clone(), change_cb(record_change)));
+        let (update, _) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(log_indices(&mut log), vec![1]);
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the callback's verdict is forwarded"
+        );
+    }
+
+    #[test]
+    fn a_modified_arrow_on_a_radio_is_left_to_the_os_and_the_app() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for held in [K::LAlt, K::LControl, K::LWin, K::LShift] {
+            let (styled, state) = page(group(&["a", "b", "c"]));
+            let mut probe = state.clone();
+            let (update, changes) = press_row(&styled, 0, K::Down, &[held]);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                0,
+                "{held:?}+Down changed the check"
+            );
+            assert!(
+                changes.is_empty(),
+                "{held:?}+Down must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_key_the_group_does_not_use_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for key in [K::Tab, K::Escape, K::A, K::Home] {
+            let (styled, _) = page(group(&["a", "b", "c"]));
+            let (_, changes) = press_row(&styled, 0, key, &[]);
+            assert!(
+                changes.is_empty(),
+                "{key:?} must keep its default: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_a_radio_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(group(&["a", "b", "c"]));
+        let (_, changes) = run_click(Some(styled.clone()), row_node(2), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, None, true, 2),
+            vec![row_node(2), row_node(2)],
+            "after the click the clicked radio is the group's only stop",
+        );
     }
 }
