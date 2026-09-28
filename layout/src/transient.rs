@@ -85,7 +85,22 @@ impl TransientPlacement {
             TransientAnchor::Left => LogicalPosition::new(a.origin.x - size.width, a.origin.y),
             TransientAnchor::Right => LogicalPosition::new(a.origin.x + a.size.width, a.origin.y),
             TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
+            // Not yet special: placed like `Bottom`.
+            TransientAnchor::Viewport => {
+                LogicalPosition::new(a.origin.x, a.origin.y + a.size.height)
+            }
         }
+    }
+
+    /// For an `anchor="viewport"` placement, the placement that covers a
+    /// parent viewport of `viewport` size: anchored to the whole viewport and
+    /// sized to it. Any other placement is returned unchanged. The shell
+    /// applies this to every placement it collects, with the parent window's
+    /// current size, so a parent resize resizes the window.
+    #[must_use]
+    pub fn cover_viewport(self, viewport: LogicalSize) -> Self {
+        let _ = viewport;
+        self
     }
 
     /// [`Self::resolve`], then keep the popup inside `bounds` — a rect in the
@@ -438,6 +453,45 @@ mod tests {
         let monitor = rect(-300.0, -200.0, 1920.0, 1080.0);
         let p = mk(TransientAnchor::Bottom, 550.0).resolve_within(size, None, monitor);
         assert_eq!(p.y, 570.0, "room on the screen below the window: no flip");
+    }
+
+    /// `anchor="viewport"`, the modal dialog's top layer: the window covers
+    /// the PARENT's whole viewport - its origin the parent's (0,0) and its
+    /// size the viewport's, whatever the anchor node's own rect - so its
+    /// content (the `::backdrop` and the centred dialog) is laid out at that
+    /// size, and a parent resize resizes it.
+    #[test]
+    fn a_viewport_placement_covers_the_parent_window() {
+        let cfg = TransientWindowConfig::opened().with_anchor(TransientAnchor::Viewport);
+        let p = placement_for(NodeId::new(3), rect(120.0, 80.0, 40.0, 20.0), &cfg)
+            .cover_viewport(LogicalSize::new(800.0, 600.0));
+        assert_eq!(
+            p.anchor_rect,
+            rect(0.0, 0.0, 800.0, 600.0),
+            "anchored to the whole viewport, not to the anchor node"
+        );
+        assert!(
+            matches!(p.size, OptionLogicalSize::Some(s) if s.width == 800.0 && s.height == 600.0),
+            "laid out at the viewport's size, got {:?}",
+            p.size
+        );
+        let size = LogicalSize::new(800.0, 600.0);
+        assert_eq!(p.resolve(size, None), LogicalPosition::new(0.0, 0.0));
+        // Not slid around by a monitor work area the window hangs out of.
+        let monitor = rect(-100.0, -50.0, 850.0, 620.0);
+        assert_eq!(
+            p.resolve_within(size, None, monitor),
+            LogicalPosition::new(0.0, 0.0),
+            "the cover sits exactly on its parent"
+        );
+
+        // Any other anchor is left alone.
+        let below = placement_for(
+            NodeId::new(3),
+            rect(120.0, 80.0, 40.0, 20.0),
+            &TransientWindowConfig::opened(),
+        );
+        assert_eq!(below.cover_viewport(LogicalSize::new(800.0, 600.0)), below);
     }
 
     /// Placement arithmetic: the popup's top-left for each edge.

@@ -54,6 +54,13 @@ pub enum TransientAnchor {
     /// At the pointer position rather than the anchor rect - what a context
     /// menu does.
     Cursor,
+    /// Covering the parent window's whole viewport, whatever the anchor
+    /// node's own rect: the window's origin is the parent's (0,0) and its
+    /// content is laid out at the viewport's size, following the parent as
+    /// it is resized. The TOP LAYER of a modal dialog - its `::backdrop`
+    /// fills the window and the dialog sits centred on it, so nothing in
+    /// the parent can be reached by the pointer while it is open.
+    Viewport,
 }
 
 /// What closes a transient window without the app asking.
@@ -354,6 +361,7 @@ impl TransientAnchor {
             Self::Left => "left",
             Self::Right => "right",
             Self::Cursor => "cursor",
+            Self::Viewport => "viewport",
         }
     }
 
@@ -367,6 +375,7 @@ impl TransientAnchor {
             "left" => Self::Left,
             "right" => Self::Right,
             "cursor" => Self::Cursor,
+            "viewport" => Self::Viewport,
             _ => Self::Bottom,
         }
     }
@@ -423,6 +432,7 @@ mod tests {
             TransientAnchor::Left,
             TransientAnchor::Right,
             TransientAnchor::Cursor,
+            TransientAnchor::Viewport,
         ] {
             assert_eq!(TransientAnchor::parse(a.as_str()), a);
         }
