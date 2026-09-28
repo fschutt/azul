@@ -1686,6 +1686,37 @@ pub struct SelectionRangeInfo {
     pub direction: Option<String>,
 }
 
+/// One selection of the editing session in `block`, as `get_selection_state`
+/// reports it.
+#[cfg(feature = "std")]
+fn selection_range_info(
+    _lw: &azul_layout::window::LayoutWindow,
+    _block: azul_core::selection::TextBlock,
+    selection: &azul_core::selection::Selection,
+) -> SelectionRangeInfo {
+    use azul_core::selection::Selection;
+    match selection {
+        Selection::Cursor(cursor) => SelectionRangeInfo {
+            selection_type: "cursor".to_string(),
+            cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
+            start: None,
+            end: None,
+            direction: None,
+        },
+        Selection::Range(range) => {
+            let sp = range.start.cluster_id.start_byte_in_run as usize;
+            let ep = range.end.cluster_id.start_byte_in_run as usize;
+            SelectionRangeInfo {
+                selection_type: "range".to_string(),
+                cursor_position: None,
+                start: Some(sp),
+                end: Some(ep),
+                direction: Some(if sp <= ep { "forward" } else { "backward" }.to_string()),
+            }
+        }
+    }
+}
+
 /// JSON-serializable LogicalSize
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -16805,33 +16836,11 @@ pub fn process_debug_event(
                 let dom_id = mc.block.dom();
                 let node_id = Some(mc.block.container().index() as u64);
                 let selector = build_selector_for_node(callback_info, dom_id, mc.block.container());
-                let mut ranges = Vec::new();
-                for s in &mc.selections {
-                    use azul_core::selection::Selection;
-                    let range_info = match &s.selection {
-                        Selection::Cursor(cursor) => SelectionRangeInfo {
-                            selection_type: "cursor".to_string(),
-                            cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
-                            start: None,
-                            end: None,
-                            direction: None,
-                        },
-                        Selection::Range(range) => {
-                            let sp = range.start.cluster_id.start_byte_in_run as usize;
-                            let ep = range.end.cluster_id.start_byte_in_run as usize;
-                            SelectionRangeInfo {
-                                selection_type: "range".to_string(),
-                                cursor_position: None,
-                                start: Some(sp),
-                                end: Some(ep),
-                                direction: Some(
-                                    if sp <= ep { "forward" } else { "backward" }.to_string(),
-                                ),
-                            }
-                        }
-                    };
-                    ranges.push(range_info);
-                }
+                let ranges = mc
+                    .selections
+                    .iter()
+                    .map(|s| selection_range_info(layout_window, mc.block, &s.selection))
+                    .collect();
                 selections.push(DomSelectionInfo {
                     dom_id: dom_id.inner as u32,
                     node_id,
