@@ -69,14 +69,24 @@ fn strs(items: &[&str]) -> Vec<azul::str::String> {
 // `system:separator`. The face is the platform's UI font (`system:ui`), and
 // the titlebar's is its bold title face (`system:title:bold`).
 
+/// A caption above `widget`, which also becomes the widget's accessible name.
+/// For a control whose ROOT is the control and that has no name of its own.
 fn labelled(label: &str, widget: Dom) -> Dom {
+    captioned(label, widget.with_accessibility_name(label))
+}
+
+/// A caption above `content`, leaving its accessibility alone: for a control
+/// that already has a name (its own text, or `.with_accessibility_name` on
+/// its builder - which reaches the node that carries the role, where a name
+/// patched onto the root may not), and for content that is not one control.
+fn captioned(label: &str, content: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
         .with_child(Dom::create_span_with_text(label).with_css(
             "font-size: 12px; font-weight: bold; color: system:secondary-text; \
              margin-bottom: 6px;",
         ))
-        .with_child(widget.with_accessibility_name(label))
+        .with_child(content)
 }
 
 fn section(title: &str, items: Vec<Dom>) -> Dom {
@@ -87,8 +97,11 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
                  system:window-background; border-radius: 10px; padding: 18px; margin-bottom: \
                  20px;",
             )
-            .with_child(Dom::create_div_with_text(title).with_css(
-                "font-size: 18px; font-weight: bold; color: system:text; margin-bottom: 14px;",
+            // A section title is a heading (the UA gives h2 a top margin;
+            // the card's padding is the spacing here).
+            .with_child(Dom::create_h2_with_text(title).with_css(
+                "font-size: 18px; font-weight: bold; color: system:text; margin-top: 0px; \
+                 margin-bottom: 14px;",
             ));
     for it in items {
         col = col.with_child(it);
@@ -493,25 +506,27 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     )
                     .dom(),
             ),
-            labelled(
+            captioned(
                 "ColorInput",
                 ColorInput::create(s.color)
                     .with_accessibility_name("Accent colour")
                     .with_on_value_change(data.clone(), on_color)
                     .dom(),
             ),
-            labelled(
+            captioned(
                 "Slider",
                 Slider::create(s.slider_value, 0.0, 100.0)
+                    .with_accessibility_name("Slider")
                     .with_on_value_change(
                         data.clone(),
                         on_slider,
                     )
                     .dom(),
             ),
-            labelled(
+            captioned(
                 "Switch",
                 Switch::create(s.switch_on)
+                    .with_accessibility_name("Switch")
                     .with_on_toggle(
                         data.clone(),
                         on_switch,
@@ -524,15 +539,17 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let selection = section(
         "Selection",
         vec![
-            labelled(
+            captioned(
                 "CheckBox",
                 CheckBox::create(s.checkbox_checked)
+                    .with_accessibility_name("CheckBox")
                     .with_on_toggle(data.clone(), on_checkbox)
                     .dom(),
             ),
-            labelled(
+            captioned(
                 "RadioGroup",
                 RadioGroup::create(strs(&["Option A", "Option B", "Option C"]))
+                    .with_accessibility_name("RadioGroup")
                     .with_selected_index(s.selected_radio)
                     .with_on_change(
                         data.clone(),
@@ -623,14 +640,15 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "Card",
-                Card::create(Dom::create_div_with_text("Card body content"))
+                Card::create(Dom::create_p_with_text("Card body content").with_css("margin: 0px;"))
                     .with_flex_grow(0.0)
                     .dom(),
             ),
             labelled("Divider", Divider::create().dom()),
-            labelled(
+            captioned(
                 "ProgressBar",
                 ProgressBar::create(s.progress)
+                    .with_accessibility_name("ProgressBar")
                     .dom()
                     .with_css("width: 240px;"),
             ),
@@ -662,13 +680,17 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     )
                     .dom(),
             ),
-            labelled(
+            // The wrapper only listens for the hover that shows the tip; the
+            // button inside is the control, named by its own text.
+            captioned(
                 "Tooltip (hover the button)",
                 Tooltip::create(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
             ),
             labelled(
                 "Modal (starts closed)",
-                Modal::create(Dom::create_div_with_text("Modal body goes here."))
+                Modal::create(
+                    Dom::create_p_with_text("Modal body goes here.").with_css("margin: 0px;"),
+                )
                     .with_title("Example dialog")
                     .with_open(false)
                     .with_close_button(true)
@@ -732,12 +754,14 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Accordion::create_with_sections(vec![
                     AccordionSection {
                         title: "What is Azul?".into(),
-                        content: Dom::create_div_with_text("A cross-platform Rust GUI framework."),
+                        content: Dom::create_p_with_text("A cross-platform Rust GUI framework.")
+                            .with_css("margin: 0px;"),
                         is_open: s.accordion_open.first().copied().unwrap_or(true),
                     },
                     AccordionSection {
                         title: "How do widgets work?".into(),
-                        content: Dom::create_div_with_text("Each widget builds a styled Dom."),
+                        content: Dom::create_p_with_text("Each widget builds a styled Dom.")
+                            .with_css("margin: 0px;"),
                         is_open: s.accordion_open.get(1).copied().unwrap_or(false),
                     },
                 ])
@@ -757,7 +781,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "Popover (starts closed)",
                 Popover::create(
                     Button::create("Open popover").dom(),
-                    Dom::create_div_with_text("Popover content"),
+                    Dom::create_p_with_text("Popover content").with_css("margin: 0px;"),
                 )
                 .with_open(false)
                 .with_on_toggle(
@@ -770,8 +794,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "SplitPane",
                 SplitPane::create(
                     SplitDirection::Horizontal,
-                    Dom::create_div_with_text("Left pane"),
-                    Dom::create_div_with_text("Right pane"),
+                    Dom::create_p_with_text("Left pane").with_css("margin: 0px;"),
+                    Dom::create_p_with_text("Right pane").with_css("margin: 0px;"),
                 )
                 .with_ratio(0.5)
                 .with_on_resize(
@@ -810,10 +834,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    let heading = Dom::create_div_with_text("Azul Widget Showcase").with_css(
-        "font-size: 26px; font-weight: bold; color: system:text; margin-bottom: 4px;",
+    let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
+        "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
+         margin-bottom: 4px;",
     );
-    let subtitle = Dom::create_div_with_text(
+    let subtitle = Dom::create_p_with_text(
         format!(
             "Every built-in widget (callbacks fired so far: {})",
             s.interactions
@@ -821,7 +846,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .as_str(),
     )
     .with_css(
-        "font-size: 13px; color: system:secondary-text; margin-bottom: 20px;",
+        "font-size: 13px; color: system:secondary-text; margin-top: 0px; margin-bottom: 20px;",
     );
 
     // The bar this window draws under `WindowDecorations::NoTitle`, matched to
@@ -841,13 +866,13 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
              user-select: none; -azul-app-region: drag;",
         )
         .with_child(
-            Dom::create_div_with_text("Azul Widget Showcase").with_css(
+            Dom::create_span_with_text("Azul Widget Showcase").with_css(
                 "font-family: system:title:bold; font-size: 13px; color: system:text; \
                  flex-grow: 1; flex-basis: 0px; min-width: 0px; text-align: center; \
                  white-space: nowrap; overflow: hidden;",
             ),
         )
-        .with_child(Dom::create_div_with_text("custom titlebar").with_css(
+        .with_child(Dom::create_span_with_text("custom titlebar").with_css(
             "position: absolute; top: 0px; right: 12px; line-height: 28px; \
              font-size: 11px; color: system:tertiary-text; -azul-app-region: no-drag;",
         ));

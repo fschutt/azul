@@ -20,7 +20,7 @@ use azul::{
     window::PlatformCapability,
 };
 
-use super::{labelled, section, Showcase};
+use super::{captioned, labelled, section, Showcase};
 
 /// What the section shows; lives in `Showcase::hotkey`.
 #[derive(Clone, Default)]
@@ -176,7 +176,8 @@ pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo) -> Dom {
         "Global hotkey",
         vec![
             labelled("Capability", text(capability_line)),
-            labelled("Registration", button),
+            // The button is named by its own text ("Register Cmd+Shift+K").
+            captioned("Registration", button),
             labelled("Status", text(status_line)),
             labelled(
                 "Fired",

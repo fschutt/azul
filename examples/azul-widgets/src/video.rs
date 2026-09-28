@@ -12,7 +12,7 @@
 //! widget passes the change on to its decoder when it is rebuilt.
 
 use azul::{
-    dom::{OnVideoStatusCallback, TabIndex, VirtualKeyCode},
+    dom::{AccessibilityInfo, AccessibilityRole, OnVideoStatusCallback, TabIndex, VirtualKeyCode},
     image::RawImageFormat,
     option::{OptionCursorNodePosition, OptionLogicalRect, OptionVirtualKeyCode},
     prelude::*,
@@ -55,7 +55,8 @@ const NOTE_CSS: &str =
      12px 16px; border-radius: 8px; background-color: system:window-background;";
 const NOTE_TITLE_CSS: &str =
     "font-size: 14px; font-weight: bold; color: system:text; margin-bottom: 4px;";
-const NOTE_DETAIL_CSS: &str = "font-size: 12px; color: system:secondary-text; text-align: center;";
+const NOTE_DETAIL_CSS: &str =
+    "font-size: 12px; color: system:secondary-text; text-align: center; margin: 0px;";
 /// The row under the video: play/pause, the time, the seek bar.
 const CONTROLS_CSS: &str =
     "display: flex; flex-direction: row; align-items: center; gap: 10px; width: 480px; \
@@ -187,10 +188,15 @@ pub fn card(state: &RefAny) -> Dom {
     // this file carries a placeholder (the theme check parses them all).
     let played = format!("{:.2}", progress(&status) * 100.0);
     let fill_css = [FILL_CSS, " width: ", played.as_str(), "%;"].concat();
+    // A seek bar IS a slider (the arrow keys move it), and its value is the
+    // position a screen reader reads out.
     let mut seek_bar = Dom::create_div()
         .with_css(SEEK_CSS)
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name("Seek")
+        .with_accessibility_info(
+            AccessibilityInfo::named("Seek", AccessibilityRole::Slider)
+                .with_value(time_text(&status)),
+        )
         .with_child(
             Dom::create_div()
                 .with_css(TRACK_CSS)
@@ -238,8 +244,8 @@ fn badge(icon: &str) -> Dom {
 fn note(title: &str, detail: &str) -> Dom {
     Dom::create_div()
         .with_css(NOTE_CSS)
-        .with_child(Dom::create_div_with_text(title).with_css(NOTE_TITLE_CSS))
-        .with_child(Dom::create_div_with_text(detail).with_css(NOTE_DETAIL_CSS))
+        .with_child(Dom::create_span_with_text(title).with_css(NOTE_TITLE_CSS))
+        .with_child(Dom::create_p_with_text(detail).with_css(NOTE_DETAIL_CSS))
 }
 
 /// How far through the video the position is, `0.0..=1.0`; `0.0` while the
