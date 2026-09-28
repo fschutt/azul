@@ -3957,7 +3957,7 @@ extern "C" fn keyboard_enter_handler(
     data: *mut c_void,
     keyboard: *mut wl_keyboard,
     _serial: u32,
-    _surface: *mut wl_surface,
+    surface: *mut wl_surface,
     keys: *mut c_void,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -3967,6 +3967,21 @@ extern "C" fn keyboard_enter_handler(
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
         window.handle_seat_keyboard_enter(seat_id, &held);
         return;
+    }
+    // P1-9: the keyboard entering the POPUP's surface (its `xdg_popup` grab)
+    // is not the parent coming back: the parent stays inactive - its leave
+    // already ran - while the popup holds the keyboard, as on macOS / Win32.
+    // The keys still arrive here and `handle_key` forwards them to the popup.
+    {
+        use crate::desktop::shell2::common::transient::{
+            keyboard_focus_surface, KeyboardFocusSurface,
+        };
+        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
+            == KeyboardFocusSurface::Popup
+        {
+            return;
+        }
     }
     window.handle_keyboard_enter(&held);
 }
@@ -3998,13 +4013,31 @@ extern "C" fn keyboard_leave_handler(
     data: *mut c_void,
     keyboard: *mut wl_keyboard,
     _serial: u32,
-    _surface: *mut wl_surface,
+    surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
         window.handle_seat_keyboard_leave(seat_id);
         return;
+    }
+    // P1-9: the keyboard leaving the POPUP's surface is the popup's focus
+    // loss (the user went to another app while it was open), not the
+    // parent's - the parent went inactive when the popup took the keyboard.
+    {
+        use crate::desktop::shell2::common::transient::{
+            keyboard_focus_surface, KeyboardFocusSurface,
+        };
+        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
+            == KeyboardFocusSurface::Popup
+        {
+            if let Some(popup) = window.active_popup.as_mut() {
+                popup.keyboard_left();
+            }
+            window.drive_active_popup();
+            return;
+        }
     }
     window.handle_keyboard_leave();
 }

@@ -1262,22 +1262,44 @@ pub enum KeyboardFocusSurface {
 }
 
 /// Route a Wayland keyboard enter / leave by its surface. `surface`,
-/// `parent` and `popup` are the `wl_surface` addresses.
+/// `parent` and `popup` are the `wl_surface` addresses (`popup` is `None`
+/// while no popup is open).
+///
+/// The listener used to ignore the surface, so the popup taking the
+/// keyboard read as leave(parent) + enter(parent) and the parent flickered
+/// back to ACTIVE while the popup held the keyboard. Routed, the parent
+/// stays inactive until the keyboard enters its own surface again - the
+/// macOS / Win32 behaviour, which is what the focus ring and `:backdrop`
+/// follow.
 #[must_use]
 pub fn keyboard_focus_surface(
-    _surface: usize,
-    _parent: usize,
-    _popup: Option<usize>,
+    surface: usize,
+    parent: usize,
+    popup: Option<usize>,
 ) -> KeyboardFocusSurface {
-    // Every enter / leave counts as the parent's.
-    KeyboardFocusSurface::Parent
+    if surface == 0 {
+        KeyboardFocusSurface::Other
+    } else if popup == Some(surface) {
+        KeyboardFocusSurface::Popup
+    } else if surface == parent {
+        KeyboardFocusSurface::Parent
+    } else {
+        KeyboardFocusSurface::Other
+    }
 }
 
 /// The serial an `xdg_popup.grab` must carry: the one of the input event
-/// that opened the popup.
+/// that opened the popup. `last_input_serial` is the latest key OR button
+/// serial - a keyboard-opened picker's is the key's; the pointer's own
+/// serial can be an `enter` serial, which a strict compositor (Mutter)
+/// answers by dismissing the popup at once. `0` = no input seen yet.
 #[must_use]
-pub const fn popup_grab_serial(_last_input_serial: u32, pointer_serial: u32) -> u32 {
-    pointer_serial
+pub const fn popup_grab_serial(last_input_serial: u32, pointer_serial: u32) -> u32 {
+    if last_input_serial != 0 {
+        last_input_serial
+    } else {
+        pointer_serial
+    }
 }
 
 #[cfg(test)]

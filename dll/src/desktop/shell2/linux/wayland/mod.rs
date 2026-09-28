@@ -9682,9 +9682,16 @@ impl WaylandPopup {
             );
         }
 
-        // 9. Grab pointer for exclusive input (using parent's last serial)
+        // 9. Grab pointer for exclusive input, with the serial of the input
+        //    that opened the popup (a keyboard-opened picker's is the KEY's;
+        //    the pointer's own may be an enter serial a strict compositor
+        //    rejects by dismissing the popup at once).
+        let grab_serial = crate::desktop::shell2::common::transient::popup_grab_serial(
+            parent.last_input_serial,
+            parent.pointer_state.serial,
+        );
         unsafe {
-            (wayland.xdg_popup_grab)(xdg_popup, parent.seat, parent.pointer_state.serial);
+            (wayland.xdg_popup_grab)(xdg_popup, parent.seat, grab_serial);
         }
 
         // 10. Commit surface to make popup visible
@@ -10253,6 +10260,20 @@ impl WaylandPopup {
                 lw.record_text_input(t);
             }
         }
+        let r = self.process_window_events(0);
+        self.apply_event_result(r);
+    }
+
+    /// The keyboard LEFT this popup's surface (`wl_keyboard.leave` routed by
+    /// surface, P1-9): the user went to another app while it was open. The
+    /// popup sees its own focus loss, as on every other backend, so an
+    /// `outside`-dismissable one closes itself - the parent's drive loop
+    /// then services the close.
+    pub fn keyboard_left(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
+        self.snapshot_window_state_baseline("wayland.popup.keyboard_leave");
+        self.common
+            .update_unsynced_state(|ws| ws.window_focused = false);
         let r = self.process_window_events(0);
         self.apply_event_result(r);
     }
