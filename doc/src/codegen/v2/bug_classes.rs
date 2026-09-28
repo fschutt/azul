@@ -185,6 +185,46 @@ fn vec_category_is_exactly_the_vec_layout() {
 
 /// S3: `TypeCategory::VecRef` is exactly the set of borrowed slices: a
 /// `*VecRef` / `*VecRefMut` struct of a `ptr` pointer and a `len`.
+/// The FFI Vec layout grew a fifth field, `flags: u8` (bit 0 marks an
+/// `AzString` as a Fluent translation key; `impl_vec!` gives the byte to
+/// every Vec type). Nine emitters recognised a Vec by `fields.len() != 4`,
+/// while the IR builder, the C++ emitter, Lua and the conformance planner
+/// were switched to `== 5` - so in every one of those places either the old
+/// layout or the new one is no Vec, and a binding that does not recognise a
+/// Vec silently loses its iterator, array and length helpers. Every emitter
+/// asks ONE rule instead: `ir::is_vec_field_count`.
+#[test]
+fn emitters_recognise_a_vec_through_the_shared_field_count_rule() {
+    let v2 = repo_root().join("doc/src/codegen/v2");
+    let mut offenders = Vec::new();
+    for entry in walkdir::WalkDir::new(&v2).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.extension().is_some_and(|x| x == "rs") || path.ends_with("bug_classes.rs") {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for (i, line) in src.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            let counts_fields = ["len() != 4", "len() == 4", "len() != 5", "len() == 5"]
+                .iter()
+                .any(|pattern| code.contains(pattern));
+            if counts_fields && code.contains("fields") {
+                let file = path.strip_prefix(&v2).unwrap_or(path).display();
+                offenders.push(format!("{file}:{}: {code}", i + 1));
+            }
+        }
+    }
+    assert_none(
+        "emitter counting Vec fields itself instead of `ir::is_vec_field_count`",
+        offenders,
+    );
+}
+
 #[test]
 fn vecref_category_is_exactly_the_borrowed_slice_layout() {
     let layout: BTreeSet<&str> = classes()
