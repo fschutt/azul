@@ -338,6 +338,58 @@ def check_demo_state_round_trip() -> None:
             )
 
 
+# Widgets in the reference demo that have no text of their own to derive an
+# accessible name from: only the call site knows what each one is called. The
+# widget warns at build time (`warn_widget_needs_a_name`), and a ProgressBar's
+# role node is rendered inside its VirtualView, where a name patched onto the
+# finished Dom never arrives - so the name goes on the BUILDER.
+DEMO_NAMED_WIDGETS = ("Slider", "Switch", "CheckBox", "RadioGroup", "ProgressBar")
+
+
+def check_demo_accessibility() -> None:
+    """The reference demo builds what it teaches, or its launch log says otherwise.
+
+    The runtime lints print on every launch of an unnamed control
+    (`[a11y-widget] Slider was built without an accessible name`) and of a
+    `<div>` whose only child is text (`[div-as-text]`: a label belongs in a
+    span, prose in a p, a section title in a heading). The demo is the page
+    every app is copied from, so it must be silent.
+    """
+    src_dir = ROOT / "examples" / "azul-widgets" / "src"
+    demo = src_dir / "lib.rs"
+    if not demo.is_file():
+        fail("demo-a11y", f"missing demo source {demo}")
+        return
+    src = _strip_rust_comments(demo.read_text(encoding="utf-8", errors="replace"))
+    for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+        name = m.group(1)
+        if name not in DEMO_NAMED_WIDGETS:
+            continue
+        tail = src[m.end(): m.end() + 900]
+        stop = tail.find(".dom()")
+        span = tail if stop == -1 else tail[:stop]
+        if ".with_accessibility_name(" not in span:
+            line = src[: m.start()].count("\n") + 1
+            fail(
+                "demo-a11y",
+                f"{name}::create(...) near line {line} of the AzWidgets demo has "
+                f"no .with_accessibility_name(..) before .dom(). It has no text "
+                f"to derive a name from, so a screen reader announces only its "
+                f"role, and the widget warns about it on every launch.",
+            )
+    for f in sorted(src_dir.glob("*.rs")):
+        text = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
+        for m in re.finditer(r"\bcreate_div_with_text\s*\(", text):
+            line = text[: m.start()].count("\n") + 1
+            fail(
+                "demo-a11y",
+                f"examples/azul-widgets/src/{f.name} near line {line} builds a "
+                f"<div> whose only child is text: use create_span_with_text for a "
+                f"label, create_p_with_text for prose, or a heading for a title "
+                f"(the runtime div-as-text lint reports it on every launch).",
+            )
+
+
 # --------------------------------------------------------------------------
 def check_api_json_parses() -> None:
     try:
@@ -418,6 +470,7 @@ def main() -> int:
     check_widget_wiring()
     check_widget_override_latch()
     check_demo_state_round_trip()
+    check_demo_accessibility()
     check_sparse_checkout()
     check_miri_cache_secrets()
 
@@ -428,7 +481,7 @@ def main() -> int:
         return 1
     print(
         "preflight contracts OK (naming, widget wiring, override latch, "
-        "demo round-trip, sparse checkout, api.json, miri/cache/secrets)"
+        "demo round-trip, demo a11y, sparse checkout, api.json, miri/cache/secrets)"
     )
     return 0
 
