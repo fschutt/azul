@@ -60,9 +60,14 @@ file is deleted in that last commit.
   - b38d2fe34 test: `selection_state_tests` at the end of e2e/full.rs.
   - a17a3b0ea fix: byte offsets via `byte_offset_of_cursor` + `*_affinity`.
 
+- Task 7b (headless step):
+  - 7077ead2a test: two tests before `damage_mouse_move_no_change_is_clean`
+    in dll/src/desktop/shell2/headless/mod.rs (+ `harness_layout_editable`).
+
 ## IN PROGRESS
 
-7b: dll headless test `step()` Scroll/TextInput.
+7b fix: extract `run()`'s TextInput / Scroll arms into HeadlessWindow methods
+(refactor commit), then `step()` calls them (fix commit).
 
 ## NEXT (in order)
 
