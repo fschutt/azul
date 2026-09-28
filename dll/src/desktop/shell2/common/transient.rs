@@ -1075,8 +1075,9 @@ pub enum DismissCause {
 
 /// The popup side: should this input transition dismiss the popup?
 ///
-/// Escape counts for `dismiss=outside` and `dismiss=escape`; focus loss only
-/// for `outside`. `dismiss=none` never dismisses — the app closes it.
+/// Escape counts for `dismiss=outside` and `dismiss=escape`; focus loss for
+/// `outside` and `outside-only` (whose content answers Escape itself).
+/// `dismiss=none` never dismisses — the app closes it.
 #[must_use]
 pub fn popup_dismiss_cause(
     previous: &FullWindowState,
@@ -1122,10 +1123,17 @@ pub fn popup_dismiss_cause(
         .pressed_virtual_keycodes
         .as_ref()
         .contains(&VirtualKeyCode::Escape);
-    if escape_now && !escape_before {
+    // `outside-only`: the content answers Escape (a dialog's cancelable
+    // `cancel` step), so the engine must not spend the key first.
+    if escape_now && !escape_before && policy != TransientDismiss::OutsideOnly {
         return Some(DismissCause::Escape);
     }
-    if policy == TransientDismiss::Outside && previous.window_focused && !current.window_focused {
+    if matches!(
+        policy,
+        TransientDismiss::Outside | TransientDismiss::OutsideOnly
+    ) && previous.window_focused
+        && !current.window_focused
+    {
         return Some(DismissCause::FocusLost);
     }
     None
@@ -1177,7 +1185,14 @@ pub fn dismiss_on_escape(
         .open_windows()
         .iter()
         .filter(|w| !w.is_inline() && w.torn.is_none())
-        .filter(|w| w.placement.dismiss != TransientDismiss::None)
+        // `none` never closes, and `outside-only` leaves Escape to the
+        // content (the forwarded key reaches its handler instead).
+        .filter(|w| {
+            matches!(
+                w.placement.dismiss,
+                TransientDismiss::Outside | TransientDismiss::Escape
+            )
+        })
         .map(|w| w.source_node)
         .collect();
     let mut any = false;
@@ -1232,7 +1247,12 @@ pub fn dismiss_outside_on_press(
         // content, a torn-off palette is a window of its own - a press in
         // the parent is not "outside" either.
         .filter(|w| !w.is_inline() && w.torn.is_none())
-        .filter(|w| w.placement.dismiss == TransientDismiss::Outside && !on_anchor(w))
+        .filter(|w| {
+            matches!(
+                w.placement.dismiss,
+                TransientDismiss::Outside | TransientDismiss::OutsideOnly
+            ) && !on_anchor(w)
+        })
         .map(|w| w.source_node)
         .collect();
     let mut any = false;

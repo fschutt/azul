@@ -857,7 +857,8 @@ impl Runner {
                 .filter(|n| {
                     matches!(
                         nodes.get(*n).map(|nd| nd.get_node_type()),
-                        Some(NodeType::TransientWindow(cfg)) if cfg.dismiss != TransientDismiss::None
+                        Some(NodeType::TransientWindow(cfg))
+                            if matches!(cfg.dismiss, TransientDismiss::Outside | TransientDismiss::Escape)
                     )
                 })
                 .collect()

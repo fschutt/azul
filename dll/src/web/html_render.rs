@@ -1115,16 +1115,18 @@ html, body { width: 100%; height: 100%; }
 "#;
 
 /// Light dismiss for `<transient-window>` on the web: a press outside an open
-/// popup (and outside its anchor, which toggles it itself) or Escape closes
-/// every `dismiss=outside` popup; Escape alone also closes `dismiss=escape`
-/// ones. Mirrors the native engine's rules — see `common::transient`.
+/// popup (and outside its anchor, which toggles it itself) closes every
+/// `dismiss=outside` and `dismiss=outside-only` popup; Escape closes
+/// `dismiss=outside` and `dismiss=escape` ones (an `outside-only` popup's
+/// content answers Escape itself). Mirrors the native engine's rules — see
+/// `common::transient`.
 const TRANSIENT_DISMISS_JS: &str = r#"
 (function(){
   function openPopups(){return Array.prototype.slice.call(document.querySelectorAll('.az-transient-window[data-open="true"]'));}
   function close(el){el.setAttribute('data-open','false');el.style.display='none';el.dispatchEvent(new CustomEvent('az-dismissed',{bubbles:true}));}
   document.addEventListener('pointerdown',function(e){
     openPopups().forEach(function(el){
-      if(el.getAttribute('data-dismiss')!=='outside')return;
+      var dm=el.getAttribute('data-dismiss');if(dm!=='outside'&&dm!=='outside-only')return;
       if(el.contains(e.target))return;
       var anchor=el.parentElement;
       if(anchor&&anchor.contains(e.target)){
