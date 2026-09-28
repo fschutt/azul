@@ -6297,31 +6297,15 @@ fn apply_xml_node_attributes(
             node.set_node_type(NodeType::Text(BoxOrStatic::heap(localizable_text)));
 
             // Collect data-l10n-* arguments.
-            let mut fluent_args: Vec<crate::dom::FluentArgKV> = Vec::new();
-            for pair in xml_node.attributes.as_slice() {
-                let k = pair.key.as_str();
-                let v = pair.value.as_str();
-                if k == "data-l10n" {
-                    continue;
-                }
-                let arg_name = match k.strip_prefix("data-l10n-") {
-                    Some(n) => n,
-                    None => continue,
-                };
-                let value = if let Ok(i) = v.parse::<i32>() {
-                    crate::dom::FluentArg::I32(i)
-                } else if let Ok(f) = v.parse::<f32>() {
-                    crate::dom::FluentArg::F32(f)
-                } else {
-                    crate::dom::FluentArg::String(v.into())
-                };
-                fluent_args.push(crate::dom::FluentArgKV {
-                    key: arg_name.into(),
-                    value,
-                });
-            }
+            let fluent_args = crate::dom::FluentArgKVVec::from_l10n_attributes(
+                xml_node
+                    .attributes
+                    .as_slice()
+                    .iter()
+                    .map(|pair| (pair.key.as_str(), pair.value.as_str())),
+            );
             if !fluent_args.is_empty() {
-                node.fluent_args = Some(Box::new(crate::dom::FluentArgKVVec::from_vec(fluent_args)));
+                node.fluent_args = Some(Box::new(fluent_args));
             }
         }
     }

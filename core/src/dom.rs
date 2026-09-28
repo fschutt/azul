@@ -1721,6 +1721,40 @@ azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);
 azul_css::impl_vec_clone!(FluentArgKV, FluentArgKVVec, FluentArgKVVecDestructor);
 azul_css::impl_vec_partialeq!(FluentArgKV, FluentArgKVVec);
 
+impl FluentArgKVVec {
+    /// The Fluent arguments an XML element declares as
+    /// `data-l10n-<name>="value"` attributes, in attribute order.
+    ///
+    /// `data-l10n` itself (the message key) is not an argument. A value that
+    /// parses as `i32` becomes [`FluentArg::I32`], else one that parses as
+    /// `f32` becomes [`FluentArg::F32`], else it stays a
+    /// [`FluentArg::String`]. Shared by every XML-to-DOM builder, so the
+    /// three of them cannot drift apart.
+    pub fn from_l10n_attributes<'a, I>(attributes: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        let mut args: Vec<FluentArgKV> = Vec::new();
+        for (key, value) in attributes {
+            let Some(arg_name) = key.strip_prefix("data-l10n-") else {
+                continue;
+            };
+            let value = if let Ok(i) = value.parse::<i32>() {
+                FluentArg::I32(i)
+            } else if let Ok(f) = value.parse::<f32>() {
+                FluentArg::F32(f)
+            } else {
+                FluentArg::String(value.into())
+            };
+            args.push(FluentArgKV {
+                key: arg_name.into(),
+                value,
+            });
+        }
+        Self::from_vec(args)
+    }
+}
+
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
