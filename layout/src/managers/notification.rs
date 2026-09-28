@@ -21,9 +21,23 @@
 //! * **Routing.** [`NotificationRegistry`] maps the app's notification id to the callback the
 //!   notification carries. The run loop drains the mailbox through it and invokes each routed
 //!   callback with `invoke_menu_callback` against the window [`super::app_target`] picks (the
-//!   most recently focused, else the oldest), exactly as it invokes a tray menu item's callback. Every event is the notification's last, so the registry forgets the
-//!   callback as it routes - which is what stops the `NotificationClosed` a freedesktop server
-//!   sends after `ActionInvoked` from arriving as a second event.
+//!   most recently focused, else the oldest), exactly as it invokes a tray menu item's callback.
+//!   Every event is the notification's last, so the registry forgets the callback as it routes -
+//!   and remembers the id as ENDED, which is what stops the `NotificationClosed` a freedesktop
+//!   server sends after `ActionInvoked` from arriving as a second event.
+//! * **The app-level handler** (`AppConfig::notification_handler`, installed here with
+//!   [`set_app_notification_handler`]) receives what no notification callback owns: an event for
+//!   an id this process never posted (a tap that cold-launched the app, a relaunch from
+//!   Notification Center) and the events of a notification posted without a callback. The
+//!   notification's `payload` rides along into the event, from the platform where it carries it
+//!   back and from the registry otherwise.
+//! * **Deliveries that cannot run yet.** A delivery needs a window to run against; a loop with
+//!   none parks it in [`queue_notification_delivery`] until one exists. A post the request queue
+//!   has no room for is not dropped either: [`reject_notification`] turns it into a `Failed`
+//!   delivery the same way.
+//! * **The permission request.** `CallbackInfo::request_notification_permission` sets a flag the
+//!   dll's dispatch reads ([`take_notification_permission_request`]); the answer comes back
+//!   through the permission manager as `Capability::Notifications`.
 //! * **The current event.** A callback learns which event it runs for from
 //!   `CallbackInfo::get_notification_event`, which reads the slot
 //!   [`with_current_notification_event`] fills for the duration of one delivery. Any other
@@ -42,6 +56,7 @@ use azul_core::notification::{
     Notification, NotificationCallback, NotificationEvent, OptionNotificationCallback,
 };
 use azul_css::AzString;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // ────────── Request queue (callback → platform backend) ────────────────
 
@@ -68,14 +83,23 @@ static PENDING_REQUESTS: std::sync::Mutex<Vec<NotificationRequest>> =
 /// Queue a request from a callback. Returns `false` when the queue is full
 /// and the request was dropped. Poison-recovering.
 pub fn push_notification_request(request: NotificationRequest) -> bool {
+    try_push_notification_request(request).is_ok()
+}
+
+/// [`push_notification_request`], handing the request BACK when the queue is
+/// full - so a post that did not fit can still be reported
+/// ([`reject_notification`]) instead of vanishing.
+pub fn try_push_notification_request(
+    request: NotificationRequest,
+) -> Result<(), NotificationRequest> {
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if q.len() >= MAX_QUEUED_REQUESTS {
-        return false;
+        return Err(request);
     }
     q.push(request);
-    true
+    Ok(())
 }
 
 /// Take every queued request, in the order the app made them.
@@ -86,13 +110,56 @@ pub fn drain_notification_requests() -> Vec<NotificationRequest> {
     core::mem::take(&mut *q)
 }
 
-/// Is a request waiting? The dll's capability pump arms its wake-up timer on
-/// this, so a request queued by a callback that returned `DoNothing` does not
-/// wait for an unrelated event to be dispatched.
+/// Is a request waiting - a post, a withdraw or a permission request? The
+/// dll's capability pump arms its wake-up timer on this, so a request queued
+/// by a callback that returned `DoNothing` does not wait for an unrelated
+/// event to be dispatched.
 pub fn has_queued_requests() -> bool {
-    PENDING_REQUESTS
+    PERMISSION_REQUESTED.load(Ordering::Acquire)
+        || PENDING_REQUESTS
+            .lock()
+            .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
+}
+
+// ────────── The permission request (callback → platform backend) ───────
+
+static PERMISSION_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Ask for the notification permission
+/// (`CallbackInfo::request_notification_permission`). Several requests before
+/// the dll dispatches them are one prompt.
+pub fn request_notification_permission() {
+    PERMISSION_REQUESTED.store(true, Ordering::Release);
+}
+
+/// Take the pending permission request, if any. The dll's dispatch calls this
+/// on the main thread and asks the OS; the answer arrives through the
+/// permission manager's async channel as `Capability::Notifications`.
+pub fn take_notification_permission_request() -> bool {
+    PERMISSION_REQUESTED.swap(false, Ordering::AcqRel)
+}
+
+// ────────── The app-level handler ──────────────────────────────────────
+
+static APP_HANDLER: std::sync::Mutex<OptionNotificationCallback> =
+    std::sync::Mutex::new(OptionNotificationCallback::None);
+
+/// Install the app-level handler (`AppConfig::notification_handler`). The dll
+/// calls this from `App::run`, before any event can arrive; process-wide,
+/// because on Android `App::run` and the event loop are different threads.
+pub fn set_app_notification_handler(handler: OptionNotificationCallback) {
+    *APP_HANDLER
         .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = handler;
+}
+
+/// The installed app-level handler, if any.
+#[must_use]
+pub fn app_notification_handler() -> OptionNotificationCallback {
+    APP_HANDLER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 // ────────── Event mailbox (platform → run loop) ────────────────────────
@@ -130,6 +197,57 @@ pub fn has_queued_events() -> bool {
         .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
 }
 
+// ────────── Deliveries that wait (for a window, or never got a post) ───
+
+static PENDING_DELIVERIES: std::sync::Mutex<Vec<NotificationDelivery>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Park a routed delivery until a run loop has a window to run it against,
+/// or queue one that never went through routing (a rejected post). Returns
+/// `false` when the queue is full and the delivery was dropped - bounded like
+/// the mailbox, so a windowless app cannot grow it without limit.
+pub fn queue_notification_delivery(delivery: NotificationDelivery) -> bool {
+    let mut q = PENDING_DELIVERIES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if q.len() >= MAX_QUEUED_EVENTS {
+        return false;
+    }
+    q.push(delivery);
+    true
+}
+
+/// Take every waiting delivery, oldest first.
+pub fn drain_notification_deliveries() -> Vec<NotificationDelivery> {
+    let mut q = PENDING_DELIVERIES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    core::mem::take(&mut *q)
+}
+
+/// Is a delivery waiting?
+pub fn has_queued_deliveries() -> bool {
+    PENDING_DELIVERIES
+        .lock()
+        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
+}
+
+/// A post that never reached the backend - the request queue had no room -
+/// reported as a `Failed` event instead of dropped: to the notification's own
+/// callback as a waiting delivery, or, without one, through the mailbox,
+/// where routing hands an id it never admitted to the app-level handler.
+/// Returns `false` if even that queue was full.
+pub fn reject_notification(notification: Notification, reason: AzString) -> bool {
+    let mut event = NotificationEvent::failed(notification.id.clone(), reason);
+    event.payload = notification.payload.clone();
+    match notification.callback {
+        OptionNotificationCallback::Some(callback) => {
+            queue_notification_delivery(NotificationDelivery { callback, event })
+        }
+        OptionNotificationCallback::None => queue_notification_event(event),
+    }
+}
+
 // ────────── Routing ────────────────────────────────────────────────────
 
 /// One event, routed to the callback of the notification it names. The run
@@ -141,13 +259,28 @@ pub struct NotificationDelivery {
     pub event: NotificationEvent,
 }
 
+/// What the registry keeps of a posted notification.
+#[derive(Debug, Clone, PartialEq)]
+struct LiveNotification {
+    callback: OptionNotificationCallback,
+    payload: AzString,
+}
+
+/// How many ended ids the registry remembers, to swallow their trailing
+/// events (see [`NotificationRegistry::route`]).
+const MAX_ENDED: usize = 256;
+
 /// The live notifications, by the app's id, and where their events go.
 ///
 /// Owned by the dll's notification service on the main thread. Pure - no
 /// globals - so the routing rules are testable on their own.
 #[derive(Debug, Default)]
 pub struct NotificationRegistry {
-    live: BTreeMap<String, OptionNotificationCallback>,
+    live: BTreeMap<String, LiveNotification>,
+    /// Ids that ended in this process (routed or withdrawn), oldest first.
+    ended: Vec<String>,
+    /// `AppConfig::notification_handler`: where events no callback owns go.
+    app_handler: OptionNotificationCallback,
     generated: u64,
 }
 
@@ -156,8 +289,26 @@ impl NotificationRegistry {
     pub const fn new() -> Self {
         Self {
             live: BTreeMap::new(),
+            ended: Vec::new(),
+            app_handler: OptionNotificationCallback::None,
             generated: 0,
         }
+    }
+
+    /// Where events go that no notification callback owns (see
+    /// [`NotificationRegistry::route`]). `None` drops them.
+    pub fn set_app_handler(&mut self, handler: OptionNotificationCallback) {
+        self.app_handler = handler;
+    }
+
+    fn remember_ended(&mut self, id: String) {
+        if self.ended.iter().any(|e| *e == id) {
+            return;
+        }
+        if self.ended.len() >= MAX_ENDED {
+            self.ended.remove(0);
+        }
+        self.ended.push(id);
     }
 
     /// Admit a notification that is about to be posted and return it as it
@@ -170,16 +321,25 @@ impl NotificationRegistry {
             self.generated += 1;
             notification.id = AzString::from(format!("azul-notification-{}", self.generated));
         }
+        let id = notification.id.as_str().to_string();
+        self.ended.retain(|e| *e != id);
         self.live.insert(
-            notification.id.as_str().to_string(),
-            notification.callback.clone(),
+            id,
+            LiveNotification {
+                callback: notification.callback.clone(),
+                payload: notification.payload.clone(),
+            },
         );
         notification
     }
 
-    /// Forget a withdrawn notification. `true` if it was live.
+    /// Forget a withdrawn notification. `true` if it was live. The id counts
+    /// as ended: the close a server sends to confirm the withdraw is nobody's
+    /// event.
     pub fn forget(&mut self, id: &str) -> bool {
-        self.live.remove(id).is_some()
+        let was_live = self.live.remove(id).is_some();
+        self.remember_ended(id.to_string());
+        was_live
     }
 
     #[must_use]
@@ -195,16 +355,37 @@ impl NotificationRegistry {
     /// Route events to the callbacks of the notifications they name.
     ///
     /// Every event ends its notification, so its entry is removed as it is
-    /// routed. An event for an id that is not live - never posted, already
-    /// ended, or withdrawn - is dropped: that is the freedesktop close that
-    /// follows a click, or the close that confirms a withdraw. A live
-    /// notification without a callback ends silently.
+    /// routed and the id remembered as ended. Where an event goes:
+    ///
+    /// * a live notification with a callback: that callback;
+    /// * a live notification without one: the app-level handler;
+    /// * an id that ENDED in this process - routed or withdrawn - nowhere: that is the
+    ///   freedesktop close that follows a click, or the close that confirms a withdraw;
+    /// * an id this process never posted: the app-level handler - a tap on a notification an
+    ///   earlier run of the app posted, whose callback died with that process.
+    ///
+    /// Without an app-level handler, an id never posted and a live
+    /// notification without a callback end silently. An event that carries
+    /// no payload gets the one the notification was posted with.
     pub fn route(&mut self, events: Vec<NotificationEvent>) -> Vec<NotificationDelivery> {
         let mut out = Vec::new();
-        for event in events {
-            if let Some(OptionNotificationCallback::Some(callback)) =
-                self.live.remove(event.notification_id.as_str())
-            {
+        for mut event in events {
+            let id = event.notification_id.as_str().to_string();
+            let target = match self.live.remove(&id) {
+                Some(live) => {
+                    if event.payload.as_str().is_empty() {
+                        event.payload = live.payload;
+                    }
+                    match live.callback {
+                        OptionNotificationCallback::Some(callback) => Some(callback),
+                        OptionNotificationCallback::None => self.app_handler.as_ref().cloned(),
+                    }
+                }
+                None if self.ended.iter().any(|e| *e == id) => None,
+                None => self.app_handler.as_ref().cloned(),
+            };
+            self.remember_ended(id);
+            if let Some(callback) = target {
                 out.push(NotificationDelivery { callback, event });
             }
         }
@@ -364,8 +545,76 @@ pub fn clear_recorded_notifications() {
 pub mod wire {
     use alloc::{string::String, vec::Vec};
 
-    use azul_core::notification::{Notification, NotificationAction, NotificationEvent};
+    use azul_core::notification::{
+        Notification, NotificationAction, NotificationEvent, NotificationSound,
+    };
     use azul_css::AzString;
+
+    use crate::managers::permission::{PermissionQuality, PermissionState};
+
+    /// FNV-1a, 64 bit: stable across runs and platforms, unlike the std
+    /// hasher - a name derived from it by one launch is recognised by the next.
+    fn fnv1a64(parts: &[&[u8]]) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for part in parts {
+            for b in *part {
+                hash ^= u64::from(*b);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+
+    /// Percent-encode everything but the RFC 3986 unreserved characters.
+    fn percent_encode(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for b in s.bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                out.push(char::from(b));
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    }
+
+    /// The inverse of [`percent_encode`]; `None` for a malformed escape or
+    /// bytes that are not UTF-8.
+    fn percent_decode(s: &str) -> Option<String> {
+        let bytes = s.as_bytes();
+        let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                let hex = s.get(i + 1..i + 3)?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).ok()
+    }
+
+    /// Escape text for an XML attribute or element body.
+    fn xml_escape(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                // XML 1.0 has no escape for these; drop them rather than
+                // make `LoadXml` reject the whole toast.
+                c if (c as u32) < 0x20 && !matches!(c, '\t' | '\n' | '\r') => {}
+                c => out.push(c),
+            }
+        }
+        out
+    }
 
     // ---- freedesktop (org.freedesktop.Notifications) ----
 
@@ -485,23 +734,37 @@ pub mod wire {
         if actions.is_empty() {
             return String::from("azul.notification.plain");
         }
-        // FNV-1a, 64 bit: stable across runs and platforms, unlike the
-        // std hasher, so a category registered by one launch is recognised
-        // by the next.
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut eat = |bytes: &[u8]| {
-            for b in bytes {
-                hash ^= u64::from(*b);
-                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-            }
-        };
+        // Stable across runs, so a category registered by one launch is
+        // recognised by the next.
+        let mut parts: Vec<&[u8]> = Vec::with_capacity(actions.len() * 4);
         for action in actions {
-            eat(action.id.as_str().as_bytes());
-            eat(&[0x1f]);
-            eat(action.label.as_str().as_bytes());
-            eat(&[0x1e]);
+            parts.push(action.id.as_str().as_bytes());
+            parts.push(&[0x1f]);
+            parts.push(action.label.as_str().as_bytes());
+            parts.push(&[0x1e]);
         }
+        let hash = fnv1a64(&parts);
         format!("azul.notification.actions.{hash:016x}")
+    }
+
+    /// The `userInfo` key a notification's payload travels under
+    /// (`UNNotificationContent.userInfo`), so a response delivered to a
+    /// freshly launched process still carries it.
+    pub const APPLE_PAYLOAD_KEY: &str = "azul.payload";
+
+    /// `UNNotificationSettings.authorizationStatus` as a permission state:
+    /// notDetermined 0, denied 1, authorized 2, provisional 3 (delivered
+    /// quietly to Notification Center: a REDUCED grant), ephemeral 4 (App
+    /// Clips). Anything newer reads as not determined.
+    #[must_use]
+    pub const fn apple_authorization_status(status: i64) -> PermissionState {
+        match status {
+            1 => PermissionState::Denied,
+            2 => PermissionState::Granted(PermissionQuality::Full),
+            3 => PermissionState::Granted(PermissionQuality::Reduced),
+            4 => PermissionState::EphemeralGranted(true),
+            _ => PermissionState::NotDetermined,
+        }
     }
 
     // ---- Windows (Shell_NotifyIconW balloon, NOTIFYICON_VERSION_4) ----
@@ -552,5 +815,265 @@ pub mod wire {
         }
         out.push(0);
         out
+    }
+
+    // ---- Windows (WinRT toast, ToastGeneric) ----
+
+    /// What every toast argument string azul writes starts with; anything
+    /// else in `ToastActivatedEventArgs.Arguments` is not ours.
+    pub const TOAST_ARGS_PREFIX: &str = "azul-notification:";
+    /// A toast shows at most five buttons.
+    pub const TOAST_MAX_ACTIONS: usize = 5;
+    /// `ToastDismissalReason`: the user closed it.
+    pub const TOAST_DISMISSED_USER_CANCELED: i32 = 0;
+    /// `ToastDismissalReason`: the app hid it (`ToastNotifier::Hide`).
+    pub const TOAST_DISMISSED_APPLICATION_HIDDEN: i32 = 1;
+    /// `ToastDismissalReason`: the banner timed out - into the Action Center.
+    pub const TOAST_DISMISSED_TIMED_OUT: i32 = 2;
+
+    /// The `launch` / `arguments` string of a toast or one of its buttons:
+    /// which notification, which action (`"default"` = the body) and the
+    /// payload, percent-encoded so none of them can break the others apart.
+    #[must_use]
+    pub fn toast_arguments(id: &str, action: &str, payload: &str) -> String {
+        format!(
+            "{TOAST_ARGS_PREFIX}id={}&action={}&payload={}",
+            percent_encode(id),
+            percent_encode(action),
+            percent_encode(payload)
+        )
+    }
+
+    /// `(id, action, payload)` back out of [`toast_arguments`]; `None` for a
+    /// string azul did not write.
+    #[must_use]
+    pub fn parse_toast_arguments(args: &str) -> Option<(String, String, String)> {
+        let rest = args.strip_prefix(TOAST_ARGS_PREFIX)?;
+        let mut id: Option<String> = None;
+        let mut action: Option<String> = None;
+        let mut payload: Option<String> = None;
+        for pair in rest.split('&') {
+            let (key, value) = pair.split_once('=')?;
+            let value = percent_decode(value)?;
+            match key {
+                "id" => id = Some(value),
+                "action" => action = Some(value),
+                "payload" => payload = Some(value),
+                _ => {}
+            }
+        }
+        Some((id?, action?, payload.unwrap_or_default()))
+    }
+
+    /// `ToastNotification.Activated`: the body (action `default`) or a button.
+    #[must_use]
+    pub fn toast_activated_event(args: &str) -> Option<NotificationEvent> {
+        let (id, action, payload) = parse_toast_arguments(args)?;
+        let mut event = if action == FREEDESKTOP_DEFAULT_ACTION || action.is_empty() {
+            NotificationEvent::activated(AzString::from(id))
+        } else {
+            NotificationEvent::action_invoked(AzString::from(id), AzString::from(action))
+        };
+        event.payload = AzString::from(payload);
+        Some(event)
+    }
+
+    /// `ToastNotification.Dismissed`. Only a user's close ends the
+    /// notification: a timed-out toast moved to the Action Center, where it
+    /// can still be clicked, and an app-hidden one was withdrawn (the
+    /// registry already forgot it).
+    #[must_use]
+    pub fn toast_dismissed_event(app_id: &str, reason: i32) -> Option<NotificationEvent> {
+        (reason == TOAST_DISMISSED_USER_CANCELED).then(|| {
+            NotificationEvent::dismissed_because(
+                AzString::from(app_id),
+                AzString::from_const_str("dismissed by the user"),
+            )
+        })
+    }
+
+    /// An image path as a toast `src`: `file:///C:/...`, or passed through
+    /// when it already is a URI.
+    fn toast_image_src(path: &str) -> String {
+        if path.contains("://") {
+            return path.to_string();
+        }
+        let slashed = path.replace('\\', "/");
+        if slashed.starts_with('/') {
+            format!("file://{slashed}")
+        } else {
+            format!("file:///{slashed}")
+        }
+    }
+
+    /// The toast's XML (`ToastGeneric`): title, body, an image, up to
+    /// [`TOAST_MAX_ACTIONS`] foreground buttons, the sound, and the id +
+    /// payload in every argument string so a click reports them back.
+    #[must_use]
+    pub fn toast_xml(notification: &Notification) -> String {
+        let id = notification.id.as_str();
+        let payload = notification.payload.as_str();
+        let mut xml = format!(
+            "<toast launch=\"{}\"><visual><binding template=\"ToastGeneric\"><text>{}</text>",
+            xml_escape(&toast_arguments(id, FREEDESKTOP_DEFAULT_ACTION, payload)),
+            xml_escape(notification.title.as_str())
+        );
+        if !notification.body.as_str().is_empty() {
+            xml.push_str(&format!(
+                "<text>{}</text>",
+                xml_escape(notification.body.as_str())
+            ));
+        }
+        if let Some(icon) = notification.icon.as_ref() {
+            xml.push_str(&format!(
+                "<image placement=\"appLogoOverride\" src=\"{}\"/>",
+                xml_escape(&toast_image_src(icon.as_str()))
+            ));
+        }
+        xml.push_str("</binding></visual>");
+        let buttons: Vec<&NotificationAction> = notification
+            .actions
+            .as_ref()
+            .iter()
+            .filter(|a| {
+                !a.id.as_str().is_empty() && a.id.as_str() != FREEDESKTOP_DEFAULT_ACTION
+            })
+            .take(TOAST_MAX_ACTIONS)
+            .collect();
+        if !buttons.is_empty() {
+            xml.push_str("<actions>");
+            for action in buttons {
+                xml.push_str(&format!(
+                    "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
+                    xml_escape(action.label.as_str()),
+                    xml_escape(&toast_arguments(id, action.id.as_str(), payload))
+                ));
+            }
+            xml.push_str("</actions>");
+        }
+        match &notification.sound {
+            NotificationSound::Silent => xml.push_str("<audio silent=\"true\"/>"),
+            NotificationSound::Named(name) if name.as_str().starts_with("ms-winsoundevent:") => {
+                xml.push_str(&format!("<audio src=\"{}\"/>", xml_escape(name.as_str())));
+            }
+            NotificationSound::Default | NotificationSound::Named(_) => {}
+        }
+        xml.push_str("</toast>");
+        xml
+    }
+
+    /// An AppUserModelID the registry and the shell accept: letters, digits,
+    /// `.`, `-` and `_` only (a backslash breaks Windows 10 up to build
+    /// 19042), never empty, and at most 129 characters - a longer one is cut
+    /// and suffixed with a hash of the whole, so two long ids stay distinct.
+    #[must_use]
+    pub fn windows_aumid(app: &str) -> String {
+        const MAX: usize = 129;
+        let mut out: String = app
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if out.is_empty() {
+            out.push_str("azul.app");
+        }
+        if out.len() > MAX {
+            let hash = fnv1a64(&[app.as_bytes()]);
+            let suffix = format!(".{hash:016x}");
+            out.truncate(MAX - suffix.len());
+            out.push_str(&suffix);
+        }
+        out
+    }
+
+    /// Where an unpackaged app registers its AUMID (under HKCU): the key
+    /// whose `DisplayName` the toast is attributed to.
+    #[must_use]
+    pub fn aumid_registry_key(aumid: &str) -> String {
+        format!("Software\\Classes\\AppUserModelId\\{aumid}")
+    }
+
+    // ---- freedesktop: the app's identity ----
+
+    /// The `desktop-entry` hint: the `.desktop` file's name without the
+    /// extension. The executable's file name - the same default the Wayland
+    /// `app_id` and the X11 `WM_CLASS` use - so a server that matches the one
+    /// matches the other.
+    #[must_use]
+    pub fn desktop_entry(exe_path: &str) -> String {
+        let name = exe_path.rsplit(|c: char| c == '/' || c == '\\').next().unwrap_or("");
+        let name = name.strip_suffix(".desktop").unwrap_or(name);
+        if name.is_empty() {
+            String::from("azul")
+        } else {
+            name.to_string()
+        }
+    }
+
+    // ---- Android (NotificationManager, PendingIntent extras) ----
+
+    /// The intent action key of a tap on the notification's body.
+    pub const ANDROID_DEFAULT_ACTION: &str = "default";
+    /// The intent action key of the delete intent (a swipe, "Clear all").
+    pub const ANDROID_DISMISS_ACTION: &str = "azul.dismiss";
+    /// Android shows at most three action buttons.
+    pub const ANDROID_MAX_ACTIONS: usize = 3;
+
+    /// The base request code of a notification's `PendingIntent`s.
+    ///
+    /// Intents that differ only in their extras are the SAME `PendingIntent`,
+    /// and `FLAG_UPDATE_CURRENT` would overwrite one notification's extras
+    /// with the next's - so every notification gets its own code, stable for
+    /// its id. The low four bits are left zero: the Java side adds 0 for the
+    /// body, 1..=13 for the buttons and 15 for the delete intent.
+    #[must_use]
+    pub fn android_request_code(id: &str) -> i32 {
+        let hash = fnv1a64(&[b"azul.notification.".as_slice(), id.as_bytes()]);
+        // Fold to 32 bits, keep it non-negative, clear the slot nibble.
+        let folded = ((hash >> 32) ^ (hash & 0xFFFF_FFFF)) as u32;
+        (folded & 0x7FFF_FFF0) as i32
+    }
+
+    /// `PendingIntent` flags: `FLAG_UPDATE_CURRENT`, plus `FLAG_IMMUTABLE`
+    /// wherever it exists (API 23; required when targeting 31+).
+    #[must_use]
+    pub const fn android_pending_intent_flags(sdk: i32) -> i32 {
+        const FLAG_IMMUTABLE: i32 = 0x0400_0000;
+        const FLAG_UPDATE_CURRENT: i32 = 0x0800_0000;
+        if sdk >= 23 {
+            FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
+        } else {
+            FLAG_UPDATE_CURRENT
+        }
+    }
+
+    /// The event an intent back from a notification means: the body
+    /// ([`ANDROID_DEFAULT_ACTION`]), the delete intent
+    /// ([`ANDROID_DISMISS_ACTION`]) or a button.
+    #[must_use]
+    pub fn android_event(
+        id: &str,
+        action: &str,
+        payload: &str,
+        launched_app: bool,
+    ) -> NotificationEvent {
+        let mut event = if action == ANDROID_DEFAULT_ACTION || action.is_empty() {
+            NotificationEvent::activated(AzString::from(id))
+        } else if action == ANDROID_DISMISS_ACTION {
+            NotificationEvent::dismissed_because(
+                AzString::from(id),
+                AzString::from_const_str("dismissed by the user"),
+            )
+        } else {
+            NotificationEvent::action_invoked(AzString::from(id), AzString::from(action))
+        };
+        event.payload = AzString::from(payload);
+        event.launched_app = launched_app;
+        event
     }
 }

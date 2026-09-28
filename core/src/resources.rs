@@ -1063,6 +1063,16 @@ pub struct AppConfig {
     /// translates the `AzString::tr` keys of its DOM with them. Default: none
     /// (keys render as written).
     pub fluent_locales: crate::window::StringPairVec,
+    /// The APP-LEVEL notification handler: receives every notification event
+    /// that no notification callback owns - a tap on a notification posted by
+    /// an earlier run of the app (the cold launch that is the normal case on
+    /// iOS and Android, a relaunch from macOS's Notification Center), and the
+    /// events of a notification posted without `Notification::with_callback`.
+    /// Inside it `CallbackInfo::get_notification_event` says what happened,
+    /// and the event's `payload` which notification it was.
+    ///
+    /// Default: `None` - such events are dropped, as before.
+    pub notification_handler: crate::notification::OptionNotificationCallback,
 }
 
 impl AppConfig {
@@ -1100,6 +1110,7 @@ impl AppConfig {
             report_problem: OptionEmailAddress::None,
             localization: LocalizationConfig::default(),
             fluent_locales: crate::window::StringPairVec::from_const_slice(&[]),
+            notification_handler: crate::notification::OptionNotificationCallback::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
@@ -1131,6 +1142,21 @@ impl AppConfig {
     pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
         self.mock_css_environment = OptionCssMockEnvironment::Some(env);
         self
+    }
+
+    /// Install the app-level notification handler (see
+    /// [`AppConfig::notification_handler`]), replacing any earlier one.
+    pub fn set_notification_handler<I: Into<crate::callbacks::CoreCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: I,
+    ) {
+        self.notification_handler = crate::notification::OptionNotificationCallback::Some(
+            crate::notification::NotificationCallback {
+                refany: data,
+                callback: callback.into(),
+            },
+        );
     }
 
     /// Register a single component into a named library.

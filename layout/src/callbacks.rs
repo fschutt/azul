@@ -5389,10 +5389,39 @@ impl CallbackInfo {
     /// own callback (`Notification::with_callback`), which reads it with
     /// [`CallbackInfo::get_notification_event`]. Whether this platform can
     /// show one at all: `PlatformCapability::notifications()`.
+    ///
+    /// A post that cannot even be queued (hundreds outstanding) is not
+    /// dropped: it reports `Failed`, like any other failure.
     pub fn post_notification(&mut self, notification: azul_core::notification::Notification) {
-        crate::managers::notification::push_notification_request(
-            crate::managers::notification::NotificationRequest::Post(notification),
-        );
+        use crate::managers::notification::{
+            reject_notification, try_push_notification_request, NotificationRequest,
+            MAX_QUEUED_REQUESTS,
+        };
+        if let Err(NotificationRequest::Post(notification)) =
+            try_push_notification_request(NotificationRequest::Post(notification))
+        {
+            let _ = reject_notification(
+                notification,
+                AzString::from(format!(
+                    "not shown: {MAX_QUEUED_REQUESTS} notification requests are already waiting \
+                     for the platform"
+                )),
+            );
+        }
+    }
+
+    /// Ask the user for permission to show notifications - in context, from
+    /// the button that makes notifications worth having, rather than at the
+    /// first post (which asks implicitly where the platform prompts at all).
+    ///
+    /// Returns immediately. The answer arrives as a `PermissionChanged` event
+    /// and is read with `get_permission_status(Capability::Notifications)`.
+    /// macOS and iOS show their prompt once and answer from the stored choice
+    /// afterwards; Android 13+ asks for `POST_NOTIFICATIONS` (older Android
+    /// answers from the app's notification setting); Windows and Linux have no
+    /// prompt and answer whether notifications can be shown at all.
+    pub fn request_notification_permission(&mut self) {
+        crate::managers::notification::request_notification_permission();
     }
 
     /// Take the notification posted under `id` off the screen. Its callback

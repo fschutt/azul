@@ -27,7 +27,13 @@
 //!   and then `NotificationClosed` for the same click.
 //! * **Posting can fail, and the failure is an event** ([`NotificationEventType::Failed`], with a
 //!   reason), not a silently missing banner. An unbundled macOS binary, a Linux session with no
-//!   notification server and a mobile target all end up there.
+//!   notification server, a denied permission and a full request queue all end up there.
+//! * **A notification can outlive the process that posted it**, and its callback cannot. A tap
+//!   that cold-launches the app (the normal case on iOS and Android, a relaunch on macOS) names a
+//!   notification this process never posted. Such events - and those of a notification posted
+//!   without a callback - go to the APP-LEVEL handler, `AppConfig::notification_handler`, and the
+//!   one piece of app data that survives the restart is [`Notification::payload`], which comes
+//!   back as [`NotificationEvent::payload`].
 
 use azul_css::{AzString, OptionString};
 
@@ -140,8 +146,16 @@ pub struct Notification {
     /// Buttons, in order. See [`NotificationAction`] for where they appear.
     pub actions: NotificationActionVec,
     pub sound: NotificationSound,
-    /// Where events for this notification go. `None`: nothing is reported
-    /// back (a fire-and-forget notification).
+    /// App data handed back in every [`NotificationEvent::payload`] of this
+    /// notification - a message id, a route, a document path. Unlike the
+    /// callback's `RefAny` it survives the process: it rides along with the
+    /// notification itself (UN `userInfo`, the Android `Intent`, the toast's
+    /// launch arguments), so the app-level handler of a freshly launched
+    /// process can still tell which notification was tapped. Empty = none.
+    pub payload: AzString,
+    /// Where events for this notification go. `None`: events go to the
+    /// app-level handler (`AppConfig::notification_handler`) if the app set
+    /// one, and nowhere otherwise (a fire-and-forget notification).
     pub callback: OptionNotificationCallback,
 }
 
@@ -157,8 +171,16 @@ impl Notification {
             icon: OptionString::None,
             actions: NotificationActionVec::from_const_slice(&[]),
             sound: NotificationSound::Default,
+            payload: AzString::from_const_str(""),
             callback: OptionNotificationCallback::None,
         }
+    }
+
+    /// See [`Notification::payload`].
+    #[must_use]
+    pub fn with_payload(mut self, payload: AzString) -> Self {
+        self.payload = payload;
+        self
     }
 
     #[must_use]
@@ -242,6 +264,18 @@ pub struct NotificationEvent {
     /// For `Dismissed` and `Failed`: a human-readable why, where known.
     /// Empty otherwise.
     pub reason: AzString,
+    /// The [`Notification::payload`] the notification was posted with. Filled
+    /// in from the platform where it carries it back (macOS/iOS `userInfo`,
+    /// Android extras, toast arguments) - which is what makes it reach an
+    /// app-level handler in a process that did not post the notification -
+    /// and from the posting process's own record otherwise.
+    pub payload: AzString,
+    /// `true` when this event is what started the process: a tap on a
+    /// notification of an app that was not running. Set where the platform
+    /// says so (the Android launch `Intent`, macOS's
+    /// `NSApplicationLaunchUserNotificationKey`); `false` elsewhere, and on
+    /// iOS, whose delegate cannot tell a launch from a resume.
+    pub launched_app: bool,
 }
 
 impl NotificationEvent {
@@ -252,6 +286,8 @@ impl NotificationEvent {
             notification_id,
             action_id: AzString::from_const_str(""),
             reason: AzString::from_const_str(""),
+            payload: AzString::from_const_str(""),
+            launched_app: false,
         }
     }
 
@@ -262,6 +298,8 @@ impl NotificationEvent {
             notification_id,
             action_id,
             reason: AzString::from_const_str(""),
+            payload: AzString::from_const_str(""),
+            launched_app: false,
         }
     }
 
@@ -272,6 +310,8 @@ impl NotificationEvent {
             notification_id,
             action_id: AzString::from_const_str(""),
             reason: AzString::from_const_str(""),
+            payload: AzString::from_const_str(""),
+            launched_app: false,
         }
     }
 
@@ -283,6 +323,8 @@ impl NotificationEvent {
             notification_id,
             action_id: AzString::from_const_str(""),
             reason,
+            payload: AzString::from_const_str(""),
+            launched_app: false,
         }
     }
 
@@ -293,6 +335,8 @@ impl NotificationEvent {
             notification_id,
             action_id: AzString::from_const_str(""),
             reason,
+            payload: AzString::from_const_str(""),
+            launched_app: false,
         }
     }
 }
