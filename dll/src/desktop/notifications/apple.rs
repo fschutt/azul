@@ -908,8 +908,8 @@ impl PlatformNotifier {
         }
         if !notification.actions.as_ref().is_empty() && notification.callback.is_none() {
             crate::plog_info!(
-                "[notifications] {:?} has buttons but no callback: clicks on them are not \
-                 reported to anyone",
+                "[notifications] {:?} has buttons but no callback: clicks on them reach only \
+                 the app-level handler (AppConfig::notification_handler), if the app set one",
                 notification.id.as_str()
             );
         }
