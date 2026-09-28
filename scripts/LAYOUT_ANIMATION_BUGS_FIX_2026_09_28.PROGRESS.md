@@ -16,8 +16,11 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 
 - 444d77e43 FIX bug 2a: core/src/diff.rs attrs_hash = contenteditable + is_anonymous (no tab index).
 
+- ecb899ed5 RED bug 2b: radio_group_geometry.rs narrow-row test (today circle 10x18) + demo-page
+  click/relayout guard (RED status unknown).
+
 ## IN PROGRESS
-- RED 2b (radio_group_geometry.rs).
+- FIX 2b (flex-shrink 0 on circle + dots).
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
