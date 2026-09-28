@@ -132,6 +132,8 @@ mod fakefont;
 
 #[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
 mod a_classic_thumb_stops_above_its_bottom_button;
+#[path = "a_press_on_an_overflowing_field_selects.rs"]
+mod a_press_on_an_overflowing_field_selects;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
