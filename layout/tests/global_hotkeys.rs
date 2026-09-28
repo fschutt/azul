@@ -6,66 +6,52 @@
 //!    modifier order, left/right twins, `CmdOrCtrl`), the menu-combo conversion, the rule that a
 //!    typing key needs Ctrl/Alt/Cmd, the display string and the xkb / portal trigger names the
 //!    Linux backends grab by.
-//! 2. **The registry** (`azul_layout::managers::global_hotkey::GlobalHotkeyRegistry`) against a
-//!    fake backend: register, duplicate, a combination another app owns, unregister, a pending
-//!    (portal) answer that arrives later, and moving registrations onto a new backend.
-//! 3. **The drain**: a fire parked by a backend comes back out of `take_fired` with the callback
-//!    and the `RefAny` it was registered with, in order, once - and a fire for a registration that
-//!    is gone is dropped.
-//! 4. **The headless simulation**: with `simulated_backend` installed, `simulate` presses a
-//!    registered combination (however it is spelled) and nothing else.
+//! 2. **Reconciliation** (`azul_layout::managers::global_hotkey::GlobalHotkeyManager`): every
+//!    source (the `AppConfig`, each window's `layout()`) DECLARES the set it wants, and `sync`
+//!    makes the OS grabs equal the union - registering what is new, releasing what is gone, and
+//!    touching nothing that stayed. An identical re-declaration costs zero backend calls; a new
+//!    callback for a kept accelerator is swapped in without one.
+//! 3. **Ownership**: one grab per accelerator however many windows declare it, exactly one
+//!    callback per press, a window's declaration shadows the app's, and among windows the most
+//!    recently focused declarer wins, then the oldest window.
+//! 4. **Status feedback**: failures are sticky until a retry (so a fallback converges instead of
+//!    looping), a pending (portal) grab settles from another thread through the sink, and only
+//!    the sources that READ a status are asked to lay out again.
+//! 5. **The mailbox**: bounded, and a press for an accelerator released meanwhile is dropped.
 //!
-//! The OS backends (Carbon, Win32, X11, the portal) cannot run here; their
-//! manual check recipes are in `scripts/GLOBAL_HOTKEYS_2026_09_28.md`.
+//! Every test builds its own manager with its own recording backend, so nothing here is shared
+//! between tests and no test needs a lock. The OS backends (Carbon, Win32, X11, the portal)
+//! cannot run here; their manual check recipes are in `scripts/GLOBAL_HOTKEYS_2026_09_28.md`.
 
 #![cfg(feature = "text_layout")]
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use azul_core::{
     callbacks::{CoreCallback, Update},
     global_hotkey::{
-        portal_trigger, xkb_keysym_name, GlobalHotkey, GlobalHotkeyError, GlobalHotkeyId,
+        portal_trigger, xkb_keysym_name, GlobalHotkey, GlobalHotkeyCallbackData,
+        GlobalHotkeyError, GlobalHotkeyId, GlobalHotkeyOwner, GlobalHotkeyState,
         GlobalHotkeyStatus, HotkeyModifiers,
     },
-    menu::CoreMenuCallback,
     refany::{OptionRefAny, RefAny},
     window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec},
 };
+use azul_css::AzString;
 use azul_layout::{
     callbacks::CallbackInfo,
     managers::global_hotkey::{
-        self as registry, BackendGrant, GlobalHotkeyBackend, GlobalHotkeyRegistry,
-        MAX_PENDING_FIRES, SIMULATED_BACKEND_NAME,
+        BackendEvent, BackendGrant, GlobalHotkeyBackend, GlobalHotkeyManager, HotkeyDelivery,
+        HotkeySource, SharedGlobalHotkeys, MAX_PENDING_FIRES, SIMULATED_BACKEND_NAME,
     },
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// The fake backend records its calls here, and the process-wide registry is
-/// one static - both are shared by every test in this binary, so the tests
-/// that touch either take this lock.
-static SERIAL: Mutex<()> = Mutex::new(());
-static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-fn exclusive() -> MutexGuard<'static, ()> {
-    let guard = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-    CALLS.lock().unwrap_or_else(PoisonError::into_inner).clear();
-    guard
-}
-
-fn record(call: String) {
-    CALLS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .push(call);
-}
-
-fn calls() -> Vec<String> {
-    CALLS.lock().unwrap_or_else(PoisonError::into_inner).clone()
-}
 
 fn mods(ctrl: bool, alt: bool, shift: bool, meta: bool) -> HotkeyModifiers {
     HotkeyModifiers {
@@ -84,77 +70,124 @@ fn ctrl_alt(key: K) -> GlobalHotkey {
     hk(mods(true, true, false, false), key)
 }
 
-fn fake_probe() -> Result<(), String> {
-    Ok(())
+fn invalid(result: Result<GlobalHotkey, GlobalHotkeyError>) -> bool {
+    matches!(result, Err(GlobalHotkeyError::InvalidAccelerator(_)))
 }
 
-/// Grants everything except Ctrl+Alt+T, which "another application" owns
-/// (it is the terminal shortcut on GNOME and Ubuntu).
-fn fake_register(
-    id: GlobalHotkeyId,
-    hotkey: &GlobalHotkey,
-) -> Result<BackendGrant, GlobalHotkeyError> {
-    record(format!("register {} {}", id.id, hotkey.to_display_string_for(false)));
-    if *hotkey == ctrl_alt(K::T) {
-        return Err(GlobalHotkeyError::TakenByAnotherApp);
-    }
-    Ok(BackendGrant::Active)
-}
-
-fn fake_unregister(id: GlobalHotkeyId) {
-    record(format!("unregister {}", id.id));
-}
-
-fn fake_poll() {}
-
-fn fake_backend() -> GlobalHotkeyBackend {
-    GlobalHotkeyBackend {
-        name: "fake",
-        probe: fake_probe,
-        register: fake_register,
-        unregister: fake_unregister,
-        poll: fake_poll,
-        needs_loop_polling: false,
+fn combo(keys: &[K]) -> VirtualKeyCodeCombo {
+    VirtualKeyCodeCombo {
+        keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
     }
 }
 
-/// Like the Wayland portal: accepts the request, answers later.
-fn pending_register(
-    id: GlobalHotkeyId,
-    hotkey: &GlobalHotkey,
-) -> Result<BackendGrant, GlobalHotkeyError> {
-    record(format!(
-        "pending-register {} {}",
-        id.id,
-        hotkey.to_display_string_for(false)
-    ));
-    Ok(BackendGrant::Pending)
-}
+/// What the recording backend was asked, in order: `register Ctrl+Alt+K`,
+/// `unregister Ctrl+Alt+K`, `commit`. Per test, never shared.
+#[derive(Clone, Default)]
+struct Log(Arc<Mutex<Vec<String>>>);
 
-fn pending_backend() -> GlobalHotkeyBackend {
-    GlobalHotkeyBackend {
-        name: "pending",
-        register: pending_register,
-        needs_loop_polling: true,
-        ..fake_backend()
+impl Log {
+    fn push(&self, entry: String) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(entry);
+    }
+
+    /// Everything since the last `take`.
+    fn take(&self) -> Vec<String> {
+        core::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// Everything since the last `take`, without the batch `commit`s.
+    fn grabs(&self) -> Vec<String> {
+        self.take().into_iter().filter(|e| e != "commit").collect()
     }
 }
 
-/// A backend that refuses everything - the "new" backend a migration moves
-/// registrations onto when it cannot take them.
-fn refusing_register(
-    _id: GlobalHotkeyId,
-    _hotkey: &GlobalHotkey,
-) -> Result<BackendGrant, GlobalHotkeyError> {
-    Err(GlobalHotkeyError::Unavailable("refusing backend".into()))
+/// A backend that grants what it is asked and writes every call to its
+/// `Log`. Ctrl+Alt+T is "taken by another application" (the GNOME / Ubuntu
+/// terminal shortcut); `pending` answers like the Wayland portal.
+struct RecordingBackend {
+    log: Log,
+    pending: bool,
+    /// OS id -> accelerator, so `unregister` can say what it released.
+    ids: Arc<Mutex<BTreeMap<u32, GlobalHotkey>>>,
 }
 
-fn refusing_backend() -> GlobalHotkeyBackend {
-    GlobalHotkeyBackend {
-        name: "refusing",
-        register: refusing_register,
-        ..fake_backend()
+impl RecordingBackend {
+    fn new(log: &Log) -> Self {
+        Self {
+            log: log.clone(),
+            pending: false,
+            ids: Arc::new(Mutex::new(BTreeMap::new())),
+        }
     }
+
+    fn pending(log: &Log) -> Self {
+        Self {
+            pending: true,
+            ..Self::new(log)
+        }
+    }
+}
+
+fn name(hotkey: &GlobalHotkey) -> String {
+    hotkey.to_display_string_for(false)
+}
+
+impl GlobalHotkeyBackend for RecordingBackend {
+    fn name(&self) -> &'static str {
+        "recording"
+    }
+
+    fn probe(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn register(
+        &mut self,
+        os_id: GlobalHotkeyId,
+        hotkey: &GlobalHotkey,
+        _description: &str,
+    ) -> Result<BackendGrant, GlobalHotkeyError> {
+        self.log.push(format!("register {}", name(hotkey)));
+        if *hotkey == ctrl_alt(K::T) {
+            return Err(GlobalHotkeyError::TakenByAnotherApp);
+        }
+        self.ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(os_id.id, *hotkey);
+        Ok(if self.pending {
+            BackendGrant::Pending
+        } else {
+            BackendGrant::Active
+        })
+    }
+
+    fn unregister(&mut self, os_id: GlobalHotkeyId) {
+        let released = self
+            .ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&os_id.id);
+        self.log.push(format!(
+            "unregister {}",
+            released.as_ref().map_or_else(|| "?".to_string(), name)
+        ));
+    }
+
+    fn commit(&mut self) {
+        self.log.push("commit".to_string());
+    }
+}
+
+/// A manager with a recording backend installed, and the backend's log.
+fn manager() -> (GlobalHotkeyManager, Log) {
+    let log = Log::default();
+    let mut m = GlobalHotkeyManager::new();
+    m.install_backend(Box::new(RecordingBackend::new(&log)));
+    (m, log)
 }
 
 extern "C" fn callback_a(_data: RefAny, _info: CallbackInfo) -> Update {
@@ -165,35 +198,34 @@ extern "C" fn callback_b(_data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// The data a registration carries, so a delivery can be traced back to it.
+/// The data a declaration carries, so a delivery can be traced back to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Marker(u32);
 
-fn callback(marker: u32, cb: extern "C" fn(RefAny, CallbackInfo) -> Update) -> CoreMenuCallback {
-    CoreMenuCallback {
-        refany: RefAny::new(Marker(marker)),
+fn declared(
+    hotkey: GlobalHotkey,
+    marker: u32,
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+) -> GlobalHotkeyCallbackData {
+    GlobalHotkeyCallbackData {
+        hotkey,
+        description: AzString::from_const_str(""),
         callback: CoreCallback {
             cb: cb as usize,
             ctx: OptionRefAny::None,
         },
+        refany: RefAny::new(Marker(marker)),
     }
 }
 
-fn marker_of(callback: &CoreMenuCallback) -> Option<u32> {
-    let mut data = callback.refany.clone();
+fn marker_of(delivery: &HotkeyDelivery) -> Option<u32> {
+    let mut data = delivery.callback.refany.clone();
     let marker = data.downcast_ref::<Marker>().map(|m| m.0);
     marker
 }
 
-fn invalid(result: Result<GlobalHotkey, GlobalHotkeyError>) -> bool {
-    matches!(result, Err(GlobalHotkeyError::InvalidAccelerator(_)))
-}
-
-fn combo(keys: &[K]) -> VirtualKeyCodeCombo {
-    VirtualKeyCodeCombo {
-        keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
-    }
-}
+const W1: HotkeySource = HotkeySource::Window(1);
+const W2: HotkeySource = HotkeySource::Window(2);
 
 // ---------------------------------------------------------------------------
 // 1. The accelerator
@@ -427,297 +459,520 @@ fn the_linux_backends_get_xkb_names_and_a_portal_trigger() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. The registry
+// 2. Reconciliation: declare the whole wanted set, sync the OS to it
 // ---------------------------------------------------------------------------
 
 #[test]
-fn without_a_backend_registration_is_unsupported() {
-    let mut r = GlobalHotkeyRegistry::new();
-    assert_eq!(
-        r.register(ctrl_alt(K::K), callback(1, callback_a)),
-        Err(GlobalHotkeyError::Unsupported)
-    );
-    assert!(!r.has_registrations());
-}
+fn declaring_registers_each_new_accelerator_once() {
+    let (mut m, log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::A), 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+A"]);
+    assert_eq!(m.status(&ctrl_alt(K::A)), GlobalHotkeyStatus::Active);
 
-#[test]
-fn registering_grabs_at_the_backend_and_is_active() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-
-    let id = r
-        .register(ctrl_alt(K::K), callback(1, callback_a))
-        .expect("Ctrl+Alt+K is free");
-    assert_ne!(id.id, 0, "0 is reserved for \"no hotkey\"");
-    assert_eq!(r.status(id), GlobalHotkeyStatus::Active);
-    assert_eq!(r.find(&ctrl_alt(K::K)), Some(id));
-    assert!(r.has_registrations());
-    assert_eq!(calls(), vec![format!("register {} Ctrl+Alt+K", id.id)]);
-
-    let other = r
-        .register(ctrl_alt(K::J), callback(2, callback_a))
-        .expect("Ctrl+Alt+J is free");
-    assert_ne!(other, id, "two combinations get two ids");
-}
-
-/// Registering a combination this app already holds is an error that names
-/// the holder - and the backend is not asked again.
-#[test]
-fn a_duplicate_is_refused_and_names_the_holder() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-
-    let first = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-    let again = GlobalHotkey::parse_for("alt + ctrl + k", false).unwrap();
-    assert_eq!(
-        r.register(again, callback(2, callback_b)),
-        Err(GlobalHotkeyError::AlreadyRegistered(first))
-    );
-    assert_eq!(
-        calls().len(),
-        1,
-        "the backend must not be asked for a duplicate: {:?}",
-        calls()
-    );
-    assert_eq!(r.registrations().len(), 1);
-}
-
-/// "Another app owns it" comes back as its own error, leaves nothing behind,
-/// and does not poison the combination for a later retry.
-#[test]
-fn a_combination_another_app_owns_is_reported_and_leaves_nothing_behind() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-
-    assert_eq!(
-        r.register(ctrl_alt(K::T), callback(1, callback_a)),
-        Err(GlobalHotkeyError::TakenByAnotherApp)
-    );
-    assert!(!r.has_registrations());
-    assert!(r.registrations().is_empty());
-    assert_eq!(r.find(&ctrl_alt(K::T)), None);
-    // A retry is asked of the backend again, not answered "duplicate".
-    assert_eq!(
-        r.register(ctrl_alt(K::T), callback(1, callback_a)),
-        Err(GlobalHotkeyError::TakenByAnotherApp)
-    );
-    assert_eq!(calls().len(), 2);
-}
-
-#[test]
-fn an_invalid_combination_never_reaches_the_backend() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-    assert!(matches!(
-        r.register(hk(HotkeyModifiers::NONE, K::K), callback(1, callback_a)),
-        Err(GlobalHotkeyError::InvalidAccelerator(_))
-    ));
-    assert!(calls().is_empty(), "the backend was asked: {:?}", calls());
-}
-
-#[test]
-fn unregistering_releases_the_grab_and_the_id_is_never_reused() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-
-    let id = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-    assert!(r.unregister(id));
-    assert_eq!(r.status(id), GlobalHotkeyStatus::NotRegistered);
-    assert!(!r.has_registrations());
-    assert!(
-        calls().contains(&format!("unregister {}", id.id)),
-        "the grab must be released: {:?}",
-        calls()
-    );
-    assert!(!r.unregister(id), "a second unregister is a no-op");
-
-    let again = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-    assert_ne!(
-        again, id,
-        "a stale id must never start meaning a new registration"
-    );
-    assert_eq!(r.status(again), GlobalHotkeyStatus::Active);
-}
-
-/// The portal shape: the backend accepts now and answers later. A refusal
-/// keeps the registration readable, with its reason, until unregistered.
-#[test]
-fn a_pending_registration_is_settled_by_a_later_report() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(pending_backend());
-
-    let id = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-    assert_eq!(r.status(id), GlobalHotkeyStatus::Pending);
-    assert!(r.has_registrations());
-    assert!(r.needs_loop_polling());
-    // Still held while pending: a second request is a duplicate.
-    assert_eq!(
-        r.register(ctrl_alt(K::K), callback(2, callback_a)),
-        Err(GlobalHotkeyError::AlreadyRegistered(id))
-    );
-
-    r.report(id, Ok(()));
-    assert_eq!(r.status(id), GlobalHotkeyStatus::Active);
-
-    let denied = r.register(ctrl_alt(K::J), callback(3, callback_a)).unwrap();
-    r.report(denied, Err(GlobalHotkeyError::Denied));
-    assert_eq!(
-        r.status(denied),
-        GlobalHotkeyStatus::Failed(GlobalHotkeyError::Denied)
-    );
-    // A failed registration does not fire, and does not block a retry.
-    r.push_fired(denied);
-    assert!(r.take_fired().is_empty());
-    assert!(r.register(ctrl_alt(K::J), callback(3, callback_a)).is_ok());
-}
-
-/// Registrations made before the backend is known (an `App` registering
-/// before `run()` turns out headless) move onto the new backend.
-#[test]
-fn replacing_the_backend_moves_the_registrations() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-    let id = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-
-    let refused = r.set_backend(pending_backend());
-    assert!(refused.is_empty());
-    assert_eq!(
-        calls(),
+    m.declare(
+        W1,
         vec![
-            format!("register {} Ctrl+Alt+K", id.id),
-            format!("unregister {}", id.id),
-            format!("pending-register {} Ctrl+Alt+K", id.id),
+            declared(ctrl_alt(K::A), 1, callback_a),
+            declared(ctrl_alt(K::B), 2, callback_a),
+        ],
+        false,
+    );
+    let _ = m.sync();
+    assert_eq!(
+        log.grabs(),
+        vec!["register Ctrl+Alt+B"],
+        "the accelerator that stayed must not be grabbed again"
+    );
+}
+
+/// THE core property: `layout()` re-runs on every `RefreshDom`, so a
+/// re-declaration of the same set is the common case and must cost nothing
+/// at the OS - not a release + grab, not even a commit. Order and fresh
+/// `RefAny`s do not make it a different set.
+#[test]
+fn an_identical_redeclaration_calls_nothing() {
+    let (mut m, log) = manager();
+    m.declare(
+        W1,
+        vec![
+            declared(ctrl_alt(K::A), 1, callback_a),
+            declared(ctrl_alt(K::B), 2, callback_a),
+        ],
+        false,
+    );
+    let _ = m.sync();
+    let _ = log.take();
+
+    m.declare(
+        W1,
+        vec![
+            declared(ctrl_alt(K::B), 20, callback_b),
+            declared(ctrl_alt(K::A), 10, callback_b),
+        ],
+        false,
+    );
+    let outcome = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new());
+    assert!(!outcome.changed, "nothing about any status moved");
+}
+
+#[test]
+fn a_new_callback_for_a_kept_accelerator_swaps_without_a_backend_call_and_the_next_press_runs_it()
+{
+    let (mut m, log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    let _ = log.take();
+
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 2, callback_b)], false);
+    let _ = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new());
+
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(marker_of(&deliveries[0]), Some(2), "the NEW data runs");
+    assert_eq!(
+        deliveries[0].callback.callback.cb, callback_b as usize,
+        "the NEW callback runs"
+    );
+    assert_eq!(deliveries[0].event.hotkey, ctrl_alt(K::K));
+    assert_eq!(deliveries[0].event.state, GlobalHotkeyState::Pressed);
+}
+
+/// A press that races the undeclaration must not run the callback of an
+/// accelerator the app no longer wants.
+#[test]
+fn an_undeclared_accelerator_is_released_and_its_queued_press_is_dropped() {
+    let (mut m, log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    let _ = log.take();
+
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    m.declare(W1, Vec::new(), false);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["unregister Ctrl+Alt+K"]);
+    assert_eq!(m.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::NotRegistered);
+    assert!(m.take_deliveries().is_empty());
+    assert!(!m.simulate(&ctrl_alt(K::K)), "nothing holds it any more");
+}
+
+/// Switching A for B inside one pass never holds both - some platforms cap
+/// how many an app may hold, and a user rebinding a key expects the old one
+/// to be free the moment the new one is taken.
+#[test]
+fn a_release_comes_before_a_grab_in_one_batch() {
+    let (mut m, log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::A), 1, callback_a)], false);
+    let _ = m.sync();
+    let _ = log.take();
+
+    m.declare(W1, vec![declared(ctrl_alt(K::B), 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(
+        log.take(),
+        vec!["unregister Ctrl+Alt+A", "register Ctrl+Alt+B", "commit"]
+    );
+}
+
+/// The portal binds a whole batch in ONE session (one approval dialog), so a
+/// batch must end in exactly one `commit`, after every grab of the batch.
+#[test]
+fn one_batch_commits_once() {
+    let (mut m, log) = manager();
+    m.declare(
+        W1,
+        vec![
+            declared(ctrl_alt(K::A), 1, callback_a),
+            declared(ctrl_alt(K::B), 2, callback_a),
+            declared(ctrl_alt(K::C), 3, callback_a),
+        ],
+        false,
+    );
+    let _ = m.sync();
+    assert_eq!(
+        log.take(),
+        vec![
+            "register Ctrl+Alt+A",
+            "register Ctrl+Alt+B",
+            "register Ctrl+Alt+C",
+            "commit"
         ]
     );
-    assert_eq!(r.status(id), GlobalHotkeyStatus::Pending);
+}
 
-    let refused = r.set_backend(refusing_backend());
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].0, id);
+#[test]
+fn an_invalid_accelerator_never_reaches_the_backend() {
+    let (mut m, log) = manager();
+    let bare_k = hk(HotkeyModifiers::NONE, K::K);
+    m.declare(W1, vec![declared(bare_k, 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new());
     assert!(matches!(
-        r.status(id),
-        GlobalHotkeyStatus::Failed(GlobalHotkeyError::Unavailable(_))
+        m.status(&bare_k),
+        GlobalHotkeyStatus::Failed(GlobalHotkeyError::InvalidAccelerator(_))
     ));
 }
 
 // ---------------------------------------------------------------------------
-// 3. The drain -> callback delivery
+// 3. Several sources: one grab, one callback per press, the owner rule
 // ---------------------------------------------------------------------------
 
-/// What a backend parks comes back out with the callback AND the data it was
-/// registered with, in arrival order, once.
+/// N windows running the same `layout()` share ONE grab; it survives until
+/// the last declarer is gone.
 #[test]
-fn a_fire_is_delivered_with_its_own_callback_and_data() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-    let a = r.register(ctrl_alt(K::A), callback(10, callback_a)).unwrap();
-    let b = r.register(ctrl_alt(K::B), callback(20, callback_b)).unwrap();
+fn two_windows_share_one_grab_forgetting_one_keeps_it_forgetting_both_releases_it() {
+    let (mut m, log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    m.declare(W2, vec![declared(ctrl_alt(K::K), 2, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"]);
 
-    r.push_fired(b);
-    r.push_fired(a);
-    r.push_fired(b);
-    assert!(r.has_pending_fires());
+    m.forget_source(W1);
+    let _ = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new(), "window 2 still wants it");
+    assert_eq!(m.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Active);
 
-    let fired = r.take_fired();
-    let ids: Vec<GlobalHotkeyId> = fired.iter().map(|f| f.id).collect();
-    assert_eq!(ids, vec![b, a, b], "arrival order, repeats kept");
-    assert_eq!(fired[0].hotkey, ctrl_alt(K::B));
-    assert_eq!(marker_of(&fired[0].callback), Some(20));
-    assert_eq!(fired[0].callback.callback.cb, callback_b as usize);
-    assert_eq!(marker_of(&fired[1].callback), Some(10));
-    assert_eq!(fired[1].callback.callback.cb, callback_a as usize);
-
-    assert!(!r.has_pending_fires());
-    assert!(r.take_fired().is_empty(), "delivered once");
+    m.forget_source(W2);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["unregister Ctrl+Alt+K"]);
 }
 
-/// A press that races an unregister must not run the callback of a
-/// registration the app already dropped.
+/// Exactly one callback runs per press - a summon key in a three-window app
+/// must not summon three times - and it is the one of the window the user
+/// last worked in.
 #[test]
-fn a_fire_for_a_dropped_registration_is_not_delivered() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-    let id = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
-    r.push_fired(id);
-    assert!(r.unregister(id));
-    assert!(r.take_fired().is_empty());
+fn the_most_recently_focused_declarer_runs() {
+    let (mut m, _log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    m.declare(W2, vec![declared(ctrl_alt(K::K), 2, callback_a)], false);
+    let _ = m.sync();
 
-    // An id nothing ever held is dropped too.
-    r.push_fired(GlobalHotkeyId { id: 9_999 });
-    assert!(r.take_fired().is_empty());
+    m.note_focus(2);
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries.len(), 1, "one press, one callback");
+    assert_eq!(deliveries[0].target, W2);
+    assert_eq!(marker_of(&deliveries[0]), Some(2));
+
+    m.note_focus(1);
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries[0].target, W1);
+    assert_eq!(marker_of(&deliveries[0]), Some(1));
 }
 
 #[test]
-fn a_stuck_sender_cannot_grow_the_mailbox() {
-    let _g = exclusive();
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(fake_backend());
-    let id = r.register(ctrl_alt(K::K), callback(1, callback_a)).unwrap();
+fn an_unfocused_tie_goes_to_the_oldest_window() {
+    let (mut m, _log) = manager();
+    // Declared in the "wrong" order on purpose: age is the window's
+    // sequence number, not who declared first.
+    m.declare(W2, vec![declared(ctrl_alt(K::K), 2, callback_a)], false);
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].target, W1);
+}
+
+/// The more specific context wins: a window that declares the accelerator
+/// runs it even though the `AppConfig` declares it too.
+#[test]
+fn a_window_declaration_shadows_the_app_one() {
+    let (mut m, log) = manager();
+    m.declare(
+        HotkeySource::App,
+        vec![declared(ctrl_alt(K::K), 0, callback_a)],
+        false,
+    );
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"], "still one grab");
+
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].target, W1);
+
+    // The window goes away: the app's declaration takes over, no OS churn.
+    m.forget_source(W1);
+    let _ = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new());
+    assert!(m.simulate(&ctrl_alt(K::K)));
+    let deliveries = m.take_deliveries();
+    assert_eq!(deliveries[0].target, HotkeySource::App);
+    assert_eq!(marker_of(&deliveries[0]), Some(0));
+}
+
+/// What `get_global_hotkeys()` reports, from one window's point of view.
+#[test]
+fn the_info_list_names_the_owner_relative_to_the_viewer() {
+    let (mut m, _log) = manager();
+    m.declare(
+        HotkeySource::App,
+        vec![declared(ctrl_alt(K::A), 0, callback_a)],
+        false,
+    );
+    m.declare(W1, vec![declared(ctrl_alt(K::B), 1, callback_a)], false);
+    m.declare(
+        W2,
+        vec![
+            declared(ctrl_alt(K::C), 2, callback_a),
+            declared(ctrl_alt(K::T), 2, callback_a),
+        ],
+        false,
+    );
+    let _ = m.sync();
+    // Ctrl+Alt+T was refused; once nobody declares it the failure is still
+    // listed, with nobody as its owner.
+    m.declare(W2, vec![declared(ctrl_alt(K::C), 2, callback_a)], false);
+    let _ = m.sync();
+
+    let infos = m.infos_for(W1);
+    let owner = |key: K| {
+        infos
+            .iter()
+            .find(|i| i.hotkey == ctrl_alt(key))
+            .map(|i| i.owner)
+    };
+    assert_eq!(owner(K::A), Some(GlobalHotkeyOwner::App));
+    assert_eq!(owner(K::B), Some(GlobalHotkeyOwner::ThisWindow));
+    assert_eq!(owner(K::C), Some(GlobalHotkeyOwner::OtherWindow));
+    assert_eq!(owner(K::T), Some(GlobalHotkeyOwner::Nobody));
+    let b = infos.iter().find(|i| i.hotkey == ctrl_alt(K::B)).unwrap();
+    assert_eq!(b.status, GlobalHotkeyStatus::Active);
+    assert_eq!(b.trigger.as_str(), ctrl_alt(K::B).to_display_string().as_str());
+}
+
+// ---------------------------------------------------------------------------
+// 4. Status feedback
+// ---------------------------------------------------------------------------
+
+/// Taken -> re-declared -> NOT asked again (declared or not) -> retry -> asked
+/// once. Without this, "Ctrl+Alt+T is taken, show a warning" would hammer
+/// the OS on every `RefreshDom`, and on Wayland re-show a declined dialog.
+#[test]
+fn a_failure_is_sticky_until_a_retry() {
+    let (mut m, log) = manager();
+    let t = ctrl_alt(K::T);
+    m.declare(W1, vec![declared(t, 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+T"]);
+    assert_eq!(
+        m.status(&t),
+        GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp)
+    );
+
+    m.declare(W1, vec![declared(t, 1, callback_a)], false);
+    let _ = m.sync();
+    m.declare(W1, Vec::new(), false);
+    let _ = m.sync();
+    m.declare(W1, vec![declared(t, 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new(), "a failure is not re-asked");
+    assert_eq!(
+        m.status(&t),
+        GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp)
+    );
+
+    m.retry(t);
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+T"], "a retry asks once");
+}
+
+/// "Ctrl+Alt+T is taken, use Ctrl+Alt+J": with failures forgotten on
+/// undeclare this loops forever (T fails, J is declared, T reads
+/// NotRegistered, T is declared again, ...). Sticky, it converges.
+#[test]
+fn a_fallback_after_a_failure_converges() {
+    let (mut m, log) = manager();
+    let t = ctrl_alt(K::T);
+    let j = ctrl_alt(K::J);
+    m.declare(W1, vec![declared(t, 1, callback_a)], true);
+    let _ = m.sync();
+    assert!(matches!(m.status(&t), GlobalHotkeyStatus::Failed(_)));
+
+    // The app's layout() read "failed" and fell back.
+    m.declare(W1, vec![declared(j, 1, callback_a)], true);
+    let _ = m.sync();
+    assert!(
+        matches!(m.status(&t), GlobalHotkeyStatus::Failed(_)),
+        "the first choice must still read failed, or the app flips back"
+    );
+    assert_eq!(m.status(&j), GlobalHotkeyStatus::Active);
+    let _ = log.take();
+
+    // One more pass (the status-driven relayout) declares the same: done.
+    m.declare(W1, vec![declared(j, 1, callback_a)], true);
+    let outcome = m.sync();
+    assert_eq!(log.take(), Vec::<String>::new());
+    assert!(outcome.relayout.is_empty(), "converged: nobody is asked again");
+}
+
+#[test]
+fn without_a_backend_every_declaration_reads_unsupported_and_nothing_is_called() {
+    let mut m = GlobalHotkeyManager::new();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(
+        m.status(&ctrl_alt(K::K)),
+        GlobalHotkeyStatus::Failed(GlobalHotkeyError::Unsupported)
+    );
+    assert!(!m.simulate(&ctrl_alt(K::K)));
+    assert!(m.take_deliveries().is_empty());
+}
+
+/// Declarations made before the run chose its backend (an `AppConfig` list,
+/// a first layout on a slow start) reach the backend once it is installed -
+/// and never a different one before it.
+#[test]
+fn declarations_before_a_backend_wait_for_it() {
+    let mut m = GlobalHotkeyManager::new();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+
+    let log = Log::default();
+    m.install_backend(Box::new(RecordingBackend::new(&log)));
+    let _ = m.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"]);
+    assert_eq!(m.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Active);
+}
+
+/// A new backend (the headless simulation replacing the platform's) takes
+/// the whole set over: the old grabs are released, the new ones taken.
+#[test]
+fn replacing_the_backend_moves_every_grab() {
+    let (mut m, old_log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
+    let _ = old_log.take();
+
+    let new_log = Log::default();
+    m.install_backend(Box::new(RecordingBackend::new(&new_log)));
+    assert_eq!(old_log.grabs(), vec!["unregister Ctrl+Alt+K"]);
+    let _ = m.sync();
+    assert_eq!(new_log.grabs(), vec!["register Ctrl+Alt+K"]);
+}
+
+/// The portal shape: the grab is `Pending` until the desktop answers on
+/// ANOTHER thread, which reaches the manager only through the sink. Only
+/// the sources whose last pass READ a status are asked to lay out again.
+#[test]
+fn a_pending_grab_settles_from_another_thread_through_the_sink() {
+    let log = Log::default();
+    let mut m = GlobalHotkeyManager::new();
+    let backend = RecordingBackend::pending(&log);
+    let ids = backend.ids.clone();
+    m.install_backend(Box::new(backend));
+
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], true);
+    m.declare(W2, vec![declared(ctrl_alt(K::J), 2, callback_a)], false);
+    let _ = m.sync();
+    assert_eq!(m.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Pending);
+
+    let os_id = ids
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .find(|(_, h)| **h == ctrl_alt(K::K))
+        .map(|(id, _)| GlobalHotkeyId { id: *id })
+        .expect("the backend was asked for Ctrl+Alt+K");
+    let sink = m.sink();
+    std::thread::spawn(move || {
+        sink.push(BackendEvent::Settled {
+            os_id,
+            result: Ok(AzString::from("Ctrl+Alt+K (as the desktop shows it)")),
+        });
+    })
+    .join()
+    .expect("the answering thread");
+
+    let outcome = m.sync();
+    assert!(outcome.changed);
+    assert_eq!(m.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Active);
+    assert_eq!(
+        outcome.relayout,
+        vec![W1],
+        "window 1 read a status, window 2 did not"
+    );
+    let infos = m.infos_for(W1);
+    let k = infos.iter().find(|i| i.hotkey == ctrl_alt(K::K)).unwrap();
+    assert_eq!(
+        k.trigger.as_str(),
+        "Ctrl+Alt+K (as the desktop shows it)",
+        "the desktop's own spelling of the trigger is kept"
+    );
+}
+
+#[test]
+fn a_refusal_that_arrives_later_is_sticky_too() {
+    let log = Log::default();
+    let mut m = GlobalHotkeyManager::new();
+    let backend = RecordingBackend::pending(&log);
+    let ids = backend.ids.clone();
+    m.install_backend(Box::new(backend));
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], true);
+    let _ = m.sync();
+    let os_id = ids
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .next()
+        .map(|id| GlobalHotkeyId { id: *id })
+        .expect("asked");
+    m.sink().push(BackendEvent::Settled {
+        os_id,
+        result: Err(GlobalHotkeyError::Denied),
+    });
+    let _ = m.sync();
+    assert_eq!(
+        m.status(&ctrl_alt(K::K)),
+        GlobalHotkeyStatus::Failed(GlobalHotkeyError::Denied)
+    );
+    let _ = log.take();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], true);
+    let _ = m.sync();
+    assert_eq!(
+        log.take(),
+        Vec::<String>::new(),
+        "a declined dialog must never be re-shown by an ordinary relayout"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. The mailbox and the simulation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_stuck_sender_cannot_grow_the_sink() {
+    let (mut m, _log) = manager();
+    m.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = m.sync();
     for _ in 0..(MAX_PENDING_FIRES * 10) {
-        r.push_fired(id);
+        assert!(m.simulate(&ctrl_alt(K::K)));
     }
-    let fired = r.take_fired();
-    assert_eq!(fired.len(), MAX_PENDING_FIRES);
+    assert_eq!(m.take_deliveries().len(), MAX_PENDING_FIRES);
+    assert!(m.take_deliveries().is_empty(), "delivered once");
 }
 
-// ---------------------------------------------------------------------------
-// 4. The headless simulation
-// ---------------------------------------------------------------------------
-
 #[test]
-fn a_simulated_press_fires_the_registration_however_it_is_spelled() {
-    let mut r = GlobalHotkeyRegistry::new();
-    let _ = r.set_backend(registry::simulated_backend());
-    let id = r.register(ctrl_alt(K::K), callback(7, callback_a)).unwrap();
-    assert_eq!(r.status(id), GlobalHotkeyStatus::Active);
+fn a_simulated_press_reaches_the_current_owner_however_it_is_spelled() {
+    let shared = SharedGlobalHotkeys::new();
+    shared.install_simulated_backend();
+    assert_eq!(shared.backend_name(), Some(SIMULATED_BACKEND_NAME));
+    shared.declare(W1, vec![declared(ctrl_alt(K::K), 7, callback_a)], false);
+    let _ = shared.sync();
+    assert_eq!(shared.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Active);
 
     let spelled = GlobalHotkey::parse_for("alt+CTRL+k", false).unwrap();
-    assert!(r.simulate(&spelled));
-    let fired = r.take_fired();
-    assert_eq!(fired.len(), 1);
-    assert_eq!(fired[0].id, id);
-    assert_eq!(marker_of(&fired[0].callback), Some(7));
+    assert!(shared.simulate(&spelled));
+    let deliveries = shared.lock().take_deliveries();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].target, W1);
+    assert_eq!(marker_of(&deliveries[0]), Some(7));
 
-    // A combination nobody registered presses nothing.
-    assert!(!r.simulate(&ctrl_alt(K::J)));
-    assert!(r.take_fired().is_empty());
-}
-
-/// The process-wide API end to end, the way the headless shell and an
-/// `AZ_E2E` step drive it: install the simulation, register, press, drain.
-#[test]
-fn the_process_wide_registry_runs_on_the_simulation() {
-    let _g = exclusive();
-    let _ = registry::install_backend(registry::simulated_backend());
-    assert_eq!(registry::backend_name(), Some(SIMULATED_BACKEND_NAME));
-    let probe = registry::probe();
-    assert!(probe.available, "{probe:?}");
-    assert_eq!(probe.backend, SIMULATED_BACKEND_NAME);
-
-    let hotkey = ctrl_alt(K::F7);
-    let id = registry::register(hotkey, callback(42, callback_b)).expect("simulation grants");
-    assert_eq!(registry::status(id), GlobalHotkeyStatus::Active);
-    assert!(registry::is_registered(id));
-    assert!(registry::needs_loop_polling());
-
-    assert!(registry::simulate(&hotkey));
-    assert!(registry::has_pending_fires());
-    let fired = registry::take_fired();
-    assert_eq!(fired.len(), 1);
-    assert_eq!(fired[0].id, id);
-    assert_eq!(marker_of(&fired[0].callback), Some(42));
-
-    assert!(registry::unregister(id));
-    assert!(!registry::is_registered(id));
-    assert!(!registry::simulate(&hotkey));
-    assert!(registry::take_fired().is_empty());
+    assert!(!shared.simulate(&ctrl_alt(K::J)), "nobody declares it");
 }
