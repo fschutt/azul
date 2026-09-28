@@ -2797,20 +2797,6 @@ impl LayoutWindow {
             .collect()
     }
 
-    /// Flatten-length of one inline item — the SAME accounting
-    /// `overlay::flatten_inline_content` performs, so byte offsets built
-    /// from it index the exact string `get_node_text_content` returns.
-    fn inline_item_flat_len(item: &InlineContent) -> usize {
-        use crate::text3::cache::InlineContent as IC;
-        match item {
-            IC::Text(run) => run.text.len(),
-            IC::Space(_) | IC::LineBreak(_) | IC::Tab { .. } => 1,
-            IC::Ruby { base, .. } => base.iter().map(Self::inline_item_flat_len).sum(),
-            IC::Marker { run, .. } => run.text.len(),
-            IC::Image(_) | IC::Shape(_) => 0,
-        }
-    }
-
     /// Resolve an engine `TextCursor` (cluster id + affinity) on `node` to
     /// an ABSOLUTE byte offset in the node's flattened text content — the
     /// app-facing coordinate ([`azul_core::selection::DocumentPosition`]).
@@ -2837,7 +2823,7 @@ impl LayoutWindow {
                 }
                 return u32::try_from(acc).unwrap_or(u32::MAX);
             }
-            acc += Self::inline_item_flat_len(item);
+            acc += crate::block_content::flat_len_of(item);
         }
         // Cursor past the content (stale session): clamp to the end.
         u32::try_from(acc).unwrap_or(u32::MAX)
@@ -3133,7 +3119,7 @@ impl LayoutWindow {
             let Some(element) = self.edit_element(host.dom_node(), Some(caret_block)) else {
                 return (false, false);
             };
-            let (content, generated) = self.caret_block_content(focus.dom, element);
+            let (content, generated) = self.element_content(focus.dom, element).into_parts();
             let caret = match selection {
                 Selection::Cursor(c) => Some(c),
                 Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&content, &r),
@@ -3540,7 +3526,7 @@ impl LayoutWindow {
     /// The layout node whose inline layout an edit of `node_id` re-shapes:
     /// its own, else the first among its descendants, the caret's block first
     /// ([`Self::ifc_candidate_children`]). Shared by [`Self::reshape_text_node`]
-    /// and [`Self::caret_block_content`], so the two agree on the block.
+    /// and [`Self::element_content`], so the two agree on the block.
     fn ifc_layout_index_for_edit(&self, dom_id: DomId, node_id: NodeId) -> Option<usize> {
         let tree = &self.layout_results.get(&dom_id)?.layout_tree;
         let owned_ifc = |n: NodeId| -> Option<usize> {
@@ -3579,22 +3565,30 @@ impl LayoutWindow {
             .unwrap_or_default()
     }
 
-    /// The content a caret in `node_id`'s block indexes, and how many
-    /// generated items lead it: the edit model (`get_text_before_textinput`,
-    /// the DOM's text alone) behind the prefix the layout numbers first - a
-    /// list item's `::marker`, which makes its text run 1 to every caret.
+    /// The content a caret in `node_id`'s block indexes
+    /// ([`BlockContent`](crate::block_content::BlockContent)): the edit model
+    /// (`get_text_before_textinput`, the DOM's text alone) behind the prefix
+    /// the layout numbers first - a list item's `::marker`, which makes its
+    /// text run 1 to every caret.
     ///
-    /// Edits splice this and store only `[generated..]` (overlay, undo, the
+    /// Edits splice the items and store only the text (overlay, undo, the
     /// app's sync API get the text); [`Self::reshape_text_node`] shapes the
     /// prefix in front again, so the carets keep their numbering.
-    fn caret_block_content(&self, dom_id: DomId, node_id: NodeId) -> (Vec<InlineContent>, usize) {
+    #[must_use]
+    pub fn element_content(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> crate::block_content::BlockContent {
+        use crate::block_content::BlockContent;
+
         let text = self.get_text_before_textinput(dom_id, node_id);
         let leading = text
             .iter()
             .take_while(|item| matches!(item, InlineContent::Marker { .. }))
             .count();
         if leading > 0 {
-            return (text, leading);
+            return BlockContent::new(text, leading);
         }
         let mut content = self
             .ifc_layout_index_for_edit(dom_id, node_id)
@@ -3602,42 +3596,7 @@ impl LayoutWindow {
             .unwrap_or_default();
         let generated = content.len();
         content.extend(text);
-        (content, generated)
-    }
-
-    /// The carets are the layout's, and one can sit ON a generated item (a
-    /// click on a list marker). It stands at the start of the block's own
-    /// text instead: nothing typed or deleted goes into the marker.
-    fn past_generated(cursor: TextCursor, generated: usize) -> TextCursor {
-        let first_text = u32::try_from(generated).unwrap_or(u32::MAX);
-        if cursor.cluster_id.source_run < first_text {
-            TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: first_text,
-                    start_byte_in_run: 0,
-                },
-                affinity: CursorAffinity::Leading,
-            }
-        } else {
-            cursor
-        }
-    }
-
-    /// [`Self::past_generated`] for every end of every selection.
-    fn past_generated_items(selections: Vec<Selection>, generated: usize) -> Vec<Selection> {
-        if generated == 0 {
-            return selections;
-        }
-        selections
-            .into_iter()
-            .map(|sel| match sel {
-                Selection::Cursor(c) => Selection::Cursor(Self::past_generated(c, generated)),
-                Selection::Range(r) => Selection::Range(SelectionRange {
-                    start: Self::past_generated(r.start, generated),
-                    end: Self::past_generated(r.end, generated),
-                }),
-            })
-            .collect()
+        BlockContent::new(content, generated)
     }
 
     /// Whether `a` and `b` are ONE caret position in `block`: equal as
@@ -3650,7 +3609,7 @@ impl LayoutWindow {
             return a == b;
         };
         crate::text3::edit::collapsed_range_caret(
-            &self.caret_block_content(block.dom(), element).0,
+            self.element_content(block.dom(), element).items(),
             &SelectionRange { start: a, end: b },
         )
         .is_some()
@@ -3658,7 +3617,7 @@ impl LayoutWindow {
 
     /// Whether `cursor` sits at the very start / the very end of its block's
     /// text, by POSITION in `content` - the carets' own numbering, whose first
-    /// `generated` items are not text ([`Self::caret_block_content`]). An item
+    /// `generated` items are not text ([`Self::element_content`]). An item
     /// that holds nothing (an empty seed run) is not in the way; a character,
     /// a line break or an image is.
     fn caret_at_block_edges(
@@ -3667,7 +3626,7 @@ impl LayoutWindow {
         cursor: TextCursor,
     ) -> (bool, bool) {
         use crate::text3::edit::cursor_byte_offset_in_run;
-        let cursor = Self::past_generated(cursor, generated);
+        let cursor = crate::block_content::BlockContent::past_generated(cursor, generated);
         let text = content.get(generated..).unwrap_or(&[]);
         let blank = |items: &[InlineContent]| {
             items
@@ -3755,7 +3714,7 @@ impl LayoutWindow {
             let content = self.get_text_before_textinput(dom_id, node_id);
             let mut acc = 0usize;
             for (i, item) in content.iter().enumerate() {
-                let len = Self::inline_item_flat_len(item);
+                let len = crate::block_content::flat_len_of(item);
                 let idx = u32::try_from(i).unwrap_or(u32::MAX);
                 if abs <= acc + len {
                     if matches!(item, IC::Text(_)) {
@@ -4028,14 +3987,14 @@ impl LayoutWindow {
         };
 
         // The text a block keeps before (`head`) or after its cut, in the
-        // carets' own run numbering (`caret_block_content` - a list item's
+        // carets' own run numbering (`element_content` - a list item's
         // text is run 1 behind its marker) and affinity-aware (a Trailing
         // cursor cuts AFTER its grapheme).
         let kept = |block: NodeId, cut: &TextCursor, head: bool| -> String {
             use crate::text3::edit::cursor_byte_offset_in_run;
             let cut_run = cut.cluster_id.source_run;
             let mut out = String::new();
-            for (i, item) in self.caret_block_content(dom_id, block).0.iter().enumerate() {
+            for (i, item) in self.element_content(dom_id, block).items().iter().enumerate() {
                 let InlineContent::Text(run) = item else {
                     continue;
                 };
@@ -17795,7 +17754,7 @@ impl LayoutWindow {
         };
 
         // In the carets' numbering (behind a list item's marker).
-        let (mut content, generated) = self.caret_block_content(dom_id, node_id);
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
         if content.len() == generated {
             let style_node = self.seed_style_node(dom_id, node_id);
             content.push(InlineContent::Text(StyledRun {
@@ -17844,7 +17803,10 @@ impl LayoutWindow {
                 affinity: CursorAffinity::Leading,
             })]
         };
-        let current_selection = Self::past_generated_items(current_selection, generated);
+        let current_selection = crate::block_content::BlockContent::selections_past_generated(
+            current_selection,
+            generated,
+        );
 
         // Capture pre-state for undo/redo BEFORE mutation
         let old_text = self.extract_text_from_inline_content(&content[generated..]);
@@ -21414,7 +21376,7 @@ impl LayoutWindow {
             self.edit_element(target, self.text_edit_manager.get_editing_block())?;
 
         // In the carets' numbering (behind a list item's marker).
-        let (mut content, generated) = self.caret_block_content(dom_id, node_id);
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
 
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
         let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {
@@ -21424,7 +21386,10 @@ impl LayoutWindow {
         } else {
             return None;
         };
-        let current_selections = Self::past_generated_items(current_selections, generated);
+        let current_selections = crate::block_content::BlockContent::selections_past_generated(
+            current_selections,
+            generated,
+        );
 
         let edit = if forward {
             crate::text3::edit::TextEdit::DeleteForward

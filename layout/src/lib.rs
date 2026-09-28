@@ -523,6 +523,10 @@ pub mod scroll_timer;
 // shaping loop, and complex shaping/cache signatures.
 #[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
+/// What a caret indexes (a text block's content in the layout's run
+/// numbering) and the flat byte offsets into a block's text.
+#[cfg(feature = "text_layout")]
+pub mod block_content;
 /// Text blocks: which inline formatting context a node, a caret or a
 /// selection end lives in - the one resolver.
 #[cfg(feature = "text_layout")]
