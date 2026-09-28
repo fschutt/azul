@@ -354,6 +354,25 @@ impl PlatformCapability {
         }
     }
 
+    /// Probe system-wide (global) hotkeys - `CallbackInfo::register_global_hotkey`.
+    ///
+    /// macOS: Carbon `RegisterEventHotKey`, no permission needed. Windows:
+    /// `RegisterHotKey`. Linux under X11: `XGrabKey` (needs `$DISPLAY`).
+    /// Linux under Wayland: the xdg-desktop-portal `GlobalShortcuts`
+    /// interface, asked for REAL (one D-Bus round trip, cached) - vanilla
+    /// setups without a backend implementing it report `false` with the
+    /// reason. iOS / Android / web: `false`. A headless run reports the
+    /// simulation. `available` is about the platform; a combination can
+    /// still be refused (another app owns it) at registration.
+    pub fn global_hotkeys() -> PlatformCapability {
+        let probe = crate::desktop::global_hotkey::probe();
+        PlatformCapability {
+            available: probe.available,
+            backend: AzString::from_const_str(probe.backend),
+            reason: AzString::from(probe.reason),
+        }
+    }
+
     /// Probe the secret keyring. Backend presence; the actual store may still be
     /// locked/absent (delivered async as `KeyringResult::Unavailable`).
     pub fn keyring() -> PlatformCapability {

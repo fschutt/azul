@@ -90,6 +90,10 @@ impl PlatformCapability {
     pub fn keyring() -> PlatformCapability {
         Self::unavailable()
     }
+    /// A page cannot see keys pressed while another tab or app has the focus.
+    pub fn global_hotkeys() -> PlatformCapability {
+        Self::unavailable()
+    }
     pub fn biometric() -> PlatformCapability {
         Self::unavailable()
     }

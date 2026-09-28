@@ -172,6 +172,12 @@ impl App {
             app_config.expose_system_media_controls,
         );
 
+        // Global hotkeys: install this platform's backend so a registration
+        // (from a callback, or from `register_global_hotkey` before `run`)
+        // has somewhere to go. Side-effect free until the first registration;
+        // a headless run swaps in the simulation and moves registrations.
+        crate::desktop::global_hotkey::install_platform_backend();
+
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
             .icon_provider
@@ -253,6 +259,44 @@ impl App {
     /// icon set via [`App::set_tray`] can appear.
     pub fn is_tray_available(&self) -> bool {
         crate::desktop::tray::TrayIcon::is_available()
+    }
+
+    /// Register a SYSTEM-WIDE hotkey before `run()`: `callback` runs with
+    /// `data` whenever the combination is pressed, even while another app
+    /// has the keyboard focus. The same registry as
+    /// `CallbackInfo::register_global_hotkey` - use this one where no
+    /// callback runs before the hotkey is needed (a tray-only utility's
+    /// summon key).
+    ///
+    /// Takes effect immediately on the platforms that answer immediately
+    /// (macOS, Windows, X11); on a Wayland desktop the portal may ask the
+    /// user once the app runs. A run that turns out headless moves the
+    /// registration onto the simulation (nothing grabbed at the OS).
+    ///
+    /// # Errors
+    /// See `GlobalHotkeyError`: not a usable combination, already held by
+    /// this app, owned by another app, or no global hotkeys here.
+    pub fn register_global_hotkey(
+        &mut self,
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: azul_core::callbacks::CoreCallback,
+    ) -> azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError {
+        crate::desktop::global_hotkey::install_platform_backend();
+        azul_layout::managers::global_hotkey::register(
+            hotkey,
+            azul_core::menu::CoreMenuCallback {
+                refany: data,
+                callback,
+            },
+        )
+        .into()
+    }
+
+    /// Release a global hotkey registered through this `App` or a callback.
+    /// Returns whether `id` was registered.
+    pub fn unregister_global_hotkey(&mut self, id: azul_core::global_hotkey::GlobalHotkeyId) -> bool {
+        azul_layout::managers::global_hotkey::unregister(id)
     }
 
     /// Run with a tray and NO window.

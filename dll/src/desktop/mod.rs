@@ -115,6 +115,9 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
 /// These live behind `extra/` rather than in
 /// `azul-core` / `azul-layout` so the layout closure stays dep-light.
 pub mod extra;
+/// System-wide hotkeys: the OS backends (Carbon, Win32, X11, the Wayland
+/// portal) and the run-loop hook that delivers them like tray clicks.
+pub mod global_hotkey;
 /// File IO for C / C++ developers: the one `FilePath` API, on every target.
 pub mod file {
     pub use azul_layout::file::*;

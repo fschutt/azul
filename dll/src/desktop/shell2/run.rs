@@ -502,6 +502,11 @@ fn run_headless(
     // Before the window exists, so before anything can post.
     crate::desktop::notifications::use_headless_backend();
 
+    // Global hotkeys: a headless run must not grab real keys at the OS. The
+    // simulation replaces the platform backend (moving any registration made
+    // before run()), and `simulate` / the AZ_E2E `global_hotkey` op press.
+    crate::desktop::global_hotkey::install_simulated_backend();
+
     // Extract icon_provider from config (same as real platforms do)
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
@@ -989,6 +994,10 @@ pub fn run(
                         // Self-gating when nothing was ever posted.
                         pump_notifications_into_windows();
 
+                        // Global hotkeys the Carbon handler parked, run
+                        // against the first window like the tray's clicks.
+                        crate::desktop::global_hotkey::pump_into_first_macos_window();
+
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
                         for wptr in window_ptrs {
@@ -1243,6 +1252,13 @@ pub fn run(
                         // dispatch above goes out NOW, not after the next
                         // unrelated event wakes the loop.
                         pump_notifications_into_windows();
+
+                        // --- Global hotkeys ---
+                        // The Carbon handler ran inside a `sendEvent:` above
+                        // (this iteration's drain, or the post-wake drain of
+                        // the last one) and parked the id; deliver it BEFORE
+                        // parking, or it would wait for the next event.
+                        crate::desktop::global_hotkey::pump_into_first_macos_window();
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
@@ -1813,6 +1829,13 @@ pub fn run(
                 }
             }
         }
+
+        // --- Global hotkeys ---
+        // `WM_HOTKEY` woke `WaitMessage` and the thread-queue drain above ran
+        // the message-only window's procedure, which parked the id. Run the
+        // callbacks against the first window; a rebuild they ask for is
+        // picked up by the render pass below.
+        crate::desktop::global_hotkey::pump_into_first_win32_window();
 
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
@@ -2391,6 +2414,12 @@ fn run_linux_windows(
             }
         }
 
+        // Global hotkeys: read the X grab connection (the portal's listener
+        // thread parks its own), then run what fired against the first
+        // window - the tray's route. The loops below cap their park while a
+        // hotkey is registered, so this runs a few times a second at least.
+        crate::desktop::global_hotkey::pump_into_first_linux_window();
+
         // Process events for all windows
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
@@ -2958,6 +2987,12 @@ pub fn run_tray_only(
             if !deliveries.is_empty() {
                 let window = unsafe { &mut *headless_ptr };
                 let _ = crate::desktop::notifications::invoke_deliveries(window, deliveries);
+            }
+
+            // A tray utility's summon hotkey: same stub window, same reason.
+            if azul_layout::managers::global_hotkey::has_pending_fires() {
+                let window = unsafe { &mut *headless_ptr };
+                let _ = crate::desktop::global_hotkey::deliver_fired(window);
             }
         },
     );

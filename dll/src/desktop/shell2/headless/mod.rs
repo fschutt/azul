@@ -2995,6 +2995,19 @@ impl HeadlessWindow {
                 );
             }
 
+            // ── Phase 1c: Global hotkeys ─────────────────────────
+            // Presses parked by the simulated backend (`simulate`, the
+            // AZ_E2E `global_hotkey` op) run their callbacks against this
+            // window - the slot the desktop run loops give them, next to the
+            // tray pump.
+            let hotkey_result = crate::desktop::global_hotkey::deliver_fired(&mut self);
+            if !matches!(
+                hotkey_result,
+                azul_core::events::ProcessEventResult::DoNothing
+            ) {
+                self.service_frame(hotkey_result);
+            }
+
             // ── Phase 2: Tick timers and threads ─────────────────
             // Use the shared PlatformWindow trait method to invoke
             // expired timer callbacks and poll background threads.
@@ -3097,8 +3110,13 @@ impl HeadlessWindow {
                 .layout_window
                 .as_ref()
                 .map_or(false, |lw| !lw.timers.is_empty());
+            // A registered global hotkey on the simulation: a press parked from
+            // outside a callback (a test thread) has no way to signal the
+            // condvar, so the wait below polls while one is registered.
+            let has_hotkeys = crate::desktop::global_hotkey::needs_loop_polling();
             let has_wake_sources = has_timers
                 || self.thread_poll_timer_running
+                || has_hotkeys
                 || debug_enabled
                 || !children.is_empty();
 
@@ -3135,7 +3153,7 @@ impl HeadlessWindow {
                 // Consume the flag and loop again WITHOUT waiting, so the
                 // work the wake announced is serviced now.
                 guard.woken = false;
-            } else if has_timers || self.thread_poll_timer_running {
+            } else if has_timers || self.thread_poll_timer_running || has_hotkeys {
                 // Timers or threads active → poll at 60 Hz
                 let _r = self.wake_condvar.wait_timeout_while(
                     guard,

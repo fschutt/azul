@@ -3147,11 +3147,14 @@ impl WaylandWindow {
             // server's ActionInvoked / NotificationClosed arrive on D-Bus.
             let has_tray = crate::desktop::tray::has_live_tray()
                 || crate::desktop::notifications::needs_polling();
+            // Same for a registered global hotkey: the portal's `Activated`
+            // arrives on a D-Bus thread whose fd is not in this set either.
+            let has_hotkeys = crate::desktop::global_hotkey::needs_loop_polling();
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
                 16
-            } else if has_tray {
+            } else if has_tray || has_hotkeys {
                 100
             } else {
                 -1
