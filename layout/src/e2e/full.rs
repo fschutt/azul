@@ -14808,8 +14808,10 @@ pub fn process_debug_event(
             match azul_core::global_hotkey::GlobalHotkey::parse(accelerator) {
                 Err(e) => send_err(request, format!("global_hotkey: {e}")),
                 Ok(hotkey) => {
-                    if crate::managers::global_hotkey::simulate(&hotkey) {
-                        // Wake the loop: the fire is delivered by the run
+                    let shared =
+                        crate::managers::global_hotkey::SharedGlobalHotkeys::current_or_detached();
+                    if shared.simulate(&hotkey) {
+                        // Wake the loop: the press is delivered by the run
                         // loop's hotkey pump, not inside this op.
                         needs_update = true;
                         send_ok(request, None, None);
@@ -14817,11 +14819,16 @@ pub fn process_debug_event(
                         send_err(
                             request,
                             format!(
-                                "global_hotkey: no registration holds {} (registered: {:?})",
+                                "global_hotkey: nothing holds {} (declared: {:?})",
                                 hotkey.to_display_string().as_str(),
-                                crate::managers::global_hotkey::registrations()
+                                shared
+                                    .infos_for(crate::managers::global_hotkey::HotkeySource::App)
                                     .iter()
-                                    .map(|(_, h, _)| h.to_display_string().as_str().to_string())
+                                    .map(|info| format!(
+                                        "{} {:?}",
+                                        info.hotkey.to_display_string().as_str(),
+                                        info.status
+                                    ))
                                     .collect::<Vec<_>>()
                             ),
                         );

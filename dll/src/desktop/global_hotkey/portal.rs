@@ -9,19 +9,18 @@
 //! desktop may show the user a dialog (and may let them pick a different
 //! trigger), and it reports each activation as a D-Bus signal. Implemented by
 //! KDE Plasma (5.27+), GNOME (48+) and Hyprland's portal; where no backend
-//! implements the interface the probe says so and registration answers
+//! implements the interface the probe says so and every grab answers
 //! `Unavailable`.
 //!
 //! # Shape
 //!
-//! - One portal SESSION per registration (`CreateSession` then `BindShortcuts` with one
-//!   shortcut), so unregistering is `Session.Close` and nothing else - no re-binding of a shared
-//!   set, which some implementations refuse after the first bind.
+//! - One portal SESSION per grab (`CreateSession` then `BindShortcuts` with one shortcut), so a
+//!   release is `Session.Close` and nothing else.
 //! - The handshake may wait on the user's answer to a dialog, so it runs on a thread of its own
-//!   and the registration is `Pending` until it answers; `report` then settles it `Active`, or
-//!   `Failed(Denied)` / `Failed(Platform)`.
-//! - One long-lived listener thread receives every `Activated` signal and parks the id of the
-//!   session it names.
+//!   and the grab is `Pending` until it answers; the thread then reports `Settled` through the
+//!   backend's [`HotkeySink`].
+//! - One long-lived listener thread per backend receives every `Activated` signal and parks a
+//!   press for the session it names.
 //!
 //! # D-Bus
 //!
@@ -33,12 +32,12 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Mutex, OnceLock, PoisonError},
+    sync::{Arc, Mutex, OnceLock, PoisonError},
 };
 
 use azul_core::global_hotkey::{portal_trigger, GlobalHotkey, GlobalHotkeyError, GlobalHotkeyId};
 use azul_layout::managers::global_hotkey::{
-    is_registered, push_fired, report, BackendGrant, GlobalHotkeyBackend,
+    BackendEvent, BackendGrant, GlobalHotkeyBackend, HotkeySink,
 };
 
 const DESKTOP_NAME: &str = "org.freedesktop.portal.Desktop";
@@ -46,6 +45,9 @@ const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
 const SHORTCUTS_IFACE: &str = "org.freedesktop.portal.GlobalShortcuts";
 const REQUEST_IFACE: &str = "org.freedesktop.portal.Request";
 const SESSION_IFACE: &str = "org.freedesktop.portal.Session";
+
+/// What the capability probe and the backend call themselves.
+pub(super) const NAME: &str = "xdg-desktop-portal GlobalShortcuts";
 
 /// The session bus, shared by the handshakes and the listener.
 fn connection() -> Option<&'static zbus::blocking::Connection> {
@@ -55,20 +57,13 @@ fn connection() -> Option<&'static zbus::blocking::Connection> {
         .as_ref()
 }
 
-/// Live sessions, by registry id: the session object path.
-static SESSIONS: Mutex<BTreeMap<u32, String>> = Mutex::new(BTreeMap::new());
-
-fn sessions() -> std::sync::MutexGuard<'static, BTreeMap<u32, String>> {
-    SESSIONS.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 fn platform(what: &str, e: impl core::fmt::Display) -> GlobalHotkeyError {
     GlobalHotkeyError::Platform(format!("{what}: {e}").into())
 }
 
 /// Is the `GlobalShortcuts` interface there? Asked once (a D-Bus round
 /// trip), then cached for the process.
-fn probe() -> Result<(), String> {
+pub(super) fn probe() -> Result<(), String> {
     static PROBED: OnceLock<Result<(), String>> = OnceLock::new();
     PROBED
         .get_or_init(|| {
@@ -119,10 +114,10 @@ fn await_response(
     Ok(code)
 }
 
-/// `CreateSession` + `BindShortcuts` for one registration. Blocks for the
-/// user's answer; runs on its own thread. Returns the session path.
+/// `CreateSession` + `BindShortcuts` for one grab. Blocks for the user's
+/// answer; runs on its own thread. Returns the session path.
 fn handshake(
-    id: GlobalHotkeyId,
+    os_id: GlobalHotkeyId,
     trigger: &str,
     description: &str,
 ) -> Result<String, GlobalHotkeyError> {
@@ -140,9 +135,9 @@ fn handshake(
 
     // 1. CreateSession. The session path is predicted from the token, like
     //    the request path; the `session_handle` in the answer names it too.
-    let session_token = format!("azul_hotkey_{pid}_{}", id.id);
+    let session_token = format!("azul_hotkey_{pid}_{}", os_id.id);
     let session_path = format!("{DESKTOP_PATH}/session/{sender}/{session_token}");
-    let create_token = format!("azul_hotkey_create_{pid}_{}", id.id);
+    let create_token = format!("azul_hotkey_create_{pid}_{}", os_id.id);
     let create_path = format!("{DESKTOP_PATH}/request/{sender}/{create_token}");
     let create_request =
         zbus::blocking::Proxy::new(conn, DESKTOP_NAME, create_path.as_str(), REQUEST_IFACE)
@@ -165,7 +160,7 @@ fn handshake(
 
     // 2. BindShortcuts, one shortcut. This is where a desktop may ask the
     //    user, and where the answer can take a while.
-    let bind_token = format!("azul_hotkey_bind_{pid}_{}", id.id);
+    let bind_token = format!("azul_hotkey_bind_{pid}_{}", os_id.id);
     let bind_path = format!("{DESKTOP_PATH}/request/{sender}/{bind_token}");
     let bind_request =
         zbus::blocking::Proxy::new(conn, DESKTOP_NAME, bind_path.as_str(), REQUEST_IFACE)
@@ -173,7 +168,7 @@ fn handshake(
     let mut bind_responses = bind_request
         .receive_signal("Response")
         .map_err(|e| platform("BindShortcuts request", e))?;
-    let shortcut_id = format!("azul-hotkey-{}", id.id);
+    let shortcut_id = format!("azul-hotkey-{}", os_id.id);
     let mut shortcut: HashMap<&str, Value<'_>> = HashMap::new();
     shortcut.insert("description", Value::from(description));
     shortcut.insert("preferred_trigger", Value::from(trigger));
@@ -219,16 +214,20 @@ fn close_session(session_path: &str) {
     }
 }
 
-/// Start the `Activated` listener, once. It must be subscribed BEFORE the
-/// first bind, so no activation is missed.
-fn ensure_listener() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    if STARTED.set(()).is_err() {
-        return;
-    }
+/// OS id -> the session path once the handshake bound it (`None` while it
+/// runs). Shared with the handshake threads and the listener.
+type Sessions = Arc<Mutex<BTreeMap<u32, Option<String>>>>;
+
+fn lock(sessions: &Sessions) -> std::sync::MutexGuard<'_, BTreeMap<u32, Option<String>>> {
+    sessions.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Start this backend's `Activated` listener. It must be subscribed BEFORE
+/// the first bind, so no activation is missed.
+fn start_listener(sessions: Sessions, sink: HotkeySink) {
     let spawned = std::thread::Builder::new()
         .name(String::from("azul-hotkey-portal"))
-        .spawn(|| {
+        .spawn(move || {
             let Some(conn) = connection() else {
                 return;
             };
@@ -245,7 +244,7 @@ fn ensure_listener() {
             };
             for message in activations {
                 // (o session_handle, s shortcut_id, t timestamp, a{sv} options)
-                let Ok((session, _shortcut_id, _timestamp, _options)) =
+                let Ok((session, _shortcut_id, timestamp, _options)) =
                     message.body().deserialize::<(
                         zbus::zvariant::OwnedObjectPath,
                         String,
@@ -256,12 +255,16 @@ fn ensure_listener() {
                     continue;
                 };
                 let session = session.to_string();
-                let id = sessions()
+                let id = lock(&sessions)
                     .iter()
-                    .find(|(_, path)| **path == session)
+                    .find(|(_, path)| path.as_deref() == Some(session.as_str()))
                     .map(|(id, _)| *id);
                 if let Some(id) = id {
-                    push_fired(GlobalHotkeyId { id });
+                    sink.push(BackendEvent::Fired {
+                        os_id: GlobalHotkeyId { id },
+                        state: azul_core::global_hotkey::GlobalHotkeyState::Pressed,
+                        timestamp_ms: timestamp,
+                    });
                 }
             }
         });
@@ -270,60 +273,119 @@ fn ensure_listener() {
     }
 }
 
-fn register(id: GlobalHotkeyId, hotkey: &GlobalHotkey) -> Result<BackendGrant, GlobalHotkeyError> {
-    if let Err(why) = probe() {
-        return Err(GlobalHotkeyError::Unavailable(why.into()));
+/// One app's portal shortcuts.
+pub(super) struct PortalBackend {
+    sink: HotkeySink,
+    sessions: Sessions,
+    listener_started: bool,
+}
+
+impl PortalBackend {
+    pub(super) fn new(sink: HotkeySink) -> Self {
+        Self {
+            sink,
+            sessions: Arc::new(Mutex::new(BTreeMap::new())),
+            listener_started: false,
+        }
     }
-    let Some(trigger) = portal_trigger(hotkey) else {
-        return Err(GlobalHotkeyError::KeyNotMappable);
-    };
-    ensure_listener();
-    let description = format!(
-        "Global hotkey {}",
-        hotkey.to_display_string().as_str()
-    );
-    std::thread::Builder::new()
-        .name(format!("azul-hotkey-bind-{}", id.id))
-        .spawn(move || match handshake(id, &trigger, &description) {
-            Ok(session_path) => {
-                if is_registered(id) {
-                    sessions().insert(id.id, session_path);
-                    report(id, Ok(()));
-                } else {
-                    // Unregistered while the desktop was asking the user.
-                    close_session(&session_path);
+}
+
+impl GlobalHotkeyBackend for PortalBackend {
+    fn name(&self) -> &'static str {
+        NAME
+    }
+
+    fn probe(&self) -> Result<(), String> {
+        probe()
+    }
+
+    fn register(
+        &mut self,
+        os_id: GlobalHotkeyId,
+        hotkey: &GlobalHotkey,
+        description: &str,
+    ) -> Result<BackendGrant, GlobalHotkeyError> {
+        if let Err(why) = probe() {
+            return Err(GlobalHotkeyError::Unavailable(why.into()));
+        }
+        let Some(trigger) = portal_trigger(hotkey) else {
+            return Err(GlobalHotkeyError::KeyNotMappable);
+        };
+        if !self.listener_started {
+            self.listener_started = true;
+            start_listener(self.sessions.clone(), self.sink.clone());
+        }
+        lock(&self.sessions).insert(os_id.id, None);
+        let sessions = self.sessions.clone();
+        let sink = self.sink.clone();
+        let description = description.to_string();
+        std::thread::Builder::new()
+            .name(format!("azul-hotkey-bind-{}", os_id.id))
+            .spawn(move || match handshake(os_id, &trigger, &description) {
+                Ok(session_path) => {
+                    let still_wanted = match lock(&sessions).get_mut(&os_id.id) {
+                        Some(slot) => {
+                            *slot = Some(session_path.clone());
+                            true
+                        }
+                        None => false,
+                    };
+                    if still_wanted {
+                        sink.push(BackendEvent::Settled {
+                            os_id,
+                            result: Ok(azul_css::AzString::from_const_str("")),
+                        });
+                    } else {
+                        // Released while the desktop was asking the user.
+                        close_session(&session_path);
+                    }
                 }
-            }
-            Err(e) => {
-                crate::plog_warn!("[global-hotkey] the portal did not bind {trigger}: {e}");
-                report(id, Err(e));
-            }
-        })
-        .map_err(|e| platform("could not start the portal handshake", e))?;
-    Ok(BackendGrant::Pending)
+                Err(e) => {
+                    crate::plog_warn!("[global-hotkey] the portal did not bind {trigger}: {e}");
+                    lock(&sessions).remove(&os_id.id);
+                    sink.push(BackendEvent::Settled {
+                        os_id,
+                        result: Err(e),
+                    });
+                }
+            })
+            .map_err(|e| platform("could not start the portal handshake", e))?;
+        Ok(BackendGrant::Pending)
+    }
+
+    fn unregister(&mut self, os_id: GlobalHotkeyId) {
+        let Some(Some(session_path)) = lock(&self.sessions).remove(&os_id.id) else {
+            return;
+        };
+        // A D-Bus round trip: off the event-loop thread.
+        let _ = std::thread::Builder::new()
+            .name(String::from("azul-hotkey-close"))
+            .spawn(move || close_session(&session_path));
+    }
+
+    fn needs_loop_polling(&self) -> bool {
+        // Presses arrive on the listener thread: the loop needs a waker on
+        // the sink, or it polls.
+        true
+    }
 }
 
-fn unregister(id: GlobalHotkeyId) {
-    let Some(session_path) = sessions().remove(&id.id) else {
-        return;
-    };
-    // A D-Bus round trip: off the event-loop thread.
-    let _ = std::thread::Builder::new()
-        .name(String::from("azul-hotkey-close"))
-        .spawn(move || close_session(&session_path));
-}
-
-/// Nothing to poll: the listener thread parks the fires.
-fn poll() {}
-
-pub(super) fn backend() -> GlobalHotkeyBackend {
-    GlobalHotkeyBackend {
-        name: "xdg-desktop-portal GlobalShortcuts",
-        probe,
-        register,
-        unregister,
-        poll,
-        // Fires arrive on the listener thread, which cannot wake the loop.
-        needs_loop_polling: true,
+impl Drop for PortalBackend {
+    /// Dropping the App (or replacing the backend) closes every session.
+    fn drop(&mut self) {
+        let paths: Vec<String> = core::mem::take(&mut *lock(&self.sessions))
+            .into_values()
+            .flatten()
+            .collect();
+        if paths.is_empty() {
+            return;
+        }
+        let _ = std::thread::Builder::new()
+            .name(String::from("azul-hotkey-close"))
+            .spawn(move || {
+                for path in paths {
+                    close_session(&path);
+                }
+            });
     }
 }

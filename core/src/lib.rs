@@ -333,10 +333,12 @@ pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// System-wide ("global") hotkey POD types — `GlobalHotkey`, `HotkeyModifiers`,
-/// `GlobalHotkeyId`, `GlobalHotkeyError` — and the accelerator parser.
+/// `GlobalHotkeyError`, the declaration vocabulary (`GlobalHotkeyCallbackData`,
+/// `GlobalHotkeyInfo`) — and the accelerator parser.
 ///
-/// The process-wide registry lives in `azul_layout::managers::global_hotkey`,
-/// the OS backends in `azul-dll` (`desktop/global_hotkey`).
+/// The App-owned manager that reconciles the declared set against the OS
+/// lives in `azul_layout::managers::global_hotkey`, the OS backends in
+/// `azul-dll` (`desktop/global_hotkey`).
 pub mod global_hotkey;
 // clippy reports `too_long_first_doc_paragraph` here with a span that starts
 // in the crate-level `//!` doc far above and ends on this one-line `///`,

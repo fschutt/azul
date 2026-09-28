@@ -621,8 +621,10 @@ fn run_headless(
     crate::desktop::notifications::use_headless_backend();
 
     // Global hotkeys: a headless run must not grab real keys at the OS. The
-    // simulation replaces the platform backend (moving any registration made
-    // before run()), and `simulate` / the AZ_E2E `global_hotkey` op press.
+    // simulation is installed BEFORE the first window lays out, so the
+    // platform backend `App::run` chose is never built (nothing is grabbed,
+    // no portal handshake starts), and `simulate` / the AZ_E2E
+    // `global_hotkey` op press.
     crate::desktop::global_hotkey::install_simulated_backend();
 
     // Extract icon_provider from config (same as real platforms do)
@@ -3169,10 +3171,8 @@ pub fn run_tray_only(
             }
 
             // A tray utility's summon hotkey: same stub window, same reason.
-            if azul_layout::managers::global_hotkey::has_pending_fires() {
-                let window = unsafe { &mut *headless_ptr };
-                let _ = crate::desktop::global_hotkey::deliver_fired(window);
-            }
+            let window = unsafe { &mut *headless_ptr };
+            let _ = crate::desktop::global_hotkey::deliver_fired(window);
         },
     );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {
