@@ -2342,3 +2342,31 @@ mod autotest_generated {
         drop(s); // final reference → chunks freed here, exactly once
     }
 }
+
+#[cfg(test)]
+mod localizable_flag_tests {
+    use super::*;
+
+    #[test]
+    fn a_cloned_translation_key_is_still_a_translation_key() {
+        // A DOM is cloned all the time (an app keeps a parsed XML document in
+        // its model and clones it out of `layout()`; components copy their
+        // templates), and the key must survive every copy or the layout pass
+        // renders the raw key instead of its translation.
+        let key = AzString::tr("welcome-greeting");
+        assert!(key.is_localizable());
+
+        let copy = key.clone();
+        assert!(copy.is_localizable(), "clone() dropped the localizable flag");
+        assert_eq!(copy.as_str(), "welcome-greeting");
+
+        let copy_of_copy = copy.clone_self();
+        assert!(copy_of_copy.is_localizable(), "clone_self() dropped the flag");
+    }
+
+    #[test]
+    fn a_cloned_plain_string_stays_plain() {
+        let plain = AzString::from("welcome-greeting");
+        assert!(!plain.clone().is_localizable());
+    }
+}
