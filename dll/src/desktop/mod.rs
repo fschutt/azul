@@ -148,6 +148,10 @@ pub mod tray;
 /// Native notifications — UNUserNotificationCenter, org.freedesktop.Notifications,
 /// a Shell_NotifyIcon balloon; the tray's sibling
 pub mod notifications;
+/// Source-text invariants for how the run loops wait on and deliver the
+/// app-level sources (tray, notifications, global hotkeys).
+#[cfg(test)]
+mod loop_wakeup_invariants;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
 /// Font & image resource handling, lookup and caching
