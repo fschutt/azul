@@ -59,13 +59,15 @@ fn strs(items: &[&str]) -> Vec<azul::str::String> {
 }
 
 // Every colour on this page is a `system:` colour: the page, the cards, the
-// titlebar, the text and the rules are the desktop's own palette, resolved in
-// whichever theme the window is in - the same palette the widgets paint from -
-// so the demo follows the platform in light AND dark with one value each.
-// Surfaces: the page is `system:background`, a card and the titlebar
-// `system:window-background`, a drop zone `system:control-background`; text is
+// text and the rules are the desktop's own palette, resolved in whichever
+// theme the window is in - the same palette the widgets paint from - so the
+// demo follows the platform in light AND dark with one value each.
+// Surfaces: the page is `system:background`, a card
+// `system:window-background`, a drop zone `system:control-background`; the
+// titlebar has no fill of its own, like a transparent native titlebar; text is
 // `system:text` / `system:secondary-text` / `system:tertiary-text`, rules are
-// `system:separator`. The face is the platform's UI font (`system:ui`).
+// `system:separator`. The face is the platform's UI font (`system:ui`), and
+// the titlebar's is its bold title face (`system:title:bold`).
 
 fn labelled(label: &str, widget: Dom) -> Dom {
     Dom::create_div()
@@ -822,21 +824,32 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         "font-size: 13px; color: system:secondary-text; margin-bottom: 20px;",
     );
 
+    // The bar this window draws under `WindowDecorations::NoTitle`, matched to
+    // the one AppKit draws: 28px, the height of a titlebar WITHOUT a toolbar,
+    // whose midline the traffic lights sit on (38 is the height with a compact
+    // toolbar, and put the title 5px below the lights). No fill of its own;
+    // the system separator, inside the 28px. The title is the system's bold
+    // title face, centred on the WINDOW: the padding is the same on both
+    // sides, the left one keeping it clear of the traffic lights (x 8 to 60),
+    // and the label is taken out of the row so it cannot push the title over.
     let titlebar = Dom::create_div()
         .with_css(
-            "height: 38px; flex-grow: 0; flex-shrink: 0; display: flex; \
-             flex-direction: row; align-items: center; padding-left: 82px; \
-             padding-right: 12px; background-color: system:window-background; \
-             border-bottom: 1px solid system:separator; cursor: grab; \
+            "height: 28px; box-sizing: border-box; flex-grow: 0; flex-shrink: 0; \
+             display: flex; flex-direction: row; align-items: center; \
+             position: relative; padding-left: 78px; padding-right: 78px; \
+             border-bottom: 0.5px solid system:separator; cursor: grab; \
              user-select: none; -azul-app-region: drag;",
         )
         .with_child(
             Dom::create_div_with_text("Azul Widget Showcase").with_css(
-                "font-size: 13px; font-weight: bold; color: system:text; flex-grow: 1;",
+                "font-family: system:title:bold; font-size: 13px; color: system:text; \
+                 flex-grow: 1; flex-basis: 0px; min-width: 0px; text-align: center; \
+                 white-space: nowrap; overflow: hidden;",
             ),
         )
         .with_child(Dom::create_div_with_text("custom titlebar").with_css(
-            "font-size: 11px; color: system:tertiary-text; -azul-app-region: no-drag;",
+            "position: absolute; top: 0px; right: 12px; line-height: 28px; \
+             font-size: 11px; color: system:tertiary-text; -azul-app-region: no-drag;",
         ));
 
     Dom::create_body()
