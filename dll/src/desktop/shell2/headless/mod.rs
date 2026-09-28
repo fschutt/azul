@@ -7420,6 +7420,145 @@ mod tests {
         }
     }
 
+    // --- The caret reveal does not fight the wheel ---------------------------
+    //
+    // REPORTED (AzWidgets, macOS, 2026-09-26/28): type several lines into a
+    // TextArea, then scroll up inside it - the view JITTERS back to the caret.
+    // The shell's post-callback tail revealed the caret on EVERY pass that was
+    // not `prevent_default`ed (`ApplyPendingTextInput` is pushed
+    // unconditionally), whether or not an edit landed: every wheel NSEvent,
+    // every momentum event and every mouse move. See
+    // scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md §1 and
+    // §8 step 1.
+
+    extern "C" fn lone_text_area_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_area::TextArea;
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; padding: 20px;")
+            .with_child(TextArea::create().dom())
+    }
+
+    /// The scroll box the editing session's caret lives in (self-inclusive),
+    /// and its vertical offset.
+    fn caret_scroll_box(window: &HeadlessWindow) -> Option<(azul_core::dom::DomNodeId, f32)> {
+        let lw = window.common.layout_window.as_ref()?;
+        let anchor = lw
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()?
+            .block
+            .container_dom_node();
+        let scroller = lw.find_scrollable_ancestor(anchor)?;
+        let node = scroller.node.into_crate_internal()?;
+        let y = lw.scroll_manager.get_current_offset(scroller.dom, node)?.y;
+        Some((scroller, y))
+    }
+
+    /// One typed line through the IME / debug-server path (`CreateTextInput`)
+    /// and the frame its result asks for.
+    fn type_line(window: &mut HeadlessWindow, text: &str) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        window.snapshot_window_state_baseline("headless.test.type_line");
+        let r = window.apply_user_change(
+            &azul_layout::callbacks::CallbackChange::CreateTextInput { text: text.into() },
+        );
+        window.service_frame(r);
+    }
+
+    #[test]
+    fn a_pass_that_lands_no_edit_leaves_the_text_area_where_the_wheel_put_it() {
+        use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, lone_text_area_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+
+        let area = rects_by_class(&window, "__azul-native-text-area-container");
+        assert_eq!(area.len(), 1, "harness: one TextArea in the window: {area:?}");
+        let cx = area[0].origin.x + area[0].size.width / 2.0;
+        let cy = area[0].origin.y + area[0].size.height / 2.0;
+        click_at(&mut window, cx, cy);
+
+        for _ in 0..15 {
+            type_line(&mut window, "line\n");
+        }
+        let (scroller, y_typed) = caret_scroll_box(&window)
+            .expect("harness: 15 typed lines overflow the 64px TextArea, which scrolls");
+        assert!(
+            y_typed > 30.0,
+            "harness: the caret reveal followed the typing down, offset {y_typed}"
+        );
+        let scroller_node = scroller
+            .node
+            .into_crate_internal()
+            .expect("the scroll box is a real node");
+
+        // The hover hit test over the TextArea as it is NOW.
+        step(&mut window, HeadlessEvent::MouseMove { x: cx, y: cy + 1.0 });
+
+        // THE WHEEL, the way every backend records it, then the physics
+        // timer's commit of 30px up.
+        let wanted = y_typed - 30.0;
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            let now = azul_core::task::Instant::from(Instant::now());
+            let _ = lw.scroll_manager.record_scroll_from_hit_test(
+                0.0,
+                -30.0,
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+                &lw.hover_manager,
+                &azul_layout::managers::hover::InputPointId::Mouse,
+                now.clone(),
+            );
+            lw.scroll_manager.set_scroll_position(
+                scroller.dom,
+                scroller_node,
+                LogicalPosition { x: 0.0, y: wanted },
+                now,
+            );
+        }
+        // The pass the macOS wheel handler runs after recording
+        // (`handle_scroll_wheel` → `process_window_events(0)`), then a 1px
+        // pointer move - neither lands an edit.
+        window.snapshot_window_state_baseline("headless.test.wheel_pass");
+        let r = window.process_window_events(0);
+        if r > azul_core::events::ProcessEventResult::DoNothing {
+            window.service_frame(r);
+        }
+        step(&mut window, HeadlessEvent::MouseMove { x: cx + 1.0, y: cy + 1.0 });
+
+        let now_y = caret_scroll_box(&window).map_or(f32::NAN, |(_, y)| y);
+        assert!(
+            (now_y - wanted).abs() < 0.5,
+            "THE BUG: the wheel put the TextArea at y={wanted}, and a pass that typed nothing \
+             hauled it back to y={now_y} (the caret-at-bottom reveal was at y={y_typed})"
+        );
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+        assert!(
+            !lw.scroll_manager.reveal_may_move_view(),
+            "after the wheel no reveal may move the view until the user types or moves the caret"
+        );
+        let queued = lw.scroll_manager.scroll_input_queue.take_all();
+        assert!(
+            !queued
+                .iter()
+                .any(|input| input.source == ScrollInputSource::AnimateTo),
+            "no caret glide may be queued against the wheel: {queued:?}"
+        );
+
+        // CONTROL (green before and after): the next keystroke is the last
+        // action, and it reveals the caret again.
+        type_line(&mut window, "x");
+        let back_y = caret_scroll_box(&window).map_or(f32::NAN, |(_, y)| y);
+        assert!(
+            back_y > wanted + 10.0,
+            "a keystroke after the wheel must reveal the caret again: offset {back_y}, wheel left \
+             it at {wanted}"
+        );
+    }
+
     // --- The patched display list equals the wholesale build -----------------
     //
     // REPORTED (AzWidgets, 2026-08-21): "the placeholder text jumps when I
