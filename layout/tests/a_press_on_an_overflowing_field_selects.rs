@@ -394,3 +394,52 @@ fn a_press_and_drag_on_an_overflowing_field_selects_the_dragged_text() {
 
     press_and_drag_selects_the_dragged_glyphs(&mut h, "overflowing");
 }
+
+/// The user's repro from `textinput_resize_selection.rs`, M1b: shrink the
+/// window so the value overflows, scroll it (a caret reveal or the wheel
+/// does), grow the window back so the value fits - the text is back at the
+/// start of its field and a press + drag still selects.
+///
+/// Registration skipped every box that did not overflow, so the value `<p>`
+/// kept the state it had while it did: its old, narrow rects and its
+/// offset. The text that now fits stayed scrolled out of its own field.
+#[test]
+fn a_field_that_fits_again_is_back_at_its_start_and_still_selects() {
+    let mut h = Harness::new(VALUE, 200.0, 120.0);
+    let max_scroll = h
+        .lw
+        .scroll_manager
+        .get_scroll_node_info(DomId::ROOT_ID, VALUE_P)
+        .expect("harness: the overflowing value <p> is a registered scroll container")
+        .max_scroll_x;
+    assert!(
+        max_scroll > 40.0,
+        "harness: the value must overflow by more than 40px, got {max_scroll}"
+    );
+    h.lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        VALUE_P,
+        LogicalPosition::new(40.0, 0.0),
+        Instant::from(std::time::Instant::now()),
+    );
+    assert_eq!(
+        h.value_offset(),
+        Some(LogicalPosition::new(40.0, 0.0)),
+        "harness: the value is scrolled 40px"
+    );
+
+    h.resize(900.0, 120.0);
+    let field = h.border_box(VALUE_P);
+    let extent = h.text_extent();
+    assert!(
+        extent + 10.0 < field.size.width,
+        "harness: at 900px the value ({extent}px) fits its field ({field:?})"
+    );
+
+    assert_eq!(
+        h.value_offset(),
+        Some(LogicalPosition::zero()),
+        "THE BUG (M1b): the value fits its field again but is still scrolled out of it"
+    );
+    press_and_drag_selects_the_dragged_glyphs(&mut h, "fits again");
+}
