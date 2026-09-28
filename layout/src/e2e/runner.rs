@@ -814,6 +814,82 @@ impl Runner {
         }
     }
 
+    /// Port of the DLL's `dismiss_on_escape` + the owed focus restore, for the
+    /// runner's popups.
+    ///
+    /// The runner never reconciles transient windows, so a popup a widget
+    /// opened (`set_transient_window_open`) is only a FORCED-OPEN node here -
+    /// and nothing closed it on Escape: the key ran the default `ClearFocus`
+    /// and the next Tab restarted from the first stop. Now a fresh Escape
+    /// dismisses every forced-open popup whose policy allows it (the manager
+    /// records the focus it owes back), the Escape is SPENT like the DLL's
+    /// `consume_keyboard_delta` (no ClearFocus), and the owed focus - with
+    /// its ring - is handed back at once, unless the user has moved it
+    /// (the runner has no "next pass" hook to defer it to).
+    ///
+    /// The widget's `Dismissed` handler does not run here (the runner fires no
+    /// transient lifecycle events), so its own `open` flag stays as it was.
+    fn dismiss_popups_on_escape(&mut self) {
+        use azul_core::{dom::NodeType, transient::TransientDismiss, window::VirtualKeyCode};
+
+        let esc = |s: &FullWindowState| {
+            s.keyboard_state
+                .pressed_virtual_keycodes
+                .as_ref()
+                .contains(&VirtualKeyCode::Escape)
+        };
+        let Some(previous) = self.previous_window_state.as_ref() else {
+            return;
+        };
+        if !(esc(&self.window_state) && !esc(previous)) {
+            return;
+        }
+        let targets: Vec<NodeId> = {
+            let Some(lr) = self.layout_window.layout_results.get(&DomId::ROOT_ID) else {
+                return;
+            };
+            let nodes = lr.styled_dom.node_data.as_container();
+            self.layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .iter()
+                .copied()
+                .filter(|n| {
+                    matches!(
+                        nodes.get(*n).map(|nd| nd.get_node_type()),
+                        Some(NodeType::TransientWindow(cfg)) if cfg.dismiss != TransientDismiss::None
+                    )
+                })
+                .collect()
+        };
+        if targets.is_empty() {
+            return;
+        }
+        for node in targets {
+            // No window is open in the runner, so `dismiss` returns None - its
+            // bookkeeping (forced-open released, focus owed, node held
+            // dismissed) is what counts.
+            let _ = self.layout_window.transient_windows.dismiss(node);
+        }
+        // The Escape is spent.
+        let keyboard = self.window_state.keyboard_state.clone();
+        if let Some(previous) = self.previous_window_state.as_mut() {
+            previous.keyboard_state = keyboard;
+        }
+        if let Some((target, visible)) = self
+            .layout_window
+            .transient_windows
+            .take_pending_focus_restore()
+        {
+            let now = self.layout_window.focus_manager.get_focused_node().copied();
+            if now.is_none() || now == Some(target) {
+                self.layout_window
+                    .focus_manager
+                    .set_focused_node_with_visibility(Some(target), visible);
+            }
+        }
+    }
+
     /// Port of `PlatformWindow::process_window_events`
     /// (`dll/src/desktop/shell2/common/event.rs`) — the state-diff pass, and the
     /// thing `FrameReport::relayout_iterations` counts.
@@ -850,6 +926,12 @@ impl Runner {
             // silent cap into a red assertion.
             self.layout_window.frame_report.hit_depth_cap = true;
             return ProcessEventResult::DoNothing;
+        }
+
+        // ── 0. ESCAPE DISMISSES POPUPS (port of the DLL's `dismiss_on_escape`
+        // in `process_transient_dismissal`, which runs before determination).
+        if depth == 0 {
+            self.dismiss_popups_on_escape();
         }
 
         // ── 1. EVENT DETERMINATION ───────────────────────────────────────
