@@ -4174,3 +4174,32 @@ pub enum Handedness {
 // `isLeftHanded()` predicate for every enum variant, and a hand-written one
 // collides with it (PHP refuses the duplicate, other bindings get ambiguous
 // dispatch). Match on the variant instead.
+
+#[cfg(test)]
+mod system_language_tests {
+    use super::SystemLanguage;
+
+    #[test]
+    fn a_regional_variant_of_a_known_rtl_language_is_rtl() {
+        // `LocalizationConfig::known_languages` lists ONE region per RTL
+        // language (ar-SA, he-IL, ...). The platforms looked the OS locale up
+        // by exact id, so an Arabic user in Algeria (`ar-DZ`), a bare `he`,
+        // or an OS name with an encoding/modifier suffix came out
+        // left-to-right.
+        let known = [
+            SystemLanguage::new("en-US", false),
+            SystemLanguage::new("ar-SA", true),
+            SystemLanguage::new("he-IL", true),
+        ];
+        let resolve = |os_locale: &str| SystemLanguage::resolve(os_locale, &known);
+
+        assert_eq!(resolve("ar-SA"), SystemLanguage::new("ar-SA", true));
+        assert_eq!(resolve("ar-DZ"), SystemLanguage::new("ar-DZ", true));
+        assert_eq!(resolve("he"), SystemLanguage::new("he", true));
+        assert_eq!(resolve("ar_EG@calendar=islamic"), SystemLanguage::new("ar-EG", true));
+        assert_eq!(resolve("de_DE.UTF-8"), SystemLanguage::new("de-DE", false));
+        assert_eq!(resolve("en-us"), SystemLanguage::new("en-US", false));
+        // Nothing known about the language: left-to-right, id kept.
+        assert_eq!(SystemLanguage::resolve("fr-FR", &[]), SystemLanguage::new("fr-FR", false));
+    }
+}
