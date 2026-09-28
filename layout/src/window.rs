@@ -14503,27 +14503,18 @@ impl LayoutWindow {
         // `scroll_focused_cursor_into_view`, which asks
         // `reveal_may_move_view()` before it gets this far.
         self.scroll_manager.note_reveal_intent();
-        // Get bounds to scroll into view
-        let bounds = match scroll_type {
-            SelectionScrollType::Cursor => {
-                // Cursor is 0-size selection at insertion point
-                match self.get_focused_cursor_rect() {
-                    Some(rect) => rect,
-                    None => return false, // No cursor to scroll
-                }
-            }
-            SelectionScrollType::Selection => {
-                // Compute bounding rect of all selection ranges via the text layout.
-                // Falls back to cursor rect if no ranges exist.
-                match self
-                    .calculate_selection_bounding_rect()
-                    .or_else(|| self.get_focused_cursor_rect())
-                {
-                    Some(rect) => rect,
-                    None => return false,
-                }
-            }
+        // The FOCUS end: the primary cursor, which for a range is its end -
+        // the end the user is extending (`MultiCursorState::get_primary_cursor`).
+        let focus_rect = self.get_focused_cursor_rect();
+        // A range's bounding rect, revealed whole only when it FITS the
+        // scrollport (decided below, once the scrollport is known).
+        let range_rect = match scroll_type {
+            SelectionScrollType::Cursor => None,
+            SelectionScrollType::Selection => self.calculate_selection_bounding_rect(),
         };
+        if focus_rect.is_none() && range_rect.is_none() {
+            return false; // Nothing to scroll to
+        }
 
         // Anchor the ancestor search on the SAME node the caret geometry came
         // from. `get_focused_cursor_rect` was re-keyed onto the editing
@@ -14631,6 +14622,25 @@ impl LayoutWindow {
             ),
             container_rect.size,
         );
+
+        // WHAT to reveal. A range is shown whole while it fits the
+        // scrollport (with the reveal padding on both sides); a wider one
+        // cannot be, and then its FOCUS end is what matters - the end the
+        // user is extending, which is what browsers reveal. Revealing the
+        // bounding rect of a wider range went to its START
+        // (`calculate_instant_scroll_delta` tests the left edge before the
+        // right, the top before the bottom), so Shift+Right past the right
+        // edge of a field took the view away from the end being extended.
+        let fits = |r: LogicalRect| {
+            r.size.width <= container_rect.size.width - 2.0 * REVEAL_PADDING_PX
+                && r.size.height <= container_rect.size.height - 2.0 * REVEAL_PADDING_PX
+        };
+        let bounds = match (range_rect, focus_rect) {
+            (Some(range), _) if fits(range) => range,
+            (_, Some(focus)) => focus,
+            (Some(range), None) => range,
+            (None, None) => return false,
+        };
 
         // For typing/clicking: instant scroll with fixed padding. (The
         // "accelerated drag" mode that used to live here had ZERO call
@@ -14789,12 +14799,16 @@ pub enum ScrollMode {
     Instant,
 }
 
+/// The margin a caret or selection reveal keeps between what it reveals and
+/// the scrollport's edge ([`calculate_instant_scroll_delta`]).
+const REVEAL_PADDING_PX: f32 = 5.0;
+
 /// Calculate scroll delta with fixed padding (instant scroll mode)
 fn calculate_instant_scroll_delta(
     bounds: LogicalRect,
     visible_area: LogicalRect,
 ) -> LogicalPosition {
-    const PADDING: f32 = 5.0;
+    const PADDING: f32 = REVEAL_PADDING_PX;
     let mut delta = LogicalPosition::zero();
 
     // Horizontal scrolling
