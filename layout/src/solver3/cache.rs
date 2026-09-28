@@ -2442,6 +2442,15 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
         scrollbar_width_px,
     );
     reqs.visual_width_px = scrollbar_style.visual_width_px;
+    // "Does this axis scroll" (`needs_*`, above) and "is a bar DRAWN there"
+    // are two questions: `scrollbar-width: none` scrolls without one. The
+    // second is answered here, once, from the style the painter reads - the
+    // scroll manager, the GPU thumb and the paint all take it from
+    // `ScrollbarRequirements::presence`.
+    reqs.bar_kind = crate::solver3::scrollbar::ScrollbarKind::from_style(
+        &scrollbar_style,
+        is_viewport_root,
+    );
 
     // +spec:overflow:e90f12 - scrollbar-gutter reserves space independently of scrollbar presence
     // +spec:overflow:e8a828 - scrollbar-gutter affects gutter presence at the box's inline edges
@@ -5261,6 +5270,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: h,
             needs_vertical: v,
+            bar_kind: crate::solver3::scrollbar::ScrollbarKind::Classic,
             scrollbar_width: w,
             scrollbar_height: w,
             visual_width_px: w,

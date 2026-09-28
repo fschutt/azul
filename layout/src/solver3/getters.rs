@@ -8161,6 +8161,7 @@ mod autotest_generated {
         let stored = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: true,
+            bar_kind: crate::solver3::scrollbar::ScrollbarKind::Classic,
             scrollbar_width: f32::NAN,
             scrollbar_height: f32::INFINITY,
             visual_width_px: -1.0,

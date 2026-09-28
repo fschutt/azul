@@ -12518,7 +12518,16 @@ impl LayoutWindow {
             // produces none, so the fade would otherwise take the bar away
             // under the pointer.
             use azul_core::dom::ScrollbarOrientation;
-            let vertical_opacity = if !scrollbar_info.needs_vertical {
+            // Only a bar that is PAINTED fades: `presence`, not "the axis
+            // scrolls" - a `scrollbar-width: none` box scrolls with nothing
+            // to fade, and keeping a fade alive for it cost frames.
+            let has_vertical_bar = scrollbar_info
+                .presence(ScrollbarOrientation::Vertical)
+                .is_present();
+            let has_horizontal_bar = scrollbar_info
+                .presence(ScrollbarOrientation::Horizontal)
+                .is_present();
+            let vertical_opacity = if !has_vertical_bar {
                 0.0
             } else if scroll_manager.is_thumb_dragged(dom_id, node_id, ScrollbarOrientation::Vertical)
             {
@@ -12532,7 +12541,7 @@ impl LayoutWindow {
                 )
             };
 
-            let horizontal_opacity = if !scrollbar_info.needs_horizontal {
+            let horizontal_opacity = if !has_horizontal_bar {
                 0.0
             } else if scroll_manager.is_thumb_dragged(
                 dom_id,
@@ -12569,7 +12578,7 @@ impl LayoutWindow {
             // updates (build_image_only_transaction) can never make the scrollbar
             // visible because WebRender doesn't know about the binding.
             let key = (dom_id, node_id);
-            if scrollbar_info.needs_vertical {
+            if has_vertical_bar {
                 let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
 
                 match existing {
@@ -12614,7 +12623,7 @@ impl LayoutWindow {
             }
 
             // Handle horizontal scrollbar (same logic as vertical above)
-            if scrollbar_info.needs_horizontal {
+            if has_horizontal_bar {
                 let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
 
                 match existing {
@@ -18407,6 +18416,13 @@ impl LayoutWindow {
                         style.reserve_width_px,
                     );
                     now_reqs.visual_width_px = style.visual_width_px;
+                    // The bar the style draws - what `compute_scrollbar_info_core`
+                    // stores for the layout pass; without it the stored
+                    // requirements would scroll with no bar at all.
+                    now_reqs.bar_kind = solver3::scrollbar::ScrollbarKind::from_style(
+                        &style,
+                        solver3::scrollbar::is_viewport_scroller(dom_id, host_dom),
+                    );
                     let transitioned = was != (now_reqs.needs_horizontal, now_reqs.needs_vertical);
                     Some(HostPlan {
                         host_dom,
@@ -18475,11 +18491,9 @@ impl LayoutWindow {
                                 plan.merged_extent,
                                 now,
                                 plan.now_reqs
-                                    .scrollbar_width
-                                    .max(plan.now_reqs.scrollbar_height),
-                                plan.now_reqs.visual_width_px,
-                                false,
-                                false,
+                                    .presence(azul_core::dom::ScrollbarOrientation::Horizontal),
+                                plan.now_reqs
+                                    .presence(azul_core::dom::ScrollbarOrientation::Vertical),
                             );
                         }
                         let _ = self.refresh_scrollbar_transforms();

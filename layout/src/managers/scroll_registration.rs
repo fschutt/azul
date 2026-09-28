@@ -10,7 +10,7 @@
 //! It lives here now and all three call it.
 
 use azul_core::{
-    dom::{DomId, DomNodeId, NodeId},
+    dom::{DomId, DomNodeId, NodeId, ScrollbarOrientation},
     task::Instant,
 };
 
@@ -241,31 +241,28 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 content_size.width += CARET_SCROLL_GUTTER_PX;
             }
 
-            // Use the layout-computed scrollbar width, not the
-            // hardcoded default. On macOS with overlay scrollbars,
-            // scrollbar_width is 0.0 (no layout space reserved).
-            // The scroll_manager falls back to DEFAULT_SCROLLBAR_WIDTH_PX
-            // when thickness is 0 for hit-test geometry.
-            let scrollbar_thickness = scrollbar_info
-                .scrollbar_width
-                .max(scrollbar_info.scrollbar_height);
-
             layout_window.scroll_manager.set_overscroll_behavior(
                 *dom_id,
                 dom_node_id,
                 overscroll_x,
                 overscroll_y,
             );
+            // The bars are layout's per-axis answer, amended above - the same
+            // `presence` `paint_scrollbars` draws and the GPU updater moves.
+            // The manager used to be handed the RESERVED width and the
+            // necessity flags and to guess: a zero reservation became a 16px
+            // bar of its own on any axis whose content was larger than its
+            // box, so a `scrollbar-width: none` field got an invisible bar
+            // over its whole value line, and an `overflow-y: hidden` box a
+            // bar down its right edge.
             layout_window.scroll_manager.register_or_update_scroll_node(
                 *dom_id,
                 dom_node_id,
                 container_rect,
                 content_size,
                 now.clone(),
-                scrollbar_thickness,
-                scrollbar_info.visual_width_px,
-                scrollbar_info.needs_horizontal,
-                scrollbar_info.needs_vertical,
+                scrollbar_info.presence(ScrollbarOrientation::Horizontal),
+                scrollbar_info.presence(ScrollbarOrientation::Vertical),
             );
 
             // The scroll frames this box - and its bar - are painted in: every

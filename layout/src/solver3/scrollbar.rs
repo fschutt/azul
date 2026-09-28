@@ -1,7 +1,8 @@
 //! Scrollbar geometry computation — single source of truth for the layout solver.
 //!
 //! Provides [`ScrollbarRequirements`] (whether scrollbars are needed and how much
-//! space they reserve) and [`ScrollbarGeometry`] (track, thumb, and button rects).
+//! space they reserve), [`ScrollbarPresence`] (whether an axis HAS a bar, and
+//! which) and [`ScrollbarGeometry`] (track, thumb, and button rects).
 //!
 //! The main entry point is [`compute_scrollbar_geometry`], whose output is consumed by:
 //! - Display list painting (`paint_scrollbars`)
@@ -13,8 +14,9 @@ use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
 };
+use azul_css::props::style::scrollbar::LayoutScrollbarWidth;
 
-use crate::solver3::geometry::EdgeSizes;
+use crate::solver3::{geometry::EdgeSizes, getters::ComputedScrollbarStyle};
 
 /// Does `node` of `dom` carry the VIEWPORT's scrollbar?
 ///
@@ -88,23 +90,167 @@ pub const fn viewport_scroll_extent(
     }
 }
 
+/// Is there a scrollbar on one axis of a scroll container, and what is it?
+///
+/// THE one answer. Layout resolves it once, from that axis's computed
+/// overflow and the node's scrollbar style ([`ScrollbarRequirements::presence`]),
+/// and `register_scroll_nodes` carries it into the scroll state. Everything
+/// that draws, moves or presses a bar reads it: `paint_scrollbars`,
+/// `GpuStateManager::update_scrollbar_transforms`, and
+/// `ScrollManager::calculate_scrollbar_states` - and through it
+/// `hit_test_scrollbars`, which every shell asks BEFORE the content.
+///
+/// "Does the content overflow" is a different question
+/// (`ScrollbarRequirements::needs_*`). A `scrollbar-width: none` box scrolls
+/// without a bar; when the scroll manager answered "overflows" with a 16px
+/// bar of its own, that bar covered a `TextInput`'s whole value line and took
+/// every press on its text.
+#[derive(Copy, Debug, Clone, Default, PartialEq)]
+pub enum ScrollbarPresence {
+    /// No bar: the axis does not scroll (`visible`, `hidden`, `clip`, or
+    /// `auto` with nothing to scroll), or its style draws none.
+    #[default]
+    None,
+    /// An overlay bar `thickness` px thick, without arrow buttons: its thumb
+    /// runs the whole track.
+    Overlay { thickness: f32 },
+    /// A classic bar `thickness` px thick, with a square arrow button of the
+    /// same side at each end of its track.
+    Classic { thickness: f32 },
+}
+
+impl ScrollbarPresence {
+    /// Is there a bar at all?
+    #[must_use]
+    pub const fn is_present(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// How thick the bar is, in logical px; 0 when there is none.
+    #[must_use]
+    pub const fn thickness(self) -> f32 {
+        match self {
+            Self::None => 0.0,
+            Self::Overlay { thickness } | Self::Classic { thickness } => thickness,
+        }
+    }
+
+    /// The side of each (square) arrow button; 0 for a bar without them.
+    #[must_use]
+    pub const fn button_size(self) -> f32 {
+        match self {
+            Self::Classic { thickness } => thickness,
+            Self::None | Self::Overlay { .. } => 0.0,
+        }
+    }
+}
+
+/// What kind of scrollbar a node's resolved style draws on the axes that have
+/// one. Layout stores it once per node ([`ScrollbarRequirements::bar_kind`]);
+/// [`ScrollbarRequirements::presence`] turns it into each axis's answer.
+///
+/// One byte on purpose: it rides in `LayoutNodeWarm` in the padding after the
+/// two `needs_*` flags, so the per-node struct does not grow.
+#[derive(Copy, Debug, Clone, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ScrollbarKind {
+    /// The style draws no bar (`scrollbar-width: none`). The box still
+    /// scrolls - wheel, keyboard, the caret reveal - but has nothing to paint,
+    /// move or press.
+    #[default]
+    None,
+    /// A bar without arrow buttons: the overlay kind (macOS, and the
+    /// viewport's bar everywhere), drawn over the content.
+    Overlay,
+    /// A bar with a square arrow button at each end: the classic kind.
+    Classic,
+}
+
+impl ScrollbarKind {
+    /// The kind of bar `style` draws. `is_viewport`: the node is the
+    /// viewport's scroller ([`is_viewport_scroller`]), whose bar is always an
+    /// overlay - it runs along the window's edge, reserves nothing and has no
+    /// buttons.
+    ///
+    /// Classic exactly when the style shows arrow buttons, which is what
+    /// `paint_scrollbars` has always drawn. The gutter is not asked: that is
+    /// `scrollbar_width` / `scrollbar_height`'s business, and a bar that
+    /// reserves one but shows no buttons is painted - and so measured -
+    /// without them.
+    #[must_use]
+    pub const fn from_style(style: &ComputedScrollbarStyle, is_viewport: bool) -> Self {
+        let drawn = !matches!(style.width_mode, LayoutScrollbarWidth::None)
+            && style.visual_width_px.is_finite()
+            && style.visual_width_px > 0.0;
+        if !drawn {
+            Self::None
+        } else if is_viewport || !style.show_scroll_buttons {
+            Self::Overlay
+        } else {
+            Self::Classic
+        }
+    }
+
+    /// A bar of this kind, `thickness` px thick - or none at all, for
+    /// [`Self::None`] and for a thickness nothing could be drawn with (the
+    /// geometry divides by it).
+    #[must_use]
+    pub const fn with_thickness(self, thickness: f32) -> ScrollbarPresence {
+        if thickness.is_finite() && thickness > 0.0 {
+            match self {
+                Self::None => ScrollbarPresence::None,
+                Self::Overlay => ScrollbarPresence::Overlay { thickness },
+                Self::Classic => ScrollbarPresence::Classic { thickness },
+            }
+        } else {
+            ScrollbarPresence::None
+        }
+    }
+}
+
 /// Information about scrollbar requirements and dimensions
 // +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
 #[derive(Copy, Debug, Clone, Default)]
 #[repr(C)]
 pub struct ScrollbarRequirements {
+    /// The horizontal axis SCROLLS with a bar slot: `overflow-x: scroll`, or
+    /// `auto` whose content overflows. Whether a bar is actually drawn there
+    /// is [`Self::presence`] - `scrollbar-width: none` scrolls without one.
     pub needs_horizontal: bool,
+    /// The vertical axis's [`Self::needs_horizontal`].
     pub needs_vertical: bool,
+    /// The kind of bar this node's style draws on the axes that need one,
+    /// resolved by layout ([`ScrollbarKind::from_style`]). Read it per axis
+    /// through [`Self::presence`].
+    pub bar_kind: ScrollbarKind,
     /// Layout-reserved width for a vertical scrollbar (0.0 for overlay)
     pub scrollbar_width: f32,
     /// Layout-reserved height for a horizontal scrollbar (0.0 for overlay)
     pub scrollbar_height: f32,
-    /// Visual rendering width of the scrollbar in CSS pixels (e.g. 8.0 for thin).
-    /// Non-zero even for overlay scrollbars. Used by GPU state for thumb positioning.
+    /// Visual rendering width of the scrollbar in CSS pixels (e.g. 8.0 for thin):
+    /// the thickness of the bar [`Self::bar_kind`] names. Non-zero even for
+    /// overlay scrollbars.
     pub visual_width_px: f32,
 }
 
 impl ScrollbarRequirements {
+    /// Is there a scrollbar on `orientation`'s axis, and what is it? THE
+    /// answer every consumer reads (see [`ScrollbarPresence`]): none on an
+    /// axis that does not need one, else the node's [`Self::bar_kind`],
+    /// [`Self::visual_width_px`] thick.
+    #[must_use]
+    pub const fn presence(&self, orientation: ScrollbarOrientation) -> ScrollbarPresence {
+        let scrolls = match orientation {
+            ScrollbarOrientation::Vertical => self.needs_vertical,
+            ScrollbarOrientation::Horizontal => self.needs_horizontal,
+        };
+        if scrolls {
+            self.bar_kind.with_thickness(self.visual_width_px)
+        } else {
+            ScrollbarPresence::None
+        }
+    }
+
     /// Checks if the presence of scrollbars reduces the available inner size,
     /// which would necessitate a reflow of the content.
     #[must_use]
@@ -391,6 +537,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: height > 0.0,
             needs_vertical: width > 0.0,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: width,
             scrollbar_height: height,
             visual_width_px: 15.0,
@@ -483,6 +630,7 @@ mod autotest_generated {
         let overlay = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Overlay,
             scrollbar_width: 0.0,
             scrollbar_height: 0.0,
             visual_width_px: 12.0,
@@ -503,6 +651,118 @@ mod autotest_generated {
         assert!(reqs(f32::MIN_POSITIVE, 0.0).needs_reflow());
         assert!(reqs(0.0, f32::MAX).needs_reflow());
         assert!(reqs(f32::INFINITY, 0.0).needs_reflow());
+    }
+
+    // ---------------------------------------------------------------------
+    // ScrollbarRequirements::presence / ScrollbarKind::from_style
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn an_axis_that_does_not_scroll_has_no_bar_whatever_the_style() {
+        let r = ScrollbarRequirements {
+            needs_horizontal: true,
+            needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
+            scrollbar_width: 0.0,
+            scrollbar_height: 12.0,
+            visual_width_px: 12.0,
+        };
+        assert_eq!(
+            r.presence(ScrollbarOrientation::Horizontal),
+            ScrollbarPresence::Classic { thickness: 12.0 }
+        );
+        assert_eq!(
+            r.presence(ScrollbarOrientation::Vertical),
+            ScrollbarPresence::None,
+            "an `overflow-y: hidden` axis - or an `auto` one that fits - has no bar"
+        );
+    }
+
+    #[test]
+    fn a_style_that_draws_no_bar_scrolls_without_one() {
+        let r = ScrollbarRequirements {
+            needs_horizontal: true,
+            needs_vertical: true,
+            bar_kind: ScrollbarKind::None,
+            scrollbar_width: 0.0,
+            scrollbar_height: 0.0,
+            visual_width_px: 0.0,
+        };
+        assert_eq!(
+            r.presence(ScrollbarOrientation::Horizontal),
+            ScrollbarPresence::None
+        );
+        assert_eq!(
+            r.presence(ScrollbarOrientation::Vertical),
+            ScrollbarPresence::None
+        );
+        assert_eq!(ScrollbarPresence::None.thickness(), 0.0);
+        assert_eq!(ScrollbarPresence::None.button_size(), 0.0);
+    }
+
+    #[test]
+    fn a_bar_nothing_could_be_drawn_with_is_no_bar() {
+        for t in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(
+                ScrollbarKind::Classic.with_thickness(t),
+                ScrollbarPresence::None,
+                "thickness {t}"
+            );
+        }
+        assert_eq!(
+            ScrollbarKind::Overlay.with_thickness(8.0),
+            ScrollbarPresence::Overlay { thickness: 8.0 }
+        );
+    }
+
+    #[test]
+    fn only_a_classic_bar_has_arrow_buttons_and_they_are_square() {
+        let classic = ScrollbarPresence::Classic { thickness: 12.0 };
+        assert_eq!((classic.thickness(), classic.button_size()), (12.0, 12.0));
+        let overlay = ScrollbarPresence::Overlay { thickness: 8.0 };
+        assert_eq!((overlay.thickness(), overlay.button_size()), (8.0, 0.0));
+        assert!(classic.is_present() && overlay.is_present());
+        assert!(!ScrollbarPresence::None.is_present());
+    }
+
+    #[test]
+    fn the_kind_of_bar_follows_the_style_the_painter_reads() {
+        let mut style = ComputedScrollbarStyle {
+            width_mode: LayoutScrollbarWidth::Auto,
+            visual_width_px: 12.0,
+            show_scroll_buttons: true,
+            ..ComputedScrollbarStyle::default()
+        };
+        assert_eq!(
+            ScrollbarKind::from_style(&style, false),
+            ScrollbarKind::Classic
+        );
+        assert_eq!(
+            ScrollbarKind::from_style(&style, true),
+            ScrollbarKind::Overlay,
+            "the viewport's bar is an overlay whatever the platform draws elsewhere"
+        );
+
+        style.show_scroll_buttons = false;
+        assert_eq!(
+            ScrollbarKind::from_style(&style, false),
+            ScrollbarKind::Overlay,
+            "no buttons painted, none measured"
+        );
+
+        style.width_mode = LayoutScrollbarWidth::None;
+        assert_eq!(
+            ScrollbarKind::from_style(&style, false),
+            ScrollbarKind::None,
+            "`scrollbar-width: none` draws no bar"
+        );
+        style.width_mode = LayoutScrollbarWidth::Thin;
+        style.visual_width_px = 0.0;
+        assert_eq!(
+            ScrollbarKind::from_style(&style, false),
+            ScrollbarKind::None,
+            "a zero-width bar is no bar"
+        );
     }
 
     // ---------------------------------------------------------------------

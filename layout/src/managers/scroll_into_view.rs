@@ -797,10 +797,8 @@ mod autotest_generated {
             container,
             content,
             now(),
-            16.0,
-            8.0,
-            false,
-            false,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
         );
     }
 

@@ -23,7 +23,6 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
-        fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         layout_tree::{LayoutNodeId, LayoutTree},
         scrollbar::compute_scrollbar_geometry_with_button_size,
     },
@@ -329,38 +328,25 @@ impl GpuStateManager {
                     layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport)
                 });
 
-            if scrollbar_info.needs_vertical {
-                // Use the visual width from the scrollbar style — same value used
-                // by display_list.rs to paint the scrollbar. For overlay scrollbars,
-                // visual_width_px is non-zero (e.g. 8.0) even though the layout-
-                // reserved width is 0.0.
-                //
-                // A VERTICAL bar is an overlay when it reserves no WIDTH:
-                // `scrollbar_width` is the vertical bar's reservation,
-                // `scrollbar_height` the horizontal one's. Asking the latter
-                // measured every vertical-only classic bar as an overlay without
-                // arrow buttons, while it is painted and hit-tested with them:
-                // the thumb ran the whole track and overshot into the bottom
-                // button by 2 x button x (1 - ratio).
-                let is_overlay = scrollbar_info.scrollbar_width == 0.0;
-                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
-                    scrollbar_info.visual_width_px
-                } else if !is_overlay {
-                    scrollbar_info.scrollbar_width
-                } else {
-                    DEFAULT_SCROLLBAR_WIDTH_PX
-                };
-                // Overlay scrollbars (macOS-style) have no arrow buttons
-                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
+            // The bars `paint_scrollbars` drew, and only those: the one
+            // per-axis answer layout resolved from the axis's overflow and the
+            // node's style (`ScrollbarRequirements::presence`) - thickness
+            // and arrow buttons included. Deciding "overlay" here from the
+            // RESERVED width, with a 16px fallback for a zero one, moved a
+            // thumb for a `scrollbar-width: none` box that paints no bar, and
+            // measured a bar whose style shows no buttons with them.
+            let v_bar = scrollbar_info.presence(ScrollbarOrientation::Vertical);
+            let h_bar = scrollbar_info.presence(ScrollbarOrientation::Horizontal);
 
+            if v_bar.is_present() {
                 let v_geom = compute_scrollbar_geometry_with_button_size(
                     ScrollbarOrientation::Vertical,
                     inner_rect,
                     content_size,
                     scroll_offset.y,
-                    scrollbar_width_px,
-                    scrollbar_info.needs_horizontal,
-                    button_size,
+                    v_bar.thickness(),
+                    h_bar.is_present(),
+                    v_bar.button_size(),
                 );
 
                 // Quantised to whole logical pixels: this value is the only
@@ -382,27 +368,15 @@ impl GpuStateManager {
                 );
             }
 
-            if scrollbar_info.needs_horizontal {
-                // A HORIZONTAL bar is an overlay when it reserves no HEIGHT -
-                // see the vertical bar above.
-                let is_overlay = scrollbar_info.scrollbar_height == 0.0;
-                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
-                    scrollbar_info.visual_width_px
-                } else if !is_overlay {
-                    scrollbar_info.scrollbar_height
-                } else {
-                    DEFAULT_SCROLLBAR_WIDTH_PX
-                };
-                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
-
+            if h_bar.is_present() {
                 let h_geom = compute_scrollbar_geometry_with_button_size(
                     ScrollbarOrientation::Horizontal,
                     inner_rect,
                     content_size,
                     scroll_offset.x,
-                    scrollbar_width_px,
-                    scrollbar_info.needs_vertical,
-                    button_size,
+                    h_bar.thickness(),
+                    v_bar.is_present(),
+                    h_bar.button_size(),
                 );
 
                 let transform = ComputedTransform3D::new_translation(
@@ -675,7 +649,7 @@ mod autotest_generated {
             cache::apply_virtual_scroll_necessity,
             geometry::PackedBoxProps,
             layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
-            scrollbar::ScrollbarRequirements,
+            scrollbar::{ScrollbarKind, ScrollbarPresence, ScrollbarRequirements},
         },
     };
 
@@ -727,11 +701,13 @@ mod autotest_generated {
     /// What layout computes for an `overflow-y: auto` VirtualView: nothing.
     /// The node is a replaced element with no flow content, so its laid-out
     /// content never exceeds its box and `check_scrollbar_necessity` finds no
-    /// reason for a bar — only `visual_width_px` survives from the CSS style.
+    /// reason for a bar — only the style's bar (kind and `visual_width_px`)
+    /// survives, waiting for an axis that needs it.
     fn auto_no_scrollbar() -> ScrollbarRequirements {
         ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 0.0,
             scrollbar_height: 0.0,
             visual_width_px: 16.0,
@@ -756,6 +732,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -766,6 +743,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -1619,10 +1597,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(100.0, 100.0),
             t0(),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         sm.update_virtual_scroll_bounds(dom(0), NODE, LogicalSize::new(100.0, 1000.0), None);
         sm.set_scroll_position(dom(0), NODE, LogicalPosition::new(0.0, 450.0), t0());
@@ -1718,7 +1694,12 @@ mod autotest_generated {
         assert_eq!(
             (info.scrollbar_width, info.scrollbar_height),
             (0.0, 0.0),
-            "no layout gutter is reserved after the fact — the bar overlays"
+            "no layout gutter is reserved after the fact — the bar is drawn over the content"
+        );
+        assert_eq!(
+            info.presence(ScrollbarOrientation::Vertical),
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            "the amended axis has the bar the node's style draws"
         );
         t.warm_mut(LayoutNodeId::new(0))
             .expect("the fixture has a warm node")
@@ -1732,10 +1713,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(100.0, 100.0),
             t0(),
-            info.scrollbar_width.max(info.scrollbar_height),
-            info.visual_width_px,
-            info.needs_horizontal,
-            info.needs_vertical,
+            info.presence(ScrollbarOrientation::Horizontal),
+            info.presence(ScrollbarOrientation::Vertical),
         );
 
         // 4. Half a document down.
@@ -1745,8 +1724,12 @@ mod autotest_generated {
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
 
         // ...and what `paint_scrollbars` computes for the same node from the
-        // same ScrollPosition: overlay bar (scrollbar_height == 0) => no arrow
-        // buttons on either path.
+        // same ScrollPosition and the same presence. The style's bar is a
+        // CLASSIC one, and the painter always drew it with its arrow buttons:
+        // this fixture used to measure it as a button-less overlay because no
+        // gutter had been reserved, pinning the GPU thumb (and the hit test)
+        // one button's worth of travel away from the painted one.
+        let bar = info.presence(ScrollbarOrientation::Vertical);
         let states = sm.get_scroll_states_for_dom(dom(0));
         let pos = states.get(&NODE).expect("the node is registered now");
         let painted = compute_scrollbar_geometry_with_button_size(
@@ -1754,9 +1737,9 @@ mod autotest_generated {
             LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 100.0)),
             pos.children_rect.size,
             pos.children_rect.origin.y,
-            info.visual_width_px,
-            info.needs_horizontal,
-            0.0,
+            bar.thickness(),
+            info.presence(ScrollbarOrientation::Horizontal).is_present(),
+            bar.button_size(),
         );
         // Both producers of the thumb TRANSFORM quantise (see
         // `quantize_thumb_offset`), so the agreement is asserted against the
@@ -1768,11 +1751,11 @@ mod autotest_generated {
             (y - painted_transform).abs() < 0.01,
             "GPU path put the thumb at {y}, the painter at {painted_transform}"
         );
-        // usable track = 100 (no buttons), thumb = max(100 * 100/1000, 2*16) = 32,
-        // max_scroll = 900 -> half travel = (100 - 32) * 0.5 = 34.
+        // usable track = 100 - 2*16 = 68, thumb = max(68 * 100/1000, 2*16) = 32,
+        // max_scroll = 900 -> half travel = (68 - 32) * 0.5 = 18.
         assert!(
-            (y - 34.0).abs() < 0.01,
-            "expected the half-track thumb at 34.0, got {y}"
+            (y - 18.0).abs() < 0.01,
+            "expected the half-track thumb at 18.0, got {y}"
         );
 
         // The pre-fix tree — layout's flags, unamended — emits nothing at all,
@@ -1868,6 +1851,7 @@ mod autotest_generated {
         let both = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -1997,9 +1981,8 @@ mod autotest_generated {
     }
 
     #[test]
-    fn overlay_vertical_scrollbars_fall_back_to_the_default_width() {
-        // visual_width_px == 0 and no reserved space at all -> the DEFAULT_SCROLLBAR
-        // _WIDTH_PX (16.0) fallback with button_size 0:
+    fn an_overlay_vertical_bar_runs_its_whole_track_without_buttons() {
+        // An overlay bar, 16px thick, reserving nothing:
         //   usable = 100, thumb = max(100*0.1, 32) = 32, offset@full = 100 - 32 = 68
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
@@ -2012,33 +1995,59 @@ mod autotest_generated {
         let overlay = ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Overlay,
             scrollbar_width: 0.0,
             scrollbar_height: 0.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(overlay, LogicalSize::new(100.0, 1000.0));
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
             (y - 68.0).abs() < 0.01,
-            "expected the 16px default, got {y}"
+            "an overlay thumb travels the whole 100px track, got {y}"
         );
-        assert_eq!(DEFAULT_SCROLLBAR_WIDTH_PX, 16.0);
+    }
+
+    #[test]
+    fn a_style_that_draws_no_bar_gets_no_thumb_to_move() {
+        // `scrollbar-width: none`: the axis scrolls (`needs_vertical`) but no
+        // bar is painted, so there is no thumb for a GPU value to move. This
+        // used to fall back to a 16px overlay bar and emit a transform for it.
+        let mut m = GpuStateManager::default();
+        let mut sm = ScrollManager::new();
+        sm.set_scroll_position_unclamped(
+            dom(0),
+            NodeId::new(1),
+            LogicalPosition::new(0.0, 900.0),
+            t0(),
+        );
+        let none = ScrollbarRequirements {
+            needs_horizontal: true,
+            needs_vertical: true,
+            bar_kind: ScrollbarKind::None,
+            scrollbar_width: 0.0,
+            scrollbar_height: 0.0,
+            visual_width_px: 0.0,
+        };
+        let t = one_node_tree(none, LogicalSize::new(1000.0, 1000.0));
+
+        assert!(
+            m.update_scrollbar_transforms(dom(0), &sm, &t).is_empty(),
+            "no painted bar, no thumb transform"
+        );
     }
 
     #[test]
     fn classic_vertical_scrollbar_is_measured_with_its_arrow_buttons() {
-        // ScrollbarRequirements documents:
-        //   scrollbar_width  = layout-reserved width  for a *vertical*   scrollbar
-        //   scrollbar_height = layout-reserved height for a *horizontal* scrollbar
-        // A classic, space-reserving vertical-only scrollbar --
-        //   scrollbar_width  = 16.0  (16px reserved for the vertical bar)
-        //   scrollbar_height =  0.0  (no horizontal bar -> nothing reserved)
-        //   visual_width_px  =  0.0  (unset, so the width fallback runs)
-        // has 16px arrow buttons: the usable track is 100 - 2 x 16 = 68, the
-        // thumb max(68 x 0.1, 32) = 32, and at the bottom it travels to
-        // 68 - 32 = 36.0. Read as an overlay (the `scrollbar_height` check) it
-        // travelled to 68.0 and overshot its own track by 32px.
+        // A classic vertical-only scrollbar -- 16px thick, reserving its
+        // WIDTH and no height (`scrollbar_height` is the horizontal bar's
+        // reservation) -- has 16px arrow buttons: the usable track is
+        // 100 - 2 x 16 = 68, the thumb max(68 x 0.1, 32) = 32, and at the
+        // bottom it travels to 68 - 32 = 36.0. Read as an overlay (which the
+        // old reservation-based guess did for the wrong axis) it travelled to
+        // 68.0 and overshot its own track by 32px. The buttons come from the
+        // bar's kind now, not from any reservation.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -2050,9 +2059,10 @@ mod autotest_generated {
         let classic_vertical_only = ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 0.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(classic_vertical_only, LogicalSize::new(100.0, 1000.0));
 
@@ -2080,9 +2090,10 @@ mod autotest_generated {
         let classic_horizontal_only = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 0.0,
             scrollbar_height: 16.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(classic_horizontal_only, LogicalSize::new(1000.0, 100.0));
 

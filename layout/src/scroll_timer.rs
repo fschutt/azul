@@ -1582,10 +1582,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(content.0, content.1),
             Instant::now(),
-            0.0,
-            0.0,
-            false,
-            false,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
         );
     }
 

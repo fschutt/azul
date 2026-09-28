@@ -7355,7 +7355,10 @@ where
             })
             .unwrap_or_default();
 
-        // Skip if scrollbar-width: none
+        // Skip if scrollbar-width: none - no gutter to paint either. (The bars
+        // themselves need no special case: `presence` below is `None` on
+        // every axis of such a node, which is how the scroll manager knows
+        // there is nothing to press.)
         if matches!(
             scrollbar_style.width_mode,
             azul_css::props::style::scrollbar::LayoutScrollbarWidth::None
@@ -7549,14 +7552,18 @@ where
             bottom_left: thumb_radius,
             bottom_right: thumb_radius,
         };
-        // Arrow buttons belong to a bar that reserves its gutter. The
-        // viewport's bar is an overlay, which the scroll manager hit-tests and
-        // the GPU updater moves the thumb along WITHOUT buttons: painted with
-        // them, its thumb started a button's length below where the pointer
-        // grabs it.
-        let show_buttons = scrollbar_style.show_scroll_buttons && !is_viewport;
+        // WHICH bars, how thick, with or without arrow buttons: the one
+        // per-axis answer layout resolved from the axis's overflow and this
+        // node's style (`ScrollbarRequirements::presence`, amended above for
+        // a VirtualView). The scroll manager hit-tests and the GPU updater
+        // moves exactly these bars, so a thumb is painted where the pointer
+        // grabs it. The viewport's bar is an overlay without buttons: painted
+        // with them, its thumb started a button's length below where the
+        // pointer grabs it.
+        let v_bar = scrollbar_info.presence(ScrollbarOrientation::Vertical);
+        let h_bar = scrollbar_info.presence(ScrollbarOrientation::Horizontal);
 
-        if scrollbar_info.needs_vertical {
+        if v_bar.is_present() {
             // Look up opacity key from GPU cache for GPU-animated opacity.
             // If a key already exists in the cache from a previous frame, reuse it.
             // Otherwise, create a new unique key. The key will be registered
@@ -7575,19 +7582,14 @@ where
             });
 
             // Vertical scrollbar: use shared geometry computation
-            let button_size = if show_buttons {
-                scrollbar_style.scroll_button_size_px
-            } else {
-                0.0
-            };
             let v_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Vertical,
                 inner_rect,
                 content_size,
                 scroll_offset_y,
-                scrollbar_style.visual_width_px,
-                scrollbar_info.needs_horizontal,
-                button_size,
+                v_bar.thickness(),
+                h_bar.is_present(),
+                v_bar.button_size(),
             );
 
             // Position thumb after the top button; GPU transform moves it within usable track
@@ -7627,9 +7629,9 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
-            // Buttons at top/bottom of track (only if enabled in style)
+            // Buttons at top/bottom of track (only a classic bar has them)
             let (button_decrement_bounds, button_increment_bounds) =
-                if scrollbar_style.show_scroll_buttons && v_geom.button_size > 0.0 {
+                if v_geom.button_size > 0.0 {
                     (
                         Some(LogicalRect {
                             origin: v_geom.track_rect.origin,
@@ -7668,7 +7670,7 @@ where
             });
         }
 
-        if scrollbar_info.needs_horizontal {
+        if h_bar.is_present() {
             // Look up horizontal opacity key from GPU cache (same pattern as vertical).
             let opacity_key = node_id.map(|nid| {
                 self.gpu_value_cache
@@ -7682,19 +7684,14 @@ where
             });
 
             // Horizontal scrollbar: use shared geometry computation
-            let h_button_size = if show_buttons {
-                scrollbar_style.scroll_button_size_px
-            } else {
-                0.0
-            };
             let h_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Horizontal,
                 inner_rect,
                 content_size,
                 scroll_offset_x,
-                scrollbar_style.visual_width_px,
-                scrollbar_info.needs_vertical,
-                h_button_size,
+                h_bar.thickness(),
+                v_bar.is_present(),
+                h_bar.button_size(),
             );
 
             // Position thumb after the left button; GPU transform moves it within usable track
@@ -7726,9 +7723,9 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
-            // Buttons at left/right of track (only if enabled in style)
+            // Buttons at left/right of track (only a classic bar has them)
             let (button_decrement_bounds, button_increment_bounds) =
-                if scrollbar_style.show_scroll_buttons && h_geom.button_size > 0.0 {
+                if h_geom.button_size > 0.0 {
                     (
                         Some(LogicalRect {
                             origin: h_geom.track_rect.origin,

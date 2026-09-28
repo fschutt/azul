@@ -64,7 +64,7 @@ use crate::{
             LayoutNodeId, LayoutNodeWarm, LayoutTree, PseudoElement,
         },
         positioning::get_position_type,
-        scrollbar::ScrollbarRequirements,
+        scrollbar::{ScrollbarKind, ScrollbarRequirements},
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
@@ -10291,6 +10291,11 @@ pub fn check_scrollbar_necessity(
     ScrollbarRequirements {
         needs_horizontal,
         needs_vertical,
+        // `bar_kind` and `visual_width_px` - whether a bar is DRAWN on the
+        // axes that need one, and how thick - are set by the caller
+        // (`compute_scrollbar_info_core`), since this function doesn't have
+        // access to the CSS style context. Until then: no bar.
+        bar_kind: ScrollbarKind::None,
         scrollbar_width: if needs_vertical {
             scrollbar_width_px
         } else {
@@ -10301,8 +10306,6 @@ pub fn check_scrollbar_necessity(
         } else {
             0.0
         },
-        // visual_width_px is set by the caller (compute_scrollbar_info_core)
-        // since this function doesn't have access to the CSS style context.
         visual_width_px: 0.0,
     }
 }

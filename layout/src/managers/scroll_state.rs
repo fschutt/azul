@@ -63,7 +63,10 @@ use azul_css::{impl_option, impl_option_inner};
 
 use crate::{
     managers::hover::InputPointId,
-    solver3::{layout_tree::LayoutNodeId, scrollbar::compute_scrollbar_geometry_with_button_size},
+    solver3::{
+        layout_tree::LayoutNodeId,
+        scrollbar::{compute_scrollbar_geometry_with_button_size, ScrollbarPresence},
+    },
 };
 
 /// Minimum change in scroll offset (in logical pixels) to consider the position
@@ -293,7 +296,10 @@ pub enum ScrollbarComponent {
 /// Scrollbar geometry state (calculated per frame, used for hit-testing and rendering)
 #[derive(Copy, Debug, Clone)]
 pub struct ScrollbarState {
-    /// Is this scrollbar visible? (content larger than container)
+    /// Can this bar be pressed? Every bar `calculate_scrollbar_states` builds
+    /// exists (its axis's [`ScrollbarPresence`] says so) and starts out
+    /// `true` - a faded-out overlay bar included: the fade is paint-only, and
+    /// a press where the bar lives still grabs it, as it always has.
     pub visible: bool,
     /// Orientation
     pub orientation: ScrollbarOrientation,
@@ -560,16 +566,14 @@ pub struct AnimatedScrollState {
     pub overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior,
     /// Per-node overflow scrolling mode (from CSS `-azul-overflow-scrolling`)
     pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
-    /// CSS-resolved scrollbar thickness (from `scrollbar-width` property).
-    /// Used for rendering and hit-testing. Defaults to 16.0 if not set.
-    pub scrollbar_thickness: f32,
-    /// Visual rendering width in CSS pixels (e.g. 8.0 for thin overlay).
-    /// Non-zero even for overlay scrollbars. Falls back to `scrollbar_thickness` if 0.
-    pub visual_width_px: f32,
-    /// Whether this node also needs a horizontal scrollbar (affects vertical geometry)
-    pub has_horizontal_scrollbar: bool,
-    /// Whether this node also needs a vertical scrollbar (affects horizontal geometry)
-    pub has_vertical_scrollbar: bool,
+    /// The bar on the horizontal axis, as layout resolved it from the axis's
+    /// overflow and the node's style (`ScrollbarRequirements::presence`).
+    /// `None` for a node registration has never described - a state created
+    /// by a programmatic scroll or a `VirtualView` callback has no bar until
+    /// layout says it has one.
+    pub horizontal_bar: ScrollbarPresence,
+    /// The bar on the vertical axis; see [`Self::horizontal_bar`].
+    pub vertical_bar: ScrollbarPresence,
 }
 
 /// Details of an in-progress smooth scroll animation.
@@ -1481,12 +1485,6 @@ impl ScrollManager {
             .collect()
     }
 
-    /// Registers or updates a scrollable node with its container and content sizes.
-    /// This should be called after layout for each node that has overflow:scroll or overflow:auto
-    /// with overflowing content.
-    ///
-    /// If the node already exists, updates container/content rects without changing scroll offset.
-    /// If the node is new, initializes with zero scroll offset.
     /// Apply the node's resolved `overscroll-behavior-x` / `-y`.
     ///
     /// Called by `register_scroll_nodes` right before registration, so the
@@ -1511,6 +1509,17 @@ impl ScrollManager {
         }
     }
 
+    /// Registers or updates a scrollable node with its container and content
+    /// sizes and the bar each of its axes carries. This should be called after
+    /// layout for each node that has overflow:scroll or overflow:auto with
+    /// overflowing content.
+    ///
+    /// `horizontal_bar` / `vertical_bar` are layout's per-axis answer
+    /// (`ScrollbarRequirements::presence`) - the bars [`Self::calculate_scrollbar_states`]
+    /// builds and [`Self::hit_test_scrollbars`] finds, and nothing else.
+    ///
+    /// If the node already exists, updates container/content rects without changing scroll offset.
+    /// If the node is new, initializes with zero scroll offset.
     pub fn register_or_update_scroll_node(
         &mut self,
         dom_id: DomId,
@@ -1518,10 +1527,8 @@ impl ScrollManager {
         container_rect: LogicalRect,
         content_size: LogicalSize,
         now: Instant,
-        scrollbar_thickness: f32,
-        visual_width_px: f32,
-        has_horizontal_scrollbar: bool,
-        has_vertical_scrollbar: bool,
+        horizontal_bar: ScrollbarPresence,
+        vertical_bar: ScrollbarPresence,
     ) {
         let key = (dom_id, node_id);
 
@@ -1554,10 +1561,8 @@ impl ScrollManager {
             // Update rects, keep scroll offset
             existing.container_rect = container_rect;
             existing.content_rect = content_rect;
-            existing.scrollbar_thickness = scrollbar_thickness;
-            existing.visual_width_px = visual_width_px;
-            existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
-            existing.has_vertical_scrollbar = has_vertical_scrollbar;
+            existing.horizontal_bar = horizontal_bar;
+            existing.vertical_bar = vertical_bar;
 
             if !was_overscrolling {
                 existing.current_offset = existing.clamp(existing.current_offset);
@@ -1579,10 +1584,8 @@ impl ScrollManager {
                     overscroll_behavior_y:
                         azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-                    scrollbar_thickness,
-                    visual_width_px,
-                    has_horizontal_scrollbar,
-                    has_vertical_scrollbar,
+                    horizontal_bar,
+                    vertical_bar,
                 },
             );
         }
@@ -1632,8 +1635,17 @@ impl ScrollManager {
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
-        // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
-        // so VirtualView nodes with large virtual content show correct scrollbar geometry.
+        // One bar per axis that HAS one (`AnimatedScrollState::bar`, layout's
+        // answer from the axis's overflow and the node's style) - not per
+        // axis whose content happens to be larger than its box. The size
+        // comparison built a 16px bar for a `scrollbar-width: none` box (a
+        // TextInput's value line, which it then covered, taking every press
+        // on the text), a bar down an `overflow-y: hidden` axis whose content
+        // ran past the bottom, and no bar for an `overflow: scroll` box whose
+        // painted bar had nothing to scroll.
+        //
+        // The thumb ratio uses virtual_scroll_size (when set), so VirtualView
+        // nodes with large virtual content show correct scrollbar geometry.
         for orientation in [
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
@@ -1641,26 +1653,13 @@ impl ScrollManager {
             let states: Vec<_> = self
                 .states
                 .iter()
-                .filter(|(_, s)| {
-                    let (effective, container) = match orientation {
-                        ScrollbarOrientation::Vertical => (
-                            s.effective_content_size().height,
-                            s.container_rect.size.height,
-                        ),
-                        ScrollbarOrientation::Horizontal => (
-                            s.effective_content_size().width,
-                            s.container_rect.size.width,
-                        ),
-                    };
-                    effective > container
-                })
-                .map(|((dom_id, node_id), scroll_state)| {
+                .filter_map(|((dom_id, node_id), scroll_state)| {
                     let mut state =
-                        Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation);
+                        Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation)?;
                     let shift = self.ancestor_scroll_offset(*dom_id, *node_id);
                     state.track_rect.origin.x -= shift.x;
                     state.track_rect.origin.y -= shift.y;
-                    ((*dom_id, *node_id, orientation), state)
+                    Some(((*dom_id, *node_id, orientation), state))
                 })
                 .collect();
 
@@ -1668,18 +1667,21 @@ impl ScrollManager {
         }
     }
 
-    /// Calculate scrollbar state using the shared `compute_scrollbar_geometry()`.
+    /// The bar `scroll_state` carries on `orientation`'s axis, measured with
+    /// the shared `compute_scrollbar_geometry_with_button_size()` from the
+    /// same thickness and buttons `paint_scrollbars` draws it with. `None`
+    /// when the axis has no bar - nothing to build, draw or press - and for a
+    /// bar no geometry could be built for (its thickness is the divisor of
+    /// `scale`).
     fn calculate_scrollbar_state_from_geometry(
         scroll_state: &AnimatedScrollState,
         orientation: ScrollbarOrientation,
-    ) -> ScrollbarState {
-        let scrollbar_thickness = if scroll_state.visual_width_px > 0.0 {
-            scroll_state.visual_width_px
-        } else if scroll_state.scrollbar_thickness > 0.0 {
-            scroll_state.scrollbar_thickness
-        } else {
-            crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
-        };
+    ) -> Option<ScrollbarState> {
+        let bar = scroll_state.bar(orientation);
+        let scrollbar_thickness = bar.thickness();
+        if !bar.is_present() || !scrollbar_thickness.is_finite() || scrollbar_thickness <= 0.0 {
+            return None;
+        }
 
         let content_size = scroll_state.effective_content_size();
 
@@ -1688,14 +1690,12 @@ impl ScrollManager {
             ScrollbarOrientation::Horizontal => scroll_state.current_offset.x,
         };
 
-        let has_other_scrollbar = match orientation {
-            ScrollbarOrientation::Vertical => scroll_state.has_horizontal_scrollbar,
-            ScrollbarOrientation::Horizontal => scroll_state.has_vertical_scrollbar,
+        let other_axis = match orientation {
+            ScrollbarOrientation::Vertical => ScrollbarOrientation::Horizontal,
+            ScrollbarOrientation::Horizontal => ScrollbarOrientation::Vertical,
         };
+        let has_other_scrollbar = scroll_state.bar(other_axis).is_present();
 
-        // Overlay scrollbars (thickness == 0 from layout) have no arrow buttons
-        let is_overlay = scroll_state.scrollbar_thickness == 0.0;
-        let button_size = if is_overlay { 0.0 } else { scrollbar_thickness };
         let geom = compute_scrollbar_geometry_with_button_size(
             orientation,
             scroll_state.container_rect,
@@ -1703,7 +1703,7 @@ impl ScrollManager {
             scroll_offset,
             scrollbar_thickness,
             has_other_scrollbar,
-            button_size,
+            bar.button_size(),
         );
 
         // Build ScrollbarState from the shared geometry
@@ -1716,7 +1716,7 @@ impl ScrollManager {
             }
         };
 
-        ScrollbarState {
+        Some(ScrollbarState {
             visible: true,
             orientation,
             base_size: scrollbar_thickness,
@@ -1728,7 +1728,7 @@ impl ScrollManager {
             usable_track_length: geom.usable_track_length,
             thumb_length: geom.thumb_length,
             thumb_offset: geom.thumb_offset,
-        }
+        })
     }
 
     /// Get scrollbar state for hit-testing
@@ -1804,6 +1804,14 @@ impl ScrollManager {
     ///
     /// This iterates through all visible scrollbars in reverse z-order (top to bottom)
     /// and returns the first hit. Use this when you don't know which node to check.
+    ///
+    /// Every shell asks this BEFORE the content, so a bar found here takes the
+    /// press away from whatever lies under it. Only bars that exist are
+    /// candidates: [`Self::calculate_scrollbar_states`] builds one per axis
+    /// whose [`ScrollbarPresence`] has one, and a box whose style draws no bar
+    /// leaves its whole area to its content. A faded-out overlay bar still
+    /// counts: the fade is paint-only, and a press where the bar lives grabs
+    /// it, as it always has.
     ///
     /// For better performance, use `hit_test_scrollbar()` when you already have
     /// a hit-tested node from `WebRender`.
@@ -1898,10 +1906,17 @@ impl AnimatedScrollState {
             overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-            scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-            visual_width_px: 0.0,
-            has_horizontal_scrollbar: false,
-            has_vertical_scrollbar: false,
+            horizontal_bar: ScrollbarPresence::None,
+            vertical_bar: ScrollbarPresence::None,
+        }
+    }
+
+    /// The bar on `orientation`'s axis, as registration last described it.
+    #[must_use]
+    pub const fn bar(&self, orientation: ScrollbarOrientation) -> ScrollbarPresence {
+        match orientation {
+            ScrollbarOrientation::Vertical => self.vertical_bar,
+            ScrollbarOrientation::Horizontal => self.horizontal_bar,
         }
     }
 
@@ -2196,10 +2211,8 @@ mod natural_scroll_tests {
                 height: 1000.0,
             },
             now.clone(),
-            8.0,
-            8.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 8.0 },
         );
         // Inner: 100x100 viewport over 100x300 content → max_y = 200.
         m.register_or_update_scroll_node(
@@ -2217,10 +2230,8 @@ mod natural_scroll_tests {
                 height: 300.0,
             },
             now,
-            8.0,
-            8.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 8.0 },
         );
         (m, dom, outer, inner)
     }
@@ -2338,10 +2349,8 @@ mod autotest_generated {
             LogicalRect::new(LogicalPosition::zero(), container),
             content,
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m
     }
@@ -2544,8 +2553,10 @@ mod autotest_generated {
         assert_eq!(s.content_rect, LogicalRect::zero());
         assert!(s.virtual_scroll_size.is_none());
         assert!(s.virtual_scroll_offset.is_none());
-        assert!(!s.has_horizontal_scrollbar);
-        assert!(!s.has_vertical_scrollbar);
+        // No bar until registration says there is one: a state a programmatic
+        // scroll or a VirtualView callback created has nothing to press.
+        assert_eq!(s.bar(ScrollbarOrientation::Horizontal), ScrollbarPresence::None);
+        assert_eq!(s.bar(ScrollbarOrientation::Vertical), ScrollbarPresence::None);
         // A zero-sized state has no travel: clamp must pin everything to origin.
         assert_eq!(s.clamp(pos(1e9, 1e9)), LogicalPosition::zero());
     }
@@ -3181,10 +3192,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(
@@ -3475,10 +3484,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 300.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.scroll_to(
             DOM,
@@ -3515,10 +3522,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert_eq!(
             m.debug_counts(),
@@ -3543,10 +3548,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 150.0), // content shrank: max_y is now 50
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 50.0)));
     }
@@ -3560,10 +3563,8 @@ mod autotest_generated {
             rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
             size(f32::NAN, f32::NAN),
             at(0),
-            f32::NAN,
-            f32::NAN,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(
@@ -3582,10 +3583,8 @@ mod autotest_generated {
             rect(0.0, 0.0, f32::INFINITY, f32::INFINITY),
             size(f32::INFINITY, f32::INFINITY),
             at(0),
-            f32::MAX,
-            f32::MAX,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(1)).unwrap();
         assert!(!off.x.is_nan() && !off.y.is_nan());
@@ -3601,10 +3600,8 @@ mod autotest_generated {
             LogicalRect::zero(),
             LogicalSize::zero(),
             at(0),
-            0.0,
-            0.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         assert!(m.a11y_scroll_info(DOM, node(0)).is_none());
@@ -3626,10 +3623,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         // One extra pixel of height => scrollable.
@@ -3639,10 +3634,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.1),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert!(m.is_node_scrollable(DOM, node(1)));
         // Unknown node / unknown DOM => false, never a panic.
@@ -3660,10 +3653,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 50.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         m.update_virtual_scroll_bounds(DOM, node(0), size(100.0, 100_000.0), None);
@@ -3795,10 +3786,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 50.0, 50.0),
             size(50.0, 200.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let inner_first = [(DOM, node(9)), (DOM, node(0))];
         assert_eq!(
@@ -3835,10 +3824,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(10.0, 10.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(m.a11y_scroll_info(DOM, node(1)).is_none());
         assert!(m.a11y_scroll_info(DOM, node(404)).is_none());
@@ -4033,10 +4020,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 10.0, 10.0),
             size(10.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
 
         let states = m.get_scroll_states_for_dom(DOM);
@@ -4094,10 +4079,8 @@ mod autotest_generated {
             rect(250.0, 120.0, 300.0, 400.0),
             size(900.0, 1200.0),
             at(0),
-            THICKNESS,
-            THICKNESS,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: THICKNESS },
+            ScrollbarPresence::Classic { thickness: THICKNESS },
         );
 
         // Exactly what `paint_scrollbars` does: read the state, take the offset
@@ -4176,10 +4159,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.register_or_update_scroll_node(
             DOM1,
@@ -4187,10 +4168,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
 
         // Empty id map => empty offset map (and no panic).
@@ -4234,10 +4213,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 200.0, 200.0),
             size(200.0, 2000.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.set_scroll_position(DOM, node(2), pos(0.0, 300.0), at(1));
 
@@ -4421,10 +4398,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 50.0),
             at(1),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         m.calculate_scrollbar_states();
         assert_eq!(m.debug_counts().1, 0);
@@ -4440,10 +4415,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(1000.0, 1000.0),
             at(0),
-            16.0,
-            16.0,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.calculate_scrollbar_states();
         assert_eq!(m.debug_counts(), (1, 2), "both axes overflow");
@@ -4473,10 +4446,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 200.0, 14.0),
             size(400.0, 14.0),
             at(0),
-            0.0, // `none` reserves no gutter
-            0.0, // ...and draws no bar
-            true,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         m.calculate_scrollbar_states();
         assert!(
@@ -4505,10 +4476,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 200.0, 100.0),
             size(400.0, 120.0),
             at(0),
-            16.0,
-            16.0,
-            true,  // overflow-x: auto, overflowing
-            false, // overflow-y: hidden
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::None,
         );
         m.calculate_scrollbar_states();
         assert!(
@@ -4528,10 +4497,13 @@ mod autotest_generated {
         );
     }
 
+    /// The bar is exactly the one layout described - its thickness, and arrow
+    /// buttons only for a classic one - with no width of the manager's own.
+    /// (This used to pin the opposite: a zero thickness from layout fell back
+    /// to a 16px bar, and the only production case that reached the fallback
+    /// was `scrollbar-width: none`, which draws no bar at all.)
     #[test]
-    fn calculate_scrollbar_states_zero_thickness_falls_back_to_the_default_width() {
-        // An overlay scrollbar reports thickness 0 from layout; the geometry must
-        // still divide by a non-zero width (otherwise `scale` becomes inf/NaN).
+    fn calculate_scrollbar_states_builds_the_bar_layout_described() {
         let mut m = ScrollManager::new();
         m.register_or_update_scroll_node(
             DOM,
@@ -4539,39 +4511,81 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 400.0),
             at(0),
-            0.0, // scrollbar_thickness (overlay)
-            0.0, // visual_width_px
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Overlay { thickness: 8.0 },
         );
         m.calculate_scrollbar_states();
         let sb = m
             .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
-            .unwrap();
-        assert_eq!(sb.base_size, crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX);
+            .expect("the vertical axis has an overlay bar");
+        assert_eq!(sb.base_size, 8.0, "the overlay's own thickness, not 16px");
         assert_eq!(
             sb.button_size, 0.0,
             "overlay scrollbars have no arrow buttons"
+        );
+        assert_eq!(
+            sb.track_rect,
+            rect(92.0, 0.0, 8.0, 100.0),
+            "an 8px track down the right edge"
         );
         assert!(
             sb.scale.x.is_finite() && sb.scale.y.is_finite(),
             "no div-by-zero"
         );
+
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 400.0),
+            at(1),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 12.0 },
+        );
+        m.calculate_scrollbar_states();
+        let sb = m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .expect("the vertical axis has a classic bar");
+        assert_eq!(
+            (sb.base_size, sb.button_size),
+            (12.0, 12.0),
+            "a classic bar has square arrow buttons of its own thickness"
+        );
+    }
+
+    /// An `overflow: scroll` axis keeps its (classic) bar when there is
+    /// nothing to scroll - `paint_scrollbars` draws it, so the press must find
+    /// it; the thumb fills the track.
+    #[test]
+    fn a_bar_layout_asked_for_exists_with_nothing_to_scroll() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 50.0),
+            at(0),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+        );
+        m.calculate_scrollbar_states();
+        let sb = m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .expect("the painted bar is hit-testable");
+        assert_eq!(sb.thumb_size_ratio, 1.0, "nothing to scroll: a full thumb");
     }
 
     #[test]
     fn calculate_scrollbar_state_from_geometry_survives_nan_input() {
         let mut s = state(size(f32::NAN, f32::NAN), size(f32::NAN, f32::NAN));
-        s.scrollbar_thickness = f32::NAN;
-        s.visual_width_px = f32::NAN;
-        // `NaN > 0.0` is false for both width sources, so it falls back to the
-        // default width instead of dividing by NaN.
+        s.vertical_bar = ScrollbarPresence::Classic { thickness: 16.0 };
         let sb = ScrollManager::calculate_scrollbar_state_from_geometry(
             &s,
             ScrollbarOrientation::Vertical,
-        );
+        )
+        .expect("a 16px bar over NaN geometry is still a bar");
         assert!(sb.visible);
-        assert_eq!(sb.base_size, crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX);
+        assert_eq!(sb.base_size, 16.0);
         // `.max(0.0)` rescues every length: NaN geometry degrades to a zero-length
         // thumb on a zero-length track rather than propagating NaN.
         assert_eq!(sb.usable_track_length, 0.0);
@@ -4589,6 +4603,24 @@ mod autotest_generated {
             sb.hit_test_component(pos(0.0, 5.0)),
             ScrollbarComponent::TopButton
         );
+    }
+
+    #[test]
+    fn a_bar_without_a_usable_thickness_is_no_bar() {
+        // `scale` divides by the thickness; a bar nothing could be drawn with
+        // is not built at all rather than given a width of the manager's own.
+        let mut s = state(size(100.0, 100.0), size(100.0, 400.0));
+        for t in [0.0, -4.0, f32::NAN, f32::INFINITY] {
+            s.vertical_bar = ScrollbarPresence::Classic { thickness: t };
+            assert!(
+                ScrollManager::calculate_scrollbar_state_from_geometry(
+                    &s,
+                    ScrollbarOrientation::Vertical
+                )
+                .is_none(),
+                "thickness {t}"
+            );
+        }
     }
 
     // ================================== hit_test_scrollbar / hit_test_scrollbars
@@ -4841,10 +4873,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         let hover = hover_over(&[0]);
         let out = m.record_scroll_from_hit_test_test_shim(
@@ -4907,10 +4937,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 50.0, 50.0),
             size(50.0, 200.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let hover = hover_over(&[0, 5]);
         let (_, node_id, _) = m
