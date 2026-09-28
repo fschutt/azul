@@ -1416,8 +1416,8 @@ greeting = Hello, { $name }!
 
         let mut app_config = AppConfig::default();
         app_config.fluent_locales = StringPairVec::from_vec(vec![
-            AzStringPair::new("en".into(), "greeting = Hello\nfarewell = Bye\n".into()),
-            AzStringPair::new("de".into(), "greeting = Hallo\n".into()),
+            AzStringPair::create("en".into(), "greeting = Hello\nfarewell = Bye\n".into()),
+            AzStringPair::create("de".into(), "greeting = Hallo\n".into()),
         ]);
 
         let report = app_config.check_translations();
@@ -1430,8 +1430,8 @@ greeting = Hello, { $name }!
 
         // Complete translations: an empty report.
         app_config.fluent_locales = StringPairVec::from_vec(vec![
-            AzStringPair::new("en".into(), "greeting = Hello\n".into()),
-            AzStringPair::new("de".into(), "greeting = Hallo\n".into()),
+            AzStringPair::create("en".into(), "greeting = Hello\n".into()),
+            AzStringPair::create("de".into(), "greeting = Hallo\n".into()),
         ]);
         assert!(app_config.check_translations().missing_keys.is_empty());
     }

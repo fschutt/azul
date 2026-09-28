@@ -1950,7 +1950,7 @@ pub struct AzStringPair {
 impl AzStringPair {
     /// A pair from its two halves.
     #[must_use]
-    pub const fn new(key: AzString, value: AzString) -> Self {
+    pub const fn create(key: AzString, value: AzString) -> Self {
         Self { key, value }
     }
 }

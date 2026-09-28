@@ -20031,6 +20031,43 @@
                                     }
                                 ],
                                 "fn_body": "object.log(level, message)"
+                            },
+                            "get_locale": {
+                                "doc": [
+                                    "The window's active locale (BCP 47): the one the app chose with",
+                                    "`CallbackInfo::set_locale`, else the system language.",
+                                    "",
+                                    "Reading it declares that the returned DOM depends on the locale, so a",
+                                    "locale change re-runs this callback instead of only re-translating the",
+                                    "DOM's `AzString::tr` strings in place."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_locale().clone()"
+                            },
+                            "is_rtl": {
+                                "doc": [
+                                    "Is the active locale written right-to-left?",
+                                    "",
+                                    "Reading it declares that the returned DOM depends on the text",
+                                    "direction (a mirrored layout, say), so a locale change that flips the",
+                                    "direction re-runs this callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_rtl()"
                             }
                         },
                         "repr": "C"
@@ -55115,6 +55152,30 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "resolve": {
+                                "doc": [
+                                    "The language an OS locale name stands for, with its right-to-left-ness",
+                                    "taken from `known` (the app's `LocalizationConfig::known_languages`).",
+                                    "",
+                                    "The name is normalized to a BCP 47 tag first: POSIX `_` becomes `-`,",
+                                    "and an encoding or modifier suffix (`de_DE.UTF-8`, `en_US@rg=dezzzz`)",
+                                    "is dropped. Then an exact, case-insensitive match in `known` wins",
+                                    "outright; failing that, the first known language with the same primary",
+                                    "language subtag lends its `is_rtl` (`ar-DZ` is RTL because `ar-SA`",
+                                    "is); failing that, the language is taken as left-to-right."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "os_locale": "String"
+                                    },
+                                    {
+                                        "known": "SystemLanguageVecSlice"
+                                    }
+                                ],
+                                "fn_body": "azul_css::system::SystemLanguage::resolve(os_locale.as_str(), known.as_slice())"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SystemLanguageVecSlice": {
@@ -89006,6 +89067,19 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::corety::AzString::from_c_str(ptr)"
+                            },
+                            "tr": {
+                                "doc": [
+                                    "A translation KEY rather than display text: the string is `key`, marked",
+                                    "localizable, so the layout pass replaces it with the key's translation",
+                                    "in the active locale."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_css::corety::AzString::tr(key.as_str())"
                             }
                         },
                         "functions": {
@@ -89098,6 +89172,34 @@
                                     "type": "String"
                                 },
                                 "fn_body": "unsafe { azul_css::corety::AzString::from_utf8(ptr, len) }"
+                            },
+                            "is_localizable": {
+                                "doc": [
+                                    "Was this string made with `tr` (or marked with `set_localizable`)?"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_localizable()"
+                            },
+                            "set_localizable": {
+                                "doc": [
+                                    "Mark (or unmark) this string as a translation key."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "localizable": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_localizable(localizable)"
                             }
                         },
                         "repr": "C"
@@ -89125,6 +89227,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A pair from its two halves."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::window::AzStringPair::create(key, value)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "StringSetValue": {
@@ -129032,6 +129150,9 @@
                                 },
                                 "localization": {
                                     "type": "LocalizationConfig"
+                                },
+                                "fluent_locales": {
+                                    "type": "StringPairVec"
                                 }
                             }
                         ],
@@ -130963,7 +131084,7 @@
                                         "known_languages": "SystemLanguageVecSlice"
                                     }
                                 ],
-                                "fn_body": "azul_layout::fluent::FluentLocalizerHandle::create(default_locale.as_str(), unsafe { core::slice::from_raw_parts(known_languages.ptr as *const azul_css::system::SystemLanguage, known_languages.len) })"
+                                "fn_body": "azul_layout::fluent::FluentLocalizerHandle::create(default_locale.as_str(), known_languages.as_slice())"
                             }
                         },
                         "functions": {
