@@ -229,3 +229,64 @@ fn a_hidden_box_whose_content_fits_is_not_moved_by_an_offset() {
         rect.origin.y
     );
 }
+
+// ---------------------------------------------------------------------------
+// A stacking context inside a scroll box that is not one
+// ---------------------------------------------------------------------------
+
+const SCROLL_BOX: NodeId = NodeId::new(1);
+const TRANSLUCENT_BLOCK: NodeId = NodeId::new(3);
+
+/// Red at half opacity over white.
+fn is_translucent_red(px: (u8, u8, u8)) -> bool {
+    px.0 > 200 && px.1 > 60 && px.1 < 190 && px.2 > 60 && px.2 < 190
+}
+
+fn is_white(px: (u8, u8, u8)) -> bool {
+    px.0 > 240 && px.1 > 240 && px.2 > 240
+}
+
+/// A translucent block is a stacking context of its own, and the display
+/// list paints stacking contexts with their parent context's children -
+/// here the root's, after everything in flow. The scroll box around it is
+/// not a stacking context, so its clip and scroll frame had long been closed
+/// by then: the block was painted unscrolled and unclipped, while the hit
+/// tester (and CSS) put it inside the box, scrolled and clipped with the
+/// rest of its content.
+///
+/// `body > box(200x100, auto) > [50px, translucent red 300x50, 300px]`, the
+/// box scrolled by 50: the block laid out at y=50 is under y=25, and what
+/// sticks out past the box's right edge is clipped.
+#[test]
+fn a_translucent_block_in_a_scrolled_box_is_painted_scrolled_and_clipped_with_it() {
+    let mut lw = window_with(
+        Dom::create_body().with_css("margin: 0;").with_child(
+            Dom::create_div()
+                .with_css("width: 200px; height: 100px; overflow: auto;")
+                .with_child(Dom::create_div().with_css("height: 50px;"))
+                .with_child(Dom::create_div().with_css(
+                    "width: 300px; height: 50px; background-color: #ff0000; opacity: 0.5;",
+                ))
+                .with_child(Dom::create_div().with_css("height: 300px;")),
+        ),
+    );
+    scroll_to(&mut lw, SCROLL_BOX, LogicalPosition::new(0.0, 50.0));
+
+    assert_eq!(
+        node_under(&lw, LogicalPosition::new(100.0, 25.0)),
+        Some(TRANSLUCENT_BLOCK),
+        "scrolled by 50, the pointer at y=25 finds the block laid out at y=50"
+    );
+    let frame = render(&lw);
+    let px = pixel(&frame, 100, 25);
+    assert!(
+        is_translucent_red(px),
+        "the block the pointer finds at y=25 must be painted there, got the pixel {px:?}: it was \
+         painted outside the scroll box's frame, where it was laid out"
+    );
+    let px = pixel(&frame, 250, 75);
+    assert!(
+        is_white(px),
+        "the block is clipped by the box it sits in (x < 200), got the pixel {px:?} at (250, 75)"
+    );
+}
