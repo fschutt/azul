@@ -29,9 +29,17 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 - 2e19c4950 FIX bug 4 (part): a11y update_tree computes ScrollChains once per dom (None when the dom
   has no scroll id); ancestor_scroll_offset(dom, Option<&ScrollChains>, idx, scroll_manager).
 
+- a81e22b4a chore(probe): spans shell_incremental_relayout, register_scroll_nodes,
+  scroll_chains_compute, cpu_hit_tester_rebuild, hit_test_paint_order_sort, a11y_update_tree,
+  css_transition_tick (-> app_phase_seconds{phase}).
+- Decided NOT to change (measurement plan items instead): DL enter_scroll_chain (ScrollChain::of per
+  stacking context / abs child: k*3*depth lookups, a ScrollChains pass costs n - no clear win);
+  shell's duplicate register_scroll_nodes (dll common/layout.rs incremental_relayout, ~n lookups,
+  no layout-crate RED possible); hit tester compute_node_clips ancestor walk (O(n*depth) overflow
+  lookups per rebuild, pre-existing, not a regression).
+
 ## IN PROGRESS
-- Next per-frame waste candidates: DL enter_scroll_chain (ScrollChain::of per stacking context /
-  abs child), shell duplicate register_scroll_nodes, probe spans.
+- Bug 3 accordion animation.
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
