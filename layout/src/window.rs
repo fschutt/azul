@@ -13551,7 +13551,15 @@ impl LayoutWindow {
     pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
         let target = self.session_text_target()?;
         let cursor = target.caret_at_byte(byte_offset)?;
-        self.cursor_rect_for(target.block, &cursor)
+        let rect = self.cursor_rect_for(target.block, &cursor)?;
+        // WHERE IT IS ON SCREEN. `cursor_rect_for` is STATIC layout space -
+        // the space the caret reveal works in - and the IME places its
+        // candidate window in window space: in a field scrolled by S the
+        // window opened S px beside the text it was composing. The same walk
+        // `get_focused_cursor_rect_viewport` (the shells' fallback) applies:
+        // the box's own and its ancestors' scroll, transforms, the nested
+        // dom's host.
+        self.cursor_rect_viewport_for(target.block, rect)
     }
 
     /// The rect covering a byte RANGE in the focused editable, in absolute
@@ -13601,13 +13609,21 @@ impl LayoutWindow {
     /// [`Self::focused_byte_offset_for_point`], shared with the handle drag.
     #[must_use]
     pub fn focused_cursor_for_point(&self, point: LogicalPosition) -> Option<TextCursor> {
-        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
-        let (inline_layout, origin) = self.block_inline_geometry(session_block)?;
-        // The hit test works in NODE-relative coordinates; the shells hand in
-        // window ones, and mixing them puts the answer off by the node's
-        // position on screen - which on a scrolled page is the whole error.
-        let local = LogicalPosition::new(point.x - origin.x, point.y - origin.y);
-        inline_layout.hittest_cursor(local)
+        let target = self.session_text_target()?;
+        let dom = target.block.dom();
+        // The hit test works in the block's own SCROLLED-CONTENT space; the
+        // shells hand in window coordinates. Through the one typed funnel
+        // (`window_point_to_ifc_local`: window -> + the ancestors' scroll ->
+        // - the border origin -> - the content inset -> + the box's OWN
+        // scroll), after leaving the window for the block's dom (a nested
+        // dom is laid out 0-relative under its host - the inverse of the last
+        // step of `cursor_rect_viewport_for`). Subtracting only the static
+        // content origin, as this did, resolved a point in a field scrolled
+        // by S to the character S px to its left.
+        let host = self.window_space_offset_of_dom(dom);
+        let in_dom = LogicalPosition::new(point.x - host.x, point.y - host.y);
+        let local = self.window_point_to_ifc_local(dom, target.layout_index.index(), in_dom)?;
+        target.hittest(local)
     }
 
     /// A cursor's caret rect in the focused editable, in absolute window
