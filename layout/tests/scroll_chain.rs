@@ -399,3 +399,64 @@ fn a_fixed_box_is_not_clipped_by_a_box_that_is_not_its_containing_block() {
         "the pointer at (150, 20) must find the fixed box painted there"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `position: absolute` - the nearest positioned ancestor is its containing block
+// ---------------------------------------------------------------------------
+
+const ABS_INSIDE: NodeId = NodeId::new(3);
+const ABS_OVERHANG: NodeId = NodeId::new(4);
+
+/// An absolutely positioned box whose containing block lies outside the
+/// scroll box it sits in (the scroll box is not positioned) is neither
+/// scrolled nor clipped by it (CSS 2.2 §11.1.1): it is placed against the
+/// initial containing block and stays there. It was painted - and
+/// hit-tested - inside the box's clip and scroll frame, like any child.
+///
+/// `body > box(200x100, auto) > [blue 400px, abs green 50x50 at (50,20),
+/// abs green 50x50 at (250,20)]`, the box scrolled by 50.
+#[test]
+fn an_absolute_box_is_not_moved_or_clipped_by_a_scroll_box_that_is_not_its_containing_block() {
+    let mut lw = window_with(
+        Dom::create_body().with_css("margin: 0;").with_child(
+            Dom::create_div()
+                .with_css("width: 200px; height: 100px; overflow: auto;")
+                .with_child(
+                    Dom::create_div().with_css("height: 400px; background-color: #0000ff;"),
+                )
+                .with_child(Dom::create_div().with_css(
+                    "position: absolute; top: 20px; left: 50px; width: 50px; height: 50px; \
+                     background-color: #00ff00;",
+                ))
+                .with_child(Dom::create_div().with_css(
+                    "position: absolute; top: 20px; left: 250px; width: 50px; height: 50px; \
+                     background-color: #00ff00;",
+                )),
+        ),
+    );
+    scroll_to(&mut lw, SCROLL_BOX, LogicalPosition::new(0.0, 50.0));
+
+    let frame = render(&lw);
+    let px = pixel(&frame, 75, 45);
+    assert!(
+        is_green(px),
+        "the absolute box laid out at (50, 20) must stay there when the box it sits in scrolls, \
+         got the pixel {px:?} at (75, 45): it scrolled up with the box's content"
+    );
+    assert_eq!(
+        node_under(&lw, LogicalPosition::new(75.0, 45.0)),
+        Some(ABS_INSIDE),
+        "the pointer at (75, 45) must find the absolute box painted there"
+    );
+    let px = pixel(&frame, 275, 45);
+    assert!(
+        is_green(px),
+        "the absolute box at (250, 20), right of the scroll box, is not clipped by it, got the \
+         pixel {px:?} at (275, 45)"
+    );
+    assert_eq!(
+        node_under(&lw, LogicalPosition::new(275.0, 45.0)),
+        Some(ABS_OVERHANG),
+        "the pointer at (275, 45) must find the absolute box painted there"
+    );
+}
