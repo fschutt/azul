@@ -14,8 +14,10 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 - 8778955df RED bug 2a: core/src/diff_test.rs `a_moved_tab_stop_is_not_a_layout_change` (today
   might_affect_layout == true).
 
+- 444d77e43 FIX bug 2a: core/src/diff.rs attrs_hash = contenteditable + is_anonymous (no tab index).
+
 ## IN PROGRESS
-- FIX 2a (next commit).
+- RED 2b (radio_group_geometry.rs).
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
