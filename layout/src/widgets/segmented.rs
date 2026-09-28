@@ -14,7 +14,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
@@ -47,8 +47,11 @@ use crate::callbacks::{Callback, CallbackInfo};
 
 static SEGMENTED_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-segmented"))];
+/// The class every segment carries: how the key handler tells the control's
+/// segments apart from anything else.
+const SEGMENT_ITEM_CLASS_NAME: &str = "__azul-native-segmented-item";
 static SEGMENT_ITEM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-segmented-item",
+    SEGMENT_ITEM_CLASS_NAME,
 ))];
 
 /// Callback function type invoked when the selected segment changes.
@@ -440,11 +443,16 @@ impl Segmented {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
+            events::FocusEventFilter,
             refany::OptionRefAny,
         };
 
         let selected = self.segmented_state.inner.selected_index;
         let count = self.labels.as_ref().len();
+        // WAI-ARIA APG (a segmented control is a radio group): ONE Tab stop -
+        // the selected segment, or the first when the selection is out of
+        // range. The arrow keys move within it.
+        let tab_stop = crate::widgets::roving::stop_index(Some(selected), count);
         // Resolved before `self.segmented_state` is moved out below.
         let container_style = self.resolved_container_style();
 
@@ -463,17 +471,27 @@ impl Segmented {
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENT_ITEM_CLASS))
                     .with_css_props(seg_style)
                     .with_callbacks(
-                        vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::Click),
-                            callback: CoreCallback {
-                                cb: on_segment_click as usize,
-                                ctx: OptionRefAny::None,
+                        vec![
+                            CoreCallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                callback: CoreCallback {
+                                    cb: on_segment_click as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
                             },
-                            refany: state.clone(),
-                        }]
+                            CoreCallbackData {
+                                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                callback: CoreCallback {
+                                    cb: on_segment_key as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
+                            },
+                        ]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto)
+                    .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
             // Role so the accessibility tree knows what this IS:
             // a row of mutually exclusive choices. The NAME comes from the widget's own text,
             // which azul derives when a readable label is present.
@@ -499,38 +517,93 @@ impl Default for Segmented {
 
 /// Click handler shared by all segments. Determines the clicked segment's index
 /// from its position among its siblings, updates the selection, invokes the user
-/// callback, and live-restyles every segment.
-extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
+/// callback, and live-restyles every segment. The clicked segment also becomes
+/// the control's one Tab stop (the click itself already focused it).
+extern "C" fn on_segment_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    use crate::widgets::roving;
 
     let clicked = info.get_hit_node();
-    let dark = window_is_dark(&info);
     let Some(parent) = info.get_parent(clicked) else {
         return Update::DoNothing;
     };
 
     // Collect the segment siblings in document order.
-    let mut segments: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        segments.push(node);
-        cur = info.get_next_sibling(node);
-    }
+    let segments = roving::children_of(&info, parent);
 
     let Some(selected) = segments.iter().position(|n| *n == clicked) else {
         return Update::DoNothing;
     };
 
+    let Some(result) = select_segment(data, &mut info, &segments, selected) else {
+        return Update::DoNothing;
+    };
+
+    let items = roving::items_of(&info, parent, SEGMENT_ITEM_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        roving::set_stop(&mut info, &items, stop);
+    }
+
+    result
+}
+
+/// Arrow keys on the focused segment - a segmented control is a radio group
+/// (WAI-ARIA APG): Right and Down select the next segment, Left and Up the
+/// previous one, wrapping at the ends. Focus and the control's one Tab stop
+/// move with the selection and the default action (spatial navigation) is
+/// cancelled. Every other key - and an arrow held with Alt, Ctrl, Cmd or
+/// Shift - keeps its default.
+extern "C" fn on_segment_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Right | K::Down) => Step::Next,
+        Some(K::Left | K::Up) => Step::Previous,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let segments = roving::items_of(&info, parent, SEGMENT_ITEM_CLASS_NAME);
+    let Some(current) = segments.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, segments.len(), step, true) else {
+        return Update::DoNothing;
+    };
+    if data.downcast_ref::<SegmentedStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    // Moved BEFORE the user callback runs, so a focus it asks for wins.
+    roving::move_stop(&mut info, &segments, target);
+    select_segment(data, &mut info, &segments, target).unwrap_or(Update::DoNothing)
+}
+
+/// Selects segment `selected` of `segments`: updates the shared state, invokes
+/// the user callback and live-restyles every segment in the window's theme.
+/// `None` when the payload is not this widget's state (or is already
+/// borrowed) - nothing was changed.
+fn select_segment(
+    mut data: RefAny,
+    info: &mut CallbackInfo,
+    segments: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) -> Option<Update> {
+    let dark = window_is_dark(info);
+
     let result = {
-        let Some(mut seg) = data.downcast_mut::<SegmentedStateWrapper>() else {
-            return Update::DoNothing;
-        };
+        let mut seg = data.downcast_mut::<SegmentedStateWrapper>()?;
         seg.inner.selected_index = selected;
         let inner = seg.inner;
         let seg = &mut *seg;
         match seg.on_change.as_mut() {
             Some(SegmentedOnChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner)
+                (callback.cb)(refany.clone(), *info, inner)
             }
             None => Update::DoNothing,
         }
@@ -547,7 +620,7 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
         );
     }
 
-    result
+    Some(result)
 }
 
 impl From<Segmented> for Dom {
@@ -564,7 +637,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType, TabIndex},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -1033,6 +1106,11 @@ mod autotest_generated {
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
         let mut out = Vec::new();
         for change in changes {
+            // The click also moves the control's roving Tab stop; that is not
+            // part of the restyle (the roving tests below check it).
+            if matches!(change, CallbackChange::SetNodeTabIndex { .. }) {
+                continue;
+            }
             let CallbackChange::ChangeNodeCssProperties {
                 node_id,
                 properties,
@@ -2025,7 +2103,11 @@ mod autotest_generated {
         let dom = Segmented::create(n_labels(n)).dom();
         for (i, child) in dom.children.as_ref().iter().enumerate() {
             let cbs = child.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "segment {i}: exactly one handler");
+            assert_eq!(
+                cbs.as_ref().len(),
+                2,
+                "segment {i}: the click and the arrow-key handler"
+            );
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -2033,9 +2115,20 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref()[0].callback.cb, on_segment_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
+                cbs.as_ref()[1].event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+            );
+            assert_eq!(cbs.as_ref()[1].callback.cb, on_segment_key as usize);
+            // ONE Tab stop per control (WAI-ARIA APG): the selected segment,
+            // segment 0 of a fresh control; the arrows reach the others.
+            assert_eq!(
                 child.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "segment {i} must be tab-reachable"
+                Some(if i == 0 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "segment {i} has the wrong tab index"
             );
         }
     }
