@@ -241,6 +241,16 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
+    // How often each scroll id has been pushed so far. The display list
+    // closes a frame around a box painted outside it and reopens it after
+    // (`DisplayListGenerator::enter_scroll_chain` - a position:fixed header
+    // on a scrolled page, a translucent item inside a plain scroll box), so
+    // one id can open several frames. Each is a spatial node of its own, and
+    // WebRender asserts that no two nodes of a scene share a
+    // `SpatialTreeItemKey`; `set_scroll_offsets` moves every node carrying
+    // the id, so they still scroll as one.
+    let mut scroll_frame_pushes: BTreeMap<u64, u64> = BTreeMap::new();
+
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
@@ -937,6 +947,12 @@ pub fn translate_displaylist_to_wr(
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+                let push_index = {
+                    let pushes = scroll_frame_pushes.entry(*scroll_id).or_insert(0);
+                    let index = *pushes;
+                    *pushes += 1;
+                    index
+                };
 
                 // Apply parent offset to frame_rect for correct positioning in parent space
                 let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
@@ -984,7 +1000,7 @@ pub fn translate_displaylist_to_wr(
                     LayoutVector2D::zero(), // external_scroll_offset
                     0,                      // scroll_offset_generation (APZScrollGeneration)
                     HasScrollLinkedEffect::No,
-                    SpatialTreeItemKey::new(*scroll_id, 0),
+                    SpatialTreeItemKey::new(*scroll_id, push_index),
                 );
 
                 log_debug!(

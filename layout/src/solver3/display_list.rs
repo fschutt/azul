@@ -3545,6 +3545,35 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// DL-PATCHING source (resize-skip passes only): the previous pass's
     /// display list plus per-node deltas. `None` = full generation.
     patch: Option<PatchState<'a>>,
+    /// What is open around the point the walk has reached, innermost last:
+    /// the clip and scroll frames `push_node_clips` pushed per box, and the
+    /// groups no box can be painted outside of. See
+    /// [`DisplayListGenerator::enter_scroll_chain`].
+    open_clips: Vec<OpenClip>,
+}
+
+/// One entry of [`DisplayListGenerator::open_clips`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenClip {
+    /// Something the walk cannot close and reopen around a box painted
+    /// inside it: a stacking context with its reference frame, opacity,
+    /// filters and image mask; an in-flow child's reference frame or image
+    /// mask; a box's clip-path when its overflow clips nothing.
+    Barrier,
+    /// The clip and scroll frames `push_node_clips` pushed around the
+    /// content of the box at this layout index - a
+    /// [`ScrollChainLink`](crate::solver3::scroll_chain::ScrollChainLink).
+    Owner(usize),
+}
+
+/// The frames [`DisplayListGenerator::enter_scroll_chain`] closed and opened
+/// around one box, for [`DisplayListGenerator::leave_scroll_chain`] to undo.
+#[derive(Debug, Default)]
+struct ChainDetour {
+    /// Owners closed, outermost first.
+    closed: Vec<usize>,
+    /// Owners opened, outermost first.
+    opened: Vec<usize>,
 }
 
 /// State for patched display-list generation. Built by `layout_document`
@@ -3939,6 +3968,7 @@ where
             id_namespace,
             dom_id,
             patch: None,
+            open_clips: Vec::new(),
         }
     }
 
@@ -4763,6 +4793,12 @@ where
             builder.begin_fixed_position_element();
         }
 
+        // What this context pushes from here on - its reference frame, the
+        // stacking context, opacity, filters, its image mask - wraps
+        // everything it paints: no box painted inside can be taken out of
+        // it (`enter_scroll_chain`).
+        self.open_clips.push(OpenClip::Barrier);
+
         // Check if this node has a GPU-accelerated transform (CSS transform or drag).
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
@@ -4929,10 +4965,10 @@ where
         // 2. Push clips and scroll frames AFTER painting background
         // +spec:positioning:ddc554 - overflow clips apply to absolutely positioned descendants
         // when this node is their containing block (stacking contexts painted within clip scope)
-        // TODO: CSS Overflow 3 says overflow clips should NOT apply to abs-pos descendants
-        // whose containing block is above this clipper. Currently all descendants are clipped.
-        // The containing_block_index field on LayoutNode is set for this purpose.
-        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node);
+        // Which of them a descendant is painted in is its `ScrollChain`: every
+        // child context below goes through `paint_child_context`.
+        let did_push_clip_or_scroll =
+            self.open_node_clips(builder, context.node_index, node);
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index
         // 0/auto, positive z-index
@@ -4944,7 +4980,7 @@ where
             .collect();
         negative_z_children.sort_by_key(|c| c.z_index);
         for child in negative_z_children {
-            self.generate_for_stacking_context(builder, child)?;
+            self.paint_child_context(builder, child)?;
         }
 
         // 4. Paint the in-flow descendants of the context root.
@@ -4954,7 +4990,7 @@ where
         // order
         // 5. Paint child stacking contexts with z-index: 0 / auto.
         for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
-            self.generate_for_stacking_context(builder, child)?;
+            self.paint_child_context(builder, child)?;
         }
 
         // +spec:stacking-contexts:198fa4 - positive z-index stacking contexts painted in z-index
@@ -4969,7 +5005,7 @@ where
         positive_z_children.sort_by_key(|c| c.z_index);
 
         for child in positive_z_children {
-            self.generate_for_stacking_context(builder, child)?;
+            self.paint_child_context(builder, child)?;
         }
 
         // Pop image mask clip (before filter/opacity since it was pushed after them)
@@ -5014,7 +5050,7 @@ where
                     builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
                 }
             }
-            self.pop_node_clips(builder, node);
+            self.close_node_clips(builder, context.node_index, node);
         } else {
             // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
             if let Some(dom_id) = node.dom_node_id {
@@ -5028,7 +5064,171 @@ where
         // and are not clipped by the scroll frame
         self.paint_scrollbars(builder, context.node_index)?;
 
+        // This context's barrier (pushed before its reference frame).
+        self.open_clips.pop();
+
         Ok(())
+    }
+
+    /// Paints a child stacking context inside the clip and scroll frames its
+    /// [`ScrollChain`] names.
+    ///
+    /// A stacking context is painted with its parent CONTEXT's children,
+    /// after everything in flow - by which time the frames of the boxes
+    /// between the two contexts that are not contexts themselves (a plain
+    /// `overflow: auto` list around a translucent item) have long been
+    /// closed. It sits in their content all the same, scrolled and clipped
+    /// with it: the hit tester always said so. This reopens them around it.
+    ///
+    /// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
+    fn paint_child_context(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        child: &StackingContext,
+    ) -> Result<()> {
+        let detour = self.enter_scroll_chain(builder, child.node_index);
+        let painted = self.generate_for_stacking_context(builder, child);
+        self.leave_scroll_chain(builder, detour);
+        painted
+    }
+
+    /// [`Self::push_node_clips`], remembered in [`Self::open_clips`]: a box
+    /// whose clips are a [`ScrollChainLink`] as the box that owns them, any
+    /// other push (a clip-path on a box that does not clip its overflow) as
+    /// a barrier.
+    ///
+    /// [`ScrollChainLink`]: crate::solver3::scroll_chain::ScrollChainLink
+    fn open_node_clips(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) -> bool {
+        let pushed = self.push_node_clips(builder, node_index, node);
+        if pushed {
+            let is_link = crate::solver3::scroll_chain::chain_link(
+                self.positioned_tree.tree,
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+            )
+            .is_some();
+            self.open_clips.push(if is_link {
+                OpenClip::Owner(node_index)
+            } else {
+                OpenClip::Barrier
+            });
+        }
+        pushed
+    }
+
+    /// Closes what [`Self::open_node_clips`] opened.
+    fn close_node_clips(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) {
+        self.pop_node_clips(builder, node_index, node);
+        self.open_clips.pop();
+    }
+
+    /// Makes the clip and scroll frames open at this point of the walk the
+    /// ones the box at `node_index` is painted in - its box's
+    /// [`ScrollChain`] - before the box is painted: closes the open ones it
+    /// is not inside, opens the ones it is inside but that are not open
+    /// here. [`Self::leave_scroll_chain`] restores what was open.
+    ///
+    /// Only what was opened since the last [`OpenClip::Barrier`] can be
+    /// closed; the chain rule stops at the same boxes (see
+    /// `scroll_chain::box_anchor`), so what it names below one is already
+    /// open. A frame reopened here repeats its `PushScrollFrame`, scroll id
+    /// and all: every renderer applies an id's offset to each frame that
+    /// carries it (the CPU compositor paints such a split frame in place).
+    ///
+    /// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
+    fn enter_scroll_chain(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> ChainDetour {
+        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+            self.positioned_tree.tree,
+            self.ctx.styled_dom,
+            self.scroll_ids,
+            LayoutNodeId::new(node_index),
+            azul_core::spaces::Inclusivity::AncestorsOnly,
+        );
+        let movable_from = self
+            .open_clips
+            .iter()
+            .rposition(|entry| *entry == OpenClip::Barrier)
+            .map_or(0, |i| i + 1);
+        let owner = |entry: &OpenClip| match entry {
+            OpenClip::Owner(index) => Some(*index),
+            OpenClip::Barrier => None,
+        };
+        let fixed: Vec<usize> = self.open_clips[..movable_from]
+            .iter()
+            .filter_map(owner)
+            .collect();
+        let open: Vec<usize> = self.open_clips[movable_from..]
+            .iter()
+            .filter_map(owner)
+            .collect();
+        let wanted: Vec<usize> = chain
+            .links
+            .iter()
+            .map(|link| link.layout_index.index())
+            .filter(|index| !fixed.contains(index))
+            .collect();
+        let keep = open
+            .iter()
+            .zip(wanted.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let closed: Vec<usize> = open[keep..].to_vec();
+        for &index in closed.iter().rev() {
+            self.close_owner(builder, index);
+        }
+        let mut opened = Vec::new();
+        for &index in &wanted[keep..] {
+            if self.reopen_owner(builder, index) {
+                opened.push(index);
+            }
+        }
+        ChainDetour { closed, opened }
+    }
+
+    /// Undoes [`Self::enter_scroll_chain`].
+    fn leave_scroll_chain(&mut self, builder: &mut DisplayListBuilder, detour: ChainDetour) {
+        for &index in detour.opened.iter().rev() {
+            self.close_owner(builder, index);
+        }
+        for &index in &detour.closed {
+            self.reopen_owner(builder, index);
+        }
+    }
+
+    /// Pops the clips of the owner on top of [`Self::open_clips`].
+    fn close_owner(&mut self, builder: &mut DisplayListBuilder, index: usize) {
+        if let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(index)) {
+            self.pop_node_clips(builder, index, node);
+        }
+        self.open_clips.pop();
+    }
+
+    /// Pushes the clips of an owner again, where the walk is now.
+    fn reopen_owner(&mut self, builder: &mut DisplayListBuilder, index: usize) -> bool {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(index)) else {
+            return false;
+        };
+        let pushed = self.push_node_clips(builder, index, node);
+        if pushed {
+            self.open_clips.push(OpenClip::Owner(index));
+        }
+        pushed
     }
 
     /// Paints the content and non-stacking-context children.
@@ -5187,10 +5387,14 @@ where
             };
             builder.set_current_node(child_node.dom_node_id);
             builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+            self.open_clips.push(OpenClip::Barrier);
         }
 
         // Push image mask clip if this child has one (wraps background + children)
         let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
+        if did_push_child_image_mask {
+            self.open_clips.push(OpenClip::Barrier);
+        }
 
         // IMPORTANT: Paint background and border BEFORE pushing clips!
         // This ensures the container's background is in parent space (stationary),
@@ -5198,7 +5402,7 @@ where
         self.paint_node_background_and_border(builder, child_index)?;
 
         // Push clips and scroll frames AFTER painting background
-        let did_push_clip = self.push_node_clips(builder, child_index, child_node);
+        let did_push_clip = self.open_node_clips(builder, child_index, child_node);
 
         // Paint descendants inside the clip/scroll frame
         self.paint_in_flow_descendants(
@@ -5217,12 +5421,13 @@ where
 
         // Pop the child's clips.
         if did_push_clip {
-            self.pop_node_clips(builder, child_node);
+            self.close_node_clips(builder, child_index, child_node);
         }
 
         // Pop image mask clip
         if did_push_child_image_mask {
             builder.pop_image_mask_clip();
+            self.open_clips.pop();
         }
         // The stroke follows the geometry, not the fill region - it must
         // be outside the mask the fill was painted through.
@@ -5234,6 +5439,7 @@ where
         // Pop reference frame if we pushed one
         if child_ref_frame.is_some() {
             builder.pop_reference_frame();
+            self.open_clips.pop();
         }
 
         Ok(())
@@ -5684,8 +5890,14 @@ where
             )
     }
 
-    /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) {
+    /// Pops any clip/scroll commands associated with a node - the ones
+    /// [`Self::push_node_clips`] pushed for the same `node_index`.
+    fn pop_node_clips(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) {
         let Some(dom_id) = node.dom_node_id else {
             return;
         };
@@ -5703,13 +5915,10 @@ where
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        let node_index = self
-            .positioned_tree
-            .tree
-            .nodes
-            .iter()
-            .position(|n| n.dom_node_id == Some(dom_id))
-            .unwrap_or(0);
+        // The index the push was made for. This used to be re-found as the
+        // FIRST layout node of the dom node, which for a box split into
+        // several layout nodes is not the one that pushed - and whose scroll
+        // id, since ids follow the layout node, need not agree.
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let element_size = PhysicalSizeImport {

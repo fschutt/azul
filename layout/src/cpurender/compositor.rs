@@ -421,6 +421,19 @@ impl CompositorState {
         let mut in_place_frames: Vec<(LocalScrollId, usize)> = Vec::new();
         // The root layer's extent, in device pixels (`CompositorState::new`).
         let root_size = self.layers.get(&root_id).map(|root| root.bounds.size);
+        // Scroll ids pushed more than once: SPLIT frames. The display list
+        // closes a frame around a box painted outside it and reopens it
+        // after (`DisplayListGenerator::enter_scroll_chain`). As a layer per
+        // push, each half would be composited over everything its parent
+        // layer paints - the box between the halves included, which the list
+        // paints ON TOP of the first half - so a split frame is painted in
+        // place, like the page's, and its content keeps list order.
+        let mut pushes_per_id: HashMap<LocalScrollId, usize> = HashMap::new();
+        for item in &display_list.items {
+            if let DisplayListItem::PushScrollFrame { scroll_id, .. } = item {
+                *pushes_per_id.entry(*scroll_id).or_insert(0) += 1;
+            }
+        }
         let mut i = 0;
 
         while i < display_list.items.len() {
@@ -462,7 +475,8 @@ impl CompositorState {
                             && (bounds.origin.y + bounds.size.height) * dpi_factor
                                 >= root.height - 1.0
                     });
-                    let created = !covers_root && pw > 0 && ph > 0 && end > i + 1;
+                    let split = pushes_per_id.get(scroll_id).is_some_and(|n| *n > 1);
+                    let created = !covers_root && !split && pw > 0 && ph > 0 && end > i + 1;
                     scroll_promoted.push(created);
                     if !created {
                         in_place_frames.push((*scroll_id, layer_stack.len()));
@@ -2217,9 +2231,15 @@ pub fn collect_scroll_shifts(
                 ..
             } => {
                 let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                // A split frame (pushed again after a box painted outside it,
+                // `DisplayListGenerator::enter_scroll_chain`) is ONE frame:
+                // shifting its clip once per push would move the pixels
+                // twice as far as the content went.
+                let already_shifted = out.iter().any(|(id, ..)| id == scroll_id);
                 if let Some(delta) = scroll_offsets
                     .get(scroll_id)
                     .and_then(|o| moved(scroll_id, o))
+                    .filter(|_| !already_shifted)
                 {
                     let mut clip = *clip_bounds.inner();
                     clip.origin.x -= acc.0;
