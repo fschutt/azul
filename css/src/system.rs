@@ -870,6 +870,19 @@ pub struct TitlebarMetrics {
     /// platform (Breeze and Windows both go red), which is why it is not
     /// folded into `button_hover_background`.
     pub close_button_hover_background: OptionColorU,
+    /// The line under the bar, between it and the content, while the window
+    /// HAS focus. `None` = no line.
+    ///
+    /// macOS draws one under every standard titlebar: one device pixel
+    /// (0.5pt) of #D0D0D0 in light mode and #000000 in dark mode (measured
+    /// through AppKit on macOS 15.5), which is why the macOS presets carry it
+    /// per theme.
+    pub separator_color: OptionColorU,
+    /// The line's colour while the window does NOT have focus. `None` = the
+    /// focused colour.
+    pub separator_color_inactive: OptionColorU,
+    /// The line's thickness. `None` = the widget's default.
+    pub separator_width: OptionPixelValue,
 }
 
 impl Default for TitlebarMetrics {
@@ -894,6 +907,9 @@ impl Default for TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 }
@@ -923,6 +939,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -946,12 +965,20 @@ impl TitlebarMetrics {
             // `NSFont.titleBarFont`: weight trait 0.4 = NSFontWeightBold (700).
             // Semibold (590/600) is a TOOLBAR-style bar's 15pt title.
             title_font_weight: OptionU16::Some(700), // Bold
+            // No fill: behind a transparent titlebar (`NoTitle`,
+            // `NoTitleAutoInject`) the window's own background shows.
             background_active: OptionColorU::None,
             background_inactive: OptionColorU::None,
             text_active: OptionColorU::None,
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            // The separator's colour depends on the theme, so the macOS
+            // presets set it. Its thickness does not: one device pixel on a
+            // Retina display, 0.5pt.
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::Some(PixelValue::px(0.5)),
         }
     }
 
@@ -979,6 +1006,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -1015,6 +1045,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -1042,6 +1075,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 }
@@ -2657,7 +2693,11 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
-                titlebar: TitlebarMetrics::macos(),
+                titlebar: TitlebarMetrics {
+                    // The line under a standard titlebar, measured through AppKit.
+                    separator_color: OptionColorU::Some(ColorU::new_rgb(0xD0, 0xD0, 0xD0)),
+                    ..TitlebarMetrics::macos()
+                },
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
@@ -2715,7 +2755,11 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
-                titlebar: TitlebarMetrics::macos(),
+                titlebar: TitlebarMetrics {
+                    // The line under a standard titlebar, measured through AppKit.
+                    separator_color: OptionColorU::Some(ColorU::new_rgb(0x00, 0x00, 0x00)),
+                    ..TitlebarMetrics::macos()
+                },
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,

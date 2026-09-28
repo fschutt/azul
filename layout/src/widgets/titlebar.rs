@@ -83,6 +83,34 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
     a: 255,
 }; // #e5e5e5
 
+// The line under a standard macOS titlebar, measured through AppKit on macOS
+// 15.5: one device pixel (0.5pt) of #D0D0D0 in light mode, #000000 in dark.
+const MACOS_SEPARATOR_LIGHT: ColorU = ColorU {
+    r: 0xD0,
+    g: 0xD0,
+    b: 0xD0,
+    a: 255,
+};
+const MACOS_SEPARATOR_DARK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
+
+// Only macOS draws a line under its titlebar by default. Windows 11 (Mica)
+// and KDE draw none; GNOME's is a shade the app's own chrome supplies.
+#[cfg(target_os = "macos")]
+const DEFAULT_SEPARATOR_COLOR: OptionColorU = OptionColorU::Some(MACOS_SEPARATOR_LIGHT);
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_SEPARATOR_COLOR: OptionColorU = OptionColorU::None;
+
+// 0.5pt on macOS (one device pixel on a Retina display); 1px elsewhere.
+#[cfg(target_os = "macos")]
+const DEFAULT_SEPARATOR_WIDTH: f32 = 0.5;
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_SEPARATOR_WIDTH: f32 = 1.0;
+
 // ── Titlebar ─────────────────────────────────────────────────────────────
 
 /// A titlebar widget with optional close / minimize / maximize
@@ -154,6 +182,18 @@ pub struct Titlebar {
     /// Background the CLOSE button takes on hover — its own colour, because
     /// Breeze and Windows both turn it red while the others stay neutral.
     pub close_hover_color: OptionColorU,
+    /// The line under the bar, between it and the content. `None` = no line.
+    ///
+    /// macOS draws one under every standard titlebar: one device pixel
+    /// (0.5pt) of #D0D0D0 in light mode, #000000 in dark mode. The default
+    /// light colour carries that dark twin, like the default title colour.
+    pub separator_color: OptionColorU,
+    /// The line's colour while the window is unfocused (`:backdrop`).
+    pub separator_color_inactive: OptionColorU,
+    /// The line's thickness in CSS pixels. The bar's `height` INCLUDES it
+    /// (`box-sizing: border-box`), as AppKit's 28pt band includes its
+    /// separator, so a line never makes the bar taller.
+    pub separator_width: f32,
 }
 
 impl Titlebar {
@@ -175,11 +215,16 @@ impl Titlebar {
             padding_left,
             padding_right,
             title_color: DEFAULT_TITLE_COLOR_LIGHT,
+            // No fill: the window's own background shows through, which is
+            // what a transparent native titlebar shows.
             background_color: OptionColorU::None,
             background_inactive: OptionColorU::None,
             title_color_inactive: OptionColorU::None,
             button_hover_color: OptionColorU::None,
             close_hover_color: OptionColorU::None,
+            separator_color: DEFAULT_SEPARATOR_COLOR,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: DEFAULT_SEPARATOR_WIDTH,
         }
     }
 
@@ -291,6 +336,9 @@ impl Titlebar {
             title_color_inactive: tm.text_inactive,
             button_hover_color: tm.button_hover_background,
             close_hover_color: tm.close_button_hover_background,
+            separator_color: tm.separator_color,
+            separator_color_inactive: tm.separator_color_inactive,
+            separator_width: separator_width_of(tm),
         }
     }
 
@@ -329,7 +377,66 @@ impl Titlebar {
             title_color_inactive: tm.text_inactive,
             button_hover_color: tm.button_hover_background,
             close_hover_color: tm.close_button_hover_background,
+            separator_color: tm.separator_color,
+            separator_color_inactive: tm.separator_color_inactive,
+            separator_width: separator_width_of(tm),
         }
+    }
+
+    /// Set the bar's own background, or clear it with `None` (the window's
+    /// background then shows through, as behind a transparent native bar).
+    #[inline]
+    pub const fn set_background(&mut self, color: OptionColorU) {
+        self.background_color = color;
+    }
+
+    /// The bar with its own background colour.
+    #[inline]
+    #[must_use]
+    pub const fn with_background(mut self, color: ColorU) -> Self {
+        self.set_background(OptionColorU::Some(color));
+        self
+    }
+
+    /// The bar's background while the window is unfocused (`:backdrop`).
+    #[inline]
+    #[must_use]
+    pub const fn with_background_inactive(mut self, color: ColorU) -> Self {
+        self.background_inactive = OptionColorU::Some(color);
+        self
+    }
+
+    /// Set the line under the bar: `width` CSS pixels of `color`, or no line
+    /// with `None`. The bar's height includes the line.
+    #[inline]
+    pub const fn set_border_bottom(&mut self, width: f32, color: OptionColorU) {
+        self.separator_width = width;
+        self.separator_color = color;
+    }
+
+    /// The bar with a `width`px line of `color` under it.
+    #[inline]
+    #[must_use]
+    pub const fn with_border_bottom(mut self, width: f32, color: ColorU) -> Self {
+        self.set_border_bottom(width, OptionColorU::Some(color));
+        self
+    }
+
+    /// The line's colour while the window is unfocused (`:backdrop`).
+    #[inline]
+    #[must_use]
+    pub const fn with_border_bottom_inactive(mut self, color: ColorU) -> Self {
+        self.separator_color_inactive = OptionColorU::Some(color);
+        self
+    }
+
+    /// The bar with no line under it.
+    #[inline]
+    #[must_use]
+    pub const fn without_border_bottom(mut self) -> Self {
+        self.separator_color = OptionColorU::None;
+        self.separator_color_inactive = OptionColorU::None;
+        self
     }
 
     /// Build inline CSS for the container div.
@@ -393,6 +500,47 @@ impl Titlebar {
                 ])),
                 &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
             ));
+        }
+        // The line under the bar. Border-box sizing: the bar's `height`
+        // INCLUDES the line, as AppKit's 28pt band includes its separator, so
+        // a line never makes the bar taller than the platform's.
+        if let (OptionColorU::Some(line), true) =
+            (self.separator_color, self.separator_width > 0.0)
+        {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_border_bottom_width(LayoutBorderBottomWidth {
+                    inner: PixelValue::px(self.separator_width),
+                }),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: line }),
+            ));
+            // The default (macOS light) line carries its dark twin, like the
+            // default title colour: a bar built without a desktop to ask must
+            // not draw a light-grey rule on a dark window.
+            if line == MACOS_SEPARATOR_LIGHT {
+                props.push(CssPropertyWithConditions::dark_theme(
+                    CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                        inner: MACOS_SEPARATOR_DARK,
+                    }),
+                ));
+            }
+            // Pushed after the twin: an unfocused dark window takes the
+            // `:backdrop` colour, not the twin (last match wins).
+            if let OptionColorU::Some(dim) = self.separator_color_inactive {
+                props.push(CssPropertyWithConditions::with_single_condition(
+                    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dim }),
+                    &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+                ));
+            }
         }
         // Titlebar should show grab cursor and prevent text selection
         props.push(CssPropertyWithConditions::simple(
@@ -537,10 +685,13 @@ impl Titlebar {
     /// buttons and the drag region, and nothing that takes a title's width.
     #[must_use]
     pub fn dom_controls_only(
-        self,
+        mut self,
         buttons: &TitlebarButtons,
         button_side: TitlebarButtonSide,
     ) -> Dom {
+        // An overlay the size of its buttons, on top of the app's own chrome:
+        // no line under it.
+        self.separator_color = OptionColorU::None;
         let container_style = self.build_container_style(true);
         // `None`: this overlay is sized to its buttons, not to a bar, so the
         // button block claims no share of anything.
@@ -678,6 +829,15 @@ impl Titlebar {
 
         root
     }
+}
+
+/// The separator thickness a platform states, or the compile-time default.
+fn separator_width_of(tm: &TitlebarMetrics) -> f32 {
+    tm.separator_width
+        .as_ref()
+        .map_or(DEFAULT_SEPARATOR_WIDTH, |pv| {
+            pv.to_pixels_internal(0.0, 0.0, 0.0)
+        })
 }
 
 /// `flex-grow: 1; flex-basis: 0; min-width: 0` — the claim that makes two
@@ -1414,6 +1574,32 @@ mod autotest_generated {
         v.push(CssProperty::const_height(LayoutHeight::const_px(
             t.height as isize,
         )));
+        // The line under the bar (macOS's by default), inside the bar's height.
+        if let (OptionColorU::Some(line), true) = (t.separator_color, t.separator_width > 0.0) {
+            v.push(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox));
+            v.push(CssProperty::const_border_bottom_width(
+                LayoutBorderBottomWidth {
+                    inner: PixelValue::px(t.separator_width),
+                },
+            ));
+            v.push(CssProperty::const_border_bottom_style(
+                StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                },
+            ));
+            v.push(CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor { inner: line },
+            ));
+            // ...and the default line's dark twin (its condition is not part
+            // of `properties`).
+            if line == MACOS_SEPARATOR_LIGHT {
+                v.push(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor {
+                        inner: MACOS_SEPARATOR_DARK,
+                    },
+                ));
+            }
+        }
         v.push(CssProperty::const_cursor(StyleCursor::Grab));
         // The BAR is the drag region now, not the title node - the strip
         // either side of the text used to move nothing. CSD mode only: a
@@ -1721,6 +1907,112 @@ mod autotest_generated {
         assert_eq!(t.title_color, DEFAULT_TITLE_COLOR_LIGHT);
         assert_eq!(t.padding_left, DEFAULT_BUTTON_AREA_WIDTH / 2.0);
         assert_eq!(t.padding_right, DEFAULT_BUTTON_AREA_WIDTH / 2.0);
+        // No fill; the platform's line (macOS: #D0D0D0 at 0.5px, else none).
+        assert_eq!(t.background_color, OptionColorU::None);
+        assert_eq!(t.separator_color, DEFAULT_SEPARATOR_COLOR);
+        assert_eq!(t.separator_color_inactive, OptionColorU::None);
+        assert_eq!(t.separator_width, DEFAULT_SEPARATOR_WIDTH);
+    }
+
+    /// The background and the line under the bar are the app's to choose:
+    /// the builders reach the container's declarations, and a bar without a
+    /// line declares no border at all.
+    #[test]
+    fn the_builders_set_the_background_and_the_line_under_the_bar() {
+        let fill = ColorU {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 255,
+        };
+        let line = ColorU {
+            r: 0x65,
+            g: 0x43,
+            b: 0x21,
+            a: 255,
+        };
+        let dim = ColorU {
+            r: 0x11,
+            g: 0x11,
+            b: 0x11,
+            a: 255,
+        };
+        let t = tb("x")
+            .with_background(fill)
+            .with_border_bottom(2.0, line)
+            .with_border_bottom_inactive(dim);
+        assert_eq!(t.background_color, OptionColorU::Some(fill));
+        assert_eq!(t.separator_color, OptionColorU::Some(line));
+        assert_eq!(t.separator_color_inactive, OptionColorU::Some(dim));
+        assert_eq!(t.separator_width, 2.0);
+
+        for show_buttons in [false, true] {
+            let style = t.build_container_style(show_buttons);
+            let props = properties(&style);
+            assert!(props.contains(&CssProperty::const_box_sizing(
+                LayoutBoxSizing::BorderBox
+            )));
+            assert!(props.contains(&CssProperty::const_border_bottom_width(
+                LayoutBorderBottomWidth {
+                    inner: PixelValue::px(2.0),
+                }
+            )));
+            assert!(props.contains(&CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor { inner: line }
+            )));
+            // A colour the app chose gets no dark twin; the unfocused one
+            // rides `:backdrop`.
+            assert!(!props.contains(&CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor {
+                    inner: MACOS_SEPARATOR_DARK
+                }
+            )));
+            assert!(style.as_ref().iter().any(|p| {
+                p.property
+                    == CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                        inner: dim,
+                    })
+                    && p.apply_if.as_ref().iter().any(|c| {
+                        matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                    })
+            }));
+        }
+
+        let bare = tb("x").without_border_bottom();
+        assert_eq!(bare.separator_color, OptionColorU::None);
+        for show_buttons in [false, true] {
+            let style = bare.build_container_style(show_buttons);
+            assert!(
+                !properties(&style).iter().any(|p| matches!(
+                    p,
+                    CssProperty::BorderBottomColor(_)
+                        | CssProperty::BorderBottomWidth(_)
+                        | CssProperty::BoxSizing(_)
+                )),
+                "a bar without a line declared a border"
+            );
+            assert!(
+                all_unconditional(&style),
+                "a bar without a line has nothing conditional to declare"
+            );
+        }
+
+        // A zero-width line is no line.
+        let mut zero = tb("x").with_border_bottom(0.0, line);
+        assert!(!properties(&zero.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BorderBottomColor(_))));
+        zero.set_border_bottom(1.0, OptionColorU::None);
+        assert!(!properties(&zero.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BorderBottomColor(_))));
+
+        // Clearing the background again.
+        let mut cleared = tb("x").with_background(fill);
+        cleared.set_background(OptionColorU::None);
+        assert!(!properties(&cleared.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BackgroundContent(_))));
     }
 
     #[test]
@@ -2219,8 +2511,11 @@ mod autotest_generated {
                 expected_container(&t, show_buttons),
                 "container declarations drifted (show_buttons = {show_buttons})",
             );
+            // Unconditional, except the dark twin of the default separator
+            // (macOS), which is gated on the dark theme alone.
             assert!(
-                all_unconditional(&style),
+                style.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
                 "a container declaration became conditional"
             );
         }
