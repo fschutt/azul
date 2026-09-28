@@ -1368,14 +1368,14 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId, NodeType},
+        dom::{DomId, DomNodeId, NodeId, NodeType, TabIndex},
         geom::OptionLogicalPosition,
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
         dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
@@ -1388,7 +1388,7 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        widgets::theme_probe,
+        widgets::{roving::test_support as rv, theme_probe},
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -2977,5 +2977,176 @@ mod autotest_generated {
             vec![CLASS_ACTIVE],
             "re-rendering the unchanged header keeps tab 0 active"
         );
+    }
+
+    // ==================================================================
+    // Roving tabindex (WAI-ARIA APG tabs, automatic activation, P2-12)
+    // ==================================================================
+
+    /// A plain tab stop, the header, another plain tab stop. Flattened: root
+    /// 0, before 1, header 2, the leading spacer 3, tab `i` at `4 + 2 * i`
+    /// (a `<p>` + its text), the trailing spacer at `4 + 2 * n`, after at
+    /// `5 + 2 * n`.
+    fn tab_page(header: TabHeader) -> StyledDom {
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), header.dom(), stop()].into());
+        StyledDom::create_from_dom(page)
+    }
+
+    fn page_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn page_before() -> DomNodeId {
+        page_node(1)
+    }
+
+    fn page_tab(i: usize) -> DomNodeId {
+        page_node(4 + 2 * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        page_node(5 + 2 * n)
+    }
+
+    /// An interactive three-tab header with tab `active` active; clicks (and
+    /// arrow activations) are logged into `user`.
+    fn three_tabs(active: usize, user: &RefAny) -> TabHeader {
+        TabHeader::create(strings(&["one", "two", "three"]))
+            .with_active_tab(active)
+            .with_on_click(user.clone(), cb(record_click))
+    }
+
+    /// Presses `key` on tab `i`; panics when the tab has no key handler - the
+    /// state of every tab before P2-12.
+    fn press_tab(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_tab(i), key, held)
+            .expect("every tab of an interactive tab list must carry a key handler")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_lands_on_the_active_tab_and_the_next_tab_leaves_the_tab_list() {
+        let user = RefAny::new(ClickLog::default());
+        let styled = tab_page(three_tabs(1, &user));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_tab(1), page_after(3)],
+            "the tab list is ONE tab stop: the active tab, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_tab(1), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_the_active_tab_out_of_range_the_first_tab_is_the_tab_stop() {
+        let user = RefAny::new(ClickLog::default());
+        let styled = tab_page(three_tabs(usize::MAX, &user));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_tab(0), page_after(3)],
+        );
+    }
+
+    #[test]
+    fn a_tab_list_without_on_click_stays_out_of_the_tab_order() {
+        // Guard (green before and after P2-12): a header nobody can activate is
+        // inert - no stop, no handlers.
+        let styled = tab_page(TabHeader::create(strings(&["one", "two", "three"])));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 1),
+            vec![page_after(3)],
+        );
+        assert!(rv::press(&styled, page_tab(0), VirtualKeyCode::Right, &[]).is_none());
+    }
+
+    #[test]
+    fn arrow_right_on_the_active_tab_focuses_and_activates_the_next_tab() {
+        let mut user = RefAny::new(ClickLog::default());
+        let styled = tab_page(three_tabs(0, &user));
+
+        let (update, changes) = press_tab(&styled, 0, VirtualKeyCode::Right, &[]);
+
+        assert_eq!(
+            logged(&mut user),
+            vec![TabHeaderState { active_tab: 1 }],
+            "automatic activation: the arrow reports the new tab like a click",
+        );
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(rv::focus_request(&changes), Some(page_tab(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn left_and_right_wrap_and_home_and_end_jump_to_the_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            (0, K::Left, 2),
+            (2, K::Right, 0),
+            (1, K::Left, 0),
+            (1, K::Home, 0),
+            (1, K::End, 2),
+            (0, K::End, 2),
+            (2, K::Home, 0),
+        ] {
+            let mut user = RefAny::new(ClickLog::default());
+            let styled = tab_page(three_tabs(from, &user));
+            let (_, changes) = press_tab(&styled, from, key, &[]);
+            assert_eq!(
+                logged(&mut user),
+                vec![TabHeaderState { active_tab: to }],
+                "{key:?} on tab {from} must activate tab {to}",
+            );
+            assert_eq!(rv::focus_request(&changes), Some(page_tab(to)));
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_tab_is_the_only_tab_stop_even_before_a_rebuild() {
+        let user = RefAny::new(ClickLog::default());
+        let mut styled = tab_page(three_tabs(0, &user));
+        let (_, changes) = press_tab(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_tab(2), page_before()],
+        );
+    }
+
+    #[test]
+    fn vertical_and_modified_arrows_on_a_tab_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Down, None),
+            (K::Up, None),
+            (K::Tab, None),
+            (K::Right, Some(K::LAlt)),
+            (K::Left, Some(K::LControl)),
+            (K::End, Some(K::LShift)),
+            (K::Home, Some(K::RWin)),
+        ] {
+            let mut user = RefAny::new(ClickLog::default());
+            let styled = tab_page(three_tabs(0, &user));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_tab(&styled, 0, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(logged(&mut user).is_empty(), "{held:?}+{key:?} activated a tab");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
     }
 }
