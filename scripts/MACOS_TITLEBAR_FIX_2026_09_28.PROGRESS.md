@@ -34,18 +34,19 @@ Source of truth: `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 
   `without_border_bottom`; container emits box-sizing border-box + border-bottom (+ dark twin
   for the default colour, + :backdrop); `dom_controls_only` draws no line.
 
+- `d9a37780d` checkpoint.
+- `0afefe5dd` RED demo: `page_frame()`/`PageFrame` are `pub(crate)` with a new `label` field;
+  `the_demo_titlebar_is_28px_tall` (39 today), `the_demo_title_is_centred_on_the_window` (~150
+  today), and `the_demo_title_sits_on_the_traffic_lights_line` (19 today) in the traffic-lights
+  file (`demo_bar()`, `DEMO_BAR` = NodeId 1, `DEMO_TITLE` = NodeId 2).
+
 ## IN PROGRESS
 
-- Demo RED (NEXT 1 below).
+- Demo FIX (NEXT 1 below).
 
 ## NEXT (in order)
 
-1. RED demo: make `page_frame`/`PageFrame` in `layout/tests/azul_widgets_demo_follows_the_theme.rs`
-   `pub(crate)`, add `label` (= `lits[label + 1]`). Add demo geometry tests to the traffic-lights
-   file (rebuild `body > titlebar > [title > text, label > text]` from the demo styles, and
-   assert height 28 (38 today), title-run centre x 240 (left-aligned today), and title centre
-   y 14 (19 today)).
-2. FIX demo `examples/azul-widgets/src/lib.rs` ~L825: `height: 28px; box-sizing: border-box;
+1. FIX demo `examples/azul-widgets/src/lib.rs` ~L825: `height: 28px; box-sizing: border-box;
    display:flex; align-items:center; position: relative; padding-left/right: 78px; border-bottom:
    0.5px solid system:separator;` no fill; title `font-family: system:title:bold; font-size:
    13px; flex-grow:1; flex-basis:0px; min-width:0px; text-align:center; ...`; label `position:
@@ -53,7 +54,7 @@ Source of truth: `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 
    literal order (titlebar style, "Azul Widget Showcase", title style, "custom titlebar", label
    style, body style, scroll style) and only `system:` colours (the theme tests scan them).
    Update the comment at L62-68.
-3. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
+2. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
    least-sure-to-compile spots, open items) and delete this file in the same commit.
 
 ## Open questions / risks
