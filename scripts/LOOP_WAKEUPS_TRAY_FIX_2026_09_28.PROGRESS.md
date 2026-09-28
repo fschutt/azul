@@ -24,29 +24,22 @@ This file is replaced by `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` in the la
   `pump_*_into_windows`, `invoke_tray_callbacks`, `global_hotkey::pump_into_first_*` removed.
   Greens 2 more RED tests.
 
-## IN PROGRESS (uncommitted in the worktree)
+- `ea0ef30c9` fix(e2e): `app_target` classified in both manager-accounting gates of
+  `layout/src/e2e/full.rs` (b457f329a had left them RED: a new `managers/*.rs` must be listed).
+- `64da53fad` fix(tray): `TrayIconData::callback` + `with_callback`; `layout/src/managers/tray_event.rs`
+  (mailbox, routing, current event; classified in both gates); `CallbackInfo::get_tray_event`;
+  dll `tray::take_tray_deliveries`; collector delivers tray events; macOS status item button action
+  -> `Activate`; Linux callback-less dbusmenu picks -> `MenuItem`; `layout/tests/tray_events.rs`
+  (5 tests). Greens the last RED test.
 
-Tray events delivered (greens the last RED, `plain_tray_clicks_reach_the_app`):
-- `core/src/tray.rs`: `TrayIconData::callback: OptionCoreMenuCallback` (LAST field) +
-  `with_callback(data, callback)`.
-- `layout/src/managers/tray_event.rs` (new): mailbox `queue_tray_event / drain_tray_events /
-  has_queued_tray_events`, `TrayDelivery`, `route_tray_events`, `with_current_tray_event`,
-  `current_tray_event`; registered in `managers/mod.rs`.
-- `layout/src/callbacks.rs`: `CallbackInfo::get_tray_event() -> Option<TrayEvent>`.
-- `dll/src/desktop/tray/mod.rs`: mailbox forwards to layout; new `take_tray_deliveries()`.
-- `dll/src/desktop/tray/macos.rs`: status item button target/action/tag -> `Activate`
-  (`alloc_menu_tags` made `pub(crate)` in `shell2/macos/menu.rs`).
-- `dll/src/desktop/tray/linux.rs`: callback-less dbusmenu picks queue `MenuItem` events.
-- `dll/src/desktop/app_events.rs`: `tray: Vec<TrayDelivery>` collected + invoked with the event
-  installed; `loop_waker::must_not_park` also checks `has_queued_tray_events()`.
-- `layout/tests/tray_events.rs` (5 tests) registered in `layout/tests/all.rs`.
+## IN PROGRESS
+
+- Final review pass over the Linux / macOS code for compile risks.
 
 ## NEXT (in order)
 
-1. Commit the tray-events fix (the RED can't be a pure unit test: the API is new; the source RED
-   `plain_tray_clicks_reach_the_app` from `ff02ca4d4` is the red half).
-2. Re-read all changed Linux code once more for compile risks (cfg gates, borrows, unsafe).
-3. Write `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` (commits + expected REDs, per-platform
+1. Review pass (cfg gates, borrows, unsafe, clippy `deny(clippy::all)` in `dll/src/desktop`).
+2. Write `scripts/LOOP_WAKEUPS_TRAY_FIX_2026_09_28.md` (commits + expected REDs, per-platform
    behaviour, manual check recipes, least-sure-to-compile spots, open items, public API changes);
    delete this PROGRESS file in the same commit.
 
@@ -63,7 +56,9 @@ Tray events delivered (greens the last RED, `plain_tray_clicks_reach_the_app`):
   `deliver_to(window)`, `deliver_to_macos_windows()`, `deliver_to_win32_windows()`,
   `deliver_to_linux_windows()` [az_x11].
 - `crate::desktop::global_hotkey::{loop_wait_fd, has_buffered_input}`.
-- (in progress) `azul_layout::managers::tray_event::*`, `crate::desktop::tray::take_tray_deliveries`.
+- `azul_layout::managers::tray_event::{queue_tray_event, drain_tray_events, has_queued_tray_events,
+  TrayDelivery, route_tray_events, with_current_tray_event, current_tray_event}`;
+  dll `crate::desktop::tray::take_tray_deliveries()`.
 
 ## Open questions
 
