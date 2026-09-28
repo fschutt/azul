@@ -920,76 +920,11 @@ impl Default for LocalizationConfig {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AppConfig {
-    /// If enabled, logs error and info messages.
-    ///
-    /// Default is `LevelFilter::Error` to log all errors by default
-    pub log_level: AppLogLevel,
-    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
-    /// default off, the app enables it or loads the system's setting).
-    ///
-    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
-    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
-    /// of the OS), `System` reads the platform's preference at startup and
-    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
-    /// second flip, because every desktop platform already applies the user's
-    /// preference to the deltas it hands over (macOS, the Windows precision
-    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
-    /// Where the platform reports nothing the answer is unknown and `System`
-    /// behaves as `Disabled`.
-    pub natural_scroll: NaturalScroll,
-    /// If the app crashes / panics, a window with a message box pops up.
-    /// Setting this to `false` disables the popup box.
-    pub enable_visual_panic_hook: bool,
-    /// If this is set to `true` (the default), a backtrace + error information
-    /// gets logged to stdout and the logging file (only if logging is enabled).
-    pub enable_logging_on_panic: bool,
-    /// Whether Ctrl+wheel is synthesized into a pinch gesture. Default `true`.
-    ///
-    /// A Windows PRECISION TOUCHPAD does not deliver pinch through
-    /// `WM_GESTURE` - that message is the touchSCREEN path. A touchpad reports
-    /// pinch as Ctrl+`WM_MOUSEWHEEL`, which is the same thing every browser
-    /// zooms on, so synthesizing a pinch from it is what makes pinch-to-zoom
-    /// work on the overwhelming majority of Windows laptops.
-    ///
-    /// The cost of that is a real MOUSE with a real Ctrl key produces the same
-    /// message, and cannot be told apart from a touchpad at this layer - so an
-    /// app where Ctrl+wheel means something else (a CAD zoom step, a font-size
-    /// nudge) receives a pinch it did not want. Setting this to `false` turns
-    /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
-    /// Ctrl modifier set, which such an app can read directly.
-    ///
-    /// Ignored on every platform but Windows: macOS and Wayland report real
-    /// pinch gestures, so nothing has to be inferred there.
-    pub synthesize_pinch_from_ctrl_wheel: bool,
-    /// Configuration for the debug server and remote control capabilities.
-    pub remote_control: RemoteControlConfig,
-    /// Whether the app publishes itself to the OS as a media player.
-    /// Default `false`.
-    ///
-    /// On Linux the desktop environment usually GRABS the media keys, so
-    /// `XF86AudioPlay` and friends never reach the application as keysyms at
-    /// all (the 9h-i table only sees them when nothing grabbed them). The
-    /// transport in that case is MPRIS over D-Bus: the desktop calls
-    /// `Play`/`Pause`/`Next` on whatever players are registered, and azul
-    /// turns those calls back into ordinary `VirtualKeyCode` presses.
-    ///
-    /// OFF by default because registering has a VISIBLE side effect: the app
-    /// appears in the desktop's media controls (GNOME's system menu, KDE's
-    /// media applet) as a player. That is correct for a music app and wrong
-    /// for a text editor, and no engine-side signal distinguishes them - so
-    /// the app says which it is.
-    ///
-    /// macOS is the same bargain under a different name: `MPRemoteCommandCenter`
-    /// delivers the media keys, but only to the app the system considers "now
-    /// playing", so registering puts the app in Control Center and the Now
-    /// Playing widget.
-    ///
-    /// Ignored on Windows, which delivers media keys as `WM_APPCOMMAND` to the
-    /// focused window and publishes nothing.
-    pub expose_system_media_controls: bool,
-    /// Determines what happens when all windows are closed.
-    /// Default: `EndProcess` (terminate when last window closes).
-    pub termination_behavior: AppTerminationBehavior,
+    // Field order: decreasing alignment (the 8-aligned handles, vecs and
+    // strings first, then the 4-byte enums, the 2-aligned
+    // `remote_control`, the bools last), so this repr(C) struct carries no
+    // padding. The autofix padding lint enforces it, and the api.json
+    // struct_fields order must match (the field-order lint enforces THAT).
     /// Icon provider for the application.
     /// Register icons here before calling `App::run()`.
     /// Each window will clone this provider (cheap, Arc-based).
@@ -1073,6 +1008,76 @@ pub struct AppConfig {
     ///
     /// Default: `None` - such events are dropped, as before.
     pub notification_handler: crate::notification::OptionNotificationCallback,
+    /// If enabled, logs error and info messages.
+    ///
+    /// Default is `LevelFilter::Error` to log all errors by default
+    pub log_level: AppLogLevel,
+    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
+    /// default off, the app enables it or loads the system's setting).
+    ///
+    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
+    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
+    /// of the OS), `System` reads the platform's preference at startup and
+    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
+    /// second flip, because every desktop platform already applies the user's
+    /// preference to the deltas it hands over (macOS, the Windows precision
+    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
+    /// Where the platform reports nothing the answer is unknown and `System`
+    /// behaves as `Disabled`.
+    pub natural_scroll: NaturalScroll,
+    /// Determines what happens when all windows are closed.
+    /// Default: `EndProcess` (terminate when last window closes).
+    pub termination_behavior: AppTerminationBehavior,
+    /// Configuration for the debug server and remote control capabilities.
+    pub remote_control: RemoteControlConfig,
+    /// If the app crashes / panics, a window with a message box pops up.
+    /// Setting this to `false` disables the popup box.
+    pub enable_visual_panic_hook: bool,
+    /// If this is set to `true` (the default), a backtrace + error information
+    /// gets logged to stdout and the logging file (only if logging is enabled).
+    pub enable_logging_on_panic: bool,
+    /// Whether Ctrl+wheel is synthesized into a pinch gesture. Default `true`.
+    ///
+    /// A Windows PRECISION TOUCHPAD does not deliver pinch through
+    /// `WM_GESTURE` - that message is the touchSCREEN path. A touchpad reports
+    /// pinch as Ctrl+`WM_MOUSEWHEEL`, which is the same thing every browser
+    /// zooms on, so synthesizing a pinch from it is what makes pinch-to-zoom
+    /// work on the overwhelming majority of Windows laptops.
+    ///
+    /// The cost of that is a real MOUSE with a real Ctrl key produces the same
+    /// message, and cannot be told apart from a touchpad at this layer - so an
+    /// app where Ctrl+wheel means something else (a CAD zoom step, a font-size
+    /// nudge) receives a pinch it did not want. Setting this to `false` turns
+    /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
+    /// Ctrl modifier set, which such an app can read directly.
+    ///
+    /// Ignored on every platform but Windows: macOS and Wayland report real
+    /// pinch gestures, so nothing has to be inferred there.
+    pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// Whether the app publishes itself to the OS as a media player.
+    /// Default `false`.
+    ///
+    /// On Linux the desktop environment usually GRABS the media keys, so
+    /// `XF86AudioPlay` and friends never reach the application as keysyms at
+    /// all (the 9h-i table only sees them when nothing grabbed them). The
+    /// transport in that case is MPRIS over D-Bus: the desktop calls
+    /// `Play`/`Pause`/`Next` on whatever players are registered, and azul
+    /// turns those calls back into ordinary `VirtualKeyCode` presses.
+    ///
+    /// OFF by default because registering has a VISIBLE side effect: the app
+    /// appears in the desktop's media controls (GNOME's system menu, KDE's
+    /// media applet) as a player. That is correct for a music app and wrong
+    /// for a text editor, and no engine-side signal distinguishes them - so
+    /// the app says which it is.
+    ///
+    /// macOS is the same bargain under a different name: `MPRemoteCommandCenter`
+    /// delivers the media keys, but only to the app the system considers "now
+    /// playing", so registering puts the app in Control Center and the Now
+    /// Playing widget.
+    ///
+    /// Ignored on Windows, which delivers media keys as `WM_APPCOMMAND` to the
+    /// focused window and publishes nothing.
+    pub expose_system_media_controls: bool,
 }
 
 impl AppConfig {
