@@ -54,7 +54,8 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 - 0b4d797d2 test RED M3: `a_selection_drag_autoscrolls_the_box_its_text_scrolls_in.rs` (registered).
 - c47c53a92 fix M3: `TextTarget::scroll_box`, `LayoutWindow::scroll_box_of_layout_node` (find_scrollable_ancestor delegates), drag_autoscroll_box prefers the session box during a text drag, reveal uses it, timer edge box = `ancestor_scroll_offset`.
 - 284b3b7c4 test RED M5: `ime_geometry_follows_the_fields_scroll.rs` (registered after ifc_caching).
-- M5 FIX in progress: `focused_cursor_for_point` via `window_point_to_ifc_local` + `TextTarget::hittest`; `focused_rect_for_byte_offset` via `cursor_rect_viewport_for`.
+- e82f6af75 fix M5: `focused_rect_for_byte_offset` via `cursor_rect_viewport_for`; `focused_cursor_for_point` via host offset + `window_point_to_ifc_local` + `TextTarget::hittest`.
+- NEXT: D typed rects skipped (open item); write final report, delete this file.
 
 ## NEXT (in order)
 
