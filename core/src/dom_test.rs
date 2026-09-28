@@ -2403,3 +2403,29 @@ mod autotest_generated {
         assert_eq!(none.get_marker(), None);
     }
 }
+
+#[cfg(test)]
+mod l10n_attribute_tests {
+    use super::*;
+
+    #[test]
+    fn a_word_that_float_parsing_accepts_stays_a_string_argument() {
+        // `f32::from_str` accepts "nan", "inf" and "infinity" in any case,
+        // and exponent notation. `data-l10n-name="Nan"` is a person's name,
+        // not a number - as a float it renders as "NaN".
+        let args = FluentArgKVVec::from_l10n_attributes([
+            ("data-l10n-name", "Nan"),
+            ("data-l10n-mood", "Infinity"),
+            ("data-l10n-code", "1e3"),
+            ("data-l10n-price", "19.99"),
+            ("data-l10n-count", "42"),
+        ]);
+        let args = args.as_slice();
+        assert_eq!(args.len(), 5);
+        assert_eq!(args[0].value, FluentArg::String("Nan".into()));
+        assert_eq!(args[1].value, FluentArg::String("Infinity".into()));
+        assert_eq!(args[2].value, FluentArg::String("1e3".into()));
+        assert_eq!(args[3].value, FluentArg::F32(19.99));
+        assert_eq!(args[4].value, FluentArg::I32(42));
+    }
+}
