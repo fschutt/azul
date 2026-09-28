@@ -9092,6 +9092,136 @@ mod tests {
         }
     }
 
+    /// `body > div[contenteditable] > "abc"`.
+    extern "C" fn harness_layout_editable(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("abc")),
+        )
+    }
+
+    /// The test `step()` drives a `TextInput` the way `run()` does - through
+    /// the one text pipeline (`CreateTextInput`: record, dispatch, apply). It
+    /// used to fall into `_ => {}`: a scripted keystroke changed nothing, and a
+    /// test typing through `step()` could only ever pass by accident.
+    #[test]
+    fn a_stepped_text_input_types_into_the_focused_field() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId},
+            selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+            styled_dom::NodeHierarchyItemId,
+        };
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, harness_layout_editable);
+        window.regenerate_layout().expect("initial layout");
+        let dom = DomId { inner: 0 };
+        let field = NodeId::new(1);
+        {
+            let lw = window
+                .common
+                .layout_window
+                .as_mut()
+                .expect("the window has a layout");
+            lw.focus_manager.set_focused_node(Some(DomNodeId {
+                dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(field)),
+            }));
+            assert!(
+                lw.start_editing_at(
+                    TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: 0,
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                    dom,
+                    field,
+                    0,
+                ),
+                "premise: a session opens in the field"
+            );
+        }
+
+        step(
+            &mut window,
+            HeadlessEvent::TextInput {
+                text: "x".to_string(),
+            },
+        );
+
+        let text = window.common.layout_window.as_ref().map(|lw| {
+            let content = lw.get_text_before_textinput(dom, field);
+            lw.extract_text_from_inline_content(&content)
+        });
+        assert!(
+            text.as_deref()
+                .is_some_and(|t| t.len() == 4 && t.contains('x')),
+            "the keystroke is typed into \"abc\": {text:?}"
+        );
+    }
+
+    /// `step()` drives a wheel `Scroll` the way `run()` does: the delta is
+    /// queued against the scroll node under the pointer and the momentum timer
+    /// applies it. It used to drop the event, so no test could scroll through
+    /// `step()`.
+    #[test]
+    fn a_stepped_wheel_scrolls_the_box_under_the_pointer() {
+        use azul_core::{dom::DomId, task::SCROLL_MOMENTUM_TIMER_ID};
+
+        let state = Arc::new(RefCell::new(RefAny::new(ScrollTestState { n_items: 20 })));
+        let mut window = make_window_with(&state, harness_layout_scroll);
+        window.regenerate_layout().expect("initial layout");
+        let node = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .expect("premise: the 200x100 box is a scroll frame");
+
+        // Over the box (body margin 8px), then a wheel notch towards the user.
+        step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        step(
+            &mut window,
+            HeadlessEvent::Scroll {
+                delta_x: 0.0,
+                delta_y: -120.0,
+            },
+        );
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID)),
+            "the wheel arms the momentum timer that applies it"
+        );
+
+        let offset = |w: &HeadlessWindow| {
+            w.common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.scroll_manager.get_current_offset(dom_id(), node))
+                .map_or(0.0, |p| p.y)
+        };
+        fn dom_id() -> DomId {
+            DomId { inner: 0 }
+        }
+        let mut moved = offset(&window) != 0.0;
+        for _ in 0..60 {
+            if moved {
+                break;
+            }
+            let _ = azul_core::task::advance_test_clock_ms(16);
+            let _ = window.process_timers_and_threads();
+            moved = offset(&window) != 0.0;
+        }
+        azul_core::task::reset_test_clock();
+        assert!(moved, "the wheel scrolls the box under the pointer");
+    }
+
     #[test]
     fn damage_mouse_move_no_change_is_clean() {
         let state = Arc::new(RefCell::new(RefAny::new(GridState {
