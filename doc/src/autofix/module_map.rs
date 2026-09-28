@@ -1370,6 +1370,33 @@ mod tests {
         assert_eq!(determine_module("OptionInputSample").0, "option");
     }
 
+    /// "GlobalHotkey" contains the OpenGL module's own name ("GLobal"), and a
+    /// module-name match outranks a keyword, so every global-hotkey type was
+    /// filed under `gl`. They are app-wide registrations and belong beside
+    /// `App`; the structural rules (error / Result / Option) must still win.
+    #[test]
+    fn global_hotkey_types_resolve_to_app_not_gl() {
+        for name in [
+            "GlobalHotkey",
+            "GlobalHotkeyId",
+            "GlobalHotkeyStatus",
+            "HotkeyModifiers",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "app", "{name} must resolve to app");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+        assert_eq!(determine_module("GlobalHotkeyError").0, "error");
+        assert_eq!(
+            determine_module("ResultGlobalHotkeyIdGlobalHotkeyError").0,
+            "error"
+        );
+        assert_eq!(determine_module("OptionGlobalHotkeyId").0, "option");
+        // Spelled "GlobalHotkey", not "Global": the fifth word-boundary trap
+        // this table would otherwise have grown.
+        assert_eq!(difficult_type_module("GlobalCss"), None);
+    }
+
     /// The override is a PREFIX match, so it must not capture the css `table`
     /// family it exists to be distinguished from.
     #[test]

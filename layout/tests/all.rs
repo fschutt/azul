@@ -220,6 +220,8 @@ mod focus_ring_survives_full_relayout;
 mod focus_ring_tween;
 #[path = "frame_perf.rs"]
 mod frame_perf;
+#[path = "global_hotkeys.rs"]
+mod global_hotkeys;
 #[path = "gpu_synchronize.rs"]
 mod gpu_synchronize;
 #[path = "h1_margin_em_resolution.rs"]

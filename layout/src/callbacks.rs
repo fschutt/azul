@@ -847,6 +847,13 @@ pub enum CallbackChange {
         active: bool,
     },
 
+    // Window activation
+    /// Bring this window - and the app - to the front
+    /// (`CallbackInfo::raise_window`), e.g. from a global hotkey's callback.
+    /// Each platform decides whether it may (see
+    /// `desktop::extra::window_activation` in the dll).
+    RaiseWindow,
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -1889,6 +1896,20 @@ impl CallbackInfo {
     /// and stays readable through `get_system_audio_change`.
     pub fn set_system_audio_takeover(&mut self, active: bool) {
         self.push_change(CallbackChange::SetSystemAudioTakeover { active });
+    }
+
+    /// Bring this window - and the app - to the front, taking the keyboard
+    /// focus. The natural answer to a global hotkey that summons the app.
+    ///
+    /// A REQUEST, which each platform answers by its own focus-stealing
+    /// policy: macOS activates the app and orders the window front; Windows
+    /// allows it only while this process may take the foreground, which it
+    /// may right after one of its global hotkeys fired (the press counts as
+    /// input to this process); X11 asks the window manager
+    /// (`_NET_ACTIVE_WINDOW`); Wayland refuses by design (`xdg_activation`
+    /// needs an input serial this request cannot have). A refusal is logged.
+    pub fn raise_window(&mut self) {
+        // RED SKELETON: queues nothing yet.
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -8281,6 +8302,12 @@ mod autotest_generated {
         assert_queues!(
             |i: &mut CallbackInfo| i.begin_interactive_move(),
             CallbackChange::BeginInteractiveMove
+        );
+        // The global-hotkey summon: without it an app whose hotkey fired had
+        // no way to come to the front.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.raise_window(),
+            CallbackChange::RaiseWindow
         );
         assert_queues!(
             |i: &mut CallbackInfo| i.commit_undo_snapshot(),

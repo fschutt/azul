@@ -41,6 +41,9 @@ pub mod focus_cursor;
 pub mod gamepad;
 pub mod geolocation;
 pub mod gesture;
+/// System-wide hotkeys: the process-wide registry, the backend seam and the
+/// fire mailbox the run loop drains (the same route as the tray's menu clicks).
+pub mod global_hotkey;
 pub mod gpu_state;
 pub mod hid;
 pub mod hover;

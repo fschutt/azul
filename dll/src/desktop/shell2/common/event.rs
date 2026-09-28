@@ -7023,6 +7023,25 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            // === Window activation ===
+            // The same platform call the MPRIS `Raise` drain makes (see the
+            // WINDOW RAISE block in `process_window_events`), asked for by the
+            // app itself - typically from a global hotkey's callback.
+            CallbackChange::RaiseWindow => {
+                let handle = self.get_raw_window_handle();
+                if !crate::desktop::extra::window_activation::raise_window(handle) {
+                    // A policy answer (Windows without the foreground right,
+                    // Wayland always), not a transient failure: say so once
+                    // per request rather than retrying.
+                    log_warn!(
+                        super::debug_server::LogCategory::EventLoop,
+                        "[azul] raise_window() declined by the platform for window {}",
+                        self.registry_window_id(),
+                    );
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Drag & Drop ===
             CallbackChange::SetDragData { mime_type, data } => {
                 if let Some(lw) = self.get_layout_window_mut() {

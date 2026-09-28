@@ -7697,6 +7697,13 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          asserted by `assert_notification`",
     ),
     (
+        "global_hotkey",
+        "owns no window state: the registry of system-wide hotkeys is PROCESS-GLOBAL by design (a \
+         hotkey is grabbed for the app, never for a window), keyed by app-wide `GlobalHotkeyId`s \
+         rather than DOM nodes, and its fire mailbox is drained destructively by the run loop. \
+         There is no LayoutWindow field and nothing node-keyed, so X10 has nothing to judge",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -8809,6 +8816,14 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              queues' only readers (`drain_notification_requests`, `drain_notification_events`) \
              consume what they return, so measuring them would swallow the post or the click the \
              app was about to see. The recording is read by `assert_notification` instead",
+        ),
+        (
+            "global_hotkey",
+            "nothing on the WINDOW to hash: the hotkey registry is one process-global shared by \
+             every window (hotkeys are app-wide), and its fire mailbox is read only by \
+             `take_fired`, which consumes what it returns - measuring it would swallow the press \
+             the app was about to receive, and a change in it could not be attributed to the \
+             window this snapshot is of",
         ),
     ];
     #[cfg(not(feature = "a11y"))]

@@ -3215,6 +3215,11 @@ impl Runner {
             CallbackChange::SetSystemAudioTakeover { .. } => {
                 self.unsupported("SetSystemAudioTakeover", "no system audio")
             }
+            // Raising changes window stacking, which nothing in a headless
+            // scenario can observe - the DOM, the layout and the state are
+            // the same either way - so honouring it as a no-op IS faithful
+            // (unlike the arms above, whose effect a scenario would miss).
+            CallbackChange::RaiseWindow => ProcessEventResult::DoNothing,
             CallbackChange::SetPointerLock { locked } => {
                 // No pointer to grab headlessly, but the FLAG is the thing
                 // `RawMouseMotion` is gated on, so honouring it here is what
