@@ -9095,6 +9095,17 @@ mod tests {
                     .remove_hm_item(&virtual_keycode);
                 tier = tier.max_self(window.process_window_events(0));
             }
+            // Mirrors `run()`'s TextInput and Scroll arms (the same shared
+            // methods): a scripted keystroke goes through the text pipeline,
+            // a wheel notch is queued against the scroll node under the
+            // pointer and arms the momentum timer that applies it. Both used
+            // to fall into `_ => {}`.
+            HeadlessEvent::TextInput { text } => {
+                tier = tier.max_self(window.apply_text_input_event(&text));
+            }
+            HeadlessEvent::Scroll { delta_x, delta_y } => {
+                window.apply_wheel_scroll_event(delta_x, delta_y);
+            }
             _ => {}
         }
         if tier > ProcessEventResult::DoNothing {
