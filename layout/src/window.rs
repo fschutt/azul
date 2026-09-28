@@ -931,6 +931,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         depends_on_text_direction: _,
         locale_override: _,
         known_languages: _,
+        // A handle (Arc) plus a u64: the manager it points at is the APP's,
+        // bounded by the app's accelerators, not by this window's document.
+        global_hotkeys: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -1324,6 +1327,11 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    /// This window's place in its App's global-hotkey manager: the shared
+    /// handle and the window's sequence number. `regenerate_layout` hands
+    /// every `layout()` pass's declarations (`LayoutCallbackInfo::
+    /// add_global_hotkey`) to it; dropping the window forgets them.
+    pub global_hotkeys: crate::managers::global_hotkey::WindowHotkeys,
     /// The last `layout()` call read `LayoutCallbackInfo::get_locale`: its
     /// DOM depends on the locale, so a locale change rebuilds it.
     pub depends_on_locale: bool,
@@ -2106,6 +2114,10 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
+            // Joins the App whose loop runs on this thread (`App::run` makes
+            // it current); a window built anywhere else gets a detached
+            // manager where every declaration reads `Unsupported`.
+            global_hotkeys: crate::managers::global_hotkey::WindowHotkeys::for_current_app(),
             depends_on_locale: false,
             depends_on_text_direction: false,
             locale_override: None,
@@ -5449,6 +5461,12 @@ impl LayoutWindow {
         self.current_window_state.flags.has_focus = has_focus;
         if self.current_window_state.is_window_active() == before {
             return false;
+        }
+        if !before {
+            // Every backend's activation goes through here, so this is the
+            // one place the global-hotkey owner rule ("the most recently
+            // focused declaring window") learns about focus.
+            self.global_hotkeys.note_focus();
         }
         let window_state = self.current_window_state.clone();
         let ctx = self.dynamic_selector_context(&window_state);
@@ -22383,6 +22401,9 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            // Keyed by ACCELERATOR (and the window's sequence number), never
+            // by NodeId: a global hotkey belongs to the window, not a node.
+            global_hotkeys: _,
             // Flags and languages, keyed by nothing.
             depends_on_locale: _,
             depends_on_text_direction: _,

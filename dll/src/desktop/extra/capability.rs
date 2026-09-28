@@ -368,7 +368,8 @@ impl PlatformCapability {
         }
     }
 
-    /// Probe system-wide (global) hotkeys - `CallbackInfo::register_global_hotkey`.
+    /// Probe system-wide (global) hotkeys - what
+    /// `LayoutCallbackInfo::add_global_hotkey` declares.
     ///
     /// macOS: Carbon `RegisterEventHotKey`, no permission needed. Windows:
     /// `RegisterHotKey`. Linux under X11: `XGrabKey` (needs `$DISPLAY`).
@@ -376,8 +377,9 @@ impl PlatformCapability {
     /// interface, asked for REAL (one D-Bus round trip, cached) - vanilla
     /// setups without a backend implementing it report `false` with the
     /// reason. iOS / Android / web: `false`. A headless run reports the
-    /// simulation. `available` is about the platform; a combination can
-    /// still be refused (another app owns it) at registration.
+    /// simulation. Pure: probing installs nothing and grabs nothing.
+    /// `available` is about the platform; a combination can still be
+    /// refused (another app owns it) when it is declared.
     pub fn global_hotkeys() -> PlatformCapability {
         let probe = crate::desktop::global_hotkey::probe();
         PlatformCapability {

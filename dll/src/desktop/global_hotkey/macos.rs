@@ -21,8 +21,9 @@
 //! The hot key arrives as an `NSEventTypeSystemDefined` event in the app's
 //! queue; dispatching it (`[NSApp sendEvent:]`, which both run loops call)
 //! runs the Carbon handler installed on the APPLICATION event target, on the
-//! main thread. The handler only parks the id - the run loop's hotkey pump
-//! runs the callback, outside AppKit's dispatch.
+//! main thread. The handler reaches this backend's [`HotkeySink`] through
+//! its `user_data` (not a static) and only parks the press there - the run
+//! loop's hotkey pump runs the callback, outside AppKit's dispatch.
 //!
 //! # Exclusive
 //!
@@ -35,11 +36,11 @@
 use std::{
     collections::BTreeMap,
     ffi::{c_ulong, c_void},
-    sync::{Mutex, OnceLock, PoisonError},
+    sync::OnceLock,
 };
 
 use azul_core::global_hotkey::{GlobalHotkey, GlobalHotkeyError, GlobalHotkeyId};
-use azul_layout::managers::global_hotkey::{push_fired, BackendGrant, GlobalHotkeyBackend};
+use azul_layout::managers::global_hotkey::{BackendGrant, GlobalHotkeyBackend, HotkeySink};
 
 type OsStatus = i32;
 type EventTargetRef = *mut c_void;
@@ -95,6 +96,9 @@ const SHIFT_KEY: u32 = 1 << 9;
 const OPTION_KEY: u32 = 1 << 11;
 const CONTROL_KEY: u32 = 1 << 12;
 
+/// What the capability probe and the backend call themselves.
+pub(super) const NAME: &str = "Carbon RegisterEventHotKey (HIToolbox)";
+
 /// The HIToolbox entry points, resolved once. The library is leaked so the
 /// fn pointers stay valid (HIToolbox never unloads anyway).
 struct Carbon {
@@ -107,6 +111,7 @@ struct Carbon {
         *mut c_void,
         *mut EventHandlerRef,
     ) -> OsStatus,
+    remove_event_handler: unsafe extern "C" fn(EventHandlerRef) -> OsStatus,
     register_event_hot_key: unsafe extern "C" fn(
         u32,
         u32,
@@ -153,6 +158,11 @@ fn carbon() -> Option<&'static Carbon> {
                     *mut EventHandlerRef,
                 ) -> OsStatus>(b"InstallEventHandler\0")
                 .ok()?;
+            let remove_event_handler = *lib
+                .get::<unsafe extern "C" fn(EventHandlerRef) -> OsStatus>(
+                    b"RemoveEventHandler\0",
+                )
+                .ok()?;
             let register_event_hot_key = *lib
                 .get::<unsafe extern "C" fn(
                     u32,
@@ -183,6 +193,7 @@ fn carbon() -> Option<&'static Carbon> {
             Some(Carbon {
                 get_application_event_target,
                 install_event_handler,
+                remove_event_handler,
                 register_event_hot_key,
                 unregister_event_hot_key,
                 get_event_parameter,
@@ -191,21 +202,21 @@ fn carbon() -> Option<&'static Carbon> {
         .as_ref()
 }
 
-/// The live `EventHotKeyRef`s, by registry id. Stored as `usize` so the map
-/// is `Send`; they are only ever touched on the main thread.
-static HOT_KEYS: Mutex<BTreeMap<u32, usize>> = Mutex::new(BTreeMap::new());
-
 /// The Carbon handler, called on the main thread inside AppKit's dispatch.
-/// Parks the id and returns; never unwinds (a poisoned lock is recovered by
-/// `push_fired`).
+/// `user_data` is the owning backend's boxed [`HotkeySink`]; the handler
+/// parks the press there and returns. Never unwinds (the sink recovers a
+/// poisoned lock).
 unsafe extern "C" fn hot_key_handler(
     _call: EventHandlerCallRef,
     event: EventRef,
-    _user_data: *mut c_void,
+    user_data: *mut c_void,
 ) -> OsStatus {
     let Some(carbon) = carbon() else {
         return EVENT_NOT_HANDLED_ERR;
     };
+    if user_data.is_null() {
+        return EVENT_NOT_HANDLED_ERR;
+    }
     let mut hot_key = EventHotKeyId {
         signature: 0,
         id: 0,
@@ -224,42 +235,12 @@ unsafe extern "C" fn hot_key_handler(
     if status != NO_ERR || hot_key.signature != SIGNATURE {
         return EVENT_NOT_HANDLED_ERR;
     }
-    push_fired(GlobalHotkeyId { id: hot_key.id });
+    // SAFETY: `user_data` is the `Box<HotkeySink>` the backend leaked in
+    // `ensure_handler` and frees only after `RemoveEventHandler`, both on
+    // this (main) thread - so it is alive whenever this handler runs.
+    let sink = unsafe { &*(user_data as *const HotkeySink) };
+    sink.fired(GlobalHotkeyId { id: hot_key.id });
     NO_ERR
-}
-
-/// Install the handler on the application event target, once. `Err` when
-/// Carbon refused - then no hot key could ever be delivered.
-fn ensure_handler(carbon: &Carbon) -> Result<(), GlobalHotkeyError> {
-    static INSTALLED: OnceLock<Result<(), i32>> = OnceLock::new();
-    let installed = INSTALLED.get_or_init(|| {
-        let spec = EventTypeSpec {
-            event_class: K_EVENT_CLASS_KEYBOARD,
-            event_kind: K_EVENT_HOT_KEY_PRESSED,
-        };
-        let mut handler_ref: EventHandlerRef = core::ptr::null_mut();
-        let status = unsafe {
-            (carbon.install_event_handler)(
-                (carbon.get_application_event_target)(),
-                hot_key_handler,
-                1,
-                &spec,
-                core::ptr::null_mut(),
-                &mut handler_ref,
-            )
-        };
-        if status == NO_ERR {
-            Ok(())
-        } else {
-            Err(status)
-        }
-    });
-    match installed {
-        Ok(()) => Ok(()),
-        Err(status) => Err(GlobalHotkeyError::Platform(
-            format!("InstallEventHandler failed (OSStatus {status})").into(),
-        )),
-    }
 }
 
 /// The macOS virtual keycode (`kVK_*`) for `key`: the inverse of the table
@@ -291,7 +272,8 @@ fn carbon_modifiers(hotkey: &GlobalHotkey) -> u32 {
     bits
 }
 
-fn probe() -> Result<(), String> {
+/// Is Carbon loadable? No side effect beyond the (cached) dlopen.
+pub(super) fn probe() -> Result<(), String> {
     if carbon().is_some() {
         Ok(())
     } else {
@@ -301,69 +283,147 @@ fn probe() -> Result<(), String> {
     }
 }
 
-fn register(id: GlobalHotkeyId, hotkey: &GlobalHotkey) -> Result<BackendGrant, GlobalHotkeyError> {
-    let Some(carbon) = carbon() else {
-        return Err(GlobalHotkeyError::Unavailable(
-            "HIToolbox (Carbon.framework) could not be loaded".into(),
-        ));
-    };
-    ensure_handler(carbon)?;
-    let Some(keycode) = keycode_of(hotkey.key) else {
-        return Err(GlobalHotkeyError::KeyNotMappable);
-    };
-    let mut hot_key_ref: EventHotKeyRef = core::ptr::null_mut();
-    let status = unsafe {
-        (carbon.register_event_hot_key)(
-            keycode,
-            carbon_modifiers(hotkey),
-            EventHotKeyId {
-                signature: SIGNATURE,
-                id: id.id,
-            },
-            (carbon.get_application_event_target)(),
-            K_EVENT_HOT_KEY_EXCLUSIVE,
-            &mut hot_key_ref,
-        )
-    };
-    match status {
-        NO_ERR if !hot_key_ref.is_null() => {
-            HOT_KEYS
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(id.id, hot_key_ref as usize);
-            Ok(BackendGrant::Active)
+/// One app's Carbon hot keys.
+///
+/// Pointers are kept as `usize` so the backend is `Send` (the manager is
+/// shared as `Arc<Mutex<..>>`); every Carbon call happens on the main thread.
+pub(super) struct CarbonBackend {
+    sink: HotkeySink,
+    /// The live `EventHotKeyRef`s, by OS id.
+    hot_keys: BTreeMap<u32, usize>,
+    /// The installed handler and its `Box<HotkeySink>` user data, once the
+    /// first hot key needed them.
+    handler: Option<(usize, usize)>,
+}
+
+impl CarbonBackend {
+    pub(super) fn new(sink: HotkeySink) -> Self {
+        Self {
+            sink,
+            hot_keys: BTreeMap::new(),
+            handler: None,
         }
-        EVENT_HOT_KEY_EXISTS_ERR => Err(GlobalHotkeyError::TakenByAnotherApp),
-        EVENT_HOT_KEY_INVALID_ERR => Err(GlobalHotkeyError::KeyNotMappable),
-        other => Err(GlobalHotkeyError::Platform(
-            format!("RegisterEventHotKey failed (OSStatus {other})").into(),
-        )),
+    }
+
+    /// Install the handler on the application event target, once per
+    /// backend. `Err` when Carbon refused - then no hot key could ever be
+    /// delivered.
+    fn ensure_handler(&mut self, carbon: &Carbon) -> Result<(), GlobalHotkeyError> {
+        if self.handler.is_some() {
+            return Ok(());
+        }
+        let spec = EventTypeSpec {
+            event_class: K_EVENT_CLASS_KEYBOARD,
+            event_kind: K_EVENT_HOT_KEY_PRESSED,
+        };
+        let user_data = Box::into_raw(Box::new(self.sink.clone()));
+        let mut handler_ref: EventHandlerRef = core::ptr::null_mut();
+        let status = unsafe {
+            (carbon.install_event_handler)(
+                (carbon.get_application_event_target)(),
+                hot_key_handler,
+                1,
+                &spec,
+                user_data.cast::<c_void>(),
+                &mut handler_ref,
+            )
+        };
+        if status != NO_ERR {
+            // SAFETY: Carbon refused, so nothing else holds the pointer.
+            drop(unsafe { Box::from_raw(user_data) });
+            return Err(GlobalHotkeyError::Platform(
+                format!("InstallEventHandler failed (OSStatus {status})").into(),
+            ));
+        }
+        self.handler = Some((handler_ref as usize, user_data as usize));
+        Ok(())
     }
 }
 
-fn unregister(id: GlobalHotkeyId) {
-    let hot_key_ref = HOT_KEYS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&id.id);
-    if let (Some(carbon), Some(hot_key_ref)) = (carbon(), hot_key_ref) {
-        unsafe {
-            let _ = (carbon.unregister_event_hot_key)(hot_key_ref as EventHotKeyRef);
+impl GlobalHotkeyBackend for CarbonBackend {
+    fn name(&self) -> &'static str {
+        NAME
+    }
+
+    fn probe(&self) -> Result<(), String> {
+        probe()
+    }
+
+    fn register(
+        &mut self,
+        os_id: GlobalHotkeyId,
+        hotkey: &GlobalHotkey,
+        _description: &str,
+    ) -> Result<BackendGrant, GlobalHotkeyError> {
+        let Some(carbon) = carbon() else {
+            return Err(GlobalHotkeyError::Unavailable(
+                "HIToolbox (Carbon.framework) could not be loaded".into(),
+            ));
+        };
+        let Some(keycode) = keycode_of(hotkey.key) else {
+            return Err(GlobalHotkeyError::KeyNotMappable);
+        };
+        self.ensure_handler(carbon)?;
+        let mut hot_key_ref: EventHotKeyRef = core::ptr::null_mut();
+        let status = unsafe {
+            (carbon.register_event_hot_key)(
+                keycode,
+                carbon_modifiers(hotkey),
+                EventHotKeyId {
+                    signature: SIGNATURE,
+                    id: os_id.id,
+                },
+                (carbon.get_application_event_target)(),
+                K_EVENT_HOT_KEY_EXCLUSIVE,
+                &mut hot_key_ref,
+            )
+        };
+        match status {
+            NO_ERR if !hot_key_ref.is_null() => {
+                self.hot_keys.insert(os_id.id, hot_key_ref as usize);
+                Ok(BackendGrant::Active)
+            }
+            EVENT_HOT_KEY_EXISTS_ERR => Err(GlobalHotkeyError::TakenByAnotherApp),
+            EVENT_HOT_KEY_INVALID_ERR => Err(GlobalHotkeyError::KeyNotMappable),
+            other => Err(GlobalHotkeyError::Platform(
+                format!("RegisterEventHotKey failed (OSStatus {other})").into(),
+            )),
         }
     }
+
+    fn unregister(&mut self, os_id: GlobalHotkeyId) {
+        let hot_key_ref = self.hot_keys.remove(&os_id.id);
+        if let (Some(carbon), Some(hot_key_ref)) = (carbon(), hot_key_ref) {
+            unsafe {
+                let _ = (carbon.unregister_event_hot_key)(hot_key_ref as EventHotKeyRef);
+            }
+        }
+    }
+
+    // `poll` / `needs_loop_polling`: the defaults. The hot key is an NSEvent,
+    // so it wakes the run loop by itself, and AppKit's dispatch runs the
+    // handler.
 }
 
-/// Nothing to poll: AppKit's dispatch runs the handler.
-fn poll() {}
-
-pub(super) fn backend() -> GlobalHotkeyBackend {
-    GlobalHotkeyBackend {
-        name: "Carbon RegisterEventHotKey (HIToolbox)",
-        probe,
-        register,
-        unregister,
-        poll,
-        // The hot key is an NSEvent: it wakes the run loop by itself.
-        needs_loop_polling: false,
+impl Drop for CarbonBackend {
+    /// Dropping the App (or replacing the backend) releases every grab and
+    /// removes the handler, so nothing outlives the manager that owned it.
+    fn drop(&mut self) {
+        let Some(carbon) = carbon() else {
+            return;
+        };
+        for (_, hot_key_ref) in core::mem::take(&mut self.hot_keys) {
+            unsafe {
+                let _ = (carbon.unregister_event_hot_key)(hot_key_ref as EventHotKeyRef);
+            }
+        }
+        if let Some((handler_ref, user_data)) = self.handler.take() {
+            unsafe {
+                let _ = (carbon.remove_event_handler)(handler_ref as EventHandlerRef);
+                // SAFETY: the handler is removed, so nothing reads the box
+                // any more; it came from `Box::into_raw` in `ensure_handler`.
+                drop(Box::from_raw(user_data as *mut HotkeySink));
+            }
+        }
     }
 }

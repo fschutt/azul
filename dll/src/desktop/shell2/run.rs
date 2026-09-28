@@ -621,8 +621,10 @@ fn run_headless(
     crate::desktop::notifications::use_headless_backend();
 
     // Global hotkeys: a headless run must not grab real keys at the OS. The
-    // simulation replaces the platform backend (moving any registration made
-    // before run()), and `simulate` / the AZ_E2E `global_hotkey` op press.
+    // simulation is installed BEFORE the first window lays out, so the
+    // platform backend `App::run` chose is never built (nothing is grabbed,
+    // no portal handshake starts), and `simulate` / the AZ_E2E
+    // `global_hotkey` op press.
     crate::desktop::global_hotkey::install_simulated_backend();
 
     // Extract icon_provider from config (same as real platforms do)
@@ -1139,12 +1141,15 @@ pub fn run(
                     let font_registry = font_registry.clone();
                     let font_manager_c = font_manager.clone();
                     let drain = RcBlock::new(move || {
-                        // The app-level sources - tray menu clicks, notification
-                        // events, the hotkeys the Carbon handler parked - in one
-                        // collection, run against the most recently focused
-                        // window (else the oldest). Self-gating when there is
-                        // nothing to deliver.
+                        // The app-level sources - tray menu clicks and
+                        // notification events - in one collection, run against
+                        // the most recently focused window (else the oldest).
+                        // Self-gating when there is nothing to deliver.
                         crate::desktop::app_events::deliver_to_macos_windows();
+                        // Global hotkeys the Carbon handler parked, run
+                        // against the window that owns each (its declarer,
+                        // or for an app-level one the last focused window).
+                        crate::desktop::global_hotkey::pump_macos_windows();
 
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
@@ -1406,6 +1411,7 @@ pub fn run(
                         // unrelated event (the tray used to be pumped only at
                         // the top of the loop).
                         crate::desktop::app_events::deliver_to_macos_windows();
+                        crate::desktop::global_hotkey::pump_macos_windows();
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
@@ -1970,14 +1976,21 @@ pub fn run(
         // `super::macos::drain_closed_windows()` in the macOS loop.
         registry::drain_closed_windows();
 
-        // --- App-level events: notifications, global hotkeys, the tray ---
-        // `WM_HOTKEY` and the notify window's `NIN_BALLOON*` woke
-        // `WaitMessage`, and the thread-queue drain above ran their window
-        // procedures, which parked what happened. Queued notification posts go
-        // out as a balloon here too. Everything runs in THIS iteration against
-        // the most recently focused window (else the oldest); a rebuild it
-        // asks for is picked up by the render pass below.
+        // --- App-level events: notifications and the tray ---
+        // The notify window's `NIN_BALLOON*` woke `WaitMessage`, and the
+        // thread-queue drain above ran its window procedure, which parked
+        // what happened. Queued notification posts go out as a balloon here
+        // too. Everything runs in THIS iteration against the most recently
+        // focused window (else the oldest); a rebuild it asks for is picked
+        // up by the render pass below.
         crate::desktop::app_events::deliver_to_win32_windows();
+
+        // --- Global hotkeys ---
+        // `WM_HOTKEY` woke `WaitMessage` and the thread-queue drain above ran
+        // the message-only window's procedure, which parked the press. Run
+        // each against the window that owns it; a rebuild they ask for is
+        // picked up by the render pass below.
+        crate::desktop::global_hotkey::pump_win32_windows();
 
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
@@ -2315,6 +2328,15 @@ fn run_linux_windows(
 
     use super::linux::{registry, AppResources, LinuxWindow};
 
+    // Global hotkeys: the portal's listener wakes this loop through the
+    // shared waker, and the X11 grab connection's fd is in every park's wait
+    // set (`loop_waker::wait_fds`, re-read before each park), so a grabbed
+    // hotkey never caps the park.
+    crate::desktop::global_hotkey::attach_loop_waker(
+        Arc::new(crate::desktop::loop_waker::wake),
+        true,
+    );
+
     // Initialize shared resources once at startup
     let resources = Arc::new(AppResources::new_with_font_manager(
         config.clone(),
@@ -2472,14 +2494,19 @@ fn run_linux_windows(
         // App-level events: the tray (the panel's property reads are answered
         // by the D-Bus drain in here - SNI is ~90% property reads, and a host
         // whose GetAll times out shows no icon at all - and the panel-drawn
-        // dbusmenu's clicks come back as callbacks), the freedesktop
+        // dbusmenu's clicks come back as callbacks) and the freedesktop
         // notification server's ActionInvoked / NotificationClosed (same
-        // shared D-Bus connection), and global hotkeys (the X grab connection
-        // is read here; the portal's listener thread parks its own). One
-        // collection, run against the most recently focused window (else the
-        // oldest). The loops park on these sources' fds
-        // (`loop_waker::wait_fds`), so this runs as soon as one has something.
+        // shared D-Bus connection). One collection, run against the most
+        // recently focused window (else the oldest). The loops park on these
+        // sources' fds (`loop_waker::wait_fds`), so this runs as soon as one
+        // has something.
         crate::desktop::app_events::deliver_to_linux_windows();
+
+        // Global hotkeys: read the X grab connection (its fd is in the wait
+        // set; the portal's listener wakes the loop through the waker
+        // attached to the App's sink), then run each press against the
+        // window that owns it.
+        crate::desktop::global_hotkey::pump_linux_windows();
 
         // Process events for all windows
         for wid in &window_ids {
@@ -2951,6 +2978,8 @@ pub fn run_tray_only(
             let window = unsafe { &mut *headless_ptr };
             // Nothing to repaint: there is no window on screen.
             let _ = crate::desktop::app_events::deliver_to(window);
+            // A tray utility's summon hotkey: same stub window, same reason.
+            let _ = crate::desktop::global_hotkey::pump_headless(window);
         },
     );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {

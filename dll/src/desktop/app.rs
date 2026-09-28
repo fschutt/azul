@@ -172,11 +172,10 @@ impl App {
             app_config.expose_system_media_controls,
         );
 
-        // Global hotkeys: install this platform's backend so a registration
-        // (from a callback, or from `register_global_hotkey` before `run`)
-        // has somewhere to go. Side-effect free until the first registration;
-        // a headless run swaps in the simulation and moves registrations.
-        crate::desktop::global_hotkey::install_platform_backend();
+        // Global hotkeys: NO backend here. `App::create` cannot know whether
+        // the run will be headless, and installing the platform's backend
+        // this early grabbed at the real OS (and, on a Wayland desktop,
+        // started a portal handshake) even for a CI run. `run()` chooses it.
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
@@ -261,42 +260,24 @@ impl App {
         crate::desktop::tray::TrayIcon::is_available()
     }
 
-    /// Register a SYSTEM-WIDE hotkey before `run()`: `callback` runs with
-    /// `data` whenever the combination is pressed, even while another app
-    /// has the keyboard focus. The same registry as
-    /// `CallbackInfo::register_global_hotkey` - use this one where no
-    /// callback runs before the hotkey is needed (a tray-only utility's
-    /// summon key).
-    ///
-    /// Takes effect immediately on the platforms that answer immediately
-    /// (macOS, Windows, X11); on a Wayland desktop the portal may ask the
-    /// user once the app runs. A run that turns out headless moves the
-    /// registration onto the simulation (nothing grabbed at the OS).
-    ///
-    /// # Errors
-    /// See `GlobalHotkeyError`: not a usable combination, already held by
-    /// this app, owned by another app, or no global hotkeys here.
-    pub fn register_global_hotkey(
-        &mut self,
-        hotkey: azul_core::global_hotkey::GlobalHotkey,
-        data: RefAny,
-        callback: azul_core::callbacks::CoreCallback,
-    ) -> azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError {
-        crate::desktop::global_hotkey::install_platform_backend();
-        azul_layout::managers::global_hotkey::register(
-            hotkey,
-            azul_core::menu::CoreMenuCallback {
-                refany: data,
-                callback,
-            },
-        )
-        .into()
-    }
-
-    /// Release a global hotkey registered through this `App` or a callback.
-    /// Returns whether `id` was registered.
-    pub fn unregister_global_hotkey(&mut self, id: azul_core::global_hotkey::GlobalHotkeyId) -> bool {
-        azul_layout::managers::global_hotkey::unregister(id)
+    /// Make this App's global-hotkey manager the event-loop thread's current
+    /// App for as long as the returned scope lives, and choose the
+    /// platform's backend for it (built at the first sync, so a run that
+    /// turns out headless installs the simulation first and never touches
+    /// the OS). Every window the loop builds joins the manager.
+    fn enter_global_hotkeys(&self) -> azul_layout::managers::global_hotkey::AppHotkeysScope {
+        let scope = self.ptr.global_hotkeys.enter();
+        crate::desktop::global_hotkey::choose_platform_backend();
+        // The AppConfig's own set: the static list is declared now, the
+        // derived callback runs at the loop's first hotkey pump - after the
+        // run chose its backend, before anything waits for a press.
+        let config = &self.ptr.config;
+        self.ptr.global_hotkeys.set_app_declarations(
+            config.global_hotkeys.clone().into_library_owned_vec(),
+            config.global_hotkeys_callback.into_option(),
+            self.ptr.data.clone(),
+        );
+        scope
     }
 
     /// Run with a tray and NO window.
@@ -325,6 +306,9 @@ impl App {
         // A tray utility is exactly the app that notifies - and whose
         // notifications get clicked after it restarted.
         crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
+        // A tray utility's summon key is exactly what global hotkeys are for:
+        // the stub window and the tray timer act on this App's manager.
+        let _global_hotkeys = self.enter_global_hotkeys();
 
         #[cfg(target_os = "macos")]
         {
@@ -369,6 +353,9 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
+        // This App's global hotkeys, for the whole run: every window the loop
+        // builds declares into this manager, and the loop's pumps sync it.
+        let _global_hotkeys = self.enter_global_hotkeys();
 
         // The app-level notification handler, before any run loop exists: the
         // tap that LAUNCHED the app is delivered during launch, and there is
@@ -596,6 +583,12 @@ pub struct AppInternal {
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// App-global global-hotkey manager (`Arc<Mutex<..>>`), the undo
+    /// manager's twin: owned by the App, shared with every window, the run
+    /// loop and the tray-only stub. `run()` makes it the loop thread's
+    /// current App, so a window joins it without being handed it. Dropping
+    /// the last App handle drops the backend, which releases every grab.
+    pub global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys,
     /// Tray requested via [`App::set_tray`], applied when `run()` starts.
     ///
     /// Owned by the App rather than a process global: it is per-App state, and
@@ -735,6 +728,7 @@ impl AppInternal {
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
+            global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys::new(),
         }
     }
 }

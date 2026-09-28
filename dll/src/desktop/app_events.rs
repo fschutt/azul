@@ -1,6 +1,8 @@
-//! The app-level event collector: tray menu clicks, plain tray clicks,
-//! native-notification events and global-hotkey presses, taken out of their
-//! mailboxes in ONE place and run against ONE window picked by ONE rule.
+//! The app-level event collector: tray menu clicks, plain tray clicks and
+//! native-notification events, taken out of their mailboxes in ONE place and
+//! run against ONE window picked by ONE rule. (Global-hotkey presses belong
+//! to the window that declared them: the App's hotkey manager routes those,
+//! `desktop::global_hotkey::pump_*`.)
 //!
 //! # Why one collector
 //!
@@ -26,7 +28,6 @@
 use azul_core::{events::ProcessEventResult, menu::CoreMenuCallback};
 use azul_layout::managers::{
     app_target::{pick_app_target, AppTargetCandidate},
-    global_hotkey::FiredHotkey,
     notification::NotificationDelivery,
     tray_event::{with_current_tray_event, TrayDelivery},
 };
@@ -44,13 +45,12 @@ pub(crate) struct AppEvents {
     tray: Vec<TrayDelivery>,
     /// Notification events, routed to their notification's callback.
     notifications: Vec<NotificationDelivery>,
-    /// Global hotkeys pressed, with the callback each runs.
-    hotkeys: Vec<FiredHotkey>,
 }
 
 impl AppEvents {
     /// Service the sources (acknowledge the loop waker, drain D-Bus, read
-    /// the hotkey grab connection) and take every mailbox. Event-loop thread.
+    /// the hotkey grab connection into the App's sink) and take every
+    /// mailbox. Event-loop thread.
     #[must_use]
     pub(crate) fn collect() -> Self {
         crate::desktop::loop_waker::service_sources();
@@ -61,21 +61,17 @@ impl AppEvents {
             tray_menu: crate::desktop::tray::pump_tray(),
             tray: crate::desktop::tray::take_tray_deliveries(),
             notifications: crate::desktop::notifications::pump_notifications(),
-            hotkeys: azul_layout::managers::global_hotkey::take_fired(),
         }
     }
 
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
-        self.tray_menu.is_empty()
-            && self.tray.is_empty()
-            && self.notifications.is_empty()
-            && self.hotkeys.is_empty()
+        self.tray_menu.is_empty() && self.tray.is_empty() && self.notifications.is_empty()
     }
 
     #[must_use]
     pub(crate) fn len(&self) -> usize {
-        self.tray_menu.len() + self.tray.len() + self.notifications.len() + self.hotkeys.len()
+        self.tray_menu.len() + self.tray.len() + self.notifications.len()
     }
 
     /// Run everything against `window`, in the order the sources were
@@ -85,7 +81,6 @@ impl AppEvents {
             tray_menu,
             tray,
             notifications,
-            hotkeys,
         } = self;
         let mut result = ProcessEventResult::DoNothing;
         for callback in tray_menu {
@@ -106,19 +101,6 @@ impl AppEvents {
             && crate::desktop::notifications::invoke_deliveries(window, notifications)
         {
             result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-        for fire in hotkeys {
-            crate::plog_debug!(
-                "[global-hotkey] {} fired (id {})",
-                fire.hotkey.to_display_string().as_str(),
-                fire.id.id
-            );
-            result = result.max(window.invoke_menu_callback(
-                fire.callback,
-                MenuInvocation::Native {
-                    site: "global_hotkey",
-                },
-            ));
         }
         result
     }
@@ -158,16 +140,13 @@ fn report_undelivered(events: AppEvents) {
         tray_menu,
         tray,
         notifications,
-        hotkeys,
     } = events;
     if !notifications.is_empty() {
         crate::desktop::notifications::defer_deliveries(notifications);
     }
-    let dropped = tray_menu.len() + tray.len() + hotkeys.len();
+    let dropped = tray_menu.len() + tray.len();
     if dropped > 0 {
-        crate::plog_debug!(
-            "[app-events] {dropped} tray / hotkey event(s) had no window to run against"
-        );
+        crate::plog_debug!("[app-events] {dropped} tray event(s) had no window to run against");
     }
 }
 

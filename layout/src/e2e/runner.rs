@@ -3214,6 +3214,14 @@ impl Runner {
             // the same either way - so honouring it as a no-op IS faithful
             // (unlike the arms above, whose effect a scenario would miss).
             CallbackChange::RaiseWindow => ProcessEventResult::DoNothing,
+            // Pure manager state: forget the failure and ask again now, the
+            // way the dll's pump does on its next turn.
+            CallbackChange::RetryGlobalHotkey { hotkey } => {
+                let hotkeys = self.layout_window.global_hotkeys.shared();
+                hotkeys.retry(*hotkey);
+                let _ = hotkeys.sync();
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::SetPointerLock { locked } => {
                 // No pointer to grab headlessly, but the FLAG is the thing
                 // `RawMouseMotion` is gated on, so honouring it here is what

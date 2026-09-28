@@ -86,7 +86,9 @@ pub fn service_sources() {
     let _ = take_pending();
     #[cfg(az_x11)]
     dbus_watch::drain_all();
-    azul_layout::managers::global_hotkey::poll_backend();
+    if let Some(app) = crate::desktop::global_hotkey::app() {
+        app.poll_backend();
+    }
 }
 
 /// Is work owed that no descriptor in [`wait_fds`] will announce? The Linux
@@ -113,7 +115,6 @@ pub fn must_not_park() -> bool {
     azul_layout::managers::tray_event::has_queued_tray_events()
         || azul_layout::managers::notification::has_queued_requests()
         || azul_layout::managers::notification::has_queued_events()
-        || azul_layout::managers::global_hotkey::has_pending_fires()
 }
 
 /// The descriptors the Linux loops add to their `poll(2)` set: the wake
@@ -134,7 +135,7 @@ pub fn wait_fds() -> Vec<i32> {
             fds.push(fd);
         }
     }
-    if let Some(fd) = crate::desktop::global_hotkey::loop_wait_fd() {
+    for fd in crate::desktop::global_hotkey::wake_fds() {
         if !fds.contains(&fd) {
             fds.push(fd);
         }

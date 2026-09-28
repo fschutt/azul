@@ -16,8 +16,10 @@
 //!   message parsed but not dispatched is invisible to `poll(2)`;
 //! * a plain tray click (no menu callback) reaches the app at all -
 //!   `drain_tray_events` used to have no caller;
-//! * the three sources pick their window by one rule, not "whatever the
-//!   registry lists first" (pointer order, a `HashMap`, HWND order);
+//! * the three sources pick their window by rule (the tray and notifications
+//!   the most recently focused, a hotkey the window that declared it), not
+//!   "whatever the registry lists first" (pointer order, a `HashMap`, HWND
+//!   order);
 //! * the manual macOS loop delivers every source right before it parks, so a
 //!   fire handled inside a `sendEvent:` never waits for the next event.
 
@@ -32,6 +34,7 @@ const NOTIFY_LINUX_RS: &str = include_str!("notifications/linux.rs");
 const HOTKEY_RS: &str = include_str!("global_hotkey/mod.rs");
 const HOTKEY_X11_RS: &str = include_str!("global_hotkey/x11.rs");
 const HOTKEY_PORTAL_RS: &str = include_str!("global_hotkey/portal.rs");
+const LOOP_WAKER_RS: &str = include_str!("loop_waker.rs");
 
 /// The text of the first top-level `fn` whose signature contains `name`, up
 /// to its closing brace in column 0.
@@ -131,35 +134,36 @@ fn every_d_bus_user_drains_the_shared_connection_completely() {
 
 /// X11 hotkeys arrive on a display connection of their own; its fd goes into
 /// the wait set. The portal's `Activated` arrives on a listener thread, which
-/// wakes the loop through the shared waker right after parking the fire.
-/// Neither backend asks the loops to poll any more.
+/// hands the press to the App's hotkey sink - and the sink runs the waker the
+/// Linux loop attached (`loop_waker::wake`). With the waker attached and the
+/// fd watched, the manager never asks the loops to poll.
 #[test]
 fn hotkey_backends_wake_the_loop_instead_of_being_polled() {
     assert!(
         HOTKEY_X11_RS.contains("XConnectionNumber"),
         "the X11 grab connection's fd is never looked up"
     );
+    let attach = RUN_RS
+        .find("global_hotkey::attach_loop_waker(")
+        .expect("the Linux loop never attaches its waker to the hotkey sink");
+    let call = &RUN_RS[attach..(attach + 200).min(RUN_RS.len())];
     assert!(
-        HOTKEY_X11_RS.contains("needs_loop_polling: false"),
-        "the X11 hotkey backend still asks the loops to poll"
+        call.contains("loop_waker::wake") && call.contains("true"),
+        "the Linux loop's hotkey waker is not the shared loop waker, or it does not say it \
+         watches the grab connection's fd"
     );
     assert!(
-        HOTKEY_PORTAL_RS.contains("needs_loop_polling: false"),
-        "the portal hotkey backend still asks the loops to poll"
+        LOOP_WAKER_RS.contains("global_hotkey::wake_fds()"),
+        "the hotkey grab connection's fd is not in the loops' wait set"
     );
-    let mut from = 0usize;
-    let mut fires = 0usize;
-    while let Some(i) = HOTKEY_PORTAL_RS[from..].find("push_fired(GlobalHotkeyId") {
-        let at = from + i;
-        fires += 1;
-        let after = &HOTKEY_PORTAL_RS[at..(at + 300).min(HOTKEY_PORTAL_RS.len())];
-        assert!(
-            after.contains("loop_waker::wake()"),
-            "portal fire #{fires} is parked without waking the loop"
-        );
-        from = at + 1;
-    }
-    assert!(fires > 0, "the portal listener parks no fire at all");
+    assert!(
+        LOOP_WAKER_RS.contains("global_hotkey::has_buffered_input()"),
+        "a loop can park on top of presses Xlib already read off the grab connection"
+    );
+    assert!(
+        HOTKEY_PORTAL_RS.contains("sink.push(BackendEvent::Fired"),
+        "the portal listener parks its presses somewhere the attached waker never hears of"
+    );
 }
 
 /// A tray click that carries no menu callback - a plain click on the icon,
@@ -237,7 +241,11 @@ fn the_manual_macos_loop_delivers_every_app_source_right_before_it_parks() {
     let before = &RUN_RS[park.saturating_sub(2500)..park];
     assert!(
         before.contains("app_events::deliver_to_macos_windows()"),
-        "the manual macOS loop parks without delivering the tray / notifications / hotkeys it \
-         just handled"
+        "the manual macOS loop parks without delivering the tray / notifications it just \
+         handled"
+    );
+    assert!(
+        before.contains("global_hotkey::pump_macos_windows()"),
+        "the manual macOS loop parks without delivering the hotkeys it just handled"
     );
 }

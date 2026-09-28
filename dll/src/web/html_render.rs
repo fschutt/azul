@@ -693,6 +693,8 @@ fn call_layout(
         monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
         // The web target has no system bars to avoid.
         safe_area: azul_css::system::SafeAreaInsets::default(),
+        // A page cannot grab system-wide keys: nothing is ever held.
+        global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
     };
 
     let info =

@@ -3,28 +3,38 @@
 //! A global hotkey is a key combination the OS delivers to THIS app even while
 //! another app has the keyboard focus: a launcher's summon key, a recorder's
 //! start/stop, a push-to-talk. The OS plumbing lives in `azul-dll`
-//! (`desktop/global_hotkey`), the process-wide registry and the fire mailbox in
-//! `azul_layout::managers::global_hotkey`. This module only defines what the
-//! backends agree on: the combination, its id, and what can go wrong.
+//! (`desktop/global_hotkey`), the App-owned manager that reconciles the grabs
+//! in `azul_layout::managers::global_hotkey`. This module only defines what
+//! the backends and the app agree on: the combination, what can go wrong, and
+//! the vocabulary an app DECLARES its hotkeys in.
 //!
-//! # App-wide, never per window
+//! # Declared from state, not registered
 //!
-//! Every platform registers a hotkey for the PROCESS (Carbon: the application
-//! event target; Win32: the registering thread's queue; X11: the root window;
-//! the portal: the app's D-Bus session), and none of them has a notion of
-//! "this hotkey belongs to window 2". A per-window API would be a lie that
-//! breaks the moment its window closes while the grab stays. So the id is
-//! app-wide, the callback carries its own `RefAny`, and it runs against the
-//! app's most recently focused window (else its oldest), exactly like a tray
-//! menu click does.
+//! Hotkeys usually depend on app state (a setting, a mode, the shortcut the
+//! user recorded), so an app does not register and unregister them: it
+//! DECLARES the set it wants wherever it is handed an info -
+//! `LayoutCallbackInfo::add_global_hotkey` in `layout()` (the shape of
+//! `Dom::with_callback`, with the accelerator in the event filter's place),
+//! or `GlobalHotkeysCallbackInfo::add_global_hotkey` in the `AppConfig`'s
+//! callback for an app with no window. After every pass the engine makes the
+//! OS grabs equal the union of every declaration: it grabs what is new,
+//! releases what is gone, and swaps the callback of an accelerator that
+//! stayed WITHOUT touching the OS.
+//!
+//! # Identity is the accelerator
+//!
+//! Every OS keys a grab on the combination, so the engine does too: one grab
+//! per [`GlobalHotkey`] however many windows declare it, and exactly one
+//! callback per press (the most recently focused declaring window, then the
+//! oldest; a window's declaration shadows the app's).
 //!
 //! # One combination, normalised
 //!
 //! [`GlobalHotkey`] is four modifier flags plus ONE key. Left and right
 //! modifiers are the same modifier (no OS can grab "right Ctrl only"), the
 //! order in which an accelerator string names them is irrelevant, and equality
-//! is plain struct equality - which is what makes "register the same
-//! combination twice" detectable at all.
+//! is plain struct equality - which is what makes the accelerator usable as
+//! the identity at all.
 //!
 //! `meta` is the PHYSICAL Cmd / Windows / Super key. The menu convention that
 //! `LWin` in a [`VirtualKeyCodeCombo`] means "the platform's primary modifier"
@@ -36,7 +46,11 @@ use core::fmt;
 
 use azul_css::AzString;
 
-use crate::window::{VirtualKeyCode, VirtualKeyCode as K, VirtualKeyCodeCombo};
+use crate::{
+    callbacks::CoreCallback,
+    refany::{OptionRefAny, RefAny},
+    window::{VirtualKeyCode, VirtualKeyCode as K, VirtualKeyCodeCombo},
+};
 
 /// The modifiers a global hotkey requires, resolved to physical keys.
 ///
@@ -110,22 +124,18 @@ impl HotkeyModifiers {
     }
 }
 
-/// The app-wide handle of one registered global hotkey.
+/// The OS-side handle of one grab: what a backend registers a combination
+/// under and reports its presses and answers with (Carbon's
+/// `EventHotKeyID.id`, the Win32 hotkey id, the portal shortcut's owner).
 ///
-/// Ids are never reused within a process: an id that was unregistered stays
-/// dead, so a stale id held by the app cannot silently start meaning a
-/// different combination.
+/// Engine-internal: an app names a hotkey by its accelerator, never by this.
+/// Ids are never reused within a manager, so a press reported for a grab
+/// that was released meanwhile cannot be mistaken for a newer one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GlobalHotkeyId {
     pub id: u32,
 }
-
-impl_option!(
-    GlobalHotkeyId,
-    OptionGlobalHotkeyId,
-    [Debug, Clone, Copy, PartialEq, Eq, Hash]
-);
 
 /// One system-wide key combination: modifiers plus exactly one key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -143,6 +153,9 @@ pub enum GlobalHotkeyError {
     /// (no key, two keys, a bare letter that would swallow typing, ...).
     InvalidAccelerator(AzString),
     /// THIS app already holds the same combination, under the carried id.
+    /// Not produced by the declarative manager (a second declaration of an
+    /// accelerator is resolved by the owner rule, never refused); kept so
+    /// the error type stays stable for the bindings.
     AlreadyRegistered(GlobalHotkeyId),
     /// Another application - or the system itself - owns the combination.
     TakenByAnotherApp,
@@ -199,41 +212,477 @@ impl GlobalHotkeyError {
     }
 }
 
-/// Where a registration stands.
+/// Where one accelerator stands.
 ///
-/// Most platforms answer a registration on the spot (`Active` or an error).
-/// The Wayland portal cannot: binding a shortcut may show the user a dialog,
-/// so the registration is `Pending` until the desktop answers, and a refusal
-/// arrives later as `Failed`.
+/// Most platforms answer a grab on the spot (`Active` or `Failed`). The
+/// Wayland portal cannot: binding a shortcut may show the user a dialog, so
+/// the grab is `Pending` until the desktop answers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum GlobalHotkeyStatus {
-    /// No such registration (never registered, or unregistered).
+    /// Nobody declares it and no failure is remembered for it.
     NotRegistered,
     /// Asked for; the desktop has not answered yet.
     Pending,
-    /// Grabbed: pressing the combination runs the callback.
+    /// Grabbed: pressing the combination runs its owner's callback.
     Active,
-    /// The desktop refused after the fact. The registration stays readable
-    /// (with its reason) until the app unregisters it.
+    /// The platform refused, now or later. STICKY: the accelerator is not
+    /// asked for again - declared or not - until the app retries it
+    /// (`CallbackInfo::retry_global_hotkey`). Without that, an app whose
+    /// first choice is taken and that falls back to a second one would flip
+    /// between the two forever, and a declined Wayland dialog would come back
+    /// on every relayout.
     Failed(GlobalHotkeyError),
 }
 
 impl GlobalHotkeyStatus {
-    /// `Pending` or `Active`: the registration counts as held.
+    /// `Pending` or `Active`: the accelerator counts as held.
     #[must_use]
     pub const fn is_live(&self) -> bool {
         matches!(self, Self::Pending | Self::Active)
     }
 }
 
-impl_result!(
-    GlobalHotkeyId,
-    GlobalHotkeyError,
-    ResultGlobalHotkeyIdGlobalHotkeyError,
+/// One global hotkey a `layout()` pass (or the app) wants, and what runs when
+/// it fires. The global-hotkey twin of `CoreCallbackData`: the accelerator
+/// takes the event filter's place.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GlobalHotkeyCallbackData {
+    /// The combination - also the declaration's identity.
+    pub hotkey: GlobalHotkey,
+    /// What the desktop shows for it: the Wayland portal's approval dialog
+    /// and its shortcut settings. Empty = the combination's display string.
+    pub description: AzString,
+    /// Runs when the combination is pressed, with a `CallbackInfo` of the
+    /// window the press is delivered to.
+    pub callback: CoreCallback,
+    /// The data `callback` receives.
+    pub refany: RefAny,
+}
+
+impl_option!(
+    GlobalHotkeyCallbackData,
+    OptionGlobalHotkeyCallbackData,
     copy = false,
-    [Debug, Clone, PartialEq, Eq]
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(
+    GlobalHotkeyCallbackData,
+    GlobalHotkeyCallbackDataVec,
+    GlobalHotkeyCallbackDataVecDestructor,
+    GlobalHotkeyCallbackDataVecDestructorType,
+    GlobalHotkeyCallbackDataVecSlice,
+    OptionGlobalHotkeyCallbackData
+);
+impl_vec_clone!(
+    GlobalHotkeyCallbackData,
+    GlobalHotkeyCallbackDataVec,
+    GlobalHotkeyCallbackDataVecDestructor
+);
+impl_vec_mut!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_debug!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_partialeq!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_eq!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_partialord!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_ord!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+impl_vec_hash!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
+
+impl GlobalHotkeyCallbackData {
+    /// A declaration without a description.
+    #[must_use]
+    pub fn create(hotkey: GlobalHotkey, data: RefAny, callback: CoreCallback) -> Self {
+        Self {
+            hotkey,
+            description: AzString::from_const_str(""),
+            callback,
+            refany: data,
+        }
+    }
+}
+
+/// Whose declaration a press of an accelerator runs, as seen from the window
+/// (or the app callback) that asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum GlobalHotkeyOwner {
+    /// The `AppConfig`'s list or its derived callback, and no window.
+    App,
+    /// The window whose `layout()` / `CallbackInfo` is asking.
+    ThisWindow,
+    /// Another window of this app (the most recently focused declarer, then
+    /// the oldest window).
+    OtherWindow,
+    /// Nobody declares it any more; it is listed for its remembered failure.
+    Nobody,
+}
+
+/// What an app can read about one accelerator.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GlobalHotkeyInfo {
+    pub hotkey: GlobalHotkey,
+    pub status: GlobalHotkeyStatus,
+    /// The trigger as the DESKTOP reports it. On Wayland the user may have
+    /// picked another one in the portal's dialog; everywhere else it is the
+    /// combination's display string.
+    pub trigger: AzString,
+    pub owner: GlobalHotkeyOwner,
+}
+
+impl_option!(
+    GlobalHotkeyInfo,
+    OptionGlobalHotkeyInfo,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl_vec!(
+    GlobalHotkeyInfo,
+    GlobalHotkeyInfoVec,
+    GlobalHotkeyInfoVecDestructor,
+    GlobalHotkeyInfoVecDestructorType,
+    GlobalHotkeyInfoVecSlice,
+    OptionGlobalHotkeyInfo
+);
+impl_vec_clone!(
+    GlobalHotkeyInfo,
+    GlobalHotkeyInfoVec,
+    GlobalHotkeyInfoVecDestructor
+);
+impl_vec_mut!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_debug!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_partialeq!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_eq!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_partialord!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_ord!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+impl_vec_hash!(GlobalHotkeyInfo, GlobalHotkeyInfoVec);
+
+/// Where `hotkey` stands in a snapshot: its entry's status, or
+/// `NotRegistered` when the snapshot does not list it.
+#[must_use]
+pub fn status_in(snapshot: &[GlobalHotkeyInfo], hotkey: &GlobalHotkey) -> GlobalHotkeyStatus {
+    snapshot
+        .iter()
+        .find(|info| info.hotkey == *hotkey)
+        .map_or(GlobalHotkeyStatus::NotRegistered, |info| {
+            info.status.clone()
+        })
+}
+
+/// Pressed or released. The backends report presses today; `Released` is
+/// reserved for push-to-talk (open question Q5 of the design report).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum GlobalHotkeyState {
+    Pressed,
+    Released,
+}
+
+/// The press being delivered, readable from the fired callback
+/// (`CallbackInfo::get_global_hotkey_event`), so that one callback can serve
+/// several accelerators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GlobalHotkeyEvent {
+    pub hotkey: GlobalHotkey,
+    pub state: GlobalHotkeyState,
+    /// Milliseconds on the backend's clock; 0 where the OS gives none.
+    pub timestamp_ms: u64,
+}
+
+impl_option!(
+    GlobalHotkeyEvent,
+    OptionGlobalHotkeyEvent,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash]
+);
+
+// ---------------------------------------------------------------------------
+// The declaration recorder
+// ---------------------------------------------------------------------------
+
+/// More distinct global hotkeys than any real app declares; a callback
+/// exceeding this is generating them programmatically. The tail is dropped
+/// and the drain says so (`overflowed`).
+pub const GLOBAL_HOTKEY_DECLARATION_CAP: usize = 256;
+
+/// What one `layout()` (or `AppConfig` hotkeys callback) call declared,
+/// drained on the same thread right after it returns.
+#[derive(Debug, Clone, Default)]
+pub struct RecordedGlobalHotkeys {
+    /// One entry per accelerator; a duplicate replaced the earlier one.
+    pub declared: alloc::vec::Vec<GlobalHotkeyCallbackData>,
+    /// The call read a status: re-run it when a status changes.
+    pub read_status: bool,
+    /// More than [`GLOBAL_HOTKEY_DECLARATION_CAP`] declarations: the tail
+    /// was dropped.
+    pub overflowed: bool,
+}
+
+/// Thread-local recorder behind `LayoutCallbackInfo::add_global_hotkey` and
+/// [`GlobalHotkeysCallbackInfo::add_global_hotkey`].
+///
+/// A thread-local (rather than a field on the FFI-frozen, `Copy` info
+/// structs) for the reason the size-query and style-dependency recorders use
+/// one: the callback runs SYNCHRONOUSLY on the calling thread, and the engine
+/// drains what it declared right after it returns.
+#[cfg(feature = "std")]
+mod recorder {
+    use super::{GlobalHotkeyCallbackData, RecordedGlobalHotkeys, GLOBAL_HOTKEY_DECLARATION_CAP};
+
+    std::thread_local! {
+        static RECORDED: core::cell::RefCell<RecordedGlobalHotkeys> =
+            const {
+                core::cell::RefCell::new(RecordedGlobalHotkeys {
+                    declared: alloc::vec::Vec::new(),
+                    read_status: false,
+                    overflowed: false,
+                })
+            };
+    }
+
+    pub(super) fn declare(item: GlobalHotkeyCallbackData) {
+        RECORDED.with(|recorded| {
+            let mut recorded = recorded.borrow_mut();
+            let earlier = recorded
+                .declared
+                .iter()
+                .position(|d| d.hotkey == item.hotkey);
+            if let Some(index) = earlier {
+                // The last declaration of an accelerator wins.
+                recorded.declared.remove(index);
+            } else if recorded.declared.len() >= GLOBAL_HOTKEY_DECLARATION_CAP {
+                recorded.overflowed = true;
+                return;
+            }
+            recorded.declared.push(item);
+        });
+    }
+
+    pub(super) fn read_status() {
+        RECORDED.with(|recorded| recorded.borrow_mut().read_status = true);
+    }
+
+    pub(super) fn take() -> RecordedGlobalHotkeys {
+        RECORDED.with(|recorded| core::mem::take(&mut *recorded.borrow_mut()))
+    }
+}
+
+/// Record one declaration of the running callback.
+#[cfg(feature = "std")]
+pub(crate) fn record_declaration(item: GlobalHotkeyCallbackData) {
+    recorder::declare(item);
+}
+
+/// Without `std` there is no thread-local to record into, and no platform
+/// with global hotkeys: the declaration is accepted and dropped.
+#[cfg(not(feature = "std"))]
+pub(crate) fn record_declaration(_item: GlobalHotkeyCallbackData) {}
+
+/// Record that the running callback read a status.
+#[cfg(feature = "std")]
+pub(crate) fn record_status_read() {
+    recorder::read_status();
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn record_status_read() {}
+
+/// Drain what was declared since the last drain on THIS thread. Call right
+/// after a `layout()` / `AppConfig` hotkeys callback returns, on the same
+/// thread - and once right before it, to clear anything stale.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
+    recorder::take()
+}
+
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
+    RecordedGlobalHotkeys::default()
+}
+
+// ---------------------------------------------------------------------------
+// The AppConfig's derived set (apps with no window)
+// ---------------------------------------------------------------------------
+
+/// Derives the app-level global hotkeys from the app's state (the `RefAny`
+/// the `App` was created with), for an app with no `layout()` - a tray-only
+/// or background utility - or hotkeys that belong to no window. Declares
+/// through [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like
+/// `layout()` does through `LayoutCallbackInfo`.
+///
+/// Runs once when the app starts, again after any callback returns
+/// `Update::RefreshDom` / `RefreshDomAllWindows` (the only "the app state
+/// may have changed" signal there is), and when a status it read changes.
+/// Not on resize or theme changes: app-level hotkeys depend on no window.
+pub type GlobalHotkeysCallbackType = extern "C" fn(RefAny, GlobalHotkeysCallbackInfo);
+
+/// Wrapper around [`GlobalHotkeysCallbackType`] (see `AppConfig::
+/// with_global_hotkeys_callback`).
+#[repr(C)]
+pub struct GlobalHotkeysCallback {
+    pub cb: GlobalHotkeysCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl_callback!(GlobalHotkeysCallback, GlobalHotkeysCallbackType);
+
+impl GlobalHotkeysCallback {
+    #[must_use]
+    pub fn create(cb: GlobalHotkeysCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+// Host-invoker plumbing for managed-FFI bindings (see core/src/host_invoker.rs).
+crate::impl_managed_callback! {
+    wrapper:        GlobalHotkeysCallback,
+    info_ty:        GlobalHotkeysCallbackInfo,
+    return_ty:      (),
+    // unit default-return, spelled so clippy's unused_unit stays quiet.
+    default_ret:    Default::default(),
+    invoker_static: GLOBAL_HOTKEYS_CALLBACK_INVOKER,
+    invoker_ty:     AzGlobalHotkeysCallbackInvoker,
+    thunk_fn:       az_global_hotkeys_callback_thunk,
+    setter_fn:      AzApp_setGlobalHotkeysCallbackInvoker,
+    from_handle_fn: AzGlobalHotkeysCallback_createFromHostHandle,
+    from_handle_byref_fn: AzGlobalHotkeysCallback_createFromHostHandleByref,
+}
+
+impl_option!(
+    GlobalHotkeysCallback,
+    OptionGlobalHotkeysCallback,
+    copy = false,
+    [Debug, Clone]
+);
+
+/// What the `AppConfig`'s hotkeys callback is handed: the same declaring
+/// vocabulary as `LayoutCallbackInfo`, without a window.
+///
+/// `Copy` and pointer-sized like the other callback infos: it points at a
+/// snapshot the engine owns for the duration of the call.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct GlobalHotkeysCallbackInfo {
+    /// The app's global hotkeys when the call began (owner relative to the
+    /// app).
+    ref_data: *const GlobalHotkeyInfoVec,
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings.
+    callable_ptr: *const OptionRefAny,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut core::ffi::c_void,
+}
+
+impl fmt::Debug for GlobalHotkeysCallbackInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalHotkeysCallbackInfo")
+            .finish_non_exhaustive()
+    }
+}
+
+impl GlobalHotkeysCallbackInfo {
+    /// An info reading `snapshot`, which must outlive every use of it (the
+    /// engine builds it on the stack around one call).
+    #[must_use]
+    pub fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
+        Self {
+            ref_data: core::ptr::from_ref::<GlobalHotkeyInfoVec>(snapshot),
+            callable_ptr: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
+        }
+    }
+
+    /// Set the callable pointer for FFI language bindings.
+    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    #[must_use]
+    pub fn get_ctx(&self) -> OptionRefAny {
+        if self.callable_ptr.is_null() {
+            OptionRefAny::None
+        } else {
+            // SAFETY: set by `invoke` for the duration of the call.
+            unsafe { (*self.callable_ptr).clone() }
+        }
+    }
+
+    /// Declare that, in the current app state, `hotkey` is a system-wide
+    /// hotkey running `callback` with `data` - app-level, owned by no window.
+    /// Same rules as `LayoutCallbackInfo::add_global_hotkey`: the WHOLE
+    /// wanted set, the last duplicate wins, an unchanged accelerator is not
+    /// touched at the OS.
+    pub fn add_global_hotkey<C: Into<CoreCallback>>(
+        &self,
+        hotkey: GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        record_declaration(GlobalHotkeyCallbackData::create(
+            hotkey,
+            data,
+            callback.into(),
+        ));
+    }
+
+    /// [`Self::add_global_hotkey`] with the text the desktop shows for it.
+    pub fn add_global_hotkey_with_description<C: Into<CoreCallback>>(
+        &self,
+        hotkey: GlobalHotkey,
+        description: AzString,
+        data: RefAny,
+        callback: C,
+    ) {
+        record_declaration(GlobalHotkeyCallbackData {
+            hotkey,
+            description,
+            callback: callback.into(),
+            refany: data,
+        });
+    }
+
+    /// Where `hotkey` stood when this call began. RECORDED: a later status
+    /// change runs the callback once more.
+    #[must_use]
+    pub fn get_global_hotkey_status(&self, hotkey: GlobalHotkey) -> GlobalHotkeyStatus {
+        record_status_read();
+        if self.ref_data.is_null() {
+            return GlobalHotkeyStatus::NotRegistered;
+        }
+        // SAFETY: `ref_data` points at the engine's snapshot for this call.
+        let snapshot = unsafe { &*self.ref_data };
+        status_in(snapshot.as_ref(), &hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get.
+    /// RECORDED like [`Self::get_global_hotkey_status`].
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> GlobalHotkeyInfoVec {
+        record_status_read();
+        if self.ref_data.is_null() {
+            return GlobalHotkeyInfoVec::from_const_slice(&[]);
+        }
+        // SAFETY: as above.
+        unsafe { (*self.ref_data).clone() }
+    }
+}
+
+impl crate::host_invoker::HostCtxCarrier for GlobalHotkeysCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // Points at the wrapper's own `ctx`, which `invoke` borrows for the
+        // whole call.
+        self.set_callable_ptr(ctx);
+    }
+}
 
 impl_result!(
     GlobalHotkey,

@@ -2,19 +2,28 @@
 //! on a Mac, Ctrl+Alt+K elsewhere - that counts its presses and brings this
 //! window to the front, even while another app has the keyboard.
 //!
-//! Registered on a button press rather than at startup, so a scripted or
-//! headless run of the showcase never grabs a real key by surprise. The
-//! capability line says whether this desktop can do it at all (a Wayland
-//! desktop needs the `GlobalShortcuts` portal; iOS, Android and the web
-//! cannot).
+//! Declared FROM STATE, like the rest of the UI: `layout()` declares the
+//! hotkey while `enabled` is set (`LayoutCallbackInfo::add_global_hotkey`,
+//! the shape of `with_callback`), and the engine grabs, keeps or releases it
+//! to match. The button only flips `enabled`; there is no id to keep and no
+//! unregister call to forget. The status line reads the status IN
+//! `layout()`, so it updates by itself when the answer arrives (a Wayland
+//! desktop's approval dialog, another app taking the combination).
 //!
-//! Headless / AZ_E2E: `{ "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" }`
-//! presses it once it is registered (`Cmd+Shift+K` on a Mac host).
+//! Off at startup, so a scripted or headless run of the showcase never grabs
+//! a real key by surprise. The capability line says whether this desktop can
+//! do it at all (a Wayland desktop needs the `GlobalShortcuts` portal; iOS,
+//! Android and the web cannot).
+//!
+//! Headless / AZ_E2E: click "Enable Ctrl+Alt+K", then
+//! `{ "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" }` presses it
+//! (`Cmd+Shift+K` on a Mac host). `{ "op": "global_hotkey_answer", ...,
+//! "answer": "taken" }` before enabling makes the status read "taken" and
+//! shows the Retry button.
 
 use azul::{
-    app::{GlobalHotkey, GlobalHotkeyId, GlobalHotkeyStatus, HotkeyModifiers},
+    app::{GlobalHotkey, GlobalHotkeyStatus, HotkeyModifiers},
     dom::VirtualKeyCode,
-    error::ResultGlobalHotkeyIdGlobalHotkeyError,
     prelude::*,
     widgets::Button,
     window::PlatformCapability,
@@ -22,17 +31,13 @@ use azul::{
 
 use super::{captioned, labelled, section, Showcase};
 
-/// What the section shows; lives in `Showcase::hotkey`.
+/// What the section derives from; lives in `Showcase::hotkey`.
 #[derive(Clone, Default)]
 pub struct HotkeyDemo {
-    /// The live registration's id, `0` while none.
-    pub id: u32,
-    /// How often the hotkey fired.
+    /// The app WANTS the hotkey: `layout()` declares it while this is set.
+    pub enabled: bool,
+    /// How often the hotkey fired since it was enabled.
     pub fired: usize,
-    /// Where the registration stands, as the platform last answered.
-    pub status: String,
-    /// Why the last registration failed; empty when it did not.
-    pub error: String,
 }
 
 /// The platform's summon convention: Cmd leads on a Mac, where Cmd+Shift+K
@@ -70,21 +75,6 @@ fn demo_hotkey_label() -> &'static str {
     }
 }
 
-fn status_text(status: GlobalHotkeyStatus) -> (String, String) {
-    match status {
-        GlobalHotkeyStatus::Active => ("active".to_string(), String::new()),
-        GlobalHotkeyStatus::Pending => (
-            "waiting for the desktop to confirm the shortcut".to_string(),
-            String::new(),
-        ),
-        GlobalHotkeyStatus::Failed(e) => (
-            "refused".to_string(),
-            e.to_display_string().as_str().to_string(),
-        ),
-        GlobalHotkeyStatus::NotRegistered => ("not registered".to_string(), String::new()),
-    }
-}
-
 /// The hotkey fired - from any app. Count it and summon the window.
 extern "C" fn on_hotkey(mut data: RefAny, mut info: CallbackInfo) -> Update {
     match data.downcast_mut::<Showcase>() {
@@ -100,35 +90,27 @@ extern "C" fn on_hotkey(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Register / unregister the hotkey.
-extern "C" fn on_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    // The registration keeps its own handle on the app state, taken before
-    // the state is borrowed below.
-    let hotkey_data = data.clone();
+/// Enable / disable: flip the state; `layout()` declares (or stops
+/// declaring) and the engine grabs (or releases) to match.
+extern "C" fn on_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<Showcase>() else {
         return Update::DoNothing;
     };
     s.interactions += 1;
-    if s.hotkey.id != 0 {
-        let _ = info.unregister_global_hotkey(GlobalHotkeyId { id: s.hotkey.id });
-        s.hotkey.id = 0;
-        s.hotkey.status = "not registered".to_string();
-        s.hotkey.error.clear();
-        return Update::RefreshDom;
+    s.hotkey.enabled = !s.hotkey.enabled;
+    if s.hotkey.enabled {
+        s.hotkey.fired = 0;
     }
-    match info.register_global_hotkey(demo_hotkey(), hotkey_data, on_hotkey) {
-        ResultGlobalHotkeyIdGlobalHotkeyError::Ok(id) => {
-            s.hotkey.id = id.id;
-            s.hotkey.fired = 0;
-            let (status, error) = status_text(info.get_global_hotkey_status(id));
-            s.hotkey.status = status;
-            s.hotkey.error = error;
-        }
-        ResultGlobalHotkeyIdGlobalHotkeyError::Err(e) => {
-            s.hotkey.status = "not registered".to_string();
-            s.hotkey.error = e.to_display_string().as_str().to_string();
-        }
+    Update::RefreshDom
+}
+
+/// A failure is sticky - an ordinary relayout never asks the OS (or shows a
+/// Wayland dialog) again - until the app asks for a retry.
+extern "C" fn on_retry(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.interactions += 1;
     }
+    info.retry_global_hotkey(demo_hotkey());
     Update::RefreshDom
 }
 
@@ -136,10 +118,26 @@ fn text(s: String) -> Dom {
     Dom::create_span_with_text(s).with_css("color: system:text;")
 }
 
-/// The section. Reads the capability on every layout: the probe is cached
-/// after the first call.
-pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo) -> Dom {
+/// The section. Called from `layout()`, which is where the hotkey is
+/// declared: `info` is that layout's info. Reads the capability on every
+/// layout: the probe is cached after the first call.
+pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo, info: &LayoutCallbackInfo) -> Dom {
     let label = demo_hotkey_label();
+
+    // The hotkey is part of what this state renders - declared here, the
+    // way a button's `with_on_click` is. Not declaring it releases it.
+    if demo.enabled {
+        info.add_global_hotkey_with_description(
+            demo_hotkey(),
+            "Bring AzWidgets to the front".into(),
+            data.clone(),
+            on_hotkey,
+        );
+    }
+    // Read in layout(): when the status moves, this layout runs again by
+    // itself, so the line below is never stale.
+    let status = info.get_global_hotkey_status(demo_hotkey());
+
     let capability = PlatformCapability::global_hotkeys();
     let capability_line = if capability.available {
         format!("available - {}", capability.backend.as_str())
@@ -151,38 +149,49 @@ pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo) -> Dom {
         )
     };
 
-    let registered = demo.id != 0;
-    let button = Button::create(if registered {
-        format!("Unregister {label}")
+    let toggle = Button::create(if demo.enabled {
+        format!("Disable {label}")
     } else {
-        format!("Register {label}")
+        format!("Enable {label}")
     })
     .with_on_click(data.clone(), on_toggle)
     .dom();
 
-    let status_line = if !demo.error.is_empty() {
-        format!("{label}: {}", demo.error)
-    } else if registered {
-        format!(
-            "{label} is {} - press it from any app to bump the counter and bring this window \
-             to the front",
-            demo.status
-        )
-    } else {
-        format!("{label} is not registered")
+    let (status_line, failed) = match status {
+        GlobalHotkeyStatus::Active => (
+            format!(
+                "{label} is active - press it from any app to bump the counter and bring this \
+                 window to the front"
+            ),
+            false,
+        ),
+        GlobalHotkeyStatus::Pending => (
+            format!("{label}: waiting for the desktop to confirm the shortcut"),
+            false,
+        ),
+        GlobalHotkeyStatus::Failed(e) => (
+            format!("{label}: {}", e.to_display_string().as_str()),
+            true,
+        ),
+        GlobalHotkeyStatus::NotRegistered => (format!("{label} is off"), false),
     };
 
-    section(
-        "Global hotkey",
-        vec![
-            labelled("Capability", text(capability_line)),
-            // The button is named by its own text ("Register Cmd+Shift+K").
-            captioned("Registration", button),
-            labelled("Status", text(status_line)),
-            labelled(
-                "Fired",
-                text(format!("{} time(s) since it was registered", demo.fired)),
-            ),
-        ],
-    )
+    let mut rows = vec![
+        labelled("Capability", text(capability_line)),
+        labelled("Hotkey", toggle),
+        labelled("Status", text(status_line)),
+    ];
+    if failed {
+        rows.push(labelled(
+            "Refused",
+            Button::create(format!("Retry {label}"))
+                .with_on_click(data.clone(), on_retry)
+                .dom(),
+        ));
+    }
+    rows.push(labelled(
+        "Fired",
+        text(format!("{} time(s) since it was enabled", demo.fired)),
+    ));
+    section("Global hotkey", rows)
 }

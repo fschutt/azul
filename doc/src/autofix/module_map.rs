@@ -569,8 +569,9 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),
-    // System-wide hotkeys are APP-wide registrations (never per window), so
-    // they sit beside `App`. Without the entry "GLobalHotkey" contains the
+    // System-wide hotkeys are grabbed for the APP (one App-owned manager,
+    // whatever window declares them), so they sit beside `App` and
+    // `AppConfig`. Without the entry "GLobalHotkey" contains the
     // OpenGL module's own name and every one of them was filed under `gl`.
     // Spelled "GlobalHotkey", NOT "Global" - fifth word-boundary trap (see
     // Tablet/Table, Dial/Dialog, Hid/Hidpi, Media/MediaType below); nothing
@@ -1397,6 +1398,16 @@ mod tests {
             "GlobalHotkeyId",
             "GlobalHotkeyStatus",
             "HotkeyModifiers",
+            // The declarative API (2026-09-28): the plural "GlobalHotkeys"
+            // of the AppConfig callback is still the same prefix.
+            "GlobalHotkeyCallbackData",
+            "GlobalHotkeyInfo",
+            "GlobalHotkeyOwner",
+            "GlobalHotkeyState",
+            "GlobalHotkeyEvent",
+            "GlobalHotkeysCallback",
+            "GlobalHotkeysCallbackInfo",
+            "GlobalHotkeysCallbackType",
         ] {
             let (module, is_warning) = determine_module(name);
             assert_eq!(module, "app", "{name} must resolve to app");
@@ -1404,10 +1415,13 @@ mod tests {
         }
         assert_eq!(determine_module("GlobalHotkeyError").0, "error");
         assert_eq!(
-            determine_module("ResultGlobalHotkeyIdGlobalHotkeyError").0,
+            determine_module("ResultGlobalHotkeyGlobalHotkeyError").0,
             "error"
         );
-        assert_eq!(determine_module("OptionGlobalHotkeyId").0, "option");
+        assert_eq!(determine_module("GlobalHotkeyInfoVec").0, "vec");
+        assert_eq!(determine_module("GlobalHotkeyCallbackDataVec").0, "vec");
+        assert_eq!(determine_module("OptionGlobalHotkeyEvent").0, "option");
+        assert_eq!(determine_module("OptionGlobalHotkeysCallback").0, "option");
         // Spelled "GlobalHotkey", not "Global": the fifth word-boundary trap
         // this table would otherwise have grown.
         assert_eq!(difficult_type_module("GlobalCss"), None);

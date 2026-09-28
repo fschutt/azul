@@ -863,6 +863,13 @@ pub enum CallbackChange {
     /// `desktop::extra::window_activation` in the dll).
     RaiseWindow,
 
+    // Global hotkeys
+    /// Forget the remembered failure of `hotkey` so the next sync asks the
+    /// OS again (`CallbackInfo::retry_global_hotkey`).
+    RetryGlobalHotkey {
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+    },
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -1993,57 +2000,50 @@ impl CallbackInfo {
         self.push_change(CallbackChange::RaiseWindow);
     }
 
-    /// Register a SYSTEM-WIDE hotkey: `callback` runs with `data` whenever
-    /// the combination is pressed, even while another application has the
-    /// keyboard focus.
+    /// Where `hotkey` stands NOW, app-wide: `Active`, `Pending` (the desktop
+    /// has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`. Live, unlike `LayoutCallbackInfo::
+    /// get_global_hotkey_status`, which reads the snapshot its pass began
+    /// with.
     ///
-    /// App-wide, not per window: every platform grabs a hotkey for the
-    /// process, so the callback runs against the app's most recently focused
-    /// window, else its oldest (the tray's clicks take the same route), and
-    /// the registration outlives the window that made it. Call
-    /// [`Self::raise_window`] from the callback to bring the app forward.
-    ///
-    /// Answered NOW: `Err` when the combination is not a usable hotkey
-    /// (`InvalidAccelerator` - e.g. a bare letter, which would swallow typing
-    /// everywhere), this app holds it already (`AlreadyRegistered`), another
-    /// application or the system owns it (`TakenByAnotherApp`), or the
-    /// platform has no global hotkeys (`Unsupported` / `Unavailable`). On a
-    /// Wayland desktop the portal may still ask the user, so a registration
-    /// can be `Pending` and later `Failed` - see
-    /// [`Self::get_global_hotkey_status`].
-    ///
-    /// # Errors
-    /// See above.
-    pub fn register_global_hotkey(
-        &mut self,
-        hotkey: azul_core::global_hotkey::GlobalHotkey,
-        data: RefAny,
-        callback: CoreCallback,
-    ) -> azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError {
-        crate::managers::global_hotkey::register(
-            hotkey,
-            azul_core::menu::CoreMenuCallback {
-                refany: data,
-                callback,
-            },
-        )
-        .into()
-    }
-
-    /// Release a global hotkey. Returns whether `id` was registered.
-    pub fn unregister_global_hotkey(&mut self, id: azul_core::global_hotkey::GlobalHotkeyId) -> bool {
-        crate::managers::global_hotkey::unregister(id)
-    }
-
-    /// Where a global-hotkey registration stands: `Active`, `Pending` (the
-    /// desktop has not answered yet - Wayland), `Failed` with the reason, or
-    /// `NotRegistered`.
+    /// Global hotkeys are declared from state in `layout()`
+    /// (`LayoutCallbackInfo::add_global_hotkey`); an event callback changes
+    /// the state and returns `Update::RefreshDom`.
     #[must_use]
     pub fn get_global_hotkey_status(
         &self,
-        id: azul_core::global_hotkey::GlobalHotkeyId,
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
     ) -> azul_core::global_hotkey::GlobalHotkeyStatus {
-        crate::managers::global_hotkey::status(id)
+        self.get_layout_window()
+            .global_hotkeys
+            .shared()
+            .status(&hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get,
+    /// with its status, the trigger the desktop shows, and its owner
+    /// relative to this callback's window. Live.
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> azul_core::global_hotkey::GlobalHotkeyInfoVec {
+        let window = &self.get_layout_window().global_hotkeys;
+        window.shared().snapshot_for(window.source())
+    }
+
+    /// The press being delivered - which accelerator, pressed or released,
+    /// when - while a global hotkey's own callback runs, so one callback can
+    /// serve several accelerators. `None` in every other callback.
+    #[must_use]
+    pub fn get_global_hotkey_event(&self) -> azul_core::global_hotkey::OptionGlobalHotkeyEvent {
+        crate::managers::global_hotkey::delivered_event().into()
+    }
+
+    /// Ask the OS for `hotkey` again although it failed (another app held
+    /// it, the Wayland dialog was declined): failures are sticky - never
+    /// re-asked by an ordinary relayout - until this. Applied after the
+    /// callback returns; a `layout()` that reads the status runs again when
+    /// the answer arrives.
+    pub fn retry_global_hotkey(&mut self, hotkey: azul_core::global_hotkey::GlobalHotkey) {
+        self.push_change(CallbackChange::RetryGlobalHotkey { hotkey });
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -8620,6 +8620,82 @@ mod autotest_generated {
         }));
     }
 
+    fn summon_key() -> azul_core::global_hotkey::GlobalHotkey {
+        azul_core::global_hotkey::GlobalHotkey {
+            modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            key: azul_core::window::VirtualKeyCode::K,
+        }
+    }
+
+    /// An EVENT callback reads the LIVE manager (not a layout snapshot):
+    /// what this window declared is `Active` and owned by this window, what
+    /// nobody declared is `NotRegistered`.
+    #[test]
+    fn callback_info_reads_the_live_global_hotkey_status_by_accelerator() {
+        use azul_core::global_hotkey::{GlobalHotkeyCallbackData, GlobalHotkeyOwner, GlobalHotkeyStatus};
+        with_info(node_none(), |info| {
+            let window = &info.get_layout_window().global_hotkeys;
+            window.shared().install_simulated_backend();
+            window.shared().declare(
+                window.source(),
+                vec![GlobalHotkeyCallbackData::create(
+                    summon_key(),
+                    RefAny::new(()),
+                    CoreCallback {
+                        cb: 1,
+                        ctx: OptionRefAny::None,
+                    },
+                )],
+                false,
+            );
+            let _ = window.shared().sync();
+
+            assert_eq!(
+                info.get_global_hotkey_status(summon_key()),
+                GlobalHotkeyStatus::Active
+            );
+            let mut other = summon_key();
+            other.key = azul_core::window::VirtualKeyCode::J;
+            assert_eq!(
+                info.get_global_hotkey_status(other),
+                GlobalHotkeyStatus::NotRegistered
+            );
+            let infos = info.get_global_hotkeys();
+            assert_eq!(infos.len(), 1);
+            assert_eq!(infos.as_ref()[0].owner, GlobalHotkeyOwner::ThisWindow);
+        });
+    }
+
+    /// `get_global_hotkey_event()` is `Some` exactly while a global hotkey's
+    /// own callback runs - how one callback serving several accelerators
+    /// tells them apart - and `None` in any other callback.
+    #[test]
+    fn the_global_hotkey_event_is_only_readable_inside_the_fired_callback() {
+        use azul_core::global_hotkey::{GlobalHotkeyEvent, GlobalHotkeyState, OptionGlobalHotkeyEvent};
+        let event = GlobalHotkeyEvent {
+            hotkey: summon_key(),
+            state: GlobalHotkeyState::Pressed,
+            timestamp_ms: 42,
+        };
+        with_info(node_none(), |info| {
+            assert_eq!(info.get_global_hotkey_event(), OptionGlobalHotkeyEvent::None);
+            let inside = crate::managers::global_hotkey::with_delivered_event(event, || {
+                info.get_global_hotkey_event()
+            });
+            assert_eq!(inside, OptionGlobalHotkeyEvent::Some(event));
+            assert_eq!(
+                info.get_global_hotkey_event(),
+                OptionGlobalHotkeyEvent::None,
+                "the event does not outlive its callback"
+            );
+        });
+    }
+
     #[test]
     fn callback_info_flag_mutators_queue_exactly_one_matching_change() {
         macro_rules! assert_queues {
@@ -8674,6 +8750,19 @@ mod autotest_generated {
         assert_queues!(
             |i: &mut CallbackInfo| i.raise_window(),
             CallbackChange::RaiseWindow
+        );
+        // "Ctrl+Alt+K is taken - Retry": the only way past a sticky failure.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.retry_global_hotkey(azul_core::global_hotkey::GlobalHotkey {
+                modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                    ctrl: true,
+                    alt: true,
+                    shift: false,
+                    meta: false,
+                },
+                key: azul_core::window::VirtualKeyCode::K,
+            }),
+            CallbackChange::RetryGlobalHotkey { .. }
         );
         assert_queues!(
             |i: &mut CallbackInfo| i.commit_undo_snapshot(),

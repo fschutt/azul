@@ -1919,6 +1919,17 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
         0x76 => Some(VirtualKeyCode::F4),
         0x7A => Some(VirtualKeyCode::F1),
         0x78 => Some(VirtualKeyCode::F2),
+        // The extended function row (`kVK_F13`..`kVK_F20`, Events.h), just as
+        // scattered. Also what the Carbon global-hotkey backend inverts: a
+        // missing arm made every F13..F20 hotkey `KeyNotMappable`.
+        0x69 => Some(VirtualKeyCode::F13),
+        0x6B => Some(VirtualKeyCode::F14),
+        0x71 => Some(VirtualKeyCode::F15),
+        0x6A => Some(VirtualKeyCode::F16),
+        0x40 => Some(VirtualKeyCode::F17),
+        0x4F => Some(VirtualKeyCode::F18),
+        0x50 => Some(VirtualKeyCode::F19),
+        0x5A => Some(VirtualKeyCode::F20),
         // Navigation cluster. These emit Private-Use-Area characters
         // (U+F700..U+F7FF), which handle_key_down correctly refuses to insert as
         // text — so without an entry here they produced no engine event AT ALL.
@@ -7084,6 +7095,17 @@ pub trait PlatformWindow {
                         "[azul] raise_window() declined by the platform for window {}",
                         self.registry_window_id(),
                     );
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Global hotkeys ===
+            // Forget the sticky failure; the loop's next hotkey pump syncs,
+            // asks the OS again, and re-runs the `layout()` passes that read
+            // the status once the answer arrives.
+            CallbackChange::RetryGlobalHotkey { hotkey } => {
+                if let Some(lw) = self.get_layout_window() {
+                    lw.global_hotkeys.shared().retry(*hotkey);
                 }
                 ProcessEventResult::DoNothing
             }
