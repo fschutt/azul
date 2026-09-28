@@ -29,6 +29,9 @@ file is deleted in that last commit.
     (registered) - 4 REDs + 1 guard.
   - dc1265537 fix: `extend_document_selection` + `step_document_focus` in
     window.rs, hooked in `apply_selection_op_for_seat` (primary, Extend).
+- Task 3 (collapse -> open_session):
+  - 2e13ff81a test: `layout/tests/an_arrow_collapses_a_document_selection_like_a_click.rs`
+  - d84026094 fix.
 
 ## IN PROGRESS
 
@@ -36,8 +39,6 @@ file is deleted in that last commit.
 
 ## NEXT (in order)
 
-3. Task 3: RED (tween.focus_scope after the collapse) + fix:
-   `collapse_document_selection_for_move` -> `open_session`.
 4. Task 4: RED (synthetic hover hit on the text leaf "Item" beside a block,
    click `position` far away) + fix: hover path resolves via
    `LayoutTree::owning_ifc_root` + `text_target_at_layout_index`; anonymous
