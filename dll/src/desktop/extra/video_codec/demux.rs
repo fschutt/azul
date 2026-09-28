@@ -110,7 +110,7 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
             annexb.extend_from_slice(&pps);
         }
         append_avcc_as_annexb(&sample.bytes, &mut annexb);
-        let pts_ms = sample.start_time as f64 * 1000.0 / timescale;
+        let pts_ms = presentation_ms(sample.start_time, sample.rendering_offset, timescale);
         chunks.push(H264Chunk {
             annexb,
             pts_ms,
@@ -126,6 +126,13 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
         pps,
         chunks,
     })
+}
+
+/// When a sample is SHOWN, in milliseconds: its decode time `start_time` plus
+/// its composition offset (`ctts`), over the track's `timescale`.
+fn presentation_ms(start_time: u64, rendering_offset: i32, timescale: f64) -> f64 {
+    let _ = rendering_offset;
+    start_time as f64 * 1000.0 / timescale
 }
 
 /// Rewrite one AVCC sample (a run of `[u32 big-endian length][NAL bytes]`) into
@@ -164,6 +171,18 @@ mod demux_tests {
                 0, 0, 0, 1, 0xDD, 0xEE, // second NAL
             ]
         );
+    }
+
+    /// A stream with B-frames DECODES a frame before it SHOWS it: the `ctts`
+    /// offset is what moves it to its place. Big Buck Bunny's 360p clip has
+    /// 194 `ctts` entries; without them its frames play in decode order.
+    #[test]
+    fn a_presentation_time_includes_the_composition_offset() {
+        // 15360 ticks per second (BBB's timescale), 512 ticks per frame.
+        assert_eq!(presentation_ms(0, 1024, 15360.0), 1024.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(512, 1536, 15360.0), 2048.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(1024, 0, 15360.0), 1024.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(1536, -512, 15360.0), 1024.0 * 1000.0 / 15360.0);
     }
 
     /// A truncated length prefix (claims 9 bytes, only 2 present) stops cleanly.

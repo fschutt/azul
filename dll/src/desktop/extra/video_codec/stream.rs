@@ -376,3 +376,95 @@ fn fetch_ranged(url: &str, client: &azul_layout::http::OptionHttpClient) -> Opti
         ResultU8VecHttpError::Err(_) => None,
     }
 }
+
+#[cfg(test)]
+mod stream_tests {
+    use std::sync::{mpsc::channel, Mutex, PoisonError};
+
+    use azul_core::{
+        refany::RefAny,
+        task::{
+            OptionThreadSendMsg, ThreadReceiver, ThreadReceiverDestructorCallback,
+            ThreadReceiverInner, ThreadRecvCallback, ThreadSendMsg,
+        },
+        video::{VideoConfig, VideoPhase, VideoSource, VideoStatus},
+    };
+    use azul_layout::{
+        http::OptionHttpClient,
+        thread::{
+            ThreadReceiveMsg, ThreadSendCallback, ThreadSender, ThreadSenderDestructorCallback,
+            ThreadSenderInner,
+        },
+        widgets::video::VideoDecodeInit,
+    };
+
+    /// Every `VideoStatus` the worker wrote back. A send callback is a plain
+    /// C fn pointer, so a static is the only place it can put them.
+    static STATUSES: Mutex<Vec<VideoStatus>> = Mutex::new(Vec::new());
+
+    extern "C" fn record_status(_sender: *const core::ffi::c_void, msg: ThreadReceiveMsg) -> bool {
+        if let ThreadReceiveMsg::WriteBack(mut wb) = msg {
+            if let Some(status) = wb.refany.downcast_ref::<VideoStatus>() {
+                STATUSES
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push((*status).clone());
+            }
+        }
+        true
+    }
+
+    extern "C" fn sender_drop_noop(_: *mut ThreadSenderInner) {}
+    extern "C" fn receiver_drop_noop(_: *mut ThreadReceiverInner) {}
+
+    /// Answers every poll with "terminate": a worker that waits for a retry
+    /// after a failure returns at once instead of hanging the test.
+    extern "C" fn recv_terminate(_: *const core::ffi::c_void) -> OptionThreadSendMsg {
+        OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread)
+    }
+
+    /// A video that cannot play says why. Four bytes are no MP4: whichever
+    /// way this build fails - no decoder compiled in, or a demux error - the
+    /// widget must hear a `Failed` status with a message for the user, not
+    /// silence. Silence was all it got: the worker returned without a word,
+    /// and on macOS it was compiled out entirely, so the AzWidgets video card
+    /// could only ever show a grey tile.
+    #[test]
+    fn a_video_that_cannot_play_says_why() {
+        let (tx, _rx) = channel::<ThreadReceiveMsg>();
+        let sender = ThreadSender::new(ThreadSenderInner {
+            ptr: Box::new(tx),
+            send_fn: ThreadSendCallback { cb: record_status },
+            destructor: ThreadSenderDestructorCallback {
+                cb: sender_drop_noop,
+            },
+        });
+        let (_ctl, ctl_rx) = channel::<ThreadSendMsg>();
+        let recv = ThreadReceiver::new(ThreadReceiverInner {
+            ptr: Box::new(ctl_rx),
+            recv_fn: ThreadRecvCallback { cb: recv_terminate },
+            destructor: ThreadReceiverDestructorCallback {
+                cb: receiver_drop_noop,
+            },
+        });
+        let init = RefAny::new(VideoDecodeInit {
+            config: VideoConfig::new(VideoSource::Bytes(vec![0xde_u8, 0xad, 0xbe, 0xef].into())),
+            client: OptionHttpClient::None,
+        });
+
+        super::video_decode_worker(init, sender, recv);
+
+        let statuses = STATUSES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let failed = statuses
+            .iter()
+            .find(|s| s.phase == VideoPhase::Failed)
+            .unwrap_or_else(|| panic!("no Failed status, the worker reported only {statuses:?}"));
+        assert!(
+            !failed.message.as_str().is_empty(),
+            "a failure must say why, in words for the user"
+        );
+    }
+}
