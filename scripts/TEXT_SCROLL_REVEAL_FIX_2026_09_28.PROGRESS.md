@@ -50,7 +50,9 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 
 ## IN PROGRESS (next)
 
-- M3 refactor: extract `LayoutWindow::drag_autoscroll_box(anchor)` (behaviour preserving).
+- e38569fe1 refactor M3: `LayoutWindow::drag_autoscroll_box(anchor)` (old rule), dll timer calls it.
+- 0b4d797d2 test RED M3: `a_selection_drag_autoscrolls_the_box_its_text_scrolls_in.rs` (registered).
+- M3 FIX in progress: `TextTarget::scroll_box(&LayoutWindow)` + `LayoutWindow::scroll_box_of_layout_node`; drag_autoscroll_box prefers the session text target during a text drag; reveal uses it; timer edge box via `scroll_manager.ancestor_scroll_offset`.
 
 ## NEXT (in order)
 
