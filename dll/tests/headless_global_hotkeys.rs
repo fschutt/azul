@@ -313,6 +313,9 @@ fn a_status_read_costs_exactly_one_extra_layout() {
     let _ = window.common.take_regeneration();
 
     window.regenerate_layout().expect("the status-driven layout");
+    // Only what the PUMP asks for is under test: retire anything the pass
+    // itself left pending.
+    let _ = window.common.take_regeneration();
     let _ = azul::desktop::global_hotkey::pump_headless(&mut window);
     assert!(
         !window.common.regeneration_pending(),
