@@ -22,8 +22,12 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 - 89860e79c FIX bug 2b: radio_group.rs const NO_SHRINK (flex-shrink 0) on circle + both dots.
   Open: check_box / switch / other fixed-size indicators have no flex-shrink 0 either.
 
+- 78b89ad04 RED bug 4: cfg(test) BOX_ANCHOR_CALLS thread-local in scroll_chain.rs box_anchor; a11y.rs
+  test `the_a11y_tree_places_its_nodes_with_linear_scroll_chain_work` (60-deep chain, today 1953
+  calls, bound 2 * 62).
+
 ## IN PROGRESS
-- RED bug 4 (a11y per-node ScrollChain::of).
+- FIX bug 4: a11y update_tree uses ScrollChains::compute once per dom.
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
