@@ -7764,6 +7764,47 @@ impl LayoutWindow {
                     tier: ContentDirtyTier::Unchanged,
                 };
             };
+            // The box's laid-out size in the box `box-sizing` measures
+            // lengths in: where a size tween from `auto` starts
+            // (`size_transition_start`).
+            let laid_out_size: Option<LogicalSize> = {
+                let tree = &layout_result.layout_tree;
+                tree.dom_to_layout
+                    .get(&node_id)
+                    .and_then(|boxes| boxes.first())
+                    .and_then(|idx| tree.get(*idx))
+                    .and_then(|hot| {
+                        let size = hot.used_size?;
+                        let border_box = matches!(
+                            crate::solver3::getters::get_css_box_sizing(
+                                &layout_result.styled_dom,
+                                node_id,
+                                &state.styled_node_state,
+                            ),
+                            crate::solver3::getters::MultiValue::Exact(
+                                azul_css::props::layout::LayoutBoxSizing::BorderBox
+                            )
+                        );
+                        if border_box {
+                            return Some(size);
+                        }
+                        let bp = hot.box_props.unpack();
+                        Some(LogicalSize {
+                            width: (size.width
+                                - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right)
+                                .max(0.0),
+                            height: (size.height
+                                - bp.padding.top
+                                - bp.padding.bottom
+                                - bp.border.top
+                                - bp.border.bottom)
+                                .max(0.0),
+                        })
+                    })
+            };
             let anims = cache
                 .get_property(
                     nd,
@@ -7803,6 +7844,12 @@ impl LayoutWindow {
                             .get_property(nd, &node_id, &state.styled_node_state, &ty)
                             .cloned()
                             .unwrap_or_else(|| azul_css::props::property::CssProperty::auto(ty));
+                        if from == *prop {
+                            return None;
+                        }
+                        // `auto` -> a length starts at the laid-out size -
+                        // where there may be nothing left to walk.
+                        let from = size_transition_start(&from, prop, laid_out_size).unwrap_or(from);
                         if from == *prop {
                             return None;
                         }
@@ -25690,6 +25737,49 @@ pub struct CssTransition {
     /// patch's from-match). `None` until the first patched tick — then the
     /// `from` endpoint's colour.
     pub last_color: Option<azul_css::props::basic::color::ColorU>,
+}
+
+/// Where a `width` / `height` transition toward a LENGTH starts when the
+/// value it starts from is not one - `auto`, `min-content`, a `calc`, an
+/// unset property: at the box's laid-out size (`laid_out`, in the box
+/// `box-sizing` measures lengths in). `None` leaves `from` as it is.
+///
+/// An intrinsic keyword does not interpolate against a length:
+/// `LayoutHeight::interpolate` holds it until the midpoint and then jumps.
+/// So a section that collapses from its content height (`height: auto` ->
+/// `0px`) stood still for half the tween and vanished - it is what an
+/// accordion closing is. Browsers start such a transition at the used size
+/// too (`interpolate-size: allow-keywords`).
+fn size_transition_start(
+    from: &azul_css::props::property::CssProperty,
+    to: &azul_css::props::property::CssProperty,
+    laid_out: Option<LogicalSize>,
+) -> Option<azul_css::props::property::CssProperty> {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            layout::{LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    let size = laid_out?;
+    match (from, to) {
+        (CssProperty::Height(start), CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(_))))
+            if !matches!(start, CssPropertyValue::Exact(LayoutHeight::Px(_))) =>
+        {
+            Some(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::px(
+                size.height,
+            ))))
+        }
+        (CssProperty::Width(start), CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(_))))
+            if !matches!(start, CssPropertyValue::Exact(LayoutWidth::Px(_))) =>
+        {
+            Some(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(
+                size.width,
+            ))))
+        }
+        _ => None,
+    }
 }
 
 /// A colour-carrying paint transition prop: `(colour, is_text)` —
