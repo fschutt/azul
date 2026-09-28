@@ -2954,6 +2954,21 @@ impl HeadlessWindow {
                             );
                             self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                         }
+
+                        // HARNESS PARITY: every native backend runs the event
+                        // pass right after recording a wheel step (macOS
+                        // `handle_scroll_wheel` → `process_window_events(0)`,
+                        // the shared wheel arm). This arm recorded and never
+                        // ran it, so the `Scroll` event never fired here and
+                        // a defect that only a wheel PASS triggers - the tail
+                        // revealing the caret on a pass that typed nothing -
+                        // could not be reproduced headlessly.
+                        self.snapshot_window_state_baseline("headless.run.scroll");
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
                     }
                 }
             }

@@ -1287,18 +1287,10 @@ impl Runner {
                 .iter()
                 .any(|c| matches!(c, SystemChange::ApplyPendingTextInput))
             {
-                let changeset_result = self.layout_window.apply_text_changeset();
-                if !changeset_result.dirty_nodes.is_empty() {
-                    result = result.max(if changeset_result.needs_relayout {
-                        ProcessEventResult::ShouldIncrementalRelayout
-                    } else {
-                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                    });
-                    self.layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
-                }
+                // The shells' tail, not a port of it: land the pending
+                // edits and reveal the caret only when one landed.
+                let landed = self.layout_window.apply_pending_text_and_reveal();
+                result = result.max(landed.event_result());
             } else if prevent_default {
                 // A vetoed edit must DIE, not wait: the pending record would
                 // otherwise survive into the next pass, whose unconditional
@@ -3487,19 +3479,8 @@ impl Runner {
                     result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                 }
 
-                let changeset_result = self.layout_window.apply_text_changeset();
-                if !changeset_result.dirty_nodes.is_empty() {
-                    result = result.max(if changeset_result.needs_relayout {
-                        ProcessEventResult::ShouldIncrementalRelayout
-                    } else {
-                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                    });
-                    self.layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
-                }
-                result
+                let landed = self.layout_window.apply_pending_text_and_reveal();
+                result.max(landed.event_result())
             }
 
             // The runner mounts XML documents; it never invokes a layout
@@ -3973,19 +3954,10 @@ impl Runner {
                         old_text,
                         TextInputSource::Keyboard,
                     );
-                    let changeset_result = self.layout_window.apply_text_changeset();
-                    let mut r = ProcessEventResult::DoNothing;
-                    if !changeset_result.dirty_nodes.is_empty() {
-                        r = if changeset_result.needs_relayout {
-                            ProcessEventResult::ShouldIncrementalRelayout
-                        } else {
-                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                        };
-                        self.layout_window.scroll_selection_into_view(
-                            azul_layout::window::SelectionScrollType::Cursor,
-                            azul_layout::window::ScrollMode::Instant,
-                        );
-                    }
+                    let r = self
+                        .layout_window
+                        .apply_pending_text_and_reveal()
+                        .event_result();
                     // Applied outside the record pipeline's event window —
                     // owe the host its Input dispatch (drained at pass tail).
                     self.layout_window

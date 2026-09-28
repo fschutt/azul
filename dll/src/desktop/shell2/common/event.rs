@@ -7015,22 +7015,12 @@ pub trait PlatformWindow {
                     return result;
                 }
 
-                // Apply text changeset
+                // Land the changeset and reveal the caret if it landed - the
+                // one tail every text-input path shares. A size change asks
+                // for the incremental relayout (scroll container update).
                 if let Some(lw) = self.get_layout_window_mut() {
-                    let changeset_result = lw.apply_text_changeset();
-                    if !changeset_result.dirty_nodes.is_empty() {
-                        if changeset_result.needs_relayout {
-                            // Text size changed — need full re-layout for scroll container update
-                            result = result.max(ProcessEventResult::ShouldIncrementalRelayout);
-                        } else {
-                            result = result
-                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                        }
-                        lw.scroll_selection_into_view(
-                            azul_layout::window::SelectionScrollType::Cursor,
-                            azul_layout::window::ScrollMode::Instant,
-                        );
-                    }
+                    let landed = lw.apply_pending_text_and_reveal();
+                    result = result.max(landed.event_result());
                 }
 
                 result
@@ -11795,20 +11785,27 @@ pub trait PlatformWindow {
         }
 
         // POST-CALLBACK TEXT INPUT PROCESSING
-        // ApplyPendingTextInput signals that text was entered (keyboard/IME).
-        // When present, apply the text changeset and scroll cursor into view.
+        // `ApplyPendingTextInput` is pushed on EVERY pass that was not
+        // `prevent_default`ed - it means "land whatever is pending", not "text
+        // was entered". So the caret reveal must be gated on an edit actually
+        // landing: revealing unconditionally here scrolled a TextArea back to
+        // its caret on every wheel, momentum and mouse-move pass after the
+        // user had scrolled away from it. ONE LayoutWindow method, shared with
+        // the e2e runner, so the two hosts cannot disagree again.
         let should_apply_text_input = post_system_changes
             .iter()
             .any(|c| matches!(c, SystemChange::ApplyPendingTextInput));
 
         if should_apply_text_input {
-            let r = self.apply_system_change(&SystemChange::ApplyTextChangeset);
-            result = result.max(r);
-
-            let r = self.apply_system_change(&SystemChange::ScrollCursorIntoViewAfterTextInput);
-            result = result.max(r);
-            if r >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                should_recurse = true;
+            let landed = self
+                .get_layout_window_mut()
+                .map(|lw| lw.apply_pending_text_and_reveal());
+            if let Some(landed) = landed {
+                result = result.max(landed.event_result());
+                if landed.revealed {
+                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    should_recurse = true;
+                }
             }
         } else if prevent_default {
             // A vetoed edit must DIE, not wait: the pending record would
@@ -12101,13 +12098,19 @@ pub trait PlatformWindow {
                                             );
                                         }
                                     }
-                                    let r =
-                                        self.apply_system_change(&SystemChange::ApplyTextChangeset);
-                                    result = result.max(r);
-                                    let r = self.apply_system_change(
-                                        &SystemChange::ScrollCursorIntoViewAfterTextInput,
-                                    );
-                                    result = result.max(r);
+                                    // Land it, and reveal the caret only if it
+                                    // landed - the same tail the pass runs.
+                                    let landed = self
+                                        .get_layout_window_mut()
+                                        .map(|lw| lw.apply_pending_text_and_reveal());
+                                    if let Some(landed) = landed {
+                                        result = result.max(landed.event_result());
+                                        if landed.revealed {
+                                            result = result.max(
+                                                ProcessEventResult::ShouldReRenderCurrentWindow,
+                                            );
+                                        }
+                                    }
                                     // Applied outside the record pipeline's event
                                     // window — owe the host its Input dispatch.
                                     if let Some(lw) = self.get_layout_window_mut() {

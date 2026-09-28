@@ -1099,6 +1099,41 @@ pub struct TextChangesetResult {
     pub needs_relayout: bool,
 }
 
+/// What [`LayoutWindow::apply_pending_text_and_reveal`] did: the edits it
+/// landed and whether the caret reveal that follows a landed edit moved the
+/// view.
+#[derive(Debug)]
+pub struct LandedTextEdit {
+    /// The queued edits, applied ([`LayoutWindow::apply_text_changeset`]).
+    pub changeset: TextChangesetResult,
+    /// The caret reveal moved the view. Always `false` when nothing landed:
+    /// a pass that typed nothing reveals nothing.
+    pub revealed: bool,
+}
+
+impl LandedTextEdit {
+    /// Whether any edit landed.
+    #[must_use]
+    pub fn landed(&self) -> bool {
+        !self.changeset.dirty_nodes.is_empty()
+    }
+
+    /// The pass result the landing asks for: an incremental relayout when a
+    /// landed edit changed its text's extent, a display-list rebuild when
+    /// one landed without, and nothing when nothing landed.
+    #[must_use]
+    pub fn event_result(&self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        if !self.landed() {
+            ProcessEventResult::DoNothing
+        } else if self.changeset.needs_relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+}
+
 /// The E2E `mount` override for one window: the XML+CSS document the debug
 /// `mount` op installed, plus a "must be (re-)parsed" flag.
 ///
@@ -17479,6 +17514,33 @@ impl LayoutWindow {
         TextChangesetResult {
             dirty_nodes,
             needs_relayout,
+        }
+    }
+
+    /// Land every queued text edit and - ONLY when one landed - reveal the
+    /// caret.
+    ///
+    /// THE tail of every pass that may carry typed text, shared by the hosts
+    /// so they cannot drift apart again: the shells' post-callback
+    /// `ApplyPendingTextInput` → `ApplyTextChangeset` →
+    /// `ScrollCursorIntoViewAfterTextInput`, the plain-text Enter
+    /// (`InsertLineBreakAtCursor`) and the IME / debug-server
+    /// `CreateTextInput` arm, and the e2e runner's ports of all three.
+    ///
+    /// The shells' tail used to reveal on EVERY pass that was not
+    /// `prevent_default`ed, whether or not anything was typed:
+    /// `ApplyPendingTextInput` is pushed unconditionally, so every wheel
+    /// event, every momentum event and every mouse move scrolled a TextArea
+    /// the user had just scrolled away from back to its caret - the "wheel
+    /// fights the caret" jitter. The runner gated on a landed edit, which is
+    /// why no headless test ever saw it.
+    pub fn apply_pending_text_and_reveal(&mut self) -> LandedTextEdit {
+        let changeset = self.apply_text_changeset();
+        let revealed = !changeset.dirty_nodes.is_empty()
+            && self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+        LandedTextEdit {
+            changeset,
+            revealed,
         }
     }
 
