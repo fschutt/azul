@@ -255,7 +255,6 @@ pub enum NotificationEventType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NotificationEvent {
-    pub kind: NotificationEventType,
     /// [`Notification::id`] of the notification it happened to.
     pub notification_id: AzString,
     /// For [`NotificationEventType::ActionInvoked`]: the button's
@@ -270,6 +269,8 @@ pub struct NotificationEvent {
     /// app-level handler in a process that did not post the notification -
     /// and from the posting process's own record otherwise.
     pub payload: AzString,
+    /// What happened.
+    pub kind: NotificationEventType,
     /// `true` when this event is what started the process: a tap on a
     /// notification of an app that was not running. Set where the platform
     /// says so (the Android launch `Intent`, macOS's

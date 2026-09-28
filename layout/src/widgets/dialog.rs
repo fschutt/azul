@@ -325,7 +325,7 @@ pub struct Dialog {
     /// The element that shows the dialog when clicked (HTML `commandfor`),
     /// or `None`: the app shows it through `open`.
     pub invoker: OptionDom,
-    /// Whether the dialog has a "×" close button (top right, last in tab
+    /// Whether the dialog has a "x" close button (top right, last in tab
     /// order).
     pub show_close_button: bool,
     /// Where a NON-modal dialog opens, relative to its invoker. A modal one
@@ -478,7 +478,7 @@ impl Dialog {
         self
     }
 
-    /// Whether the "×" close button is shown.
+    /// Whether the "x" close button is shown.
     #[inline]
     pub const fn set_close_button(&mut self, show: bool) {
         self.show_close_button = show;

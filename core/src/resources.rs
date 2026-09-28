@@ -1118,22 +1118,22 @@ impl AppConfig {
     /// Derive the app-level global hotkeys from the app's state with `cb`
     /// (see [`crate::global_hotkey::GlobalHotkeysCallbackType`]).
     #[must_use]
-    pub fn with_global_hotkeys_callback(
+    pub fn with_global_hotkeys_callback<C: Into<crate::global_hotkey::GlobalHotkeysCallback>>(
         mut self,
-        cb: crate::global_hotkey::GlobalHotkeysCallbackType,
+        cb: C,
     ) -> Self {
         self.set_global_hotkeys_callback(cb);
         self
     }
 
-    /// In-place [`Self::with_global_hotkeys_callback`].
-    pub fn set_global_hotkeys_callback(
+    /// In-place [`Self::with_global_hotkeys_callback`]. Takes the bare
+    /// function or a host-language callback (`GlobalHotkeysCallback`).
+    pub fn set_global_hotkeys_callback<C: Into<crate::global_hotkey::GlobalHotkeysCallback>>(
         &mut self,
-        cb: crate::global_hotkey::GlobalHotkeysCallbackType,
+        cb: C,
     ) {
-        self.global_hotkeys_callback = crate::global_hotkey::OptionGlobalHotkeysCallback::Some(
-            crate::global_hotkey::GlobalHotkeysCallback::create(cb),
-        );
+        self.global_hotkeys_callback =
+            crate::global_hotkey::OptionGlobalHotkeysCallback::Some(cb.into());
     }
 
     #[must_use]

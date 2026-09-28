@@ -19195,49 +19195,6 @@
                                 },
                                 "fn_body": "object.is_media_muted(node)"
                             },
-                            "register_global_hotkey": {
-                                "doc": [
-                                    "Register a SYSTEM-WIDE hotkey: `callback` runs with `data` whenever",
-                                    "the combination is pressed, even while another application has the",
-                                    "keyboard focus.",
-                                    "",
-                                    "App-wide, not per window: every platform grabs a hotkey for the",
-                                    "process, so the callback runs against the app's first window (the",
-                                    "tray's menu clicks take the same route) and the registration outlives",
-                                    "the window that made it. Call [`Self::raise_window`] from the callback",
-                                    "to bring the app forward.",
-                                    "",
-                                    "Answered NOW: `Err` when the combination is not a usable hotkey",
-                                    "(`InvalidAccelerator` - e.g. a bare letter, which would swallow typing",
-                                    "everywhere), this app holds it already (`AlreadyRegistered`), another",
-                                    "application or the system owns it (`TakenByAnotherApp`), or the",
-                                    "platform has no global hotkeys (`Unsupported` / `Unavailable`). On a",
-                                    "Wayland desktop the portal may still ask the user, so a registration",
-                                    "can be `Pending` and later `Failed` - see",
-                                    "[`Self::get_global_hotkey_status`].",
-                                    "",
-                                    "# Errors",
-                                    "See above."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "hotkey": "GlobalHotkey"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "CallbackType"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultGlobalHotkeyIdGlobalHotkeyError"
-                                },
-                                "fn_body": "object.register_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
-                            },
                             "set_tab_index": {
                                 "doc": [
                                     "Move a node into or out of the Tab order (applied after the callback",
@@ -19386,42 +19343,6 @@
                                 ],
                                 "fn_body": "object.raise_window()"
                             },
-                            "unregister_global_hotkey": {
-                                "doc": [
-                                    "Release a global hotkey. Returns whether `id` was registered."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "id": "GlobalHotkeyId"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.unregister_global_hotkey(id)"
-                            },
-                            "get_global_hotkey_status": {
-                                "doc": [
-                                    "Where a global-hotkey registration stands: `Active`, `Pending` (the",
-                                    "desktop has not answered yet - Wayland), `Failed` with the reason, or",
-                                    "`NotRegistered`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "id": "GlobalHotkeyId"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "GlobalHotkeyStatus"
-                                },
-                                "fn_body": "object.get_global_hotkey_status(id)"
-                            },
                             "get_focusable_areas": {
                                 "doc": [
                                     "css-nav-1 `element.focusableAreas({ mode })`: the focusable",
@@ -19514,6 +19435,126 @@
                                     }
                                 ],
                                 "fn_body": "object.request_notification_permission()"
+                            },
+                            "is_default_prevented": {
+                                "doc": [
+                                    "Whether THIS callback has called `prevent_default` so far.",
+                                    "",
+                                    "A widget that runs an application callback on its own `CallbackInfo` reads this afterwards to learn whether the application cancelled the widget's default: the dialog's `cancel` event is the case it exists for (HTML: `event.preventDefault()` in a `cancel` handler keeps the dialog open). Only this callback's own changes are visible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_default_prevented()"
+                            },
+                            "is_transient_window_open": {
+                                "doc": [
+                                    "Whether the `<transient-window>` at `node` is open in THIS window:",
+                                    "shown (as a popup, a torn-off toplevel or docked inline), or held",
+                                    "open by a `set_transient_window_open(node, true)` the next layout",
+                                    "pass will show - and not held closed by a dismissal.",
+                                    "",
+                                    "A widget that toggles its popup asks this instead of keeping an",
+                                    "\"open\" flag of its own: such a flag lives in a callback payload the",
+                                    "app's rebuild re-mints, and misses the closes it did not cause (an",
+                                    "outside press, Escape), which is how the demo's popover could no",
+                                    "longer be closed (2026-09-28).",
+                                    "",
+                                    "`false` for a node of another dom: a popup's own callbacks cannot see",
+                                    "the parent's popups."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_transient_window_open(node)"
+                            },
+                            "get_global_hotkey_event": {
+                                "doc": [
+                                    "The press being delivered - which accelerator, pressed or released,",
+                                    "when - while a global hotkey's own callback runs, so one callback can",
+                                    "serve several accelerators. `None` in every other callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGlobalHotkeyEvent"
+                                },
+                                "fn_body": "object.get_global_hotkey_event()"
+                            },
+                            "get_global_hotkeys": {
+                                "doc": [
+                                    "Every accelerator the app currently wants, holds or failed to get,",
+                                    "with its status, the trigger the desktop shows, and its owner",
+                                    "relative to this callback's window. Live."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "object.get_global_hotkeys()"
+                            },
+                            "retry_global_hotkey": {
+                                "doc": [
+                                    "Ask the OS for `hotkey` again although it failed (another app held",
+                                    "it, the Wayland dialog was declined): failures are sticky - never",
+                                    "re-asked by an ordinary relayout - until this. Applied after the",
+                                    "callback returns; a `layout()` that reads the status runs again when",
+                                    "the answer arrives."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    }
+                                ],
+                                "fn_body": "object.retry_global_hotkey(hotkey)"
+                            },
+                            "get_global_hotkey_status": {
+                                "doc": [
+                                    "Where `hotkey` stands NOW, app-wide: `Active`, `Pending` (the desktop",
+                                    "has not answered yet - Wayland), `Failed` with the reason, or",
+                                    "`NotRegistered`. Live, unlike `LayoutCallbackInfo::",
+                                    "get_global_hotkey_status`, which reads the snapshot its pass began",
+                                    "with.",
+                                    "",
+                                    "Global hotkeys are declared from state in `layout()`",
+                                    "(`LayoutCallbackInfo::add_global_hotkey`); an event callback changes",
+                                    "the state and returns `Update::RefreshDom`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyStatus"
+                                },
+                                "fn_body": "object.get_global_hotkey_status(hotkey)"
                             }
                         },
                         "repr": "C"
@@ -20105,6 +20146,107 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_rtl()"
+                            },
+                            "add_global_hotkey": {
+                                "doc": [
+                                    "Declare that, in the state this layout is built from, `hotkey` is a",
+                                    "SYSTEM-WIDE hotkey - pressed while any app has the keyboard focus -",
+                                    "running `callback` with `data`. The shape of `Dom::with_callback`,",
+                                    "with the accelerator in the event filter's place.",
+                                    "",
+                                    "Declarations are the WHOLE wanted set: an accelerator this call does",
+                                    "not declare (and no other window and no `AppConfig` declares) is",
+                                    "released after the pass. Re-declaring an accelerator with a new",
+                                    "callback or data swaps them without touching the OS, so declaring on",
+                                    "every `layout()` costs nothing. Declaring the same accelerator twice",
+                                    "in one pass: the last declaration wins.",
+                                    "",
+                                    "```ignore",
+                                    "if state.summon_enabled {",
+                                    "    info.add_global_hotkey(summon_key(), data.clone(), on_summon);",
+                                    "}",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "add_global_hotkey_with_description": {
+                                "doc": [
+                                    "[`Self::add_global_hotkey`] with the text the desktop shows for it:",
+                                    "the Wayland portal asks the user with it and lists it in the",
+                                    "desktop's shortcut settings."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "description": "String"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_global_hotkey_with_description(hotkey, description, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "get_global_hotkey_status": {
+                                "doc": [
+                                    "Where `hotkey` stood when this pass began: `Active`, `Pending` (the",
+                                    "desktop has not answered yet - Wayland), `Failed` with the reason, or",
+                                    "`NotRegistered`.",
+                                    "",
+                                    "RECORDED: when a status changes later (the grab answered, the user",
+                                    "approved or declined, another app took it), this window's `layout()`",
+                                    "runs once more so it can show it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyStatus"
+                                },
+                                "fn_body": "object.get_global_hotkey_status(hotkey)"
+                            },
+                            "get_global_hotkeys": {
+                                "doc": [
+                                    "Every accelerator the app currently wants, holds or failed to get,",
+                                    "with its status, the trigger the desktop shows and its owner (this",
+                                    "window, another window, the app, or nobody). RECORDED like",
+                                    "[`Self::get_global_hotkey_status`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "object.get_global_hotkeys()"
                             }
                         },
                         "repr": "C"
@@ -22819,6 +22961,44 @@
                                 {
                                     "name": "drag_amount",
                                     "type": "NodeDragAmount"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "DialogOnCloseCallbackType": {
+                        "external": "azul_layout::widgets::dialog::DialogOnCloseCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "DialogState"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "DialogOnCancelCallbackType": {
+                        "external": "azul_layout::widgets::dialog::DialogOnCancelCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "DialogState"
                                 }
                             ],
                             "returns": {
@@ -33799,6 +33979,70 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogOnCancelCallback": {
+                        "external": "azul_layout::widgets::dialog::DialogOnCancelCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "DialogOnCancelCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogOnCloseCallback": {
+                        "external": "azul_layout::widgets::dialog::DialogOnCloseCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "DialogOnCloseCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -58040,6 +58284,9 @@
                                 "container_background": {
                                     "type": "StyleBackgroundContentVec"
                                 },
+                                "accessibility_name": {
+                                    "type": "OptionString"
+                                },
                                 "theme": {
                                     "type": "OptionUiTheme"
                                 }
@@ -58261,6 +58508,28 @@
                                     "type": "ProgressBar"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name the bar for assistive technology, like every other widget's",
+                                    "`with_accessibility_name`:",
+                                    "",
+                                    "```ignore",
+                                    "ProgressBar::create(40.0).with_accessibility_name(\"Upload\").dom()",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressBar"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -70794,6 +71063,726 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogOnCancel": {
+                        "external": "azul_layout::widgets::dialog::DialogOnCancel",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "DialogOnCancelCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Dialog": {
+                        "external": "azul_layout::widgets::dialog::Dialog",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "dialog_state": {
+                                    "type": "DialogStateWrapper"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "content": {
+                                    "type": "Dom"
+                                },
+                                "invoker": {
+                                    "type": "OptionDom"
+                                },
+                                "show_close_button": {
+                                    "type": "bool"
+                                },
+                                "anchor": {
+                                    "type": "TransientAnchor"
+                                },
+                                "panel_style": {
+                                    "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "backdrop_style": {
+                                    "type": "OptionCssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A closed, non-modal dialog holding `content`, with a close button and",
+                                    "no title. `closedby` is `Auto`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::dialog::Dialog::create(content)"
+                            }
+                        },
+                        "functions": {
+                            "close_from": {
+                                "doc": [
+                                    "HTML `dialog.close(returnValue)`, from a callback of a control INSIDE",
+                                    "the dialog (`node`, usually `info.get_hit_node()`): records the return",
+                                    "value and closes the dialog. No `cancel`. The `close` callback then",
+                                    "runs in the app's window with this value. Returns whether `node` was",
+                                    "inside a dialog."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "return_value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "{ let mut info = info; azul_layout::widgets::dialog::Dialog::close_from(&mut info, node, return_value) }"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Renders the dialog: a wrapper holding the invoker (if any) and the",
+                                    "dialog's `<transient-window>`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "request_close_from": {
+                                "doc": [
+                                    "HTML `dialog.requestClose(returnValue)`, from a control inside the",
+                                    "dialog: runs `cancel` first, and closes the dialog with the value",
+                                    "unless the app called `info.prevent_default()` there. Returns what the",
+                                    "`cancel` callback returned."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "return_value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Update"
+                                },
+                                "fn_body": "{ let mut info = info; azul_layout::widgets::dialog::Dialog::request_close_from(&mut info, node, return_value) }"
+                            },
+                            "set_anchor": {
+                                "doc": [
+                                    "Where a non-modal dialog opens relative to its invoker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "anchor": "TransientAnchor"
+                                    }
+                                ],
+                                "fn_body": "object.set_anchor(anchor)"
+                            },
+                            "set_backdrop_style": {
+                                "doc": [
+                                    "Replaces the `::backdrop` style of a modal dialog (`None` restores",
+                                    "the default dim)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "OptionCssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_backdrop_style(style)"
+                            },
+                            "set_close_button": {
+                                "doc": [
+                                    "Whether the \"x\" close button is shown."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "show": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_close_button(show)"
+                            },
+                            "set_closed_by": {
+                                "doc": [
+                                    "HTML `closedby`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "closed_by": "DialogClosedBy"
+                                    }
+                                ],
+                                "fn_body": "object.set_closed_by(closed_by)"
+                            },
+                            "set_content": {
+                                "doc": [
+                                    "Replaces the content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_content(content)"
+                            },
+                            "set_invoker": {
+                                "doc": [
+                                    "Sets the element whose click shows the dialog (modal or not, as",
+                                    "declared), and hides it again when clicked while it is showing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "invoker": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_invoker(invoker)"
+                            },
+                            "set_modal": {
+                                "doc": [
+                                    "Whether the dialog shows modally: covering its window over a dimmed",
+                                    "backdrop, with the rest of the window inert."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "modal": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_modal(modal)"
+                            },
+                            "set_on_cancel": {
+                                "doc": [
+                                    "Sets the `cancel` callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_cancel": "DialogOnCancelCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_cancel(data, on_cancel)"
+                            },
+                            "set_on_close": {
+                                "doc": [
+                                    "Sets the `close` callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_close": "DialogOnCloseCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_close(data, on_close)"
+                            },
+                            "set_open": {
+                                "doc": [
+                                    "Declares the dialog open (the HTML `open` attribute). A change of it",
+                                    "shows or closes the dialog; while it stays `true`, a dialog the user",
+                                    "closed stays closed until it goes `false` and `true` again."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "open": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_open(open)"
+                            },
+                            "set_panel_style": {
+                                "doc": [
+                                    "Replaces the panel style (`None` restores the default panel)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "OptionCssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_panel_style(style)"
+                            },
+                            "set_return_value": {
+                                "doc": [
+                                    "The return value the dialog starts with (HTML: `returnValue` set",
+                                    "before it is shown)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "return_value": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_return_value(return_value)"
+                            },
+                            "set_title": {
+                                "doc": [
+                                    "Sets the title (and accessible name)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_title(title)"
+                            },
+                            "show": {
+                                "doc": [
+                                    "HTML `show()`: open, non-modal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.show()"
+                            },
+                            "show_modal": {
+                                "doc": [
+                                    "HTML `showModal()`: open, modal."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.show_modal()"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with a default dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_anchor": {
+                                "doc": [
+                                    "Builder-style setter for the anchor edge."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "anchor": "TransientAnchor"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_anchor(anchor)"
+                            },
+                            "with_backdrop_style": {
+                                "doc": [
+                                    "Builder-style setter for the `::backdrop` style."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_backdrop_style(style)"
+                            },
+                            "with_close_button": {
+                                "doc": [
+                                    "Builder-style setter for the close button."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "show": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_close_button(show)"
+                            },
+                            "with_closed_by": {
+                                "doc": [
+                                    "Builder-style setter for `closedby`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "closed_by": "DialogClosedBy"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_closed_by(closed_by)"
+                            },
+                            "with_content": {
+                                "doc": [
+                                    "Builder-style setter for the content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_content(content)"
+                            },
+                            "with_invoker": {
+                                "doc": [
+                                    "Builder-style setter for the invoker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "invoker": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_invoker(invoker)"
+                            },
+                            "with_modal": {
+                                "doc": [
+                                    "Builder-style setter for `modal`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "modal": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_modal(modal)"
+                            },
+                            "with_on_cancel": {
+                                "doc": [
+                                    "Builder-style setter for the `cancel` callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_cancel": "DialogOnCancelCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_on_cancel(data, on_cancel)"
+                            },
+                            "with_on_close": {
+                                "doc": [
+                                    "Builder-style setter for the `close` callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_close": "DialogOnCloseCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_on_close(data, on_close)"
+                            },
+                            "with_open": {
+                                "doc": [
+                                    "Builder-style setter for `open`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "open": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_open(open)"
+                            },
+                            "with_panel_style": {
+                                "doc": [
+                                    "Builder-style setter for the panel style."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_panel_style(style)"
+                            },
+                            "with_return_value": {
+                                "doc": [
+                                    "Builder-style setter for the initial return value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "return_value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_return_value(return_value)"
+                            },
+                            "with_title": {
+                                "doc": [
+                                    "Builder-style setter for the title."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_title(title)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DialogState": {
+                        "external": "azul_layout::widgets::dialog::DialogState",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "open": {
+                                    "type": "bool"
+                                },
+                                "modal": {
+                                    "type": "bool"
+                                },
+                                "return_value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogOnClose": {
+                        "external": "azul_layout::widgets::dialog::DialogOnClose",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "DialogOnCloseCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogClosedBy": {
+                        "external": "azul_layout::widgets::dialog::DialogClosedBy",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Any": {},
+                                "CloseRequest": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DialogStateWrapper": {
+                        "external": "azul_layout::widgets::dialog::DialogStateWrapper",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "DialogState"
+                                },
+                                "closed_by": {
+                                    "type": "DialogClosedBy"
+                                },
+                                "on_cancel": {
+                                    "type": "OptionDialogOnCancel"
+                                },
+                                "on_close": {
+                                    "type": "OptionDialogOnClose"
                                 }
                             }
                         ],
@@ -118893,6 +119882,440 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "GlobalHotkeyCallbackDataVec": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyCallbackDataVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "GlobalHotkeyCallbackData",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "GlobalHotkeyCallbackDataVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `GlobalHotkeyCallbackDataVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `GlobalHotkeyCallbackDataVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `GlobalHotkeyCallbackDataVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "GlobalHotkeyCallbackData"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `GlobalHotkeyCallbackDataVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const GlobalHotkeyCallbackData"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGlobalHotkeyCallbackData"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `GlobalHotkeyCallbackDataVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVecSlice"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyCallbackDataVecSlice"
+                                },
+                                "fn_body": "global_hotkey_callback_data_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyCallbackDataVecDestructor": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyCallbackDataVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "GlobalHotkeyCallbackDataVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "GlobalHotkeyCallbackDataVecDestructorType": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyCallbackDataVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "GlobalHotkeyCallbackDataVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyInfoVecDestructorType": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyInfoVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "GlobalHotkeyInfoVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyInfoVecDestructor": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyInfoVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "GlobalHotkeyInfoVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "GlobalHotkeyInfoVec": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyInfoVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "GlobalHotkeyInfo",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "GlobalHotkeyInfoVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `GlobalHotkeyInfoVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `GlobalHotkeyInfoVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "global_hotkey_info_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "global_hotkey_info_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "global_hotkey_info_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `GlobalHotkeyInfoVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "GlobalHotkeyInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `GlobalHotkeyInfoVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const GlobalHotkeyInfo"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGlobalHotkeyInfo"
+                                },
+                                "fn_body": "global_hotkey_info_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `GlobalHotkeyInfoVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVecSlice"
+                                },
+                                "fn_body": "global_hotkey_info_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVecSlice"
+                                },
+                                "fn_body": "global_hotkey_info_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -126441,6 +127864,158 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionGlobalHotkeysCallback": {
+                        "external": "azul_core::global_hotkey::OptionGlobalHotkeysCallback",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "GlobalHotkeysCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionGlobalHotkeyCallbackData": {
+                        "external": "azul_core::global_hotkey::OptionGlobalHotkeyCallbackData",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "GlobalHotkeyCallbackData",
+                                    "doc": [
+                                        "Some value of type GlobalHotkeyCallbackData"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDialogOnClose": {
+                        "external": "azul_layout::widgets::dialog::OptionDialogOnClose",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DialogOnClose"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDialogOnCancel": {
+                        "external": "azul_layout::widgets::dialog::OptionDialogOnCancel",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DialogOnCancel"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionGlobalHotkeyEvent": {
+                        "external": "azul_core::global_hotkey::OptionGlobalHotkeyEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "GlobalHotkeyEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionGlobalHotkeyInfo": {
+                        "external": "azul_core::global_hotkey::OptionGlobalHotkeyInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "GlobalHotkeyInfo",
+                                    "doc": [
+                                        "Some value of type GlobalHotkeyInfo"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -129145,24 +130720,6 @@
                         },
                         "repr": "C, u8"
                     },
-                    "ResultGlobalHotkeyIdGlobalHotkeyError": {
-                        "external": "azul_core::global_hotkey::ResultGlobalHotkeyIdGlobalHotkeyError",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Ok": {
-                                    "type": "GlobalHotkeyId"
-                                },
-                                "Err": {
-                                    "type": "GlobalHotkeyError"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "ResultGlobalHotkeyGlobalHotkeyError": {
                         "external": "azul_core::global_hotkey::ResultGlobalHotkeyGlobalHotkeyError",
                         "derive": [
@@ -129201,30 +130758,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "log_level": {
-                                    "type": "AppLogLevel"
-                                },
-                                "natural_scroll": {
-                                    "type": "NaturalScroll"
-                                },
-                                "enable_visual_panic_hook": {
-                                    "type": "bool"
-                                },
-                                "enable_logging_on_panic": {
-                                    "type": "bool"
-                                },
-                                "synthesize_pinch_from_ctrl_wheel": {
-                                    "type": "bool"
-                                },
-                                "remote_control": {
-                                    "type": "RemoteControlConfig"
-                                },
-                                "expose_system_media_controls": {
-                                    "type": "bool"
-                                },
-                                "termination_behavior": {
-                                    "type": "AppTerminationBehavior"
-                                },
                                 "icon_provider": {
                                     "type": "IconProviderHandle"
                                 },
@@ -129269,6 +130802,36 @@
                                 },
                                 "notification_handler": {
                                     "type": "OptionNotificationCallback"
+                                },
+                                "global_hotkeys": {
+                                    "type": "GlobalHotkeyCallbackDataVec"
+                                },
+                                "global_hotkeys_callback": {
+                                    "type": "OptionGlobalHotkeysCallback"
+                                },
+                                "log_level": {
+                                    "type": "AppLogLevel"
+                                },
+                                "natural_scroll": {
+                                    "type": "NaturalScroll"
+                                },
+                                "termination_behavior": {
+                                    "type": "AppTerminationBehavior"
+                                },
+                                "remote_control": {
+                                    "type": "RemoteControlConfig"
+                                },
+                                "enable_visual_panic_hook": {
+                                    "type": "bool"
+                                },
+                                "enable_logging_on_panic": {
+                                    "type": "bool"
+                                },
+                                "synthesize_pinch_from_ctrl_wheel": {
+                                    "type": "bool"
+                                },
+                                "expose_system_media_controls": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -129342,6 +130905,64 @@
                                     }
                                 ],
                                 "fn_body": "object.set_notification_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "add_global_hotkey": {
+                                "doc": [
+                                    "Hold `hotkey` for the whole run, app-wide, running `callback` with",
+                                    "`data` when it is pressed - even while another app has the keyboard",
+                                    "focus. Replaces an earlier entry for the same accelerator.",
+                                    "",
+                                    "For hotkeys that depend on app state, derive them instead: in",
+                                    "`layout()` (`LayoutCallbackInfo::add_global_hotkey`), or, without a",
+                                    "window, in [`Self::with_global_hotkeys_callback`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "set_global_hotkeys_callback": {
+                                "doc": [
+                                    "In-place [`Self::with_global_hotkeys_callback`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "cb": "GlobalHotkeysCallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.set_global_hotkeys_callback(cb)"
+                            },
+                            "with_global_hotkeys_callback": {
+                                "doc": [
+                                    "Derive the app-level global hotkeys from the app's state with `cb`",
+                                    "(see [`crate::global_hotkey::GlobalHotkeysCallbackType`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "cb": "GlobalHotkeysCallbackType"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_global_hotkeys_callback(cb)"
                             }
                         },
                         "repr": "C"
@@ -129505,61 +131126,6 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_tray_available()"
-                            },
-                            "register_global_hotkey": {
-                                "doc": [
-                                    "Register a SYSTEM-WIDE hotkey before `run()`: `callback` runs with",
-                                    "`data` whenever the combination is pressed, even while another app",
-                                    "has the keyboard focus. The same registry as",
-                                    "`CallbackInfo::register_global_hotkey` - use this one where no",
-                                    "callback runs before the hotkey is needed (a tray-only utility's",
-                                    "summon key).",
-                                    "",
-                                    "Takes effect immediately on the platforms that answer immediately",
-                                    "(macOS, Windows, X11); on a Wayland desktop the portal may ask the",
-                                    "user once the app runs. A run that turns out headless moves the",
-                                    "registration onto the simulation (nothing grabbed at the OS).",
-                                    "",
-                                    "# Errors",
-                                    "See `GlobalHotkeyError`: not a usable combination, already held by",
-                                    "this app, owned by another app, or no global hotkeys here."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "hotkey": "GlobalHotkey"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "CallbackType"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultGlobalHotkeyIdGlobalHotkeyError"
-                                },
-                                "fn_body": "object.register_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
-                            },
-                            "unregister_global_hotkey": {
-                                "doc": [
-                                    "Release a global hotkey registered through this `App` or a callback.",
-                                    "Returns whether `id` was registered."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "id": "GlobalHotkeyId"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.unregister_global_hotkey(id)"
                             }
                         },
                         "repr": "C"
@@ -129964,6 +131530,375 @@
                                 "fn_body": "object.to_display_string().into()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyCallbackData": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyCallbackData",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "hotkey": {
+                                    "type": "GlobalHotkey"
+                                },
+                                "description": {
+                                    "type": "String"
+                                },
+                                "callback": {
+                                    "type": "CoreCallback"
+                                },
+                                "refany": {
+                                    "type": "RefAny"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A declaration without a description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_core::global_hotkey::GlobalHotkeyCallbackData::create(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeysCallbackInfo": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeysCallbackInfo",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ref_data": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "callable_ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "_abi_mut": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "add_global_hotkey": {
+                                "doc": [
+                                    "Declare that, in the current app state, `hotkey` is a system-wide",
+                                    "hotkey running `callback` with `data` - app-level, owned by no window.",
+                                    "Same rules as `LayoutCallbackInfo::add_global_hotkey`: the WHOLE",
+                                    "wanted set, the last duplicate wins, an unchanged accelerator is not",
+                                    "touched at the OS."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_global_hotkey(hotkey, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "add_global_hotkey_with_description": {
+                                "doc": [
+                                    "[`Self::add_global_hotkey`] with the text the desktop shows for it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    },
+                                    {
+                                        "description": "String"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_global_hotkey_with_description(hotkey, description, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "get_ctx": {
+                                "doc": [
+                                    "Get the callable for FFI language bindings (Python, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRefAny"
+                                },
+                                "fn_body": "object.get_ctx()"
+                            },
+                            "get_global_hotkey_status": {
+                                "doc": [
+                                    "Where `hotkey` stood when this call began. RECORDED: a later status",
+                                    "change runs the callback once more."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "hotkey": "GlobalHotkey"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyStatus"
+                                },
+                                "fn_body": "object.get_global_hotkey_status(hotkey)"
+                            },
+                            "get_global_hotkeys": {
+                                "doc": [
+                                    "Every accelerator the app currently wants, holds or failed to get.",
+                                    "RECORDED like [`Self::get_global_hotkey_status`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "GlobalHotkeyInfoVec"
+                                },
+                                "fn_body": "object.get_global_hotkeys()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeysCallback": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeysCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "GlobalHotkeysCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "cb": "GlobalHotkeysCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_core::global_hotkey::GlobalHotkeysCallback::create(cb)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeysCallbackType": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeysCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "GlobalHotkeysCallbackInfo"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyCallbackDataVecSlice": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyCallbackDataVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "GlobalHotkeyCallbackData",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyEvent": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "hotkey": {
+                                    "type": "GlobalHotkey"
+                                },
+                                "state": {
+                                    "type": "GlobalHotkeyState"
+                                },
+                                "timestamp_ms": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyOwner": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyOwner",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "App": {},
+                                "ThisWindow": {},
+                                "OtherWindow": {},
+                                "Nobody": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyInfo": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "hotkey": {
+                                    "type": "GlobalHotkey"
+                                },
+                                "status": {
+                                    "type": "GlobalHotkeyStatus"
+                                },
+                                "trigger": {
+                                    "type": "String"
+                                },
+                                "owner": {
+                                    "type": "GlobalHotkeyOwner"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyState": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pressed": {},
+                                "Released": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GlobalHotkeyInfoVecSlice": {
+                        "external": "azul_core::global_hotkey::GlobalHotkeyInfoVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "GlobalHotkeyInfo",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -133031,7 +134966,8 @@
                                 "Top": {},
                                 "Left": {},
                                 "Right": {},
-                                "Cursor": {}
+                                "Cursor": {},
+                                "Viewport": {}
                             }
                         ],
                         "repr": "C"
@@ -133053,7 +134989,8 @@
                             {
                                 "Outside": {},
                                 "Escape": {},
-                                "None": {}
+                                "None": {},
+                                "OutsideOnly": {}
                             }
                         ],
                         "repr": "C"
@@ -139995,9 +141932,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "kind": {
-                                    "type": "NotificationEventType"
-                                },
                                 "notification_id": {
                                     "type": "String"
                                 },
@@ -140009,6 +141943,9 @@
                                 },
                                 "payload": {
                                     "type": "String"
+                                },
+                                "kind": {
+                                    "type": "NotificationEventType"
                                 },
                                 "launched_app": {
                                     "type": "bool"
