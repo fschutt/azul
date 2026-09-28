@@ -654,6 +654,49 @@ mod autotest_generated {
         }
     }
 
+    /// The size of the value behind `_field`, so the padding check below
+    /// reads every field's size off the struct instead of re-spelling types.
+    const fn size_of_field<T>(_field: &T) -> usize {
+        core::mem::size_of::<T>()
+    }
+
+    #[test]
+    fn app_config_has_no_padding_between_its_fields() {
+        // AppConfig is repr(C) and crosses the FFI by value into every
+        // binding, so its field order decides its size. Interleaving the
+        // 1-, 2- and 4-byte fields with the 8-aligned ones cost 8 bytes of
+        // padding. A NEW field must be added to this sum (and placed by
+        // decreasing alignment, like SystemAnimations).
+        let c = AppConfig::create();
+        let fields = size_of_field(&c.log_level)
+            + size_of_field(&c.natural_scroll)
+            + size_of_field(&c.enable_visual_panic_hook)
+            + size_of_field(&c.enable_logging_on_panic)
+            + size_of_field(&c.synthesize_pinch_from_ctrl_wheel)
+            + size_of_field(&c.remote_control)
+            + size_of_field(&c.expose_system_media_controls)
+            + size_of_field(&c.termination_behavior)
+            + size_of_field(&c.icon_provider)
+            + size_of_field(&c.bundled_fonts)
+            + size_of_field(&c.font_loading)
+            + size_of_field(&c.mock_css_environment)
+            + size_of_field(&c.system_style)
+            + size_of_field(&c.component_libraries)
+            + size_of_field(&c.routes)
+            + size_of_field(&c.system_animations)
+            + size_of_field(&c.custom_e2e_op)
+            + size_of_field(&c.updates)
+            + size_of_field(&c.changelog_md)
+            + size_of_field(&c.report_problem)
+            + size_of_field(&c.localization);
+        assert_eq!(
+            core::mem::size_of::<AppConfig>(),
+            fields,
+            "AppConfig carries {} bytes of padding",
+            core::mem::size_of::<AppConfig>().saturating_sub(fields)
+        );
+    }
+
     // =====================================================================
     // CssMockEnvironment
     // =====================================================================
