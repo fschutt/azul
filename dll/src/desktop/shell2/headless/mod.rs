@@ -2177,6 +2177,93 @@ impl HeadlessWindow {
         self.common.regeneration_reason()
     }
 
+    /// A `TextInput` event: the SAME canonical text pipeline the debug server
+    /// and the platform IME paths use - record the input against the
+    /// focused/editable node, dispatch the synthetic Input events, apply the
+    /// changeset. Shared by `run()` and the tests' `step()`, so a scripted
+    /// keystroke in a test takes the event loop's path.
+    fn apply_text_input_event(&mut self, text: &str) -> azul_core::events::ProcessEventResult {
+        self.apply_user_change(&azul_layout::callbacks::CallbackChange::CreateTextInput {
+            text: text.to_string().into(),
+        })
+    }
+
+    /// A wheel `Scroll` event, as `run()` and the tests' `step()` both take it:
+    /// record the delta, arm the momentum timer, then run the event pass.
+    fn apply_wheel_scroll_event(
+        &mut self,
+        delta_x: f32,
+        delta_y: f32,
+    ) -> azul_core::events::ProcessEventResult {
+        // Drive the SAME physics-timer scroll path the desktop
+        // backends use: record_scroll_from_hit_test queues the
+        // delta against the scroll node under the pointer and
+        // the SCROLL_MOMENTUM_TIMER applies it over time.
+        // delta_x/delta_y are RAW input deltas, same as a platform
+        // wheel/axis event — the direction sign (natural-scroll
+        // flag) is applied centrally in ScrollManager, not here. A
+        // prior MouseMove must have left the hover hit-test over a
+        // scrollable node — otherwise this is a no-op (just like
+        // wheeling over a non-scrollable area on the desktop).
+        let queue = if let Some(lw) = self.common.layout_window.as_mut() {
+            let now = azul_core::task::Instant::from(Instant::now());
+            match lw.scroll_manager.record_scroll_from_hit_test(
+                delta_x,
+                delta_y,
+                azul_layout::managers::scroll_state::ScrollInputSource::WheelDiscrete,
+                // e2e harness scrolls must stay deterministic
+                // (velocity model, no wall-clock glide).
+                azul_layout::managers::scroll_state::ScrollInputDevice::TestDriver,
+                &lw.hover_manager,
+                &azul_layout::managers::hover::InputPointId::Mouse,
+                now,
+            ) {
+                Some((_, _, true)) => Some(lw.scroll_manager.get_input_queue()),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        // Start the momentum timer only on the first pending
+        // input (subsequent deltas are picked up by the running
+        // timer via the shared ScrollInputQueue).
+        if let Some(queue) = queue {
+            let physics_state = azul_layout::scroll_timer::ScrollPhysicsState::new(
+                queue,
+                self.common.system_style.scroll_physics.clone(),
+            );
+            let interval_ms =
+                self.common.system_style.scroll_physics.timer_interval_ms;
+            let timer = azul_layout::timer::Timer::create(
+                RefAny::new(physics_state),
+                azul_layout::scroll_timer::scroll_physics_timer_callback
+                    as azul_layout::timer::TimerCallbackType,
+                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                    .get_system_time_fn,
+            )
+            .with_interval(
+                azul_core::task::Duration::System(
+                    azul_core::task::SystemTimeDiff::from_millis(
+                        interval_ms as u64,
+                    ),
+                ),
+            );
+            self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
+        }
+
+        // HARNESS PARITY: every native backend runs the event
+        // pass right after recording a wheel step (macOS
+        // `handle_scroll_wheel` → `process_window_events(0)`,
+        // the shared wheel arm). This path recorded and never
+        // ran it, so the `Scroll` event never fired here and
+        // a defect that only a wheel PASS triggers - the tail
+        // revealing the caret on a pass that typed nothing -
+        // could not be reproduced headlessly.
+        self.snapshot_window_state_baseline("headless.run.scroll");
+        self.process_window_events(0)
+    }
+
     /// Convert a `KeyDown` virtual keycode into the locale-independent character
     /// fallback (delegating to [`VirtualKeyCode::get_lowercase`]) and, if a
     /// character is available, queue a synthetic `TextInput` event for the next
@@ -2851,19 +2938,11 @@ impl HeadlessWindow {
                         }
                     }
                     HeadlessEvent::TextInput { text } => {
-                        // Drive the SAME canonical text pipeline the debug
-                        // server and platform IME paths use: record the input
-                        // against the focused/editable node, dispatch the
-                        // synthetic Input events, apply the changeset. This
-                        // arm used to be an empty stub, which silently
+                        // This arm used to be an empty stub, which silently
                         // swallowed injected text (and made
                         // `synthesize_character_input` a no-op end to end).
                         self.snapshot_window_state_baseline("headless.run.text_input");
-                        let r = self.apply_user_change(
-                            &azul_layout::callbacks::CallbackChange::CreateTextInput {
-                                text: text.clone().into(),
-                            },
-                        );
+                        let r = self.apply_text_input_event(&text);
                         events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
@@ -2898,73 +2977,7 @@ impl HeadlessWindow {
                         events_need_redraw = true;
                     }
                     HeadlessEvent::Scroll { delta_x, delta_y } => {
-                        // Drive the SAME physics-timer scroll path the desktop
-                        // backends use: record_scroll_from_hit_test queues the
-                        // delta against the scroll node under the pointer and
-                        // the SCROLL_MOMENTUM_TIMER applies it over time.
-                        // delta_x/delta_y are RAW input deltas, same as a platform
-                        // wheel/axis event — the direction sign (natural-scroll
-                        // flag) is applied centrally in ScrollManager, not here. A
-                        // prior MouseMove must have left the hover hit-test over a
-                        // scrollable node — otherwise this is a no-op (just like
-                        // wheeling over a non-scrollable area on the desktop).
-                        let queue = if let Some(lw) = self.common.layout_window.as_mut() {
-                            let now = azul_core::task::Instant::from(Instant::now());
-                            match lw.scroll_manager.record_scroll_from_hit_test(
-                                delta_x,
-                                delta_y,
-                                azul_layout::managers::scroll_state::ScrollInputSource::WheelDiscrete,
-                                // e2e harness scrolls must stay deterministic
-                                // (velocity model, no wall-clock glide).
-                                azul_layout::managers::scroll_state::ScrollInputDevice::TestDriver,
-                                &lw.hover_manager,
-                                &azul_layout::managers::hover::InputPointId::Mouse,
-                                now,
-                            ) {
-                                Some((_, _, true)) => Some(lw.scroll_manager.get_input_queue()),
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        };
-
-                        // Start the momentum timer only on the first pending
-                        // input (subsequent deltas are picked up by the running
-                        // timer via the shared ScrollInputQueue).
-                        if let Some(queue) = queue {
-                            let physics_state = azul_layout::scroll_timer::ScrollPhysicsState::new(
-                                queue,
-                                self.common.system_style.scroll_physics.clone(),
-                            );
-                            let interval_ms =
-                                self.common.system_style.scroll_physics.timer_interval_ms;
-                            let timer = azul_layout::timer::Timer::create(
-                                RefAny::new(physics_state),
-                                azul_layout::scroll_timer::scroll_physics_timer_callback
-                                    as azul_layout::timer::TimerCallbackType,
-                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                                    .get_system_time_fn,
-                            )
-                            .with_interval(
-                                azul_core::task::Duration::System(
-                                    azul_core::task::SystemTimeDiff::from_millis(
-                                        interval_ms as u64,
-                                    ),
-                                ),
-                            );
-                            self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
-                        }
-
-                        // HARNESS PARITY: every native backend runs the event
-                        // pass right after recording a wheel step (macOS
-                        // `handle_scroll_wheel` → `process_window_events(0)`,
-                        // the shared wheel arm). This arm recorded and never
-                        // ran it, so the `Scroll` event never fired here and
-                        // a defect that only a wheel PASS triggers - the tail
-                        // revealing the caret on a pass that typed nothing -
-                        // could not be reproduced headlessly.
-                        self.snapshot_window_state_baseline("headless.run.scroll");
-                        let r = self.process_window_events(0);
+                        let r = self.apply_wheel_scroll_event(delta_x, delta_y);
                         events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                             events_need_redraw = true;
