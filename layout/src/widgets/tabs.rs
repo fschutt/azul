@@ -1145,7 +1145,7 @@ impl TabHeader {
 
         // classes for current tab
         const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[Class(
-            AzString::from_const_str("__azul-native-tabs-tab-active"),
+            AzString::from_const_str(TAB_ACTIVE_CLASS_NAME),
         )];
 
         // classes for next tab
@@ -1160,10 +1160,16 @@ impl TabHeader {
 
         // classes for default inactive tab
         const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(AzString::from_const_str(
-            "__azul-native-tabs-tab-not-active",
+            TAB_NOT_ACTIVE_CLASS_NAME,
         ))];
 
         let on_click_is_some = self.on_click.is_some();
+        // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
+        // tab, or the first when the index is out of range. The arrow keys
+        // move (and activate) within it. A header nobody can activate stays
+        // out of the Tab order entirely.
+        let tab_stop =
+            crate::widgets::roving::stop_index(Some(self.active_tab), self.tabs.as_ref().len());
 
         Dom::create_div()
             .with_css_props(CSS_MATCH_9988039989460234263)
@@ -1223,25 +1229,41 @@ impl TabHeader {
                     dataset.tab_idx = tab_idx;
                     let dataset = RefAny::new(dataset);
 
-                    tab_items.push(
-                        crate::widgets::widget_p_with_text(tab.clone())
-                            .with_callbacks(if on_click_is_some {
-                                vec![CoreCallbackData {
+                    let mut tab_dom = crate::widgets::widget_p_with_text(tab.clone())
+                        .with_callbacks(if on_click_is_some {
+                            vec![
+                                CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::Click),
                                     callback: CoreCallback {
                                         cb: on_tab_click as usize,
                                         ctx: azul_core::refany::OptionRefAny::None,
                                     },
                                     refany: dataset.clone(),
-                                }]
-                                .into()
-                            } else {
-                                CoreCallbackDataVec::from_const_slice(&[])
-                            })
-                            .with_dataset(Some(dataset).into())
-                            .with_css_props(css_props)
-                            .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes)),
-                    );
+                                },
+                                CoreCallbackData {
+                                    event: EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
+                                    ),
+                                    callback: CoreCallback {
+                                        cb: on_tab_key as usize,
+                                        ctx: azul_core::refany::OptionRefAny::None,
+                                    },
+                                    refany: dataset.clone(),
+                                },
+                            ]
+                            .into()
+                        } else {
+                            CoreCallbackDataVec::from_const_slice(&[])
+                        })
+                        .with_dataset(Some(dataset).into())
+                        .with_css_props(css_props)
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes));
+                    if on_click_is_some {
+                        tab_dom = tab_dom.with_tab_index(crate::widgets::roving::item_tab_index(
+                            tab_idx, tab_stop,
+                        ));
+                    }
+                    tab_items.push(tab_dom);
                 }
 
                 tab_items.push(
@@ -1358,6 +1380,71 @@ extern "C" fn on_tab_click(mut refany: RefAny, info: CallbackInfo) -> Update {
     }
 
     select_new_tab_inner(refany, &info).unwrap_or(Update::RefreshDom)
+}
+
+/// Class of the active tab, and of every other tab: between them they name
+/// exactly the tabs among the header's children (the two spacers carry
+/// neither), which is how the arrow-key handler finds its siblings.
+const TAB_ACTIVE_CLASS_NAME: &str = "__azul-native-tabs-tab-active";
+const TAB_NOT_ACTIVE_CLASS_NAME: &str = "__azul-native-tabs-tab-not-active";
+
+/// Arrow keys on the focused tab (WAI-ARIA APG tabs, automatic activation):
+/// Left and Right move to the previous / next tab, wrapping at the ends; Home
+/// and End jump to the first / last. The target tab is focused, becomes the
+/// tab list's one Tab stop, and is ACTIVATED - reported through `on_click`
+/// exactly as a click on it would be, so the app switches the panel. The key's
+/// default action is cancelled. Up/Down, every other key and any key held with
+/// Alt, Ctrl, Cmd or Shift keep their default.
+extern "C" fn on_tab_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Left) => Step::Previous,
+        Some(K::Right) => Step::Next,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(header) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let tabs: Vec<azul_core::dom::DomNodeId> = roving::children_of(&info, header)
+        .into_iter()
+        .filter(|n| {
+            roving::has_class(&info, *n, TAB_ACTIVE_CLASS_NAME)
+                || roving::has_class(&info, *n, TAB_NOT_ACTIVE_CLASS_NAME)
+        })
+        .collect();
+    let Some(current) = tabs.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, tabs.len(), step, true) else {
+        return Update::DoNothing;
+    };
+    // Not our dataset (or already borrowed): leave the key alone.
+    if refany.downcast_ref::<TabLocalDataset>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    // Moved BEFORE the app hears the activation, so a focus it asks for wins.
+    roving::move_stop(&mut info, &tabs, target);
+
+    let Some(mut dataset) = refany.downcast_mut::<TabLocalDataset>() else {
+        return Update::DoNothing;
+    };
+    // The tabs are the header's tab children in order, and every dataset
+    // carries its tab's position - so the target's position IS its index.
+    let state = TabHeaderState { active_tab: target };
+    let dataset = &mut *dataset;
+    match dataset.on_click.as_mut() {
+        Some(TabOnClick { callback, refany }) => (callback.cb)(refany.clone(), info, state),
+        None => Update::DoNothing,
+    }
 }
 
 #[cfg(test)]
@@ -2549,16 +2636,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_attaches_exactly_one_mouseup_callback_per_tab_when_on_click_is_set() {
+    fn dom_attaches_the_click_and_the_arrow_key_callback_per_tab_when_on_click_is_set() {
         let n = 4usize;
         let dom = TabHeader::create(numbered_labels(n))
             .with_on_click(RefAny::new(ClickLog::default()), cb(record_click))
             .dom();
         let children = dom.children.as_ref();
 
-        for node in &children[1..=n] {
+        for (i, node) in children[1..=n].iter().enumerate() {
             let cbs = node.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "exactly one callback per tab");
+            assert_eq!(cbs.as_ref().len(), 2, "the click and the key callback");
             let data = &cbs.as_ref()[0];
             assert_eq!(
                 data.event,
@@ -2568,6 +2655,22 @@ mod autotest_generated {
             assert_eq!(
                 data.callback.cb, on_tab_click as usize,
                 "the dispatcher must be the widget's own trampoline"
+            );
+            let key = &cbs.as_ref()[1];
+            assert_eq!(
+                key.event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+            );
+            assert_eq!(key.callback.cb, on_tab_key as usize);
+            // ONE Tab stop per tab list: the active tab (tab 0 of a fresh one).
+            assert_eq!(
+                node.root.get_tab_index(),
+                Some(if i == 0 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "tab {i} has the wrong tab index"
             );
         }
 
