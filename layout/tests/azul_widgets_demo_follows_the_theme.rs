@@ -424,3 +424,43 @@ fn the_demo_paints_from_the_system_palette_directly() {
         "the page text is the platform's UI face, got {body:?}"
     );
 }
+
+/// The Notifications section (which replaced the demo's Toast) lives in its
+/// own module, `notifications.rs`; the scans above read `lib.rs` only. It
+/// paints from the same palette, with no dark-theme patches.
+const DEMO_NOTIFICATIONS: &str =
+    include_str!("../../examples/azul-widgets/src/notifications.rs");
+
+#[test]
+fn the_notifications_section_paints_from_the_system_palette_too() {
+    let styles: Vec<String> = string_literals(DEMO_NOTIFICATIONS)
+        .into_iter()
+        .filter(|l| l.contains(':') && l.contains(';'))
+        .collect();
+    assert!(
+        styles.iter().any(|s| s.contains("color: system:")),
+        "premise: the scan found the section's inline styles, got {styles:?}"
+    );
+
+    let mut bad = Vec::new();
+    for s in &styles {
+        for rule in Css::parse_inline(s).rules.as_ref() {
+            if rule
+                .conditions
+                .as_ref()
+                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+            {
+                bad.push(format!("a dark-theme patch in {s:?}"));
+            }
+            for d in rule.declarations.as_ref() {
+                let CssDeclaration::Static(p) = d else {
+                    continue;
+                };
+                if paints_a_colour(p.get_type()) && !follows_the_theme(p) {
+                    bad.push(format!("fixed {:?} in {s:?}", p.get_type()));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "the notifications section:\n  {}", bad.join("\n  "));
+}

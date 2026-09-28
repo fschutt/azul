@@ -6,7 +6,7 @@ use azul::dom::{
     PaginationOnChangeCallback, PopoverOnToggleCallback, RadioGroupOnChangeCallback,
     SegmentedOnChangeCallback, SliderOnValueChangeCallback, SplitPaneOnResizeCallback,
     StepperOnStepChangeCallback, SwitchOnToggleCallback, TextAreaOnFocusLostCallback,
-    TimePickerOnChangeCallback, ToastOnDismissCallback,
+    TimePickerOnChangeCallback,
 };
 use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
@@ -15,6 +15,8 @@ use azul::{
     widgets::*,
     window::TransientWindowConfig,
 };
+
+mod notifications;
 
 #[derive(Clone)]
 struct Showcase {
@@ -42,6 +44,7 @@ struct Showcase {
     time: TimePickerState,
     combo_text: azul::str::String,
     accordion_open: Vec<bool>,
+    notifications: notifications::NotificationsDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -677,19 +680,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .dom(),
             ),
             labelled(
-                "Toast",
-                Toast::with_kind("Saved successfully", ToastKind::Success)
-                    .with_dismissible(true)
-                    .with_on_dismiss(
-                        data.clone(),
-                        ToastOnDismissCallback {
-                            cb: on_toast_dismiss,
-                            callable: OptionRefAny::None,
-                        },
-                    )
-                    .dom(),
-            ),
-            labelled(
                 "Tooltip (hover the button)",
                 Tooltip::create(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
             ),
@@ -719,6 +709,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         )],
     );
 
+    let notifications = notifications::notifications_section(&data, &s.notifications);
     let menus = menus_section(&data, s.menu_status.as_str());
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
@@ -911,6 +902,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_child(selection)
                 .with_child(display)
                 .with_child(feedback)
+                .with_child(notifications)
                 .with_child(menus)
                 .with_child(files)
                 .with_child(tabs)
@@ -1031,9 +1023,6 @@ extern "C" fn on_chip_remove(mut data: RefAny, _: CallbackInfo, _: ChipState) ->
 extern "C" fn on_alert_dismiss(mut data: RefAny, _: CallbackInfo, _: AlertState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_toast_dismiss(mut data: RefAny, _: CallbackInfo, _: ToastState) -> Update {
-    bump(&mut data)
-}
 extern "C" fn on_modal_close(mut data: RefAny, _: CallbackInfo, _: ModalState) -> Update {
     bump(&mut data)
 }
@@ -1124,6 +1113,7 @@ pub fn start() {
         },
         combo_text: "".into(),
         accordion_open: vec![true, false],
+        notifications: notifications::NotificationsDemo::probe(),
     });
     let config = AppConfig::create();
     let app = App::create(data, config);
