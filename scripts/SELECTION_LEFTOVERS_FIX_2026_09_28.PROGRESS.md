@@ -67,9 +67,12 @@ file is deleted in that last commit.
   - 43878b997 refactor: `apply_text_input_event` / `apply_wheel_scroll_event`
     on HeadlessWindow, run() calls them.
 
+  - 598d4cf47 fix: `step()` calls the two helpers.
+
 ## IN PROGRESS
 
-7b fix: `step()` calls the two helpers.
+Final report `scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md` (delete this file
+in that commit).
 
 ## NEXT (in order)
 
