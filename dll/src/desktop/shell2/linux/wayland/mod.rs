@@ -293,7 +293,7 @@ use crate::{
         shell2::common::{
             debug_server::LogCategory,
             event::{
-                self, scrollbar_stops_the_button_event, HitTestNode, PlatformWindow,
+                self, scrollbar_stops_the_button_event, PlatformWindow,
                 BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
             },
             WindowError,
@@ -4288,12 +4288,8 @@ impl WaylandWindow {
         // Barrel press over a node with a context menu opens it, from the
         // SEAT's hovered node (9b-ii-b-i-b-i-a). Until this the seat's barrel
         // opened nothing: the only opener read the primary's hover.
-        if p.barrel_button && !was_right {
-            if let Some(hit_node) = self.get_first_hovered_node_for(seat_id) {
-                if self.try_show_context_menu(hit_node, p.position) {
-                    self.request_redraw();
-                }
-            }
+        if p.barrel_button && !was_right && self.try_show_context_menu_for(seat_id, p.position) {
+            self.request_redraw();
         }
 
         let result = self.process_window_events(0);
@@ -4391,12 +4387,8 @@ impl WaylandWindow {
 
         // Barrel press over a node with a context menu behaves like a right
         // click (parity with handle_pointer_button).
-        if now_right && !was_right {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                if self.try_show_context_menu(hit_node, p.position) {
-                    self.request_redraw();
-                }
-            }
+        if now_right && !was_right && self.try_show_context_menu(p.position) {
+            self.request_redraw();
         }
 
         let result = self.process_window_events(0);
@@ -4622,12 +4614,10 @@ impl WaylandWindow {
                 // the hover snapshot is the last motion's, and a press that
                 // arrives before any motion has none.
                 self.update_hit_test(position);
-                if let Some(hit_node) = self.get_first_hovered_node() {
-                    if self.try_show_context_menu(hit_node, position) {
-                        // Context menu was shown, consume the event
-                        self.request_redraw();
-                        return;
-                    }
+                if self.try_show_context_menu(position) {
+                    // Context menu was shown, consume the event
+                    self.request_redraw();
+                    return;
                 }
             }
         } else if PlatformWindow::end_scrollbar_drag(
@@ -6293,13 +6283,12 @@ impl WaylandWindow {
         // node (9b-ii-b-i-b-i-a), consumed like the primary's right click in
         // handle_pointer_button. The seat's hover is current from its motion
         // path (update_seat_hit_test_at on every seat enter/motion).
-        if state == 1 && mouse_button == MouseButton::Right {
-            if let Some(hit_node) = self.get_first_hovered_node_for(seat_id) {
-                if self.try_show_context_menu(hit_node, position) {
-                    self.request_redraw();
-                    return;
-                }
-            }
+        if state == 1
+            && mouse_button == MouseButton::Right
+            && self.try_show_context_menu_for(seat_id, position)
+        {
+            self.request_redraw();
+            return;
         }
         self.snapshot_window_state_baseline("wayland.seat.pointer_button");
         apply_pointer_button_state(
@@ -6443,81 +6432,31 @@ impl WaylandWindow {
         result
     }
 
-    /// MWA-C-hover: deepest hovered node from the LIVE hover manager (X11's
-    /// get_first_hovered_node pattern) — used for right-click context menus;
-    /// the old `common.last_hovered_node` field had no writer anywhere.
-    fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.get_first_hovered_node_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    /// Try to show the context menu under the PRIMARY pointer at `position`.
+    /// Returns true if a context menu was shown.
+    fn try_show_context_menu(&mut self, position: LogicalPosition) -> bool {
+        self.try_show_context_menu_for(azul_core::window::PRIMARY_POINTER_SEAT, position)
     }
 
-    /// The deepest node under SEAT `seat_id`'s own pointer (9b-ii-b-i-b-i-a).
-    /// `InputPointId::for_seat` folds the primary into `Mouse`, so this is the
-    /// one getter for both; the context-menu paths of a seat's pen barrel and
-    /// a seat's right button resolve from here instead of the primary's hover.
-    fn get_first_hovered_node_for(&self, seat_id: u64) -> Option<HitTestNode> {
-        self.common
+    /// Try to show the context menu under SEAT `seat_id`'s own pointer
+    /// (9b-ii-b-i-b-i-a) at `position` - a seat's pen barrel and a seat's
+    /// right button resolve from that seat's hover, not the primary's.
+    /// Returns true if a context menu was shown.
+    ///
+    /// WHICH menu is the engine's one answer
+    /// (`LayoutWindow::context_menu_under_seat`, shared with every other
+    /// shell): the front-most node under the pointer, walking up - out of a
+    /// `VirtualView` page into its host too - to the nearest node carrying a
+    /// menu. This used to start at the highest `NodeId` of the LOWEST dom, so
+    /// a page composited over its host was never asked.
+    fn try_show_context_menu_for(&mut self, seat_id: u64, position: LogicalPosition) -> bool {
+        let Some((owner, context_menu)) = self
+            .common
             .layout_window
-            .as_ref()?
-            .hover_manager
-            .get_current(&InputPointId::for_seat(seat_id))?
-            .hovered_nodes
-            .iter()
-            .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes
-                    .keys()
-                    .next_back()
-                    .map(|node_id| HitTestNode {
-                        dom_id: dom_id.inner as u64,
-                        node_id: node_id.index() as u64,
-                    })
-            })
-            .next()
-    }
-
-    /// Try to show context menu for a node at the given position
-    /// Returns true if a context menu was shown
-    fn try_show_context_menu(
-        &mut self,
-        node: event::HitTestNode,
-        position: LogicalPosition,
-    ) -> bool {
-        use azul_core::{dom::DomId, id::NodeId};
-
-        let layout_window = match self.common.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return false,
-        };
-
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-
-        // Get layout result for this DOM
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return false,
-        };
-
-        // Check if this node has a context menu
-        let node_id = match NodeId::from_usize(node.node_id as usize) {
-            Some(nid) => nid,
-            None => return false,
-        };
-
-        let binding = layout_result.styled_dom.node_data.as_container();
-        // A right-click on a CHILD of the node carrying the menu opens it too:
-        // walk up to the first ancestor with a context menu (as X11/macOS do).
-        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let mut cur = Some(node_id);
-        let context_menu = loop {
-            let nid = match cur {
-                Some(n) => n,
-                None => return false,
-            };
-            if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
-                break menu.clone();
-            }
-            cur = hierarchy.get(nid).and_then(|h| h.parent_id());
+            .as_ref()
+            .and_then(|lw| lw.context_menu_under_seat(seat_id))
+        else {
+            return false;
         };
 
         log_debug!(
@@ -6525,7 +6464,7 @@ impl WaylandWindow {
             "[Wayland Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
-            node,
+            owner,
             context_menu.items.as_slice().len()
         );
 

@@ -22,10 +22,7 @@ use azul_core::{
 };
 use azul_css::system::Platform;
 
-use crate::{
-    managers::hover::{deepest_node_across_doms, InputPointId},
-    window::LayoutWindow,
-};
+use crate::{managers::hover::InputPointId, window::LayoutWindow};
 
 /// Is a press of `button` the SECONDARY click - the one that asks for a
 /// context menu - on `platform`?
@@ -44,47 +41,77 @@ pub fn is_secondary_press(platform: &Platform, button: MouseButton, control_held
     }
 }
 
+/// How many dom boundaries (`VirtualView` pages in pages) the walk of
+/// [`nearest_context_menu`] crosses before it gives up: a host chain that
+/// loops must not spin.
+const MAX_DOM_HOPS: usize = 16;
+
 /// The node whose context menu a secondary click on `start` opens, and that
 /// menu: `start` itself or its nearest ancestor that carries one.
 ///
+/// A child dom (a `VirtualView` page: a video, a progress bar, a
+/// virtualized list) is content of the node that hosts it, so the walk
+/// continues past the page's root at its host - a right press on a video
+/// inside a box with a menu opens the box's menu, as a press on any other
+/// content of the box does. It used to stop at the page's root and open
+/// nothing.
+///
 /// `styled_dom_of` looks a dom up (`LayoutWindow::layout_results`).
-/// `host_of` names the node that hosts a child dom (a `VirtualView` page:
-/// `VirtualViewManager::host_of_nested_dom`).
+/// `host_of` names the node that hosts a child dom
+/// (`VirtualViewManager::host_of_nested_dom`).
 pub fn nearest_context_menu<'a>(
     styled_dom_of: &dyn Fn(DomId) -> Option<&'a StyledDom>,
     start: DomNodeId,
     host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
 ) -> Option<(DomNodeId, Menu)> {
-    let _ = host_of;
-    let styled_dom = styled_dom_of(start.dom)?;
-    let node_data = styled_dom.node_data.as_container();
-    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut dom = start.dom;
     let mut current = start.node.into_crate_internal();
-    // A malformed parent chain must not spin.
-    let mut budget = node_data.len();
-    while let Some(node) = current {
-        if let Some(menu) = node_data.get(node).and_then(NodeData::get_context_menu) {
-            return Some((dom_node(start.dom, node), menu.clone()));
+    for _ in 0..MAX_DOM_HOPS {
+        let styled_dom = styled_dom_of(dom)?;
+        let node_data = styled_dom.node_data.as_container();
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        // A malformed parent chain must not spin.
+        let mut budget = node_data.len();
+        while let Some(node) = current {
+            if let Some(menu) = node_data.get(node).and_then(NodeData::get_context_menu) {
+                return Some((dom_node(dom, node), menu.clone()));
+            }
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
+            current = hierarchy.get(node).and_then(|h| h.parent_id());
         }
-        if budget == 0 {
-            break;
-        }
-        budget -= 1;
-        current = hierarchy.get(node).and_then(|h| h.parent_id());
+        // Past the dom's root: a child dom goes on at the node hosting it.
+        let (host_dom, host_node) = host_of(dom)?;
+        dom = host_dom;
+        current = Some(host_node);
     }
     None
 }
 
 /// The context menu a secondary click opens where `hit` was taken, and the
-/// node that carries it: the front-most hit node's nearest menu (see
-/// [`nearest_context_menu`]).
+/// node that carries it.
+///
+/// Doms FRONT-MOST FIRST (a child dom is composited over its host, see
+/// `hover::deepest_node_across_doms`), each from its front-most hit node,
+/// walking up to the nearest menu ([`nearest_context_menu`], through the
+/// dom's hosts too). A dom with no menu on that way does not hide the menus
+/// of the doms behind it.
 pub fn context_menu_under_hit<'a>(
     hit: &FullHitTest,
     styled_dom_of: &dyn Fn(DomId) -> Option<&'a StyledDom>,
     host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
 ) -> Option<(DomNodeId, Menu)> {
-    let front = deepest_node_across_doms(hit)?;
-    nearest_context_menu(styled_dom_of, front, host_of)
+    hit.hovered_nodes.iter().rev().find_map(|(dom, ht)| {
+        // The front-most hit of this dom: lowest depth, then the deeper node.
+        let front = ht
+            .regular_hit_test_nodes
+            .iter()
+            .min_by(|(a_id, a), (b_id, b)| a.hit_depth.cmp(&b.hit_depth).then(b_id.cmp(a_id)))
+            .map(|(node, _)| *node)?;
+        nearest_context_menu(styled_dom_of, dom_node(*dom, front), host_of)
+    })
 }
 
 fn dom_node(dom: DomId, node: NodeId) -> DomNodeId {

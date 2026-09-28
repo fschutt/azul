@@ -36,7 +36,7 @@ use super::{
 };
 use crate::{
     desktop::shell2::common::event::{
-        scrollbar_stops_the_button_event, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT,
+        scrollbar_stops_the_button_event, PlatformWindow, BUTTON_STATE_LEFT,
         BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     },
     log_debug, log_error, log_info, log_trace, log_warn,
@@ -684,9 +684,7 @@ impl X11Window {
         // RightMouseUp / Hover(RightMouseUp) never fired for that click and
         // the next handler's snapshot destroyed the transition.
         if !is_down && button == MouseButton::Right {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                self.try_show_context_menu(hit_node, position);
-            }
+            self.try_show_context_menu(position);
         }
 
         // X11 middle-click paste: the PRIMARY selection is inserted at the
@@ -1508,68 +1506,30 @@ impl X11Window {
         result
     }
 
-    /// Get the first hovered node from current hit test
-    fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.common
-            .layout_window
-            .as_ref()?
-            .hover_manager
-            .get_current(&InputPointId::Mouse)?
-            .hovered_nodes
-            .iter()
-            .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes
-                    .keys()
-                    .next_back()
-                    .map(|node_id| HitTestNode {
-                        dom_id: dom_id.inner as u64,
-                        node_id: node_id.index() as u64,
-                    })
-            })
-            .next()
-    }
-
     // Scrollbar methods provided by PlatformWindow trait (see common/event.rs)
 
     // Context Menu Support
 
-    /// Try to show context menu for the given node at position
+    /// Try to show the context menu under the pointer at `position`.
+    ///
+    /// WHICH menu is the engine's one answer
+    /// (`LayoutWindow::context_menu_under_pointer`, shared with every other
+    /// shell): the front-most node under the pointer, walking up - out of a
+    /// `VirtualView` page into its host too - to the nearest node carrying a
+    /// menu. This used to start at the highest `NodeId` of the LOWEST dom,
+    /// so a page composited over its host was never asked.
     ///
     /// Uses the unified menu system (crate::desktop::menu::show_menu) which is identical
     /// to how menu bar menus work, but spawns at cursor position instead of below a trigger rect.
     /// Returns true if a menu was shown
-    fn try_show_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> bool {
-        let layout_window = match self.common.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return false,
-        };
-
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-
-        // Get layout result for this DOM
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return false,
-        };
-
-        // `node.node_id` is a 0-based index (as emitted by get_first_hovered_node).
-        // Walk UP the ancestor chain from the hit node to find the nearest node
-        // carrying a context menu — standard "inherit the nearest ancestor's menu"
-        // semantics, so a right-click on a child still finds a parent's menu.
-        let binding = layout_result.styled_dom.node_data.as_container();
-        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let mut cur = Some(azul_core::id::NodeId::new(node.node_id as usize));
-        let context_menu = loop {
-            let nid = match cur {
-                Some(n) => n,
-                None => return false,
-            };
-            if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
-                break menu.clone();
-            }
-            cur = hierarchy.get(nid).and_then(|h| h.parent_id());
+    fn try_show_context_menu(&mut self, position: LogicalPosition) -> bool {
+        let Some((owner, context_menu)) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.context_menu_under_pointer())
+        else {
+            return false;
         };
 
         log_debug!(
@@ -1577,7 +1537,7 @@ impl X11Window {
             "[X11 Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
-            node,
+            owner,
             context_menu.items.as_slice().len()
         );
 

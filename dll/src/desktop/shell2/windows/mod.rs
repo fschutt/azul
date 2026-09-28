@@ -62,7 +62,6 @@ use azul_core::{
 };
 use azul_css::corety::OptionU32;
 use azul_layout::{
-    hit_test::FullHitTest,
     managers::hover::InputPointId,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
@@ -3366,66 +3365,40 @@ impl Win32Window {
         false
     }
 
-    /// Try to show context menu at the given screen position
-    /// Returns true if a context menu was shown
+    /// Try to show the context menu under the pointer at the given client
+    /// position. Returns true if a context menu was shown.
+    ///
+    /// WHICH menu is the engine's one answer
+    /// (`LayoutWindow::context_menu_under_pointer`, shared with every other
+    /// shell): the front-most node under the pointer, walking up - out of a
+    /// `VirtualView` page into its host too - to the nearest node carrying a
+    /// menu. This used to take the first node with a menu in `NodeId` order,
+    /// the OUTERMOST one, so a box with its own menu inside a page with
+    /// another opened the page's.
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
-        // Get the topmost hovered node from hit test
-        let hit_test = self
+        let Some((owner, menu)) = self
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))
-            .cloned()
-            .unwrap_or_else(|| FullHitTest::empty(None));
-
-        if hit_test.is_empty() {
+            .and_then(|lw| lw.context_menu_under_pointer())
+        else {
             return false;
+        };
+        let Some(node_id) = owner.node.into_crate_internal() else {
+            return false;
+        };
+
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
+            self.show_native_context_menu(&menu, client_x, client_y, owner.dom, node_id);
+        } else {
+            self.show_window_based_context_menu(&menu, client_x, client_y, owner.dom, node_id);
         }
-
-        // Find first node with a context menu
-        for (dom_id, node_hit_test) in &hit_test.hovered_nodes {
-            // Check regular hit test nodes
-            for (node_id, hit_item) in &node_hit_test.regular_hit_test_nodes {
-                // Try to get the context menu by cloning it
-                let context_menu = if let Some(ref lw) = self.common.layout_window {
-                    if let Some(lr) = lw.layout_results.get(dom_id) {
-                        if let Some(nd) = lr
-                            .styled_dom
-                            .node_data
-                            .as_container()
-                            .get((*node_id).into())
-                        {
-                            nd.get_context_menu().cloned()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    return false;
-                };
-
-                if let Some(menu) = context_menu {
-                    // Check if native context menus are enabled
-                    if self
-                        .common
-                        .current_window_state()
-                        .flags
-                        .use_native_context_menus
-                    {
-                        self.show_native_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
-                    } else {
-                        self.show_window_based_context_menu(
-                            &menu, client_x, client_y, *dom_id, *node_id,
-                        );
-                    }
-                    return true;
-                }
-            }
-        }
-
-        false
+        true
     }
 
     /// Show a context menu using native Win32 popup menu
@@ -5213,17 +5186,19 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            // Try to show context menu first
-            let showed_context_menu = window.try_show_context_menu(x, y);
+            // The context menu first. It is PARKED, not tracked here
+            // (`show_native_context_menu` -> `park_native_menu`), so the pass
+            // below runs either way: skipping it when a menu opened left
+            // `right_down: true -> false` in the unconsumed delta, so
+            // MouseUp(Right) and ContextMenu callbacks never fired on a node
+            // with a menu (macOS and X11 had the same hole, closed earlier).
+            let _showed_context_menu = window.try_show_context_menu(x, y);
 
-            // If context menu was shown, skip normal mouse up processing
-            if !showed_context_menu {
-                // V2 system will detect MouseUp event
-                let result = window.process_window_events(0);
+            // V2 system will detect MouseUp event
+            let result = window.process_window_events(0);
 
-                // Request redraw if needed
-                window.route_main_window_result(hwnd, result);
-            }
+            // Request redraw if needed
+            window.route_main_window_result(hwnd, result);
 
             0
         }
