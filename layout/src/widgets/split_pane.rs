@@ -959,6 +959,19 @@ mod autotest_generated {
         cur: OptionLogicalPosition,
         f: impl FnOnce(CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        drive_in(FullWindowState::default(), styled_dom, boxes, hit, cur, f)
+    }
+
+    /// [`drive`] with the window in `current_window_state` - the pointer's
+    /// buttons and the keyboard as the callback reads them.
+    fn drive_in<R>(
+        current_window_state: FullWindowState,
+        styled_dom: StyledDom,
+        boxes: &[(usize, LogicalSize)],
+        hit: DomNodeId,
+        cur: OptionLogicalPosition,
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
@@ -967,7 +980,6 @@ mod autotest_generated {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -2902,5 +2914,155 @@ mod autotest_generated {
             after.inner.ratio, 0.3,
             "idle: the app's rebuilt ratio is kept"
         );
+    }
+
+    // ==================================================================
+    // A drag holds the pointer
+    // ==================================================================
+
+    /// The window with the primary button held.
+    fn button_held() -> FullWindowState {
+        let mut ws = FullWindowState::default();
+        ws.mouse_state.left_down = true;
+        ws
+    }
+
+    /// The callback `dom`'s container registered for `filter`, the way the
+    /// dispatcher runs it.
+    fn registered(dom: &Dom, filter: EventFilter) -> crate::callbacks::Callback {
+        let core = dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .find(|c| c.event == filter)
+            .unwrap_or_else(|| panic!("no {filter:?} callback on the container"))
+            .callback
+            .clone();
+        crate::callbacks::Callback::from_core(core)
+    }
+
+    /// Device bug (AzWidgets, 2026-09-28): the first pixels of every drag
+    /// leave the 6px divider (it follows the cursor only after the relayout
+    /// the move asks for), and every event bubbles to the container - the
+    /// divider's `MouseLeave` too. It was wired to end the drag, so the
+    /// divider followed the cursor for a move or two and stopped. With the
+    /// button still held, a leave must not end the drag: the press holds
+    /// the pointer until the release.
+    #[test]
+    fn a_drag_that_leaves_the_divider_keeps_resizing_until_the_release() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let dom = plain(SplitDirection::Horizontal).dom();
+        let leave = registered(&dom, EventFilter::Hover(HoverEventFilter::MouseLeave));
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let sd = StyledDom::create_from_dom(dom);
+
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        // The divider's leave, bubbled to the container: the button is held.
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(104.0, 50.0),
+            |info| leave.invoke(state.clone(), info),
+        );
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &boxes,
+            node(0),
+            cursor(150.0, 50.0),
+            |info| on_split_pointer_move(state.clone(), info),
+        );
+
+        let mut state = state;
+        let w = wrapper(&mut state);
+        assert!(
+            w.is_dragging,
+            "a leave with the button held ended the drag"
+        );
+        assert!(
+            w.inner.ratio > 0.7,
+            "the move after the leave must still move the divider, ratio is {}",
+            w.inner.ratio
+        );
+        assert_eq!(
+            css_changes(&changes).len(),
+            2,
+            "the move after the leave must still resize both panes"
+        );
+    }
+
+    /// A leave that comes after the button went up - a release that never
+    /// reached the container - does end the drag, so a lost release cannot
+    /// leave the divider stuck to a hovering cursor.
+    #[test]
+    fn a_leave_after_a_lost_release_ends_the_drag() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let dom = plain(SplitDirection::Horizontal).dom();
+        let leave = registered(&dom, EventFilter::Hover(HoverEventFilter::MouseLeave));
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let sd = StyledDom::create_from_dom(dom);
+
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        let (_, _) = drive(sd, &boxes, node(0), cursor(250.0, 50.0), |info| {
+            leave.invoke(state.clone(), info)
+        });
+        let mut state = state;
+        assert!(!wrapper(&mut state).is_dragging);
+    }
+
+    /// The press that grabs the divider CAPTURES the pointer for the
+    /// container (W3C `setPointerCapture`): the moves and the release go to
+    /// it wherever the cursor is - past the pane's edge, over another
+    /// widget - until the release. Without it a drag outside the split pane
+    /// stopped moving the divider and its release was never seen.
+    #[test]
+    fn a_press_on_the_divider_captures_the_pointer_for_the_split_pane() {
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &[(0, size(200.0, 100.0))],
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        assert!(
+            changes.iter().any(
+                |c| matches!(c, CallbackChange::CapturePointer { node: n, .. } if *n == node(0))
+            ),
+            "the grab must capture the pointer for the container: {changes:?}"
+        );
+    }
+
+    /// A press on a pane (not the divider) is the pane's: nothing captured.
+    #[test]
+    fn a_press_beside_the_divider_captures_nothing() {
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &[(0, size(200.0, 100.0))],
+            node(0),
+            cursor(10.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        assert!(changes.is_empty(), "{changes:?}");
     }
 }
