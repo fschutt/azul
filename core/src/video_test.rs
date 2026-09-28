@@ -80,6 +80,7 @@ mod autotest_generated {
         assert!((c.timestamp - 0.0).abs() < f32::EPSILON);
         assert!(c.autoplay);
         assert!(!c.looping);
+        assert!(!c.paused, "a new config plays");
         assert_eq!(c.output_format, RawImageFormat::BGRA8);
     }
 
@@ -99,6 +100,7 @@ mod autotest_generated {
             assert_eq!(c.timestamp.to_bits(), d.timestamp.to_bits());
             assert_eq!(c.autoplay, d.autoplay);
             assert_eq!(c.looping, d.looping);
+            assert_eq!(c.paused, d.paused);
             assert_eq!(c.output_format, d.output_format);
         }
     }
@@ -569,5 +571,39 @@ mod autotest_generated {
         assert_eq!(cloned, v);
         drop(v);
         assert_eq!(cloned.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod video_status_contract {
+    use super::*;
+
+    #[test]
+    fn a_video_starts_loading_with_nothing_known() {
+        let s = VideoStatus::default();
+        assert_eq!(s, VideoStatus::loading());
+        assert_eq!(s.phase, VideoPhase::Loading);
+        assert_eq!(VideoPhase::default(), VideoPhase::Loading);
+        assert!(s.message.as_str().is_empty());
+        assert_eq!(s.progress(), 0.0, "no length yet: an empty bar");
+    }
+
+    #[test]
+    fn progress_is_the_position_over_the_length_clamped() {
+        let at = |position_s: f32, duration_s: f32| {
+            VideoStatus::new(VideoPhase::Playing, position_s, duration_s).progress()
+        };
+        assert_eq!(at(2.5, 10.0), 0.25);
+        assert_eq!(at(12.0, 10.0), 1.0);
+        assert_eq!(at(-1.0, 10.0), 0.0);
+        assert_eq!(at(f32::NAN, 10.0), 0.0);
+        assert_eq!(at(3.0, 0.0), 0.0, "an unknown length is not a zero-length video");
+    }
+
+    #[test]
+    fn a_failure_carries_its_message() {
+        let s = VideoStatus::failed(AzString::from_const_str("no network"));
+        assert_eq!(s.phase, VideoPhase::Failed);
+        assert_eq!(s.message.as_str(), "no network");
     }
 }

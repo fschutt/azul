@@ -18,7 +18,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
     task::{ThreadId, ThreadReceiver, ThreadSendMsg},
-    video::{VideoConfig, VideoFrame},
+    video::{VideoConfig, VideoFrame, VideoPhase, VideoStatus},
 };
 
 use super::capture_common::{
@@ -40,6 +40,16 @@ use crate::{
 const DEFAULT_W: u32 = 1280;
 const DEFAULT_H: u32 = 720;
 
+/// How much media time passes between two position reports while a video
+/// plays: the web's `timeupdate` budget, the same one the media-player
+/// manager throttles `TimeUpdate` to. A progress bar needs no more, and a
+/// report per frame would rebuild the app's UI at the frame rate.
+pub const STATUS_INTERVAL_S: f32 = crate::managers::media_player::TIME_UPDATE_INTERVAL_S;
+
+/// Slack when matching the clock to a frame's presentation time, so a clock
+/// that lands a hair before a frame (`n / fps` rounds) still shows it.
+const PTS_TOLERANCE_S: f32 = 0.001;
+
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
 #[derive(Debug)]
@@ -53,6 +63,13 @@ pub struct VideoWidgetState {
     /// Optional user hook invoked with each decoded frame (effects / save /
     /// send). Re-set on every fresh build (see [`merge_video_state`]).
     pub on_frame: OptionOnVideoFrame,
+    /// Optional user hook invoked with every [`VideoStatus`] the decode
+    /// worker reports. Re-set on every fresh build (see [`merge_video_state`]).
+    pub on_status: OptionOnVideoStatus,
+    /// The status the decode worker last reported ([`VideoStatus::loading`]
+    /// until it reports one). Written by [`video_status_writeback`], never by
+    /// a rebuild.
+    pub status: VideoStatus,
     /// Optional pre-decoded frames to replay (a `RefAny` holding a
     /// `Vec<VideoFrame>`); when set, the replay worker cycles these instead of
     /// the built-in test pattern. Carried forward by [`merge_video_state`].
@@ -129,6 +146,8 @@ pub struct VideoWidget {
     /// Optional hook fired when the widget is mounted, returning the
     /// [`VideoSetup`] its decode worker runs on.
     pub on_mount: OptionVideoMount,
+    /// Optional hook fired with every [`VideoStatus`] the decoder reports.
+    pub on_status: OptionOnVideoStatus,
 }
 
 impl VideoWidget {
@@ -140,7 +159,32 @@ impl VideoWidget {
             on_frame: OptionOnVideoFrame::None,
             frames: OptionRefAny::None,
             on_mount: OptionVideoMount::None,
+            on_status: OptionOnVideoStatus::None,
         }
+    }
+
+    /// Set a hook fired whenever the video's pipeline reports a
+    /// [`VideoStatus`]: loading, the first frame on screen (held as a poster
+    /// or playing), the position about four times a second while it plays,
+    /// the end, or a failure with a message for the user. This is where an
+    /// app drives its play button, its time display and its error text.
+    pub fn set_on_status<C: Into<OnVideoStatusCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_status = Some(OnVideoStatus {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_status`](Self::set_on_status).
+    #[must_use]
+    pub fn with_on_status<C: Into<OnVideoStatusCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_status(data, callback);
+        self
     }
 
     /// Set a hook fired when the widget is mounted. It receives the widget's
@@ -215,6 +259,8 @@ impl VideoWidget {
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
+            on_status: self.on_status,
+            status: VideoStatus::loading(),
             frames: self.frames,
             decode_callback: None,
             current_frame: None,
@@ -379,6 +425,31 @@ azul_core::impl_managed_callback! {
     setter_fn:      AzApp_setVideoMountCallbackInvoker,
     from_handle_fn: AzVideoMountCallback_createFromHostHandle,
     extra_args:     [ setup: VideoSetup ],
+}
+
+// --- User hook: on_status (backreference DI, FFI-exposed) ---
+
+/// User hook fired with every [`VideoStatus`] the video's decoder reports.
+/// Returns `Update` like any callback: `RefreshDom` to redraw the app's
+/// controls from the new status.
+pub type OnVideoStatusCallbackType = extern "C" fn(RefAny, CallbackInfo, VideoStatus) -> Update;
+impl_widget_callback!(
+    OnVideoStatus,
+    OptionOnVideoStatus,
+    OnVideoStatusCallback,
+    OnVideoStatusCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        OnVideoStatusCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_VIDEO_STATUS_INVOKER,
+    invoker_ty:     AzOnVideoStatusCallbackInvoker,
+    thunk_fn:       az_on_video_status_callback_thunk,
+    setter_fn:      AzApp_setOnVideoStatusCallbackInvoker,
+    from_handle_fn: AzOnVideoStatusCallback_createFromHostHandle,
+    extra_args:     [ status: VideoStatus ],
 }
 
 /// Everything a video needs before its worker starts, done once it is in the
@@ -631,6 +702,25 @@ pub extern "C" fn video_writeback(
     user_update
 }
 
+#[must_use]
+/// Writeback (main thread): the decode worker reported a [`VideoStatus`].
+///
+/// Stores it as the widget's `status` and hands it to the app's `on_status`
+/// hook, returning the hook's `Update` (`DoNothing` without a hook). A status
+/// is not a frame: nothing is re-rendered here, the app redraws its own
+/// controls if it asks to.
+pub extern "C" fn video_status_writeback(
+    writeback_data: RefAny,
+    status_data: RefAny,
+    info: CallbackInfo,
+) -> Update {
+    // RED stub: the status is neither stored nor handed to the hook yet.
+    drop(writeback_data);
+    drop(status_data);
+    let _ = info;
+    Update::DoNothing
+}
+
 /// Carry live state forward across relayout.
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path /
                             // cache-key match
@@ -664,8 +754,8 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
                 }
             }
             // Adopt the app-driven config; keep every worker-facing field
-            // (frames, current_frame, thread_id, seek_sender, started) in the
-            // allocation the worker actually writes to.
+            // (frames, current_frame, thread_id, seek_sender, started, the
+            // reported status) in the allocation the worker actually writes to.
             old_g.config = new_g.config.clone();
             old_g.on_frame = new_g.on_frame.clone();
             // The hook is adopted; `setup` and the decode worker were installed on
@@ -684,6 +774,205 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
         old_data
     } else {
         new_data
+    }
+}
+
+// ============================================================================
+// Transport: what the decode worker plays when, testable without a decoder
+// ============================================================================
+
+/// Main → decode-worker transport message, sent by [`merge_video_state`] as
+/// `ThreadSendMsg::Custom(RefAny::new(VideoTransport::..))` when the app
+/// flips [`VideoConfig::paused`], the way a changed `timestamp` is sent as an
+/// `f32` seek.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum VideoTransport {
+    /// Hold on the frame on screen.
+    Pause,
+    /// Play on from the frame on screen; from the start once the video ended.
+    Resume,
+}
+
+/// Where the media clock of a [`VideoPlayback`] stands.
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum PlaybackClock {
+    /// Stopped at `base_s`: the poster, a pause, or no frame yet.
+    Held,
+    /// Running since `since_s` (on the caller's clock) from `base_s`.
+    Running { since_s: f64 },
+    /// Stopped at the end of a video that does not loop.
+    Ended,
+}
+
+/// The decode worker's transport and presentation schedule: which decoded
+/// frame is due, and what to tell the app.
+///
+/// Kept apart from the decoder so its rules are testable without one: the
+/// caller hands in the time (`now_s`, seconds on any monotonic clock) instead
+/// of the schedule reading a clock itself. Frames may arrive in any order —
+/// `VideoToolbox` hands them back in DECODE order — and are kept in
+/// PRESENTATION order. The clock starts with the first frame on screen, not
+/// with the download, so a slow network never eats the start of the video.
+#[derive(Debug)]
+pub struct VideoPlayback {
+    /// Decoded frames, sorted by presentation time: `(pts_s, frame)`.
+    frames: Vec<(f32, VideoFrame)>,
+    /// Length in seconds, `0.0` while unknown.
+    duration_s: f32,
+    /// Media position when the clock was last stopped or (re)started.
+    base_s: f32,
+    clock: PlaybackClock,
+    /// Index of the frame the last [`tick`](Self::tick) handed out; `None`
+    /// makes the next one hand out whichever frame is due.
+    presented: Option<usize>,
+    /// The status the last [`tick`](Self::tick) handed out; `None` makes the
+    /// next one report whatever the state is.
+    reported: Option<VideoStatus>,
+    /// Every frame of the stream is in `frames`: the last one is the end.
+    complete: bool,
+    looping: bool,
+    /// The app asked to hold.
+    paused: bool,
+}
+
+/// What one [`VideoPlayback::tick`] asks of the decode worker.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct VideoTick {
+    /// Present the frame at this index of [`VideoPlayback::frame`].
+    pub present: Option<usize>,
+    /// Tell the app, through the widget's `on_status` hook.
+    pub status: Option<VideoStatus>,
+}
+
+/// A position a caller handed in, made usable: NaN, infinities and negative
+/// times all mean the start.
+const fn sanitize_position(position_s: f32) -> f32 {
+    if position_s.is_finite() && position_s > 0.0 {
+        position_s
+    } else {
+        0.0
+    }
+}
+
+impl VideoPlayback {
+    /// A schedule that starts at `start_s`. `paused` holds the first frame as
+    /// a poster until [`resume`](Self::resume); `looping` wraps the end back
+    /// to the start.
+    #[must_use]
+    pub const fn new(start_s: f32, paused: bool, looping: bool) -> Self {
+        Self {
+            frames: Vec::new(),
+            duration_s: 0.0,
+            base_s: sanitize_position(start_s),
+            clock: PlaybackClock::Held,
+            presented: None,
+            reported: None,
+            complete: false,
+            looping,
+            paused,
+        }
+    }
+
+    /// The video is `duration_s` long (`0.0`, NaN or negative: unknown).
+    pub const fn set_duration(&mut self, duration_s: f32) {
+        self.duration_s = sanitize_position(duration_s);
+    }
+
+    /// The length in seconds, `0.0` while unknown.
+    #[must_use]
+    pub const fn duration(&self) -> f32 {
+        self.duration_s
+    }
+
+    /// Every frame has been handed in: the last one is the end of the video.
+    pub const fn finish(&mut self) {
+        self.complete = true;
+    }
+
+    /// The decoded frame at `index`, in presentation order.
+    #[must_use]
+    pub fn frame(&self, index: usize) -> Option<&VideoFrame> {
+        self.frames.get(index).map(|(_, frame)| frame)
+    }
+
+    /// Present the due frame again on the next tick (the output size
+    /// changed).
+    pub const fn invalidate(&mut self) {
+        self.presented = None;
+    }
+
+    /// Where the media clock stands at `now_s`.
+    #[must_use]
+    pub const fn position(&self, now_s: f64) -> f32 {
+        match self.clock {
+            PlaybackClock::Running { since_s } => {
+                let elapsed = now_s - since_s;
+                let elapsed = if elapsed > 0.0 { elapsed } else { 0.0 };
+                self.base_s + elapsed as f32
+            }
+            PlaybackClock::Held | PlaybackClock::Ended => self.base_s,
+        }
+    }
+
+    /// Stop the clock where it stands at `now_s`, and restart it from there.
+    const fn rebase(&mut self, position_s: f32, now_s: f64) {
+        self.base_s = position_s;
+        self.clock = PlaybackClock::Running { since_s: now_s };
+    }
+
+    /// `position_s` clamped to the end of the video, when the end is known.
+    const fn clamp_to_end(&self, position_s: f32) -> f32 {
+        if self.duration_s > 0.0 && position_s > self.duration_s {
+            self.duration_s
+        } else {
+            position_s
+        }
+    }
+
+    /// Add a decoded frame, shown from `pts_s` on.
+    pub fn push_frame(&mut self, pts_s: f32, frame: VideoFrame) {
+        // RED stub: appended in arrival order.
+        self.frames.push((pts_s, frame));
+    }
+
+    /// Hold on the frame on screen.
+    pub fn pause(&mut self, now_s: f64) {
+        let _ = now_s; // RED stub
+    }
+
+    /// Play on from the frame on screen.
+    pub fn resume(&mut self, now_s: f64) {
+        let _ = now_s; // RED stub
+    }
+
+    /// Jump to `position_s`.
+    pub fn seek(&mut self, position_s: f32, now_s: f64) {
+        let _ = (position_s, now_s); // RED stub
+    }
+
+    /// Advance to `now_s`: which frame is due, and what the app should hear.
+    #[must_use]
+    pub fn tick(&mut self, now_s: f64) -> VideoTick {
+        let _ = now_s; // RED stub: nothing is ever due
+        VideoTick::default()
+    }
+
+    /// The status to hand out, if the app has not heard it yet: a new phase,
+    /// a new length, a seek or a transport change, or - while playing - a
+    /// position [`STATUS_INTERVAL_S`] on from the last report.
+    fn report(&mut self, phase: VideoPhase, position_s: f32) -> Option<VideoStatus> {
+        let due = self.reported.as_ref().is_none_or(|last| {
+            last.phase != phase
+                || last.duration_s != self.duration_s
+                || (phase == VideoPhase::Playing
+                    && (position_s - last.position_s).abs() >= STATUS_INTERVAL_S)
+        });
+        if !due {
+            return None;
+        }
+        let status = VideoStatus::new(phase, position_s, self.duration_s);
+        self.reported = Some(status.clone());
+        Some(status)
     }
 }
 
@@ -754,6 +1043,7 @@ mod autotest_generated {
             timestamp,
             autoplay: true,
             looping: false,
+            paused: false,
             output_format: RawImageFormat::BGRA8,
         }
     }
@@ -794,6 +1084,7 @@ mod autotest_generated {
                 timestamp: -0.0,
                 autoplay: false,
                 looping: true,
+                paused: true,
                 output_format: RawImageFormat::R8,
             },
         ]
@@ -810,6 +1101,7 @@ mod autotest_generated {
         );
         assert_eq!(actual.autoplay, expected.autoplay);
         assert_eq!(actual.looping, expected.looping);
+        assert_eq!(actual.paused, expected.paused);
         assert_eq!(actual.output_format, expected.output_format);
     }
 
@@ -818,6 +1110,7 @@ mod autotest_generated {
         timestamp: 2.5,
         autoplay: false,
         looping: true,
+        paused: true,
         output_format: RawImageFormat::RGBA8,
     };
 
@@ -837,6 +1130,8 @@ mod autotest_generated {
             started: false,
             gl_texture_id: None,
             on_frame: OptionOnVideoFrame::None,
+            on_status: OptionOnVideoStatus::None,
+            status: VideoStatus::loading(),
             frames: OptionRefAny::None,
             decode_callback: None,
             current_frame: None,
@@ -1323,6 +1618,10 @@ mod autotest_generated {
             assert!(
                 matches!(widget.frames, OptionRefAny::None),
                 "a fresh widget has no replay list"
+            );
+            assert!(
+                matches!(widget.on_status, OptionOnVideoStatus::None),
+                "a fresh widget has no status hook"
             );
         }
     }
@@ -2677,6 +2976,430 @@ mod autotest_generated {
         assert!(
             rx.try_iter().next().is_none(),
             "a stable config must never seek, however many relayouts happen"
+        );
+    }
+
+    // ==================================================================
+    // Transport + status: merge_video_state, video_status_writeback
+    // ==================================================================
+
+    fn custom_transport(msg: &ThreadSendMsg) -> Option<VideoTransport> {
+        let ThreadSendMsg::Custom(r) = msg else {
+            return None;
+        };
+        let mut r = r.clone();
+        let out = r.downcast_ref::<VideoTransport>().map(|v| *v);
+        out
+    }
+
+    fn held(cfg: VideoConfig, paused: bool) -> VideoConfig {
+        VideoConfig { paused, ..cfg }
+    }
+
+    /// Records every status the widget's `on_status` hook is handed, and
+    /// answers with a caller-chosen `Update`.
+    struct StatusLog {
+        seen: Vec<VideoStatus>,
+        reply: Update,
+    }
+
+    extern "C" fn record_status(mut data: RefAny, _: CallbackInfo, status: VideoStatus) -> Update {
+        let mut reply = Update::DoNothing;
+        if let Some(mut log) = data.downcast_mut::<StatusLog>() {
+            log.seen.push(status);
+            reply = log.reply;
+        }
+        reply
+    }
+
+    fn status_log(reply: Update) -> RefAny {
+        RefAny::new(StatusLog {
+            seen: Vec::new(),
+            reply,
+        })
+    }
+
+    fn logged_statuses(data: &mut RefAny) -> Vec<VideoStatus> {
+        data.downcast_ref::<StatusLog>()
+            .expect("payload must still be a StatusLog")
+            .seen
+            .clone()
+    }
+
+    fn status_hook_into(log: &RefAny) -> OptionOnVideoStatus {
+        Some(OnVideoStatus {
+            refany: log.clone(),
+            callback: (record_status as OnVideoStatusCallbackType).into(),
+        })
+        .into()
+    }
+
+    fn stored_status(data: &mut RefAny) -> Option<VideoStatus> {
+        data.downcast_ref::<VideoWidgetState>()
+            .map(|s| s.status.clone())
+    }
+
+    #[test]
+    fn merge_pauses_and_resumes_the_worker_when_paused_flips() {
+        let mp4 = || config(file_source("/clip.mp4"), 0.0);
+        let (new, old, rx) = merge_pair(held(mp4(), false), held(mp4(), true));
+        let merged = merge_video_state(new, old);
+
+        let msgs: Vec<ThreadSendMsg> = rx.try_iter().collect();
+        assert_eq!(msgs.len(), 1, "one transport message, no seek");
+        assert_eq!(custom_transport(&msgs[0]), Some(VideoTransport::Pause));
+
+        let fresh = RefAny::new(base_state(held(mp4(), false)));
+        let _merged = merge_video_state(fresh, merged);
+        let msgs: Vec<ThreadSendMsg> = rx.try_iter().collect();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            custom_transport(&msgs[0]),
+            Some(VideoTransport::Resume),
+            "clearing `paused` resumes the running worker"
+        );
+    }
+
+    #[test]
+    fn merge_stays_quiet_while_paused_is_unchanged() {
+        let mp4 = || config(file_source("/clip.mp4"), 0.0);
+        let (new, old, rx) = merge_pair(held(mp4(), true), held(mp4(), true));
+        let _merged = merge_video_state(new, old);
+        assert!(
+            rx.try_iter().next().is_none(),
+            "a held video that stays held must not wake the worker"
+        );
+    }
+
+    #[test]
+    fn merge_adopts_the_fresh_status_hook_and_keeps_the_reported_status() {
+        let log = status_log(Update::DoNothing);
+        let mut new = base_state(VideoConfig::default());
+        new.on_status = status_hook_into(&log);
+        let mut old = base_state(VideoConfig::default());
+        old.status = VideoStatus::new(VideoPhase::Playing, 3.0, 10.0);
+
+        let mut merged = merge_video_state(RefAny::new(new), RefAny::new(old));
+
+        let hooked = merged
+            .downcast_ref::<VideoWidgetState>()
+            .is_some_and(|s| matches!(s.on_status, OptionOnVideoStatus::Some(_)));
+        assert!(hooked, "the fresh build's hook wins");
+        assert_eq!(
+            stored_status(&mut merged),
+            Some(VideoStatus::new(VideoPhase::Playing, 3.0, 10.0)),
+            "a rebuild must not forget what the worker reported"
+        );
+    }
+
+    #[test]
+    fn a_fresh_widget_is_loading_and_carries_its_status_hook() {
+        let dom = VideoWidget::create(VideoConfig::default())
+            .with_on_status(
+                status_log(Update::DoNothing),
+                record_status as OnVideoStatusCallbackType,
+            )
+            .dom();
+        let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
+        assert_eq!(stored_status(&mut dataset), Some(VideoStatus::loading()));
+        let hooked = dataset
+            .downcast_ref::<VideoWidgetState>()
+            .is_some_and(|s| matches!(s.on_status, OptionOnVideoStatus::Some(_)));
+        assert!(hooked, "dom() must carry the status hook into the state");
+    }
+
+    #[test]
+    fn a_reported_status_is_stored_and_handed_to_the_hook() {
+        let mut log = status_log(Update::RefreshDom);
+        let mut s = base_state(VideoConfig::default());
+        s.on_status = status_hook_into(&log);
+        let mut data = RefAny::new(s);
+        let poster = VideoStatus::new(VideoPhase::Paused, 0.0, 10.0);
+        let payload = RefAny::new(poster.clone());
+
+        let (update, changes) =
+            with_callback_info(|info| video_status_writeback(data.clone(), payload.clone(), info));
+
+        assert_eq!(update, Update::RefreshDom, "the hook's Update must win");
+        assert_eq!(logged_statuses(&mut log), vec![poster.clone()]);
+        assert_eq!(stored_status(&mut data), Some(poster));
+        assert_eq!(
+            count_virtual_view_rerenders(&changes),
+            0,
+            "a status is not a frame: nothing to re-render"
+        );
+    }
+
+    #[test]
+    fn a_status_without_a_hook_is_still_stored() {
+        let mut data = state(VideoConfig::default());
+        let failed = VideoStatus::failed(AzString::from_const_str("no network"));
+        let payload = RefAny::new(failed.clone());
+
+        let (update, _) =
+            with_callback_info(|info| video_status_writeback(data.clone(), payload.clone(), info));
+
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(stored_status(&mut data), Some(failed));
+    }
+
+    #[test]
+    fn a_status_payload_of_the_wrong_type_is_ignored() {
+        let mut log = status_log(Update::RefreshDom);
+        let mut s = base_state(VideoConfig::default());
+        s.on_status = status_hook_into(&log);
+        let mut data = RefAny::new(s);
+
+        let (update, _) = with_callback_info(|info| {
+            video_status_writeback(data.clone(), RefAny::new(0_u32), info)
+        });
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(logged_statuses(&mut log).is_empty());
+        assert_eq!(stored_status(&mut data), Some(VideoStatus::loading()));
+    }
+
+    // ==================================================================
+    // VideoPlayback: the worker's transport, with the time handed in
+    // ==================================================================
+
+    /// A 1 x 1 frame whose width tags it, so a test can tell which one is
+    /// on screen.
+    fn tagged(tag: u32) -> VideoFrame {
+        frame(tag, 1)
+    }
+
+    /// A completely decoded 1 s clip of 30 frames; frame `n` is tagged
+    /// `n + 1`.
+    fn clip(paused: bool, looping: bool) -> VideoPlayback {
+        let mut pb = VideoPlayback::new(0.0, paused, looping);
+        pb.set_duration(1.0);
+        for n in 0..30_u32 {
+            pb.push_frame(n as f32 / 30.0, tagged(n + 1));
+        }
+        pb.finish();
+        pb
+    }
+
+    /// The tag of the frame a tick presented, if it presented one.
+    fn shown(pb: &VideoPlayback, tick: &VideoTick) -> Option<u32> {
+        tick.present.and_then(|i| pb.frame(i)).map(|f| f.width)
+    }
+
+    fn phase_of(tick: &VideoTick) -> Option<VideoPhase> {
+        tick.status.as_ref().map(|s| s.phase)
+    }
+
+    fn position_of(tick: &VideoTick) -> Option<f32> {
+        tick.status.as_ref().map(|s| s.position_s)
+    }
+
+    #[test]
+    fn a_video_that_does_not_autoplay_holds_its_first_frame_as_a_poster() {
+        let mut pb = clip(true, false);
+
+        let first = pb.tick(0.0);
+        assert_eq!(shown(&pb, &first), Some(1), "the first frame is the poster");
+        assert_eq!(phase_of(&first), Some(VideoPhase::Paused));
+
+        let later = pb.tick(5.0);
+        assert_eq!(later.present, None, "a held video shows nothing new");
+        assert_eq!(later.status, None, "and has nothing new to say");
+        assert_eq!(pb.position(5.0), 0.0, "its clock never started");
+    }
+
+    #[test]
+    fn the_clock_starts_with_the_first_frame_not_with_the_download() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(1.0);
+
+        let loading = pb.tick(0.0);
+        assert_eq!(loading.present, None, "no frame, nothing to show");
+        assert_eq!(phase_of(&loading), Some(VideoPhase::Loading));
+        assert_eq!(
+            loading.status.as_ref().map(|s| s.duration_s),
+            Some(1.0),
+            "the length is known before the pixels"
+        );
+
+        // The download took three seconds: playback starts at 0, not at 3.
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        let first = pb.tick(3.0);
+        assert_eq!(shown(&pb, &first), Some(1));
+        assert_eq!(phase_of(&first), Some(VideoPhase::Playing));
+        assert_eq!(pb.position(3.25), 0.25);
+    }
+
+    #[test]
+    fn resume_plays_from_the_poster_and_pause_freezes_the_position() {
+        let mut pb = clip(true, false);
+        let _poster = pb.tick(0.0);
+
+        pb.resume(10.0);
+        let playing = pb.tick(10.5);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+        assert_eq!(shown(&pb, &playing), Some(16), "0.5 s in is frame 15");
+
+        pb.pause(10.75);
+        let paused = pb.tick(11.0);
+        assert_eq!(phase_of(&paused), Some(VideoPhase::Paused));
+        assert_eq!(position_of(&paused), Some(0.75));
+        assert_eq!(pb.position(99.0), 0.75, "a held clock stands still");
+
+        pb.resume(20.0);
+        assert_eq!(pb.position(20.125), 0.875, "and runs on from where it stood");
+    }
+
+    #[test]
+    fn pausing_before_the_first_frame_keeps_the_video_held_when_it_arrives() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.pause(0.0);
+        pb.push_frame(0.0, tagged(1));
+        let tick = pb.tick(1.0);
+        assert_eq!(shown(&pb, &tick), Some(1));
+        assert_eq!(phase_of(&tick), Some(VideoPhase::Paused));
+    }
+
+    #[test]
+    fn frames_are_shown_in_presentation_order_whatever_order_they_decode_in() {
+        // An I P B B group in DECODE order, the order VideoToolbox hands the
+        // frames back in: the P frame is decoded second and shown last.
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.3, tagged(4));
+        pb.push_frame(0.1, tagged(2));
+        pb.push_frame(0.2, tagged(3));
+        pb.finish();
+
+        let order: Vec<u32> = (0..4).filter_map(|i| pb.frame(i)).map(|f| f.width).collect();
+        assert_eq!(order, vec![1, 2, 3, 4]);
+
+        pb.seek(0.15, 0.0);
+        let tick = pb.tick(0.0);
+        assert_eq!(
+            shown(&pb, &tick),
+            Some(2),
+            "0.15 s is the first B frame, not the P frame decoded before it"
+        );
+    }
+
+    #[test]
+    fn a_frame_decoded_after_the_one_on_screen_does_not_move_the_picture() {
+        let mut pb = VideoPlayback::new(0.3, true, false);
+        pb.push_frame(0.3, tagged(4));
+        let first = pb.tick(0.0);
+        assert_eq!(shown(&pb, &first), Some(4));
+
+        // A B frame that is shown earlier arrives later.
+        pb.push_frame(0.1, tagged(2));
+        let again = pb.tick(0.0);
+        assert_eq!(again.present, None, "the frame on screen is still the right one");
+    }
+
+    #[test]
+    fn a_video_that_ends_holds_its_last_frame_and_says_so_once() {
+        let mut pb = clip(false, false);
+        let _start = pb.tick(0.0);
+
+        let end = pb.tick(2.0);
+        assert_eq!(shown(&pb, &end), Some(30));
+        assert_eq!(phase_of(&end), Some(VideoPhase::Ended));
+        assert_eq!(position_of(&end), Some(1.0));
+
+        let after = pb.tick(3.0);
+        assert_eq!(after.status, None, "Ended is reported once");
+        assert_eq!(after.present, None);
+    }
+
+    #[test]
+    fn playing_after_the_end_starts_over() {
+        let mut pb = clip(false, false);
+        let _start = pb.tick(0.0);
+        let _end = pb.tick(2.0);
+
+        pb.resume(5.0);
+        let again = pb.tick(5.0);
+        assert_eq!(shown(&pb, &again), Some(1));
+        assert_eq!(phase_of(&again), Some(VideoPhase::Playing));
+        assert_eq!(position_of(&again), Some(0.0));
+    }
+
+    #[test]
+    fn a_looping_video_wraps_to_the_start() {
+        let mut pb = clip(false, true);
+        let _start = pb.tick(0.0);
+
+        let wrapped = pb.tick(1.25);
+        assert_eq!(phase_of(&wrapped), Some(VideoPhase::Playing));
+        assert_eq!(position_of(&wrapped), Some(0.25), "the wrap is reported at once");
+        assert_eq!(shown(&pb, &wrapped), Some(8), "0.25 s is frame 7");
+    }
+
+    #[test]
+    fn a_seek_moves_the_picture_and_is_reported_at_once() {
+        let mut pb = clip(true, false);
+        let _poster = pb.tick(0.0);
+
+        pb.seek(0.5, 1.0);
+        let tick = pb.tick(1.0);
+        assert_eq!(shown(&pb, &tick), Some(16));
+        assert_eq!(
+            phase_of(&tick),
+            Some(VideoPhase::Paused),
+            "a seek keeps a held video held"
+        );
+        assert_eq!(position_of(&tick), Some(0.5));
+    }
+
+    #[test]
+    fn a_seek_is_clamped_into_the_video() {
+        let mut pb = clip(true, false);
+        pb.seek(f32::NAN, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(-3.0, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(f32::INFINITY, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(99.0, 0.0);
+        assert_eq!(pb.position(0.0), 1.0, "past the end is the end");
+    }
+
+    #[test]
+    fn position_reports_come_about_four_times_a_second() {
+        let mut pb = clip(false, false);
+        let mut reports = 0;
+        for step in 0..100_u32 {
+            // 0.99 s of playback in 10 ms steps
+            if pb.tick(f64::from(step) * 0.01).status.is_some() {
+                reports += 1;
+            }
+        }
+        assert!(
+            (3..=5).contains(&reports),
+            "one report per {STATUS_INTERVAL_S} s of playback, got {reports}"
+        );
+    }
+
+    #[test]
+    fn playback_that_outruns_the_decoder_waits_for_it() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        let _start = pb.tick(0.0);
+
+        let starved = pb.tick(2.0);
+        assert_eq!(shown(&pb, &starved), Some(2));
+        assert_eq!(
+            pb.position(2.0),
+            0.5,
+            "the clock waits at the newest decoded frame"
+        );
+        assert_ne!(
+            phase_of(&starved),
+            Some(VideoPhase::Ended),
+            "a video still decoding has not ended"
         );
     }
 }

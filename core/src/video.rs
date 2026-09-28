@@ -49,10 +49,18 @@ pub struct VideoConfig {
     /// widget's merge callback tell the decode worker to seek (scrubbing
     /// timeline) — the decoder survives relayout like the map's tile cache.
     pub timestamp: f32,
-    /// Start playing automatically on mount.
+    /// Start playing as soon as the first frame is decoded. `false` decodes
+    /// the first frame and holds it as a poster: the video starts paused,
+    /// whatever `paused` says.
     pub autoplay: bool,
     /// Restart from the beginning when the stream ends.
     pub looping: bool,
+    /// Hold playback on the current frame. A change of this field across a
+    /// relayout pauses (`true`) or resumes (`false`) the running decoder, the
+    /// way a changed `timestamp` seeks it. A player with a play button starts
+    /// with `autoplay: false, paused: true` and clears `paused` on the first
+    /// press.
+    pub paused: bool,
     /// Texture format the decoder delivers. `BGRA8` is the portable default;
     /// `Nv12` (a later `RawImageFormat` addition) is the zero-copy path.
     pub output_format: RawImageFormat,
@@ -65,6 +73,7 @@ impl Default for VideoConfig {
             timestamp: 0.0,
             autoplay: true,
             looping: false,
+            paused: false,
             output_format: RawImageFormat::BGRA8,
         }
     }
@@ -77,6 +86,102 @@ impl VideoConfig {
         Self {
             source,
             ..Self::default()
+        }
+    }
+}
+
+/// Where a video's pipeline stands, as the widget's `on_status` hook reports
+/// it.
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum VideoPhase {
+    /// Downloading, demuxing, or decoding the first frame: nothing to show
+    /// yet.
+    #[default]
+    Loading,
+    /// A frame is on screen and the clock is held: the poster before the
+    /// first play, or a pause.
+    Paused,
+    /// The clock runs and the frames follow it.
+    Playing,
+    /// A video that does not loop reached its end; its last frame stays up.
+    Ended,
+    /// The pipeline failed. [`VideoStatus::message`] says why.
+    Failed,
+}
+
+/// What a video's decoder reports: the phase, where the clock stands, how
+/// long the video is, and why it failed if it did.
+///
+/// The decode worker sends one whenever the phase changes, after a seek, and
+/// about four times a second while the video plays. `VideoWidget::with_on_status`
+/// hands each one to the app, which drives its play button, its time display
+/// and its error text from it.
+///
+/// Field order is by descending alignment (the string, the `f32`s, then the
+/// phase): the repo's alignment-order check is a hard error.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoStatus {
+    /// Why the pipeline failed, in words for the user. Empty unless `phase`
+    /// is [`VideoPhase::Failed`].
+    pub message: AzString,
+    /// Playback position, in seconds from the start.
+    pub position_s: f32,
+    /// Length in seconds, `0.0` while it is not known yet.
+    pub duration_s: f32,
+    /// Where the pipeline stands.
+    pub phase: VideoPhase,
+}
+
+impl Default for VideoStatus {
+    fn default() -> Self {
+        Self::loading()
+    }
+}
+
+impl VideoStatus {
+    /// Nothing decoded yet: the status a video starts in.
+    #[must_use]
+    pub const fn loading() -> Self {
+        Self::new(VideoPhase::Loading, 0.0, 0.0)
+    }
+
+    /// `phase` at `position_s` of a video `duration_s` long, with no message.
+    #[must_use]
+    pub const fn new(phase: VideoPhase, position_s: f32, duration_s: f32) -> Self {
+        Self {
+            message: AzString::from_const_str(""),
+            position_s,
+            duration_s,
+            phase,
+        }
+    }
+
+    /// The pipeline failed; `message` says why, in words for the user.
+    #[must_use]
+    pub const fn failed(message: AzString) -> Self {
+        Self {
+            message,
+            position_s: 0.0,
+            duration_s: 0.0,
+            phase: VideoPhase::Failed,
+        }
+    }
+
+    /// How far through the video the position is, `0.0..=1.0`: `0.0` while
+    /// the length is unknown, so a progress bar with no end stays empty.
+    #[must_use]
+    pub fn progress(&self) -> f32 {
+        if self.duration_s > 0.0 {
+            let p = self.position_s / self.duration_s;
+            if p.is_nan() {
+                0.0
+            } else {
+                p.clamp(0.0, 1.0)
+            }
+        } else {
+            0.0
         }
     }
 }
