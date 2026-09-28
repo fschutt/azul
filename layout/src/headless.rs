@@ -989,10 +989,21 @@ impl CpuHitTester {
 
                 // Clip this node to the VirtualView composite bounds
                 // (`dom_clip`) and every `overflow: hidden | clip | scroll |
-                // auto` ancestor's box — otherwise a node that is scrolled or
-                // clipped out of its ancestor would still claim pointer events.
+                // auto` ancestor's box it is painted inside — otherwise a
+                // node that is scrolled or clipped out of its ancestor would
+                // still claim pointer events. "Inside" is its scroll chain: a
+                // fixed box is not clipped by a wrapper that is not its
+                // containing block, and the display list does not clip it.
+                let scroll_chain = scroll_chains.box_chain(LayoutNodeId::new(idx));
                 let clips = compute_node_clips(
-                    styled_dom, nodes, positions, idx, offset, &dom_clips, &chain_of,
+                    styled_dom,
+                    nodes,
+                    positions,
+                    idx,
+                    offset,
+                    &dom_clips,
+                    &chain_of,
+                    &|anc| scroll_chain.contains(LayoutNodeId::new(anc)),
                 );
 
                 entries.push(HitTestEntry {
@@ -1404,7 +1415,12 @@ pub fn compute_scroll_child_rect(
 /// (`used_size`); CSS clips at the padding edge, but the slightly larger
 /// border box is a safe over-inclusion for point hit-testing and avoids
 /// resolving padding/border here.
-#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+///
+/// `clips_it` says which ancestors' clips the node is painted inside - the
+/// node's `ScrollChain` in production; an ancestor between an out-of-flow
+/// node and its containing block clips neither its pixels nor its pointer
+/// target.
+#[allow(clippy::similar_names, clippy::too_many_arguments)] // domain-standard coordinate/geometry/short-lived names
 fn compute_node_clips(
     styled_dom: &StyledDom,
     nodes: &[LayoutNodeHot],
@@ -1413,6 +1429,7 @@ fn compute_node_clips(
     offset: LogicalPosition,
     dom_clips: &[(LogicalRect, u32)],
     chain_of: &[u32],
+    clips_it: &dyn Fn(usize) -> bool,
 ) -> Vec<(LogicalRect, u32)> {
     // A non-finite edge must degrade to "unclipped on that side", never be
     // stored: `point_in_rect` against a NaN rect is always false, which would
@@ -1471,6 +1488,11 @@ fn compute_node_clips(
         let Some(anc_dom_id) = anc_node.dom_node_id else {
             continue;
         };
+        // An ancestor whose frames the node is not painted in - one between
+        // an out-of-flow node and its containing block - does not clip it.
+        if !clips_it(anc) {
+            continue;
+        }
         let node_state = &styled_nodes[anc_dom_id].styled_node_state;
         let clips_x = get_overflow_x(styled_dom, anc_dom_id, node_state).is_clipped();
         let clips_y = get_overflow_y(styled_dom, anc_dom_id, node_state).is_clipped();
@@ -1528,6 +1550,7 @@ fn compute_node_clip(
         offset,
         &dom_clip.map(|r| (r, 0)).into_iter().collect::<Vec<_>>(),
         &chain_of,
+        &|_| true,
     );
     if clips.is_empty() {
         return None;

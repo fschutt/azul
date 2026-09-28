@@ -8550,57 +8550,71 @@ where
     // fixed/root creates SC +spec:positioning:d06368 - relative/absolute with z-index:auto do
     // not form stacking context but are painted as if they did
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
-        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
-            return false;
-        };
-        let Some(dom_id) = node.dom_node_id else {
-            return false;
-        };
+        node_establishes_stacking_context(
+            self.ctx.styled_dom,
+            self.positioned_tree.tree,
+            node_index,
+        )
+    }
+}
 
-        let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
-        let z_auto = crate::solver3::getters::is_z_index_auto(self.ctx.styled_dom, Some(dom_id));
+/// Does the box at `node_index` paint as a stacking context of its own?
+///
+/// The display list's answer (`DisplayListGenerator::establishes_stacking_context`),
+/// shared with `scroll_chain::box_anchor`: a stacking context wraps
+/// everything painted inside it in groups the walk cannot close around a
+/// descendant, so no descendant's containing block can take it out of one.
+pub(crate) fn node_establishes_stacking_context(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> bool {
+    let Some(node) = tree.get(LayoutNodeId::new(node_index)) else {
+        return false;
+    };
+    let Some(dom_id) = node.dom_node_id else {
+        return false;
+    };
 
-        // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
-        if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
+    let position = get_position_type(styled_dom, Some(dom_id));
+    let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));
+
+    // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
+    if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
+        return true;
+    }
+
+    // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
+    // context BY THEIR Z-INDEX. They still form one for every other reason below
+    // (opacity < 1, a transform): returning here for `z-index: auto` skipped those
+    // checks, so an absolutely positioned element with `opacity: 0` painted fully
+    // opaque (the Tooltip widget's hidden tip was always visible).
+    if position == LayoutPosition::Absolute && !z_auto {
+        return true;
+    }
+
+    // position:relative with explicit z-index integer establishes stacking context
+    if position == LayoutPosition::Relative && !z_auto {
+        return true;
+    }
+
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(dom_id) {
+        let node_state = &styled_node.styled_node_state;
+
+        // Opacity < 1 (GPU: fast path via compact cache)
+        if crate::solver3::getters::get_opacity(styled_dom, dom_id, node_state) < 1.0 {
             return true;
         }
 
-        // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
-        // context BY THEIR Z-INDEX. They still form one for every other reason below
-        // (opacity < 1, a transform): returning here for `z-index: auto` skipped those
-        // checks, so an absolutely positioned element with `opacity: 0` painted fully
-        // opaque (the Tooltip widget's hidden tip was always visible).
-        if position == LayoutPosition::Absolute && !z_auto {
-            return true;
-        }
-
-        // position:relative with explicit z-index integer establishes stacking context
-        if position == LayoutPosition::Relative && !z_auto {
-            return true;
-        }
-
-        if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-            // Opacity < 1 (GPU: fast path via compact cache)
-            if crate::solver3::getters::get_opacity(self.ctx.styled_dom, dom_id, node_state) < 1.0 {
+        // Transform != none (GPU: has_transform bit check, then slow walk only if set)
+        if let Some(t) = crate::solver3::getters::get_transform(styled_dom, dom_id, node_state) {
+            if !t.is_empty() {
                 return true;
             }
-
-            // Transform != none (GPU: has_transform bit check, then slow walk only if set)
-            if let Some(t) =
-                crate::solver3::getters::get_transform(self.ctx.styled_dom, dom_id, node_state)
-            {
-                if !t.is_empty() {
-                    return true;
-                }
-            }
         }
-
-        false
     }
+
+    false
 }
 
 /// Helper struct to pass layout results to the display list generator.

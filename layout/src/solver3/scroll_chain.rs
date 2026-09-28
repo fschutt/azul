@@ -16,14 +16,21 @@
 //! what is painted inside it. The display list pushes exactly these frames
 //! around the node, and the hit tester, the scroll manager and the text paths
 //! add back exactly these offsets.
+//!
+//! The chain follows CONTAINING BLOCKS, not layout parents ([`box_anchor`]):
+//! a box is clipped and scrolled by the boxes its containing block sits in
+//! (CSS 2.2 §11.1.1), so a `position: fixed` box leaves every frame up to
+//! the viewport - the page's own included.
 
 use std::collections::HashMap;
 
 use azul_core::{dom::NodeId, spaces::Inclusivity, styled_dom::StyledDom};
+use azul_css::props::layout::LayoutPosition;
 
 use crate::solver3::{
     getters::{get_overflow_x, get_overflow_y},
     layout_tree::{LayoutNodeId, LayoutTree},
+    positioning::get_position_type,
 };
 
 /// One box above a laid-out node whose clip or scroll frame the node is
@@ -251,14 +258,118 @@ impl ScrollChains {
 /// frames the returned box's own box is painted in (`false`). `None` at the
 /// root.
 ///
-/// A box sits in its parent's content.
+/// A box in flow sits in its parent's content. An out-of-flow box sits in
+/// the content of its CONTAINING BLOCK: every clip and scroll frame between
+/// the two is not its own (CSS 2.2 §11.1.1). For `position: fixed` that is
+/// the nearest transformed ancestor ([`establishes_containing_block`]), and
+/// otherwise the viewport - the page's own scroll frame is left too.
+///
+/// The display list cannot take a box out of a group painted around it
+/// (a stacking context, a clip-path, an image mask - [`paints_as_a_group`]),
+/// so the walk stops at the first one: the box leaves that box's own frames
+/// but stays in the ones around it. Where it stops, `DisplayListGenerator::
+/// enter_scroll_chain` stops too.
 pub(crate) fn box_anchor(
     tree: &LayoutTree,
-    _styled_dom: &StyledDom,
+    styled_dom: &StyledDom,
     index: LayoutNodeId,
 ) -> Option<(LayoutNodeId, bool)> {
-    let parent = tree.get(index)?.parent?;
-    Some((LayoutNodeId::new(parent), true))
+    let node = tree.get(index)?;
+    let parent = LayoutNodeId::new(node.parent?);
+    let kind = match get_position_type(styled_dom, node.dom_node_id) {
+        LayoutPosition::Fixed => OutOfFlow::Fixed,
+        _ => return Some((parent, true)),
+    };
+    let mut cur = parent;
+    // No acyclic walk up the tree is longer than the tree.
+    for _ in 0..tree.nodes.len() {
+        if establishes_containing_block(tree, styled_dom, cur, kind) {
+            return Some((cur, true));
+        }
+        match tree.get(cur).and_then(|n| n.parent) {
+            Some(up) if !paints_as_a_group(tree, styled_dom, cur) => cur = LayoutNodeId::new(up),
+            _ => return Some((cur, false)),
+        }
+    }
+    Some((cur, false))
+}
+
+/// The containing-block rule [`box_anchor`] walks by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutOfFlow {
+    /// `position: fixed`: the viewport, or the nearest transformed ancestor.
+    Fixed,
+}
+
+/// Is the box at `index` the containing block of a `kind` descendant?
+///
+/// A transformed box is the containing block of its absolutely positioned
+/// and fixed descendants alike (CSS Transforms 1 §2) - and the display list
+/// wraps everything inside it in a reference frame nothing can leave.
+fn establishes_containing_block(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    index: LayoutNodeId,
+    kind: OutOfFlow,
+) -> bool {
+    let Some(node) = tree.get(index).and_then(|n| n.dom_node_id) else {
+        return false; // an anonymous box never is
+    };
+    let state = styled_node_state(styled_dom, node);
+    let transformed = crate::solver3::getters::get_transform(styled_dom, node, &state)
+        .is_some_and(|t| !t.is_empty());
+    match kind {
+        OutOfFlow::Fixed => transformed,
+    }
+}
+
+/// Does the display list paint the box at `index` as a group around all of
+/// its content - one no descendant can be painted outside of? The root, a
+/// stacking context (its reference frame, opacity, filters), a box with a
+/// clip-path, one with an SVG clip mask.
+fn paints_as_a_group(tree: &LayoutTree, styled_dom: &StyledDom, index: LayoutNodeId) -> bool {
+    let Some(node) = tree.get(index) else {
+        return true;
+    };
+    if node.parent.is_none() {
+        return true;
+    }
+    let Some(dom) = node.dom_node_id else {
+        return false;
+    };
+    if crate::solver3::display_list::node_establishes_stacking_context(
+        styled_dom,
+        tree,
+        index.index(),
+    ) {
+        return true;
+    }
+    let state = styled_node_state(styled_dom, dom);
+    crate::solver3::getters::get_clip_path(styled_dom, dom, &state).is_some()
+        || styled_dom
+            .node_data
+            .as_container()
+            .get(dom)
+            .and_then(|nd| nd.get_svg_data())
+            .is_some_and(|svg| {
+                matches!(
+                    svg,
+                    azul_core::dom::SvgNodeData::ImageClipMask(_)
+                        | azul_core::dom::SvgNodeData::Path(_)
+                )
+            })
+}
+
+fn styled_node_state(
+    styled_dom: &StyledDom,
+    node: NodeId,
+) -> azul_core::styled_dom::StyledNodeState {
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default()
 }
 
 /// The link the box at `index` adds to the chains of what is painted in its
