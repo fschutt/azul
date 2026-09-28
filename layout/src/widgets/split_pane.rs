@@ -481,6 +481,13 @@ impl SplitPane {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_CLASS))
             .with_css_props(container_css)
             .with_callbacks(callbacks.into())
+            // The callbacks' state is also the container's DATASET, so the
+            // reconciler can carry a drag across an app rebuild
+            // (`merge_split_pane_state`).
+            .with_dataset(OptionRefAny::Some(state))
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+                merge_split_pane_state,
+            ))
             .with_tab_index(TabIndex::Auto)
             // Role so the accessibility tree knows what this IS:
             // the splitter is a draggable grip. The NAME comes from the widget's own text,
@@ -583,6 +590,39 @@ extern "C" fn on_split_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upda
         sp.is_dragging = false;
     }
     Update::DoNothing
+}
+
+/// Carry a divider drag across a parent rebuild.
+///
+/// An `on_resize` that returns `RefreshDom` - the `AzWidgets` demo's does,
+/// like every callback there - rebuilds the split pane from the app's state
+/// on the FIRST move of a drag. Without this the rebuilt pane started idle,
+/// at the ratio the app built it with: the second move found no drag in
+/// flight, and the divider snapped back to where the app last stored it.
+/// That was the "pretty much unusable" splitter.
+///
+/// Rule (the slider's, `merge_slider_state`): the pointer wins while it is
+/// down. Mid-drag the drag's anchor and the live ratio carry over (the app
+/// was told the ratio through `on_resize`; one that stores it builds the
+/// same number, one that does not would otherwise yank the divider from
+/// under the cursor). Once the pointer is up the app's ratio is the truth
+/// again, as for any controlled widget. A rebuild that turned the split
+/// round (the other direction) starts over: the anchor is on the other axis.
+/// The `on_resize` hook is always the FRESH build's.
+pub extern "C" fn merge_split_pane_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    {
+        let new_guard = new_data.downcast_mut::<SplitPaneStateWrapper>();
+        let old_guard = old_data.downcast_ref::<SplitPaneStateWrapper>();
+        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
+            if old_g.is_dragging && old_g.inner.direction == new_g.inner.direction {
+                new_g.is_dragging = true;
+                new_g.drag_start_px = old_g.drag_start_px;
+                new_g.ratio_at_drag_start = old_g.ratio_at_drag_start;
+                new_g.inner.ratio = old_g.inner.ratio;
+            }
+        }
+    }
+    new_data
 }
 
 impl From<SplitPane> for Dom {

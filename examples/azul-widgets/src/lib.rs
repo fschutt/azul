@@ -46,6 +46,11 @@ struct Showcase {
     time: TimePickerState,
     combo_text: azul::str::String,
     accordion_open: Vec<bool>,
+    /// The SplitPane's first-pane fraction: the pane is a controlled widget,
+    /// so the ratio its `on_resize` reports is stored here and handed back
+    /// on every rebuild (a fixed ratio snapped the divider back on the
+    /// first rebuild after a drag).
+    split_ratio: f32,
     notifications: notifications::NotificationsDemo,
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
@@ -797,7 +802,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     Dom::create_p_with_text("Left pane").with_css("margin: 0px;"),
                     Dom::create_p_with_text("Right pane").with_css("margin: 0px;"),
                 )
-                .with_ratio(0.5)
+                .with_ratio(s.split_ratio)
                 .with_on_resize(
                     data.clone(),
                     on_splitpane,
@@ -1048,7 +1053,10 @@ extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, state: StepperState)
 extern "C" fn on_popover(mut data: RefAny, _: CallbackInfo, _: PopoverState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_splitpane(mut data: RefAny, _: CallbackInfo, _: SplitPaneState) -> Update {
+extern "C" fn on_splitpane(mut data: RefAny, _: CallbackInfo, state: SplitPaneState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.split_ratio = state.ratio;
+    }
     bump(&mut data)
 }
 extern "C" fn on_datepicker(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
@@ -1109,6 +1117,7 @@ pub fn start() {
         },
         combo_text: "".into(),
         accordion_open: vec![true, false],
+        split_ratio: 0.5,
         notifications: notifications::NotificationsDemo::probe(),
         video: video::new_state(),
         hotkey: hotkeys::HotkeyDemo::default(),
