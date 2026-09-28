@@ -277,6 +277,10 @@ pub(crate) fn box_anchor(
     styled_dom: &StyledDom,
     index: LayoutNodeId,
 ) -> Option<(LayoutNodeId, bool)> {
+    #[cfg(test)]
+    {
+        BOX_ANCHOR_CALLS.with(|calls| calls.set(calls.get() + 1));
+    }
     let node = tree.get(index)?;
     let parent = LayoutNodeId::new(node.parent?);
     let kind = match get_position_type(styled_dom, node.dom_node_id) {
@@ -296,6 +300,16 @@ pub(crate) fn box_anchor(
         }
     }
     Some((cur, false))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How often [`box_anchor`] ran on this thread. One call is the cost unit
+    /// of a scroll chain - a cascade lookup of the box's `position`, and one
+    /// level of the walk - so a test can pin a consumer that places EVERY
+    /// node (the a11y tree, the hit tester) to linear work.
+    pub(crate) static BOX_ANCHOR_CALLS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
 }
 
 /// The containing-block rule [`box_anchor`] walks by.

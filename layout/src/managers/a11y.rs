@@ -3118,4 +3118,60 @@ mod autotest_generated {
             "the declared tree root must match the emitted root node"
         );
     }
+
+    /// The tree is rebuilt after EVERY layout - every frame of a switch
+    /// knob's tween relays the window out - and it places every node in the
+    /// scroll frames its box is painted in. Resolving that chain node by node
+    /// (`ScrollChain::of`) walked every ancestor of every node, a cascade
+    /// lookup per level: quadratic in the page's depth, per frame. The chains
+    /// of a whole dom resolve in one linear pass (`ScrollChains`).
+    #[test]
+    fn the_a11y_tree_places_its_nodes_with_linear_scroll_chain_work() {
+        use crate::solver3::scroll_chain::BOX_ANCHOR_CALLS;
+
+        const DEPTH: usize = 60;
+        let mut chain = azul_core::dom::Dom::create_div();
+        for _ in 0..DEPTH {
+            chain = azul_core::dom::Dom::create_div().with_child(chain);
+        }
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            azul_core::dom::Dom::create_body().with_child(chain),
+        );
+        let mut lw = crate::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        let mut debug = None;
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &azul_core::resources::RendererResources::default(),
+            &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
+            &mut debug,
+        )
+        .expect("the chain of divs lays out");
+        let boxes = lw.layout_results[&DomId::ROOT_ID].layout_tree.nodes.len();
+        assert!(boxes > DEPTH, "harness: every div has a box, got {boxes}");
+
+        BOX_ANCHOR_CALLS.with(|calls| calls.set(0));
+        let _update = A11yManager::update_tree(
+            A11yNodeId(0),
+            &lw.layout_results,
+            &lw.scroll_manager,
+            &AzString::from("t"),
+            LogicalSize::new(400.0, 300.0),
+            None,
+            1.0,
+            &BTreeMap::new(),
+            None,
+        );
+        let calls = BOX_ANCHOR_CALLS.with(core::cell::Cell::get);
+        assert!(
+            calls <= 2 * boxes,
+            "placing {boxes} boxes resolved {calls} chain links - the per-node walk is \
+             quadratic in the depth ({DEPTH}); expected at most {}",
+            2 * boxes
+        );
+    }
 }
