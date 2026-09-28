@@ -9,7 +9,8 @@ description = """
     existing widgets (Button, CheckBox, ProgressBar, TextInput, NumberInput,
     ColorInput, DropDown) plus the 24 high-level widgets (Switch, Divider,
     Card, Badge, Slider, Segmented, RadioGroup, Tooltip, TextArea, Alert,
-    Accordion, Avatar, Chip, Spinner, Popover, ComboBox, Modal,
+    Accordion, Avatar, Chip, Spinner, Dialog (modal, and as a popover),
+    ComboBox,
     Breadcrumb, Pagination, Stepper, SplitPane, DatePicker, TimePicker),
     and a native OS notification in place of an in-window Toast.
     Replaces azul-spirit-level as the widgets demo on the release page.

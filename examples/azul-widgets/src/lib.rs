@@ -2,8 +2,8 @@ use azul::css::WindowDecorations;
 use azul::dom::{
     AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
     BreadcrumbOnNavigateCallback, ChipOnRemoveCallback, ComboBoxOnSelectCallback,
-    DatePickerOnChangeCallback, IdOrClass, ModalOnCloseCallback, NodeType,
-    PaginationOnChangeCallback, PopoverOnToggleCallback, RadioGroupOnChangeCallback,
+    DatePickerOnChangeCallback, IdOrClass, NodeType, PaginationOnChangeCallback,
+    RadioGroupOnChangeCallback,
     SegmentedOnChangeCallback, SliderOnValueChangeCallback, SplitPaneOnResizeCallback,
     StepperOnStepChangeCallback, SwitchOnToggleCallback, TextAreaOnFocusLostCallback,
     TimePickerOnChangeCallback,
@@ -51,6 +51,8 @@ struct Showcase {
     /// on every rebuild (a fixed ratio snapped the divider back on the
     /// first rebuild after a drag).
     split_ratio: f32,
+    /// How the modal dialog was last closed (its return value).
+    dialog_result: azul::str::String,
     notifications: notifications::NotificationsDemo,
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
@@ -692,18 +694,23 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Tooltip::create(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
             ),
             labelled(
-                "Modal (starts closed)",
-                Modal::create(
-                    Dom::create_p_with_text("Modal body goes here.").with_css("margin: 0px;"),
-                )
-                    .with_title("Example dialog")
-                    .with_open(false)
-                    .with_close_button(true)
-                    .with_on_close(
-                        data.clone(),
-                        on_modal_close,
+                "Dialog (modal: Escape, a button or \u{00D7} closes it)",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; align-items: flex-start;")
+                    .with_child(
+                        Dialog::create(dialog_body(&data))
+                            .with_title("Delete \u{201C}report.pdf\u{201D}?")
+                            .with_invoker(
+                                Button::with_type("Delete file\u{2026}", ButtonType::Danger).dom(),
+                            )
+                            .with_modal(true)
+                            .with_close_button(true)
+                            .with_on_close(data.clone(), on_dialog_close)
+                            .dom(),
                     )
-                    .dom(),
+                    .with_child(Dom::create_p_with_text(s.dialog_result.as_str()).with_css(
+                        "font-size: 12px; color: system:secondary-text; margin-top: 6px;",
+                    )),
             ),
         ],
     );
@@ -783,17 +790,20 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         "Overlays",
         vec![
             labelled(
-                "Popover (starts closed)",
-                Popover::create(
-                    Button::create("Open popover").dom(),
-                    Dom::create_p_with_text("Popover content").with_css("margin: 0px;"),
-                )
-                .with_open(false)
-                .with_on_toggle(
-                    data.clone(),
-                    on_popover,
-                )
-                .dom(),
+                "Popover (click outside, Escape or \u{00D7} closes it)",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; align-items: flex-start;")
+                    .with_child(
+                        Dialog::create(Dom::create_p_with_text(
+                            "A non-modal dialog below its button.",
+                        ))
+                        .with_title("Popover")
+                        .with_invoker(Button::create("Open popover").dom())
+                        .with_closed_by(DialogClosedBy::Any)
+                        .with_close_button(true)
+                        .with_on_close(data.clone(), on_popover_close)
+                        .dom(),
+                    ),
             ),
             labelled(
                 "SplitPane",
@@ -1024,7 +1034,51 @@ extern "C" fn on_chip_remove(mut data: RefAny, _: CallbackInfo, _: ChipState) ->
 extern "C" fn on_alert_dismiss(mut data: RefAny, _: CallbackInfo, _: AlertState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_modal_close(mut data: RefAny, _: CallbackInfo, _: ModalState) -> Update {
+/// The modal dialog's content: a message and two buttons that close it
+/// with a return value (HTML `dialog.close(value)`).
+fn dialog_body(data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(
+            Dom::create_p_with_text("It will be deleted permanently. This cannot be undone.")
+                .with_css("color: system:text; margin-bottom: 16px;"),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; justify-content: flex-end;")
+                .with_child(
+                    Button::create("Keep")
+                        .with_on_click(data.clone(), on_dialog_keep)
+                        .dom()
+                        .with_css("margin-right: 8px;"),
+                )
+                .with_child(
+                    Button::with_type("Delete", ButtonType::Danger)
+                        .with_on_click(data.clone(), on_dialog_delete)
+                        .dom(),
+                ),
+        )
+}
+extern "C" fn on_dialog_keep(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let _ = Dialog::close_from(&mut info, hit, "keep".into());
+    Update::DoNothing
+}
+extern "C" fn on_dialog_delete(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let _ = Dialog::close_from(&mut info, hit, "delete".into());
+    Update::DoNothing
+}
+/// The dialog closed - by a button, Escape or the close button: say how.
+extern "C" fn on_dialog_close(mut data: RefAny, _: CallbackInfo, state: DialogState) -> Update {
+    let how = if state.return_value.as_str().is_empty() {
+        "Dismissed (Escape or \u{00D7}).".to_string()
+    } else {
+        format!("Closed with \u{201C}{}\u{201D}.", state.return_value.as_str())
+    };
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.dialog_result = how.into();
+    }
     bump(&mut data)
 }
 extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
@@ -1050,7 +1104,7 @@ extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, state: StepperState)
     }
     bump(&mut data)
 }
-extern "C" fn on_popover(mut data: RefAny, _: CallbackInfo, _: PopoverState) -> Update {
+extern "C" fn on_popover_close(mut data: RefAny, _: CallbackInfo, _: DialogState) -> Update {
     bump(&mut data)
 }
 extern "C" fn on_splitpane(mut data: RefAny, _: CallbackInfo, state: SplitPaneState) -> Update {
@@ -1118,6 +1172,7 @@ pub fn start() {
         combo_text: "".into(),
         accordion_open: vec![true, false],
         split_ratio: 0.5,
+        dialog_result: "Not opened yet.".into(),
         notifications: notifications::NotificationsDemo::probe(),
         video: video::new_state(),
         hotkey: hotkeys::HotkeyDemo::default(),
