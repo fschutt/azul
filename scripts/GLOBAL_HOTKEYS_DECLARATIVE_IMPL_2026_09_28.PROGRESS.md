@@ -58,15 +58,16 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    snapshot + recorder clear in `common/layout.rs` and `web/html_render.rs`). The commit whose
    subject starts `feat(core): LayoutCallbackInfo declares` - see `git log`.
 
+5. test(hotkeys): a layout pass keeps the grabs in sync, headless - RED, does not compile
+   (`dll/tests/headless_global_hotkeys.rs`; needs `LayoutWindow.global_hotkeys.shared()` and
+   `azul::desktop::global_hotkey::pump_headless(&mut HeadlessWindow) -> ProcessEventResult`).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-5. RED dll headless test (`dll/tests/headless_global_hotkeys.rs`): first layout grabs what it
-   declares; a refresh that stops declaring releases; closing (dropping) the window releases; a
-   status read costs exactly one extra layout.
 6. feat: regenerate_layout snapshots + declares + syncs into the window's manager; `WindowHotkeys`
    field + drop guard; note_focus; headless pump handles relayout requests; mark app dirty on
    RefreshDom.
