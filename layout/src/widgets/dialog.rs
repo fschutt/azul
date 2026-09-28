@@ -1051,7 +1051,7 @@ fn request_close(
 
 /// The invoker was clicked (app window): show the dialog, or close it if it
 /// is showing (the invoker of a modal one is covered, so that is a popup).
-extern "C" fn on_dialog_invoker_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_dialog_invoker_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let invoker = info.get_hit_node();
     let Some(window) = info.get_next_sibling(invoker) else {
         return Update::DoNothing;
@@ -1079,7 +1079,7 @@ extern "C" fn on_dialog_invoker_click(mut data: RefAny, mut info: CallbackInfo) 
 
 /// Escape (the dialog's window root, where every key bubbles): a close
 /// request, unless `closedby="none"`.
-extern "C" fn on_dialog_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_dialog_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -1105,7 +1105,7 @@ extern "C" fn on_dialog_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
 
 /// A press in a modal dialog's window: on the backdrop (outside the panel)
 /// it is a light dismiss, if `closedby="any"`.
-extern "C" fn on_dialog_backdrop_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_dialog_backdrop_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let allowed = {
         let Some(d) = data.downcast_ref::<DialogData>() else {
             return Update::DoNothing;
@@ -1131,7 +1131,7 @@ extern "C" fn on_dialog_backdrop_press(mut data: RefAny, mut info: CallbackInfo)
 }
 
 /// The "×" button: HTML `close()` - no `cancel`, the return value unchanged.
-extern "C" fn on_dialog_close_button(_data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_dialog_close_button(_data: RefAny, mut info: CallbackInfo) -> Update {
     let close = info.get_hit_node();
     if let Some((root, _)) = find_dialog(&mut info, close) {
         info.set_transient_window_open(root, false);
@@ -1141,7 +1141,7 @@ extern "C" fn on_dialog_close_button(_data: RefAny, mut info: CallbackInfo) -> U
 
 /// The engine closed the dialog (its own close request, the close button,
 /// `close_from`, a light dismiss): the `close` event, in the app's window.
-extern "C" fn on_dialog_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_dialog_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
     let (on_close, compat, state) = {
         let Some(d) = data.downcast_ref::<DialogData>() else {
             return Update::DoNothing;

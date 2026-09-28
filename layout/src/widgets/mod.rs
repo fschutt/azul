@@ -249,8 +249,8 @@ pub mod number_input;
 pub mod pagination;
 /// Popover widget.
 ///
-/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the
-/// click-toggled sibling of tooltip); see `popover.rs`.
+/// HTML `popover="auto"`: a floating panel holding arbitrary content, shown below its anchor on
+/// a click and light-dismissed; a front-end over `dialog`; see `popover.rs`.
 pub mod popover;
 /// Progress bar widget
 pub mod progressbar;

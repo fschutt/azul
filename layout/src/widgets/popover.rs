@@ -1,35 +1,31 @@
-//! Popover widget — wraps an arbitrary anchor [`Dom`] and shows an
-//! absolutely-positioned floating panel holding arbitrary `content: Dom` when
-//! the anchor is **clicked** (toggling open/closed). A click-triggered sibling
-//! of [`crate::widgets::tooltip::Tooltip`] (which is hover-triggered and
-//! text-only): the CSS show/hide popup mechanism is identical, but the panel
-//! holds a whole [`Dom`] and is toggled by an internal click handler that flips
-//! a [`PopoverState`].
+//! Popover widget — HTML `popover="auto"`: a floating panel holding
+//! arbitrary `content: Dom`, shown below its anchor when the anchor is
+//! clicked, and closed by a second click, a press outside it, its window
+//! losing focus, or Escape.
 //!
-//! Structure: a `position: relative` wrapper containing a clickable *trigger*
-//! (which holds the anchor) followed by the absolutely-positioned *content*
-//! panel, hidden by default (`display: none`). Clicking the trigger flips
-//! `open`, invokes the optional user `on_toggle(state)`, and shows/hides the
-//! panel via `set_css_property(display)` (mirroring the live-restyle pattern of
-//! check_box / accordion).
+//! A front-end over [`crate::widgets::dialog`]: the panel is a
+//! `<transient-window>` (a real OS popup, so it is never clipped and sits
+//! above everything), non-modal, with `closedby="any"`. Everything a dialog
+//! does, a popover does - focus moves into it and comes back to the anchor,
+//! its panel is announced as a dialog - it only fixes the options. Use
+//! [`crate::widgets::dialog::Dialog`] with an invoker for a titled popover,
+//! a close button, a `cancel` / `close` callback or a return value.
 //!
-//! TODO2: like [`Tooltip`], this is a CSS simplification of a "real" floating
-//! popover. The panel is placed at a fixed offset below the trigger (it does not
-//! measure the trigger's height, flip when near a screen edge, escape an
-//! `overflow: hidden` ancestor, or raise its z-order — it relies on being the
-//! later sibling to paint on top). There is also no "click-outside to dismiss"
-//! and no `Escape` handling — clicking the trigger again is the only way to
-//! close it (clicking *inside* the panel does not close it, since the handler is
-//! on the trigger, not the wrapper). A future revision could route through the
-//! window-popup / menu popup path for true screen-anchored positioning and
-//! outside-click dismissal once that is runtime-verifiable.
+//! Why it is not a `display`-toggled sibling any more (2026-09-28): the old
+//! popover kept "open" in its trigger's callback payload, which the app's
+//! rebuild re-minted from `with_open(false)`, while the panel was shown by a
+//! runtime `display: block` override that survives rebuilds. After any
+//! rebuild the two disagreed, and every click "opened" the popover again -
+//! it could not be closed. Now the engine's popup set is the only record of
+//! whether it is open.
 //!
 //! Key types: [`Popover`], [`PopoverState`], [`PopoverOnToggle`].
 
 use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    callbacks::Update,
+    dom::{Dom, IdOrClass, IdOrClass::Class},
     refany::RefAny,
+    transient::TransientAnchor,
 };
 use azul_css::{
     dynamic_selector::{
@@ -39,8 +35,8 @@ use azul_css::{
     props::{
         basic::{color::ColorU, *},
         layout::{
-            LayoutDisplay, LayoutFlexGrow, LayoutLeft, LayoutMinWidth, LayoutPaddingBottom,
-            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutTop,
+            LayoutDisplay, LayoutFlexGrow, LayoutMinWidth, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition,
         },
         property::{CssProperty, *},
         style::{
@@ -49,13 +45,19 @@ use azul_css::{
             StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
             StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
             StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
-            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle,
         },
     },
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::dialog::{
+        build_dialog, DialogClasses, DialogClosedBy, DialogCompat, DialogParts,
+        OptionDialogOnCancel, OptionDialogOnClose,
+    },
+};
 
 static POPOVER_WRAPPER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-popover"))];
@@ -67,9 +69,6 @@ static POPOVER_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 
 // ---- layout (logical px) ----
-/// Fixed vertical offset of the panel below the wrapper's top edge. A
-/// simplification — see the module-level `TODO2`.
-const CONTENT_OFFSET_Y: isize = 32;
 /// Minimum width of the floating panel.
 const CONTENT_MIN_WIDTH: isize = 160;
 const CONTENT_RADIUS: isize = 6;
@@ -90,8 +89,8 @@ const CONTENT_BORDER_COLOR: ColorU = ColorU {
     a: 255,
 };
 
-/// Callback function type invoked when a popover is toggled. The [`PopoverState`]
-/// carries the *new* open/closed value.
+/// Callback function type invoked when a popover opens or closes. The
+/// [`PopoverState`] carries the *new* open/closed value.
 pub type PopoverOnToggleCallbackType = extern "C" fn(RefAny, CallbackInfo, PopoverState) -> Update;
 impl_widget_callback!(
     PopoverOnToggle,
@@ -118,23 +117,23 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Popover {
-    /// Runtime state (`open`) plus the optional toggle callback.
+    /// The declared `open` plus the optional toggle callback.
     pub popover_state: PopoverStateWrapper,
-    /// The element that, when clicked, toggles the panel.
+    /// The element that, when clicked, shows (or hides) the panel.
     pub anchor: Dom,
     /// The content shown inside the floating panel.
     pub content: Dom,
-    /// Style of the positioning wrapper around the trigger + panel.
-    /// Style for the positioning wrapper, or `None` for "no opinion" — in which
-    /// case the widget's default applies.
+    /// Style for the positioning wrapper around the anchor, or `None` for
+    /// "no opinion" — in which case the widget's default applies.
     ///
     /// `None` and `Some(empty)` are different answers: the first means the
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub wrapper_style: OptionCssPropertyWithConditionsVec,
-    /// Style of the floating content panel (includes its current `display`).
-    /// Style for the panel, or `None` for "no opinion" — in which case the style
-    /// is derived from the open flag at render time.
+    /// Style for the floating panel, or `None` for "no opinion" — in which
+    /// case the widget's default panel applies. The panel is a window of its
+    /// own, so it carries no `display` toggle: open and closed are the
+    /// window's.
     ///
     /// `None` and `Some(empty)` are different answers: the first means the
     /// widget picks, the second means the caller asked for no properties at all
@@ -145,9 +144,9 @@ pub struct Popover {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct PopoverStateWrapper {
-    /// Whether the panel is currently open.
+    /// Whether the panel is declared open (the HTML `open` state).
     pub inner: PopoverState,
-    /// Optional: function to call when the popover is toggled.
+    /// Optional: function to call when the popover opens or closes.
     pub on_toggle: OptionPopoverOnToggle,
 }
 
@@ -159,41 +158,22 @@ pub struct PopoverState {
     pub open: bool,
 }
 
-/// Wrapper around the trigger + panel: an inline-block positioning context so
-/// the absolutely-positioned panel is placed relative to it.
+/// Wrapper around the anchor: an inline-block, so the anchor rect the panel
+/// opens below is the anchor's own.
 static POPOVER_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// The clickable trigger holding the anchor.
-static POPOVER_TRIGGER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-];
-
-/// Builds the floating-panel style. Only the `display` (open vs closed) differs
-/// between states; all the positioning/visual props are present in both so the
-/// runtime `set_css_property(display)` toggle has everything it needs (mirroring
-/// the accordion body-style approach).
-fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
-    let display = if open {
-        LayoutDisplay::Block
-    } else {
-        LayoutDisplay::None
-    };
+/// The floating panel: a small bordered, rounded surface in the window's own
+/// colours.
+fn build_panel_style() -> CssPropertyWithConditionsVec {
     let bg_vec = StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
         CONTENT_BG_COLOR
     )]);
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(display)),
-        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(
-            CONTENT_OFFSET_Y,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             CONTENT_MIN_WIDTH,
         ))),
@@ -289,7 +269,7 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
 }
 
 impl Popover {
-    /// Creates a popover whose `anchor`, when clicked, toggles a panel holding
+    /// Creates a popover whose `anchor`, when clicked, shows a panel holding
     /// `content`. The panel starts closed.
     #[must_use]
     pub fn new(anchor: Dom, content: Dom) -> Self {
@@ -315,29 +295,26 @@ impl Popover {
 
     /// The panel CSS this popover renders with.
     ///
-    /// `None` means no opinion, so the open state decides — the same answer both
-    /// themes give, asked in one place so they cannot drift. It is also why
-    /// `set_open` is a plain field write: the `display` that hides or shows the
-    /// panel is derived from the flag rather than cached beside it, so the two
-    /// can no longer disagree.
+    /// `None` means no opinion, so the default panel applies. Open or closed
+    /// is not a style: the panel is a window of its own.
     #[must_use]
     pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
         self.content_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| build_content_style(self.popover_state.inner.open))
+            .unwrap_or_else(build_panel_style)
     }
 
-    /// Sets whether the panel starts open.
-    ///
-    /// Does not touch `content_style`: the panel's `display` is resolved from
-    /// this flag when the DOM is built.
+    /// Declares the panel open (the HTML `open` state). A CHANGE of it
+    /// shows or hides the panel; while it stays `true`, a panel the user
+    /// closed stays closed until it goes `false` and `true` again. A popover
+    /// the app leaves at `false` is opened and closed by its anchor alone.
     #[inline]
     pub const fn set_open(&mut self, open: bool) {
         self.popover_state.inner.open = open;
     }
 
-    /// Builder-style setter for the initial open state.
+    /// Builder-style setter for the declared open state.
     #[inline]
     #[must_use]
     pub const fn with_open(mut self, open: bool) -> Self {
@@ -345,7 +322,8 @@ impl Popover {
         self
     }
 
-    /// Sets the toggle callback (invoked with the new state on every toggle).
+    /// Sets the toggle callback (invoked with the new state whenever the
+    /// popover opens or closes by the user's hand).
     #[inline]
     pub fn set_on_toggle<C: Into<PopoverOnToggleCallback>>(&mut self, data: RefAny, on_toggle: C) {
         self.popover_state.on_toggle = Some(PopoverOnToggle {
@@ -376,59 +354,40 @@ impl Popover {
         s
     }
 
-    /// Renders the popover into a [`Dom`] subtree with the `__azul-native-popover`
-    /// class.
+    /// Renders the popover: the `__azul-native-popover` wrapper holding the
+    /// clickable anchor (`__azul-native-popover-trigger`) and the panel's
+    /// `<transient-window>` (the panel is `__azul-native-popover-content`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
-        };
-
-        // Resolved before `self.popover_state` is moved into the callback below.
+        // Resolved before the fields are moved out below.
         let wrapper_style = self.resolved_wrapper_style();
         let content_style = self.resolved_content_style();
-
-        // The trigger carries the click handler + the shared state. Clicking the
-        // anchor (a descendant of the trigger) bubbles up to it (currentTarget
-        // semantics — see `radio_group`), so `get_hit_node()` resolves to the
-        // trigger regardless of what inside the anchor was clicked. Clicking the
-        // panel does NOT toggle, since the panel is a sibling, not a child.
-        let trigger = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(POPOVER_TRIGGER_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(POPOVER_TRIGGER_STYLE))
-            .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // supplementary content attached to its anchor. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Tooltip,
-                ..Default::default()
-            })
-            .with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb: on_popover_toggle as usize,
-                        ctx: OptionRefAny::None,
-                    },
-                    refany: RefAny::new(self.popover_state),
-                }]
-                .into(),
-            )
-            .with_children(vec![self.anchor].into());
-
-        let content = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(POPOVER_CONTENT_CLASS))
-            .with_css_props(content_style)
-            .with_children(vec![self.content].into());
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(POPOVER_WRAPPER_CLASS))
-            .with_css_props(wrapper_style)
-            // children: [trigger, content] — the panel is the trigger's next sibling.
-            .with_children(vec![trigger, content].into())
+        build_dialog(DialogParts {
+            declared_open: self.popover_state.inner.open,
+            modal: false,
+            return_value: AzString::from_const_str(""),
+            // HTML `popover="auto"`: a press outside, focus loss and Escape
+            // close it.
+            closed_by: DialogClosedBy::Any,
+            on_cancel: OptionDialogOnCancel::None,
+            on_close: OptionDialogOnClose::None,
+            compat: DialogCompat::Popover(self.popover_state.on_toggle),
+            title: AzString::from_const_str(""),
+            content: self.content,
+            invoker: Some(self.anchor),
+            show_close_button: false,
+            anchor: TransientAnchor::Bottom,
+            wrapper_style: Some(wrapper_style),
+            panel_style: Some(content_style),
+            backdrop_style: None,
+            classes: DialogClasses {
+                wrapper: POPOVER_WRAPPER_CLASS,
+                invoker: POPOVER_TRIGGER_CLASS,
+                window: &[],
+                panel: POPOVER_CONTENT_CLASS,
+                content: &[],
+            },
+        })
     }
 }
 
@@ -438,46 +397,6 @@ impl Default for Popover {
     }
 }
 
-/// Trigger click handler. The hit node is the trigger (the callback-bearing
-/// node, per `currentTarget` semantics — see `radio_group`); its next sibling is
-/// the content panel. Flips `open`, invokes the optional user callback with the
-/// new state, then shows/hides the panel via `display`.
-extern "C" fn on_popover_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let trigger = info.get_hit_node();
-    let Some(content) = info.get_next_sibling(trigger) else {
-        return Update::DoNothing;
-    };
-
-    let (now_open, result) = {
-        let Some(mut pop) = data.downcast_mut::<PopoverStateWrapper>() else {
-            return Update::DoNothing;
-        };
-        pop.inner.open = !pop.inner.open;
-        let now_open = pop.inner.open;
-        let inner = pop.inner;
-        let pop = &mut *pop;
-        let result = match pop.on_toggle.as_mut() {
-            Some(PopoverOnToggle { callback, refany }) => {
-                callback.invoke(refany.clone(), info, inner)
-            }
-            None => Update::DoNothing,
-        };
-        (now_open, result)
-    };
-
-    // TODO2: shows/hides the panel by toggling `display` via set_css_property.
-    // This follows the proven live-restyle pattern of accordion/check_box; the
-    // display:none/block relayout itself is not GUI-verified in this build.
-    let display = if now_open {
-        LayoutDisplay::Block
-    } else {
-        LayoutDisplay::None
-    };
-    info.set_css_property(content, CssProperty::const_display(display));
-
-    result
-}
-
 impl From<Popover> for Dom {
     fn from(p: Popover) -> Self {
         p.dom()
@@ -485,7 +404,7 @@ impl From<Popover> for Dom {
 }
 
 #[cfg(test)]
-mod autotest_generated {
+mod tests {
     use std::{
         collections::{BTreeMap, HashMap},
         sync::{Arc, Mutex},
@@ -499,6 +418,7 @@ mod autotest_generated {
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
+        transient::TransientDismiss,
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::{props::property::CssPropertyType, system::SystemStyle};
@@ -510,6 +430,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::dialog::{on_dialog_dismissed, on_dialog_invoker_click},
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -518,7 +439,6 @@ mod autotest_generated {
     // Helpers
     // ------------------------------------------------------------------
 
-    /// True if `node` carries the CSS class `name`.
     fn has_class(node: &Dom, name: &str) -> bool {
         node.root
             .get_ids_and_classes()
@@ -527,70 +447,6 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The text of a `NodeType::Text` node (`None` for any other node type).
-    fn text_of(node: &Dom) -> Option<&str> {
-        match node.root.get_node_type() {
-            NodeType::Text(s) => Some(s.as_ref().as_str()),
-            _ => None,
-        }
-    }
-
-    /// The `display` value in a node's *inline* style, if it sets one.
-    fn inline_display(node: &Dom) -> Option<LayoutDisplay> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .find_map(|(p, _)| match p {
-                CssProperty::Display(v) => v.get_property().copied(),
-                _ => None,
-            })
-    }
-
-    /// The property *types* of a style vec, in declaration order.
-    fn prop_types(style: &CssPropertyWithConditionsVec) -> Vec<CssPropertyType> {
-        style
-            .as_ref()
-            .iter()
-            .map(|p| p.property.get_type())
-            .collect()
-    }
-
-    /// *Every* `display` value declared in a style vec (order preserved) — a
-    /// second entry would silently shadow the first.
-    fn displays_in(style: &CssPropertyWithConditionsVec) -> Vec<LayoutDisplay> {
-        style
-            .as_ref()
-            .iter()
-            .filter_map(|p| match &p.property {
-                CssProperty::Display(v) => v.get_property().copied(),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// The `CssPropertyType` of `display`, without hard-coding the enum variant.
-    fn display_ty() -> CssPropertyType {
-        CssProperty::const_display(LayoutDisplay::None).get_type()
-    }
-
-    /// A three-node styled DOM — `root(0)` with children `trigger(1)` and
-    /// `panel(2)` — i.e. the exact hierarchy `on_popover_toggle` walks
-    /// (`hit node` -> `next sibling`).
-    fn trigger_panel_dom() -> StyledDom {
-        let styled = StyledDom::create_from_dom(
-            Dom::create_div()
-                .with_child(Dom::create_div())
-                .with_child(Dom::create_div()),
-        );
-        assert_eq!(
-            styled.node_hierarchy.as_ref().len(),
-            3,
-            "fixture must flatten to exactly wrapper/trigger/panel"
-        );
-        styled
-    }
-
-    /// Index of the first node carrying `class` in a flattened `StyledDom`.
     fn index_of_class(styled: &StyledDom, class: &str) -> usize {
         styled
             .node_data
@@ -605,8 +461,15 @@ mod autotest_generated {
             .unwrap_or_else(|| panic!("no node with class {class} in the flattened DOM"))
     }
 
-    /// A `DomLayoutResult` with an *empty* layout tree: the toggle handler only
-    /// walks `styled_dom.node_hierarchy`, so no real layout (and no font) is needed.
+    fn node(i: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        }
+    }
+
+    /// A `DomLayoutResult` with an EMPTY layout tree: the handlers only walk
+    /// the node hierarchy.
     fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
         DomLayoutResult {
             styled_dom,
@@ -628,21 +491,21 @@ mod autotest_generated {
         }
     }
 
-    /// Invokes `on_popover_toggle` against a `LayoutWindow` holding `styled` (or
-    /// nothing at all, when `styled` is `None`), with `hit` as the hit node.
-    /// Returns the `Update` plus every recorded `CallbackChange`.
-    fn run_toggle(
-        styled: Option<StyledDom>,
+    /// Runs `f` on a `CallbackInfo` over `styled` (hit node `hit`), after
+    /// `prepare` ran on the `LayoutWindow`; returns `f`'s result and the
+    /// changes it queued.
+    fn with_info<R>(
+        styled: StyledDom,
         hit: usize,
-        data: RefAny,
-    ) -> (Update, Vec<CallbackChange>) {
+        prepare: impl FnOnce(&mut LayoutWindow),
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
-        if let Some(sd) = styled {
-            layout_window
-                .layout_results
-                .insert(DomId::ROOT_ID, layout_result(sd));
-        }
+        layout_window
+            .layout_results
+            .insert(DomId::ROOT_ID, layout_result(styled));
+        prepare(&mut layout_window);
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
@@ -668,56 +531,45 @@ mod autotest_generated {
             icu_localizer: IcuLocalizerHandle::default(),
             ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
-
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
-
         let info = CallbackInfo::new(
             &ref_data,
             &changes,
-            DomNodeId {
-                dom: DomId::ROOT_ID,
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(hit))),
-            },
+            node(hit),
             OptionLogicalPosition::None,
             OptionLogicalPosition::None,
         );
-
-        let update = on_popover_toggle(data, info);
+        let r = f(info);
         let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
-        (update, recorded)
+        (r, recorded)
     }
 
-    /// Every `display` write recorded in the change log, as `(node index, display)`.
-    fn display_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutDisplay)> {
-        let mut out = Vec::new();
-        for change in changes {
-            if let CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } = change
-            {
-                for p in properties.as_ref() {
-                    if let CssProperty::Display(v) = p {
-                        if let Some(d) = v.get_property() {
-                            out.push((node_id.index(), *d));
-                        }
-                    }
+    /// Every `SetTransientWindowOpen` in `changes`, as `(node index, open)`.
+    fn opens(changes: &[CallbackChange]) -> Vec<(usize, bool)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::SetTransientWindowOpen { node, open } => {
+                    node.node.into_crate_internal().map(|n| (n.index(), *open))
                 }
-            }
-        }
-        out
+                _ => None,
+            })
+            .collect()
     }
 
-    /// `open` of a `PopoverStateWrapper` payload.
-    fn payload_open(data: &mut RefAny) -> bool {
-        data.downcast_ref::<PopoverStateWrapper>()
-            .expect("payload must still be a PopoverStateWrapper")
-            .inner
-            .open
+    /// The rendered popover, flattened, with the state its handlers share.
+    fn rendered(pop: Popover) -> (StyledDom, RefAny) {
+        let dom = pop.dom();
+        let data = dom
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("the wrapper carries the popover's state");
+        (StyledDom::create_from_dom(dom), data)
     }
 
     /// Records the states it is invoked with; used as a user `on_toggle`.
+    /// No asserts in an `extern "C" fn`: a panic there aborts the binary.
     struct ToggleLog {
         calls: Vec<bool>,
     }
@@ -737,878 +589,238 @@ mod autotest_generated {
         f.into()
     }
 
-    // ------------------------------------------------------------------
-    // build_content_style
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn content_style_open_and_closed_differ_only_in_display() {
-        let closed = build_content_style(false);
-        let open = build_content_style(true);
-
-        assert_eq!(
-            closed.len(),
-            open.len(),
-            "both states must declare the same props so the runtime display toggle has everything \
-             it needs"
-        );
-        assert_eq!(prop_types(&closed), prop_types(&open));
-
-        let differing: Vec<usize> = closed
-            .as_ref()
-            .iter()
-            .zip(open.as_ref().iter())
-            .enumerate()
-            .filter_map(|(i, (c, o))| (c != o).then_some(i))
-            .collect();
-
-        assert_eq!(
-            differing.len(),
-            1,
-            "exactly one declaration may differ between open and closed"
-        );
-        assert_eq!(
-            closed.as_ref()[differing[0]].property.get_type(),
-            display_ty(),
-            "the only difference must be `display`"
-        );
+    fn calls(log: &RefAny) -> Vec<bool> {
+        let mut log = log.clone();
+        let v = log
+            .downcast_ref::<ToggleLog>()
+            .map(|l| l.calls.clone())
+            .unwrap_or_default();
+        v
     }
 
-    #[test]
-    fn content_style_declares_display_exactly_once_and_correctly() {
-        // A second `display` declaration would shadow the first and make the
-        // open/closed state unobservable.
-        assert_eq!(
-            displays_in(&build_content_style(false)),
-            alloc::vec![LayoutDisplay::None]
-        );
-        assert_eq!(
-            displays_in(&build_content_style(true)),
-            alloc::vec![LayoutDisplay::Block]
-        );
-    }
+    // ------------------------------------------------------------------
+    // The panel style
+    // ------------------------------------------------------------------
 
+    /// The panel is a window of its own: its style carries no `display`
+    /// toggle (the old in-window panel's), and no property twice.
     #[test]
-    fn content_style_has_no_duplicate_property_types() {
-        for open in [false, true] {
-            // The light face: a dark-theme twin re-declares a colour under a
-            // theme condition, which is not a duplicate.
-            let mut types: Vec<CssPropertyType> = build_content_style(open)
+    fn the_panel_style_has_no_display_toggle_and_no_duplicates() {
+        let style = build_panel_style();
+        assert!(
+            !style
                 .as_ref()
                 .iter()
-                .filter(|p| p.apply_if.as_ref().is_empty())
-                .map(|p| p.property.get_type())
-                .collect();
-            let declared = types.len();
-            assert!(declared > 0, "the panel style must not be empty");
-            types.sort_unstable();
-            types.dedup();
-            assert_eq!(
-                types.len(),
-                declared,
-                "a duplicated property type would make the later declaration silently win (open = \
-                 {open})"
-            );
-        }
-    }
-
-    #[test]
-    fn content_style_is_pure_and_unconditional_apart_from_its_dark_theme_colours() {
-        for open in [false, true] {
-            let a = build_content_style(open);
-            let b = build_content_style(open);
-            assert_eq!(
-                a, b,
-                "build_content_style must be a pure function of `open`"
-            );
-            assert!(
-                a.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
-                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
-                "the panel style must apply unconditionally — a stray condition would leave the \
-                 panel unstyled (open = {open})"
-            );
-            // ...and it does carry the dark-theme surface: a white panel on a
-            // dark page would hide the themed text inside it.
-            assert!(
-                a.as_ref().iter().any(|p| p.is_dark_twin()
-                    && matches!(p.property, CssProperty::BackgroundContent(_))),
-                "the panel has no dark-theme surface (open = {open})"
-            );
-        }
-    }
-
-    #[test]
-    fn content_style_carries_the_documented_geometry_in_both_states() {
-        // The positioning props must be present whether the panel is open or
-        // closed, otherwise the runtime `set_css_property(display)` toggle would
-        // reveal an unpositioned panel.
-        let expected = alloc::vec![
-            CssPropertyWithConditions::simple(CssProperty::const_position(
-                LayoutPosition::Absolute
-            )),
-            CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(
-                CONTENT_OFFSET_Y
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
-            CssPropertyWithConditions::simple(CssProperty::const_min_width(
-                LayoutMinWidth::const_px(CONTENT_MIN_WIDTH)
-            )),
-        ];
-
-        for open in [false, true] {
-            let style = build_content_style(open);
-            for e in &expected {
-                assert!(
-                    style.as_ref().contains(e),
-                    "{:?} missing from the {} panel style",
-                    e.property.get_type(),
-                    if open { "open" } else { "closed" }
-                );
-            }
-        }
+                .any(|p| matches!(p.property, CssProperty::Display(_))),
+            "open and closed are the window's, not a display value"
+        );
+        let mut types: Vec<CssPropertyType> = style
+            .as_ref()
+            .iter()
+            .filter(|p| p.apply_if.as_ref().is_empty())
+            .map(|p| p.property.get_type())
+            .collect();
+        let declared = types.len();
+        types.sort_unstable();
+        types.dedup();
+        assert_eq!(types.len(), declared, "a duplicated property type");
+        assert!(
+            style.as_ref().iter().any(|p| p.is_dark_twin()
+                && matches!(p.property, CssProperty::BackgroundContent(_))),
+            "the panel has a dark-theme surface"
+        );
     }
 
     // ------------------------------------------------------------------
-    // Popover::new / Default
+    // Construction
     // ------------------------------------------------------------------
 
     #[test]
     fn new_stores_both_doms_and_starts_closed() {
-        let anchor = Dom::create_div().with_child(
-            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
-        );
-        let content = Dom::create_text_do_not_use_without_block_level_wrapper("panel");
+        let anchor = Dom::create_p_with_text("anchor");
+        let content = Dom::create_p_with_text("panel");
         let pop = Popover::new(anchor.clone(), content.clone());
-
-        assert_eq!(pop.anchor, anchor, "the anchor must be stored verbatim");
-        assert_eq!(pop.content, content, "the content must be stored verbatim");
-        assert!(
-            !pop.popover_state.inner.open,
-            "a fresh popover must start closed"
-        );
-        assert!(
-            pop.popover_state.on_toggle.is_none(),
-            "Popover::new sets no callback"
-        );
-        assert_eq!(
-            pop.resolved_content_style(),
-            build_content_style(false),
-            "content_style must match the closed state it was constructed with"
-        );
+        assert_eq!(pop.anchor, anchor);
+        assert_eq!(pop.content, content);
+        assert!(!pop.popover_state.inner.open);
+        assert!(pop.popover_state.on_toggle.is_none());
+        assert_eq!(pop.resolved_content_style(), build_panel_style());
         assert_eq!(
             pop.resolved_wrapper_style(),
             CssPropertyWithConditionsVec::from_const_slice(POPOVER_WRAPPER_STYLE)
         );
+        assert_eq!(Popover::default(), Popover::new(Dom::default(), Dom::default()));
     }
 
     #[test]
-    fn default_equals_new_with_empty_doms() {
-        assert_eq!(
-            Popover::default(),
-            Popover::new(Dom::default(), Dom::default())
-        );
-        assert!(!Popover::default().popover_state.inner.open);
-    }
-
-    #[test]
-    fn new_survives_extreme_doms() {
-        // a 128-deep anchor and a 2000-sibling panel: nothing may be truncated,
-        // reordered or recursed into during construction.
-        let mut deep = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
-        for _ in 0..128 {
-            deep = Dom::create_div().with_child(deep);
-        }
-        let wide_children: Vec<Dom> = (0..2000)
-            .map(|i| Dom::create_text_do_not_use_without_block_level_wrapper(alloc::format!("{i}")))
-            .collect();
-        let wide = Dom::create_div().with_children(wide_children.clone().into());
-
-        let pop = Popover::new(deep.clone(), wide.clone());
-
-        assert_eq!(pop.anchor, deep);
-        assert_eq!(pop.content, wide);
-        assert_eq!(pop.content.children.as_ref().len(), 2000);
-        assert!(!pop.popover_state.inner.open);
-    }
-
-    #[test]
-    fn new_accepts_the_same_dom_as_anchor_and_content() {
-        // aliasing the two arguments must produce two independent subtrees, not
-        // one shared (and later doubly-mounted) node.
-        let shared = Dom::create_div()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
-        let pop = Popover::new(shared.clone(), shared.clone());
-
-        assert_eq!(pop.anchor, shared);
-        assert_eq!(pop.content, shared);
-
-        let dom = pop.dom();
-        let children = dom.children.as_ref();
-        assert_eq!(
-            text_of(&children[0].children.as_ref()[0].children.as_ref()[0]),
-            Some("x")
-        );
-        assert_eq!(
-            text_of(&children[1].children.as_ref()[0].children.as_ref()[0]),
-            Some("x")
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // set_open / with_open
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn set_open_round_trips_state_and_style() {
-        // The panel style used to be stored beside the flag and rebuilt on every
-        // write, so a setter that updated one and not the other left the panel
-        // visible while the flag said closed. It is resolved from the flag now;
-        // this asks the resolver, which is where the invariant lives.
-        let mut pop = Popover::new(
-            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
-        );
-
-        // repeats and flips: the style must follow the flag on every write,
-        // including redundant ones.
-        for open in [true, false, false, true, true, false, true] {
-            pop.set_open(open);
-            assert_eq!(pop.popover_state.inner.open, open);
-            assert_eq!(
-                pop.resolved_content_style(),
-                build_content_style(open),
-                "content_style desynced from the open flag"
-            );
-            assert_eq!(
-                displays_in(&pop.resolved_content_style()),
-                alloc::vec![if open {
-                    LayoutDisplay::Block
-                } else {
-                    LayoutDisplay::None
-                }]
-            );
-        }
-
-        // the restyle must not touch the payload doms
-        assert_eq!(
-            pop.anchor,
-            Dom::create_text_do_not_use_without_block_level_wrapper("a")
-        );
-        assert_eq!(
-            pop.content,
-            Dom::create_text_do_not_use_without_block_level_wrapper("c")
-        );
-    }
-
-    #[test]
-    fn with_open_matches_set_open() {
+    fn with_open_matches_set_open_and_the_last_write_wins() {
         for open in [false, true] {
-            let mut mutated = Popover::new(
-                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
-            );
+            let mut mutated = Popover::default();
             mutated.set_open(open);
-            let built = Popover::new(
-                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
-            )
-            .with_open(open);
-            assert_eq!(
-                built, mutated,
-                "builder and setter must agree (open = {open})"
-            );
+            assert_eq!(Popover::default().with_open(open), mutated);
         }
+        assert!(!Popover::default()
+            .with_open(true)
+            .with_open(false)
+            .popover_state
+            .inner
+            .open);
     }
-
-    #[test]
-    fn with_open_last_write_wins() {
-        let base = Popover::new(Dom::create_div(), Dom::create_div());
-
-        assert!(
-            !base
-                .clone()
-                .with_open(true)
-                .with_open(false)
-                .popover_state
-                .inner
-                .open
-        );
-        assert!(
-            base.clone()
-                .with_open(false)
-                .with_open(true)
-                .popover_state
-                .inner
-                .open
-        );
-        assert!(
-            base.clone()
-                .with_open(true)
-                .with_open(true)
-                .popover_state
-                .inner
-                .open,
-            "applying the same value twice must be idempotent"
-        );
-
-        // the *style* must follow the last write too, not the first
-        assert_eq!(
-            base.with_open(true)
-                .with_open(false)
-                .resolved_content_style(),
-            build_content_style(false)
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // set_on_toggle / with_on_toggle
-    // ------------------------------------------------------------------
 
     #[test]
     fn set_on_toggle_last_call_wins() {
         let mut pop = Popover::default();
-
         pop.set_on_toggle(RefAny::new(1u8), toggle_cb(toggle_do_nothing));
-        assert!(pop.popover_state.on_toggle.is_some());
-
-        // a second call must *replace* (not append / leak / panic)
         pop.set_on_toggle(RefAny::new(9i64), toggle_cb(record_toggle));
         let set = pop.popover_state.on_toggle.as_ref().expect("still Some");
         assert_eq!(set.refany.get_type_id(), RefAny::new(0i64).get_type_id());
         assert_eq!(set.callback, toggle_cb(record_toggle));
-        assert_ne!(set.callback, toggle_cb(toggle_do_nothing));
     }
-
-    #[test]
-    fn set_on_toggle_does_not_disturb_state_style_or_doms() {
-        let mut pop = Popover::new(
-            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
-        )
-        .with_open(true);
-        let style_before = pop.resolved_content_style().clone();
-
-        pop.set_on_toggle(RefAny::new(0u8), toggle_cb(toggle_do_nothing));
-
-        assert!(pop.popover_state.inner.open, "open flag must survive");
-        assert_eq!(
-            pop.resolved_content_style(),
-            style_before,
-            "style must survive"
-        );
-        assert_eq!(
-            pop.anchor,
-            Dom::create_text_do_not_use_without_block_level_wrapper("a")
-        );
-        assert_eq!(
-            pop.content,
-            Dom::create_text_do_not_use_without_block_level_wrapper("c")
-        );
-    }
-
-    #[test]
-    fn with_on_toggle_matches_set_on_toggle() {
-        let built = Popover::default().with_on_toggle(RefAny::new(7u32), toggle_cb(record_toggle));
-
-        let mut mutated = Popover::default();
-        mutated.set_on_toggle(RefAny::new(7u32), toggle_cb(record_toggle));
-
-        assert!(built.popover_state.on_toggle.is_some());
-        assert_eq!(
-            built.popover_state.on_toggle.as_ref().unwrap().callback,
-            mutated.popover_state.on_toggle.as_ref().unwrap().callback
-        );
-        // the builder form must not disturb the rest of the widget
-        assert_eq!(built.anchor, Dom::default());
-        assert!(!built.popover_state.inner.open);
-        assert_eq!(built.resolved_content_style(), build_content_style(false));
-    }
-
-    #[test]
-    fn on_toggle_refany_is_shared_not_copied() {
-        let mut shared = RefAny::new(ToggleLog { calls: Vec::new() });
-        let pop = Popover::default().with_on_toggle(shared.clone(), toggle_cb(record_toggle));
-
-        // a write through the widget's handle is visible through the caller's
-        {
-            let stored = pop.popover_state.on_toggle.as_ref().unwrap();
-            let mut handle = stored.refany.clone();
-            handle
-                .downcast_mut::<ToggleLog>()
-                .expect("payload type preserved")
-                .calls
-                .push(true);
-        }
-
-        assert_eq!(
-            shared.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
-            &[true]
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // swap_with_default
-    // ------------------------------------------------------------------
 
     #[test]
     fn swap_with_default_moves_all_state_out() {
         let mut pop = Popover::new(
-            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+            Dom::create_p_with_text("a"),
+            Dom::create_p_with_text("c"),
         )
         .with_open(true)
         .with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
-
         let original = pop.swap_with_default();
-
-        assert_eq!(
-            original.anchor,
-            Dom::create_text_do_not_use_without_block_level_wrapper("a")
-        );
-        assert_eq!(
-            original.content,
-            Dom::create_text_do_not_use_without_block_level_wrapper("c")
-        );
         assert!(original.popover_state.inner.open);
         assert!(original.popover_state.on_toggle.is_some());
-        assert_eq!(original.resolved_content_style(), build_content_style(true));
-
-        assert_eq!(
-            pop,
-            Popover::default(),
-            "self must be left as a default popover"
-        );
-        assert!(
-            pop.popover_state.on_toggle.is_none(),
-            "self must lose the callback"
-        );
-        assert!(!pop.popover_state.inner.open, "self must be re-closed");
-        assert_eq!(pop.resolved_content_style(), build_content_style(false));
-    }
-
-    #[test]
-    fn swap_with_default_twice_is_a_noop() {
-        let mut pop = Popover::default();
-        let first = pop.swap_with_default();
-        assert_eq!(first, Popover::default());
-
-        let second = pop.swap_with_default();
-        assert_eq!(second, Popover::default());
         assert_eq!(pop, Popover::default());
     }
 
     // ------------------------------------------------------------------
-    // Popover::dom
+    // Structure
     // ------------------------------------------------------------------
 
+    /// The popover is a dialog: `[trigger, <transient-window>]` in the
+    /// `__azul-native-popover` wrapper; the window opens below the anchor,
+    /// light-dismisses (`closedby="any"`), and holds the
+    /// `__azul-native-popover-content` panel with the caller's content.
     #[test]
-    fn dom_structure_classes_and_callback() {
-        let dom = Popover::new(
-            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
-            Dom::create_text_do_not_use_without_block_level_wrapper("panel"),
-        )
-        .dom();
-
-        assert!(has_class(&dom, "__azul-native-popover"));
-        let children = dom.children.as_ref();
-        assert_eq!(children.len(), 2, "the wrapper is exactly [trigger, panel]");
-
-        let (trigger, panel) = (&children[0], &children[1]);
-        assert!(has_class(trigger, "__azul-native-popover-trigger"));
-        assert!(has_class(panel, "__azul-native-popover-content"));
-
-        // the caller's doms are wrapped, not rewritten
-        assert_eq!(text_of(&trigger.children.as_ref()[0]), Some("anchor"));
-        assert_eq!(text_of(&panel.children.as_ref()[0]), Some("panel"));
-
-        // the trigger is focusable and carries exactly one MouseUp handler
-        assert!(matches!(trigger.root.get_tab_index(), Some(TabIndex::Auto)));
-        let cbs = trigger.root.get_callbacks();
-        assert_eq!(cbs.len(), 1);
-        assert_eq!(
-            cbs.as_ref()[0].event,
-            EventFilter::Hover(HoverEventFilter::Click)
-        );
-        assert_eq!(cbs.as_ref()[0].callback.cb, on_popover_toggle as usize);
-
-        // the panel must NOT be clickable — the documented behaviour is that
-        // clicking *inside* the panel does not close it.
-        assert!(
-            panel.root.get_callbacks().as_ref().is_empty(),
-            "the panel must carry no callbacks"
-        );
-    }
-
-    #[test]
-    fn dom_panel_display_follows_open_state() {
+    fn the_popover_is_a_trigger_and_a_window_below_it() {
         for open in [false, true] {
-            let dom = Popover::new(Dom::create_div(), Dom::create_div())
-                .with_open(open)
-                .dom();
-            let panel = &dom.children.as_ref()[1];
-            assert_eq!(
-                inline_display(panel),
-                Some(if open {
-                    LayoutDisplay::Block
-                } else {
-                    LayoutDisplay::None
-                }),
-                "the rendered panel's display must match the open flag"
-            );
-        }
-    }
-
-    #[test]
-    fn dom_payload_is_the_popover_state() {
-        for open in [false, true] {
-            let dom = Popover::new(Dom::create_div(), Dom::create_div())
-                .with_open(open)
-                .dom();
-            let mut payload = dom.children.as_ref()[0].root.get_callbacks().as_ref()[0]
-                .refany
-                .clone();
-            let state = payload
-                .downcast_ref::<PopoverStateWrapper>()
-                .expect("the trigger payload must be a PopoverStateWrapper");
-
-            assert_eq!(
-                state.inner.open, open,
-                "the trigger's payload must agree with the panel's display"
-            );
-            assert!(state.on_toggle.is_none(), "no user callback was set");
-        }
-    }
-
-    #[test]
-    fn dom_keeps_the_user_callback_payload_alive() {
-        let log = RefAny::new(ToggleLog { calls: Vec::new() });
-        let mut kept = log.clone();
-
-        let dom = Popover::new(Dom::create_div(), Dom::create_div())
-            .with_on_toggle(log, toggle_cb(record_toggle))
+            let dom = Popover::new(
+                Dom::create_p_with_text("anchor"),
+                Dom::create_p_with_text("panel"),
+            )
+            .with_open(open)
             .dom();
-
-        let mut payload = dom.children.as_ref()[0].root.get_callbacks().as_ref()[0]
-            .refany
-            .clone();
-        assert!(
-            payload
-                .downcast_ref::<PopoverStateWrapper>()
-                .unwrap()
-                .on_toggle
-                .is_some(),
-            "the user callback must survive the move into the trigger payload"
-        );
-
-        // ...and the caller's handle to the shared payload is still valid (no free)
-        assert!(kept.downcast_ref::<ToggleLog>().unwrap().calls.is_empty());
+            assert!(has_class(&dom, "__azul-native-popover"));
+            let kids = dom.children.as_ref();
+            assert_eq!(kids.len(), 2, "[trigger, window]");
+            assert!(has_class(&kids[0], "__azul-native-popover-trigger"));
+            assert!(kids[0]
+                .root
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click)));
+            let NodeType::TransientWindow(cfg) = kids[1].root.get_node_type() else {
+                panic!("the trigger's next sibling is the panel's window");
+            };
+            assert_eq!(cfg.open, open, "the declared open state");
+            assert_eq!(cfg.anchor, TransientAnchor::Bottom);
+            assert_eq!(cfg.dismiss, TransientDismiss::OutsideOnly);
+            let panel = &kids[1].children.as_ref()[0];
+            assert!(has_class(panel, "__azul-native-popover-content"));
+            assert_eq!(
+                panel.children.as_ref().len(),
+                1,
+                "no title row and no close button: just the content"
+            );
+        }
     }
 
     #[test]
-    fn each_dom_gets_its_own_state_refany() {
+    fn each_dom_gets_its_own_state_and_the_child_count_cache_holds() {
         let a = Popover::default().dom();
         let b = Popover::default().dom();
-
-        let ra = a.children.as_ref()[0].root.get_callbacks().as_ref()[0]
-            .refany
-            .clone();
-        let rb = b.children.as_ref()[0].root.get_callbacks().as_ref()[0]
-            .refany
-            .clone();
-
-        assert_ne!(ra, rb, "two popovers must not share toggle state");
-    }
-
-    #[test]
-    fn dom_child_count_cache_stays_consistent() {
-        // deep + wide payloads: `estimated_total_children` must still equal the
-        // real descendant count, otherwise the compact-DOM arena under-allocates
-        // and panics later.
-        let mut deep = Dom::create_text_do_not_use_without_block_level_wrapper("leaf");
+        assert_ne!(
+            a.root.get_dataset().cloned(),
+            b.root.get_dataset().cloned(),
+            "two popovers must not share state"
+        );
+        let mut deep = Dom::create_p_with_text("leaf");
         for _ in 0..64 {
             deep = Dom::create_div().with_child(deep);
         }
-        let wide_children: Vec<Dom> = (0..256).map(|_| Dom::create_div()).collect();
-        let wide = Dom::create_div().with_children(wide_children.into());
-
+        let wide = Dom::create_div()
+            .with_children((0..256).map(|_| Dom::create_div()).collect::<Vec<_>>().into());
         let dom = Popover::new(deep, wide).dom();
-
-        assert_eq!(
-            dom.estimated_total_children,
-            dom.recompute_estimated_total_children(),
-            "cached descendant count desynced from the real tree"
-        );
-    }
-
-    #[test]
-    fn dom_of_default_popover_is_well_formed() {
-        let dom = Popover::default().dom();
-        assert!(has_class(&dom, "__azul-native-popover"));
-        assert_eq!(dom.children.as_ref().len(), 2);
-        assert_eq!(
-            inline_display(&dom.children.as_ref()[1]),
-            Some(LayoutDisplay::None),
-            "a default popover renders a hidden panel"
-        );
         assert_eq!(
             dom.estimated_total_children,
             dom.recompute_estimated_total_children()
         );
     }
 
-    #[test]
-    fn from_popover_for_dom_matches_dom_structurally() {
-        // `Dom::from(p) == p.dom()` cannot be asserted directly: every `dom()`
-        // call mints a fresh `RefAny` for the trigger payload, and two distinct
-        // `RefAny`s never compare equal. Compare the observable structure.
-        let make = || {
-            Popover::new(
-                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
-                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
-            )
-            .with_open(true)
-        };
-        let via_from = Dom::from(make());
-        let via_dom = make().dom();
-
-        assert!(has_class(&via_from, "__azul-native-popover"));
-        assert_eq!(via_from.children.as_ref().len(), 2);
-        assert!(has_class(
-            &via_from.children.as_ref()[0],
-            "__azul-native-popover-trigger"
-        ));
-        assert!(has_class(
-            &via_from.children.as_ref()[1],
-            "__azul-native-popover-content"
-        ));
-        assert_eq!(
-            inline_display(&via_from.children.as_ref()[1]),
-            inline_display(&via_dom.children.as_ref()[1])
-        );
-        assert_eq!(
-            via_from.children.as_ref()[1].children,
-            via_dom.children.as_ref()[1].children
-        );
-        assert_eq!(
-            via_from.estimated_total_children,
-            via_dom.estimated_total_children
-        );
-    }
-
     // ------------------------------------------------------------------
-    // on_popover_toggle
+    // Opening and closing
     // ------------------------------------------------------------------
 
+    /// A click on the trigger of a closed popover asks the engine to show
+    /// its window and tells `on_toggle` it opened.
     #[test]
-    fn toggle_without_any_layout_result_is_a_noop() {
-        let mut data = RefAny::new(PopoverStateWrapper::default());
-
-        let (update, changes) = run_toggle(None, 0, data.clone());
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(
-            changes.is_empty(),
-            "nothing may be restyled without a panel"
+    fn a_trigger_click_opens_the_popover_and_tells_on_toggle() {
+        let log = RefAny::new(ToggleLog { calls: Vec::new() });
+        let (styled, data) = rendered(
+            Popover::new(Dom::create_p_with_text("a"), Dom::create_p_with_text("c"))
+                .with_on_toggle(log.clone(), toggle_cb(record_toggle)),
         );
-        assert!(!payload_open(&mut data), "state must not flip");
-    }
-
-    #[test]
-    fn toggle_without_next_sibling_does_not_flip_state() {
-        // node 2 is the *last* child -> no next sibling -> early return, and
-        // crucially `open` must NOT have been toggled.
-        let mut data = RefAny::new(PopoverStateWrapper {
-            inner: PopoverState { open: true },
-            on_toggle: None.into(),
+        let trigger = index_of_class(&styled, "__azul-native-popover-trigger");
+        let window = index_of_class(&styled, "__azul-native-dialog-window");
+        let (update, changes) = with_info(styled, trigger, |_| {}, |info| {
+            on_dialog_invoker_click(data.clone(), info)
         });
-
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 2, data.clone());
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty());
-        assert!(payload_open(&mut data), "state must be untouched");
+        assert_eq!(opens(&changes), vec![(window, true)]);
+        assert_eq!(calls(&log), vec![true]);
+        assert_eq!(update, Update::RefreshDom, "the user callback's update");
     }
 
+    /// THE bug (2026-09-28): the demo rebuilds `with_open(false)` after
+    /// every toggle. The trigger asks the ENGINE whether the popover is open,
+    /// so a click while it shows closes it, whatever the rebuild minted.
     #[test]
-    fn toggle_with_stale_hit_node_is_a_noop() {
-        let mut data = RefAny::new(PopoverStateWrapper::default());
-
-        // node 999 does not exist in the 3-node fixture
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 999, data.clone());
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty());
-        assert!(!payload_open(&mut data));
-    }
-
-    #[test]
-    fn toggle_with_foreign_payload_is_a_noop() {
-        // the callback-bearing node carries a RefAny of the *wrong* type
-        let data = RefAny::new(0xdead_beef_u64);
-
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 1, data.clone());
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(
-            changes.is_empty(),
-            "a foreign payload must not restyle the panel"
+    fn a_trigger_click_on_a_showing_popover_closes_it_after_a_rebuild() {
+        let log = RefAny::new(ToggleLog { calls: Vec::new() });
+        let (styled, data) = rendered(
+            Popover::new(Dom::create_p_with_text("a"), Dom::create_p_with_text("c"))
+                .with_open(false)
+                .with_on_toggle(log.clone(), toggle_cb(record_toggle)),
         );
-    }
-
-    #[test]
-    fn toggle_flips_state_and_panel_display() {
-        let mut data = RefAny::new(PopoverStateWrapper::default());
-
-        // closed -> open
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 1, data.clone());
-        assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
-        assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)]
+        let trigger = index_of_class(&styled, "__azul-native-popover-trigger");
+        let window = index_of_class(&styled, "__azul-native-dialog-window");
+        let (_, changes) = with_info(
+            styled,
+            trigger,
+            |lw| {
+                let _ = lw
+                    .transient_windows
+                    .set_forced_open(NodeId::new(window), true);
+            },
+            |info| on_dialog_invoker_click(data.clone(), info),
         );
-        assert!(payload_open(&mut data));
+        assert_eq!(opens(&changes), vec![(window, false)]);
+        assert_eq!(calls(&log), vec![false]);
+    }
 
-        // open -> closed (same payload, so the flip must be stateful)
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 1, data.clone());
-        assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::None)]
+    /// The engine closed it (a press outside, focus loss, Escape):
+    /// `on_toggle` hears it closed.
+    #[test]
+    fn a_dismissal_tells_on_toggle_the_popover_closed() {
+        let log = RefAny::new(ToggleLog { calls: Vec::new() });
+        let (styled, data) = rendered(
+            Popover::new(Dom::create_p_with_text("a"), Dom::create_p_with_text("c"))
+                .with_on_toggle(log.clone(), toggle_cb(record_toggle)),
         );
-        assert!(!payload_open(&mut data));
-    }
-
-    #[test]
-    fn toggle_is_an_involution_over_many_clicks() {
-        let mut data = RefAny::new(PopoverStateWrapper::default());
-
-        for i in 0..8u32 {
-            let (_, changes) = run_toggle(Some(trigger_panel_dom()), 1, data.clone());
-            let expected_open = i % 2 == 0;
-            assert_eq!(
-                display_writes(&changes),
-                alloc::vec![(
-                    2usize,
-                    if expected_open {
-                        LayoutDisplay::Block
-                    } else {
-                        LayoutDisplay::None
-                    }
-                )],
-                "click {i} wrote the wrong display"
-            );
-            assert_eq!(payload_open(&mut data), expected_open);
-        }
-
-        // an even number of clicks returns to the initial state
-        assert!(!payload_open(&mut data));
-    }
-
-    #[test]
-    fn toggle_display_agrees_with_build_content_style() {
-        // the runtime override and the static style must not disagree, otherwise
-        // a rebuild would flip the panel back.
-        let data = RefAny::new(PopoverStateWrapper::default());
-        let (_, changes) = run_toggle(Some(trigger_panel_dom()), 1, data);
-
-        assert_eq!(
-            display_writes(&changes)
-                .into_iter()
-                .map(|(_, d)| d)
-                .collect::<Vec<_>>(),
-            displays_in(&build_content_style(true))
-        );
-    }
-
-    #[test]
-    fn toggle_invokes_user_callback_with_the_new_state() {
-        let mut log = RefAny::new(ToggleLog { calls: Vec::new() });
-        let data = RefAny::new(PopoverStateWrapper {
-            inner: PopoverState { open: false },
-            on_toggle: Some(PopoverOnToggle {
-                callback: toggle_cb(record_toggle),
-                refany: log.clone(),
-            })
-            .into(),
+        let window = index_of_class(&styled, "__azul-native-dialog-window");
+        let (update, changes) = with_info(styled, window, |_| {}, |info| {
+            on_dialog_dismissed(data.clone(), info)
         });
-
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 1, data.clone());
-
-        // the user's return value wins over the internal DoNothing
+        assert!(changes.is_empty());
+        assert_eq!(calls(&log), vec![false]);
         assert_eq!(update, Update::RefreshDom);
-        // ...and the panel is still restyled, even though the user callback ran
-        assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)]
-        );
-        assert_eq!(
-            log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
-            &[true],
-            "the callback must receive the *new* (post-flip) state"
-        );
-
-        // a second click reports the closed state
-        let (_, _) = run_toggle(Some(trigger_panel_dom()), 1, data);
-        assert_eq!(
-            log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
-            &[true, false]
-        );
-    }
-
-    #[test]
-    fn toggle_still_restyles_when_the_user_callback_does_nothing() {
-        let data = RefAny::new(PopoverStateWrapper {
-            inner: PopoverState { open: false },
-            on_toggle: Some(PopoverOnToggle {
-                callback: toggle_cb(toggle_do_nothing),
-                refany: RefAny::new(0u8),
-            })
-            .into(),
-        });
-
-        let (update, changes) = run_toggle(Some(trigger_panel_dom()), 1, data);
-
-        assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)],
-            "the panel must be shown regardless of what the user callback returns"
-        );
-    }
-
-    #[test]
-    fn toggle_targets_the_panel_in_a_really_rendered_popover() {
-        // End-to-end: the handler assumes "the hit trigger's next sibling is the
-        // panel". Verify that against the DOM `Popover::dom()` actually builds,
-        // rather than against a hand-made fixture.
-        let styled =
-            StyledDom::create_from_dom(Popover::new(Dom::create_div(), Dom::create_div()).dom());
-        let trigger_idx = index_of_class(&styled, "__azul-native-popover-trigger");
-        let panel_idx = index_of_class(&styled, "__azul-native-popover-content");
-
-        let data = RefAny::new(PopoverStateWrapper::default());
-        let (_, changes) = run_toggle(Some(styled), trigger_idx, data);
-
-        assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(panel_idx, LayoutDisplay::Block)],
-            "the toggle must restyle the popover's own panel, not a stray sibling"
-        );
-    }
-
-    #[test]
-    fn toggle_on_the_wrapper_node_does_not_touch_the_panel() {
-        // Clicking the *wrapper* (node 0, the root) must not flip anything: the
-        // root has no next sibling.
-        let styled =
-            StyledDom::create_from_dom(Popover::new(Dom::create_div(), Dom::create_div()).dom());
-        let wrapper_idx = index_of_class(&styled, "__azul-native-popover");
-
-        let mut data = RefAny::new(PopoverStateWrapper::default());
-        let (update, changes) = run_toggle(Some(styled), wrapper_idx, data.clone());
-
-        assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty());
-        assert!(!payload_open(&mut data));
     }
 }
