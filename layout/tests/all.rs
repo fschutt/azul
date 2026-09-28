@@ -310,6 +310,8 @@ mod multi_range_selection;
 mod native_notifications;
 #[path = "drag_into_an_empty_line.rs"]
 mod drag_into_an_empty_line;
+#[path = "an_arrow_collapses_a_document_selection_like_a_click.rs"]
+mod an_arrow_collapses_a_document_selection_like_a_click;
 #[path = "an_svg_without_a_viewbox.rs"]
 mod an_svg_without_a_viewbox;
 #[path = "a_mask_clip_on_a_half_pixel.rs"]
