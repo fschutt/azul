@@ -132,6 +132,8 @@ mod fakefont;
 
 #[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
 mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
+#[path = "a_caret_counts_bytes_in_its_own_block.rs"]
+mod a_caret_counts_bytes_in_its_own_block;
 #[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
 mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "a_context_menu_opens_from_a_secondary_press.rs"]
