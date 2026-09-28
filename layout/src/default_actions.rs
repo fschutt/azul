@@ -1701,6 +1701,41 @@ mod autotest_generated {
         }
     }
 
+    /// P2-10: spatial navigation (and its scroll fallback) is the default of
+    /// an UNMODIFIED arrow. Ctrl, Alt and Super (Cmd) + arrow on a focused
+    /// control belong to the OS and the app - Mission Control / Spaces on a
+    /// Mac, window snapping on Windows, history back, word motion - and must
+    /// neither move focus nor scroll. Shift+arrow is left alone.
+    #[test]
+    fn ctrl_or_alt_arrow_on_a_button_has_no_default_action() {
+        let layouts = fixture();
+        let focus = Some(button(&layouts));
+        for key in [
+            VirtualKeyCode::Up,
+            VirtualKeyCode::Down,
+            VirtualKeyCode::Left,
+            VirtualKeyCode::Right,
+        ] {
+            for mods in [
+                &[VirtualKeyCode::LControl][..],
+                &[VirtualKeyCode::RControl][..],
+                &[VirtualKeyCode::LAlt][..],
+                &[VirtualKeyCode::RAlt][..],
+                &[VirtualKeyCode::LWin][..],
+                &[VirtualKeyCode::LControl, VirtualKeyCode::LShift][..],
+            ] {
+                let action =
+                    determine_keyboard_default_action(&kbd(key, mods), focus, &layouts, false)
+                        .action;
+                assert_eq!(
+                    action,
+                    DefaultAction::None,
+                    "{key:?} + {mods:?} on a focused button must neither move focus nor scroll"
+                );
+            }
+        }
+    }
+
     #[test]
     fn page_keys_scroll_a_page_regardless_of_modifiers_and_focus() {
         let layouts = fixture();
