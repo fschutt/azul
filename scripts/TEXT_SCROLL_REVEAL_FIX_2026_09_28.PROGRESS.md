@@ -45,7 +45,8 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 
 ## IN PROGRESS
 
-- Step 5 RED (not yet written).
+- 2d5068ff6 test(layout) RED step 5: `a_drag_selection_owns_the_scroll_of_its_field.rs` (registered).
+- Step 5 FIX in progress: `process_mouse_drag_for_selection` drops the pending reveal (note_user_scroll); dll drag-autoscroll timer pass claims too.
 
 ## NEXT (in order)
 
