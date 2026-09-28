@@ -1608,6 +1608,9 @@ impl ScrollManager {
     /// node that merely stopped overflowing keeps its state, refreshed. A
     /// thumb held on it is let go: there is no bar left to hold.
     pub fn remove_scroll_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        // Its frames go with it: a node that is registered again later gets
+        // them republished by `register_scroll_nodes`.
+        self.scroll_ancestors.remove(&(dom_id, node_id));
         let Some(removed) = self.states.remove(&(dom_id, node_id)) else {
             return;
         };
