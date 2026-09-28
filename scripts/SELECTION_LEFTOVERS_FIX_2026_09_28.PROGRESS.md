@@ -64,10 +64,12 @@ file is deleted in that last commit.
   - 7077ead2a test: two tests before `damage_mouse_move_no_change_is_clean`
     in dll/src/desktop/shell2/headless/mod.rs (+ `harness_layout_editable`).
 
+  - 43878b997 refactor: `apply_text_input_event` / `apply_wheel_scroll_event`
+    on HeadlessWindow, run() calls them.
+
 ## IN PROGRESS
 
-7b fix: extract `run()`'s TextInput / Scroll arms into HeadlessWindow methods
-(refactor commit), then `step()` calls them (fix commit).
+7b fix: `step()` calls the two helpers.
 
 ## NEXT (in order)
 
