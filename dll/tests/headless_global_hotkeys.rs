@@ -289,6 +289,48 @@ fn closing_the_window_releases_what_only_it_declared() {
     assert_eq!(log.grabs(), vec!["unregister Ctrl+Alt+K"]);
 }
 
+/// How often an app-level press ran.
+#[derive(Default)]
+struct Presses(usize);
+
+extern "C" fn count_press(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(mut presses) = data.downcast_mut::<Presses>() {
+        presses.0 += 1;
+    }
+    let _ = info;
+    Update::DoNothing
+}
+
+/// The tray-only shape: a stub window whose `layout()` never runs, and the
+/// summon key declared by the `AppConfig`. The pump alone grabs it (no
+/// layout is needed) and runs a press against the stub.
+#[test]
+fn an_app_config_hotkey_is_grabbed_and_pressed_without_any_layout() {
+    let shared = SharedGlobalHotkeys::new();
+    shared.install_simulated_backend();
+    let _app = shared.enter();
+    let mut stub = make_window(HotkeyState::default());
+    let presses = RefAny::new(Presses::default());
+    shared.set_app_declarations(
+        vec![azul_core::global_hotkey::GlobalHotkeyCallbackData::create(
+            summon(),
+            presses.clone(),
+            Callback::from_ptr(count_press).to_core(),
+        )],
+        None,
+        RefAny::new(()),
+    );
+
+    let _ = azul::desktop::global_hotkey::pump_headless(&mut stub);
+    assert_eq!(shared.status(&summon()), GlobalHotkeyStatus::Active);
+
+    assert!(shared.simulate(&summon()));
+    let _ = azul::desktop::global_hotkey::pump_headless(&mut stub);
+    let mut presses = presses.clone();
+    let count = presses.downcast_ref::<Presses>().map(|p| p.0);
+    assert_eq!(count, Some(1), "the press ran against the stub");
+}
+
 /// A `layout()` that shows the status sees `NotRegistered` on the pass that
 /// first declares (the snapshot is taken before the pass), is asked to run
 /// ONCE more to show `Active`, and then nothing further is owed.

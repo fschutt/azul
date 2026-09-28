@@ -68,6 +68,13 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    headless Phase 1c and the tray-only timer call it). Desktop pumps do NOT yet handle relayout
    requests (step 10).
 
+   (+ `342b9a18b` test fixup: the status-read test retires what the pass itself leaves pending.)
+7. test(app): AppConfig hotkeys - RED, does not compile: `layout/tests/global_hotkeys.rs`
+   section 6 (`GlobalHotkeysCallback`, `GlobalHotkeysCallbackInfo`, `SharedGlobalHotkeys::
+   {set_app_declarations(Vec, Option<GlobalHotkeysCallback>, RefAny), refresh_app_declarations()
+   -> bool, mark_app_dirty()}`) + `dll/tests/headless_global_hotkeys.rs::an_app_config_hotkey_is_
+   grabbed_and_pressed_without_any_layout` (pump_headless must refresh the app source).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
@@ -76,7 +83,6 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
 
 (step 6 left out on purpose: "mark app dirty on RefreshDom" moves to step 8)
 
-7. RED app: AppConfig static list + derived callback (headless).
 8. feat app: `AppConfig.global_hotkeys` / `global_hotkeys_callback`, `GlobalHotkeysCallback(Type)`,
    `OptionGlobalHotkeysCallback`, `GlobalHotkeysCallbackInfo` (with `impl_managed_callback!`),
    manager app source + `refresh_app_declarations`, pumps run it.

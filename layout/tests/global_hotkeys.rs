@@ -35,14 +35,14 @@ use azul_core::{
     global_hotkey::{
         portal_trigger, xkb_keysym_name, GlobalHotkey, GlobalHotkeyCallbackData,
         GlobalHotkeyError, GlobalHotkeyId, GlobalHotkeyOwner, GlobalHotkeyState,
-        GlobalHotkeyStatus, HotkeyModifiers,
+        GlobalHotkeyStatus, GlobalHotkeysCallback, GlobalHotkeysCallbackInfo, HotkeyModifiers,
     },
     refany::{OptionRefAny, RefAny},
     window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec},
 };
 use azul_css::AzString;
 use azul_layout::{
-    callbacks::CallbackInfo,
+    callbacks::{Callback, CallbackInfo},
     managers::global_hotkey::{
         BackendEvent, BackendGrant, GlobalHotkeyBackend, GlobalHotkeyManager, HotkeyDelivery,
         HotkeySource, SharedGlobalHotkeys, MAX_PENDING_FIRES, SIMULATED_BACKEND_NAME,
@@ -975,4 +975,184 @@ fn a_simulated_press_reaches_the_current_owner_however_it_is_spelled() {
     assert_eq!(marker_of(&deliveries[0]), Some(7));
 
     assert!(!shared.simulate(&ctrl_alt(K::J)), "nobody declares it");
+}
+
+// ---------------------------------------------------------------------------
+// 6. The app's own declarations (AppConfig): apps with no window
+// ---------------------------------------------------------------------------
+
+/// What an app-level hotkeys callback derives its set from.
+#[derive(Default)]
+struct AppHotkeyState {
+    enabled: bool,
+    read_status: bool,
+    runs: usize,
+}
+
+extern "C" fn app_hotkeys(mut data: RefAny, info: GlobalHotkeysCallbackInfo) {
+    let handle = data.clone();
+    let (enabled, read_status) = match data.downcast_mut::<AppHotkeyState>() {
+        Some(mut s) => {
+            s.runs += 1;
+            (s.enabled, s.read_status)
+        }
+        None => return,
+    };
+    if enabled {
+        info.add_global_hotkey(ctrl_alt(K::K), handle, Callback::from_ptr(callback_a));
+    }
+    if read_status {
+        let _ = info.get_global_hotkey_status(ctrl_alt(K::K));
+    }
+}
+
+fn runs(data: &RefAny) -> usize {
+    let mut data = data.clone();
+    let runs = data.downcast_ref::<AppHotkeyState>().map(|s| s.runs);
+    runs.unwrap_or(0)
+}
+
+fn set_enabled(data: &RefAny, enabled: bool) {
+    let mut data = data.clone();
+    if let Some(mut s) = data.downcast_mut::<AppHotkeyState>() {
+        s.enabled = enabled;
+    }
+}
+
+fn shared_with_log() -> (SharedGlobalHotkeys, Log) {
+    let log = Log::default();
+    let shared = SharedGlobalHotkeys::new();
+    shared.install_backend(Box::new(RecordingBackend::new(&log)));
+    (shared, log)
+}
+
+/// A tray utility's summon key: declared by the `AppConfig`, held with no
+/// window and no `layout()` at all, and pressed as the app's own.
+#[test]
+fn the_app_config_list_is_held_without_any_window() {
+    let (shared, log) = shared_with_log();
+    shared.set_app_declarations(
+        vec![declared(ctrl_alt(K::K), 0, callback_a)],
+        None,
+        RefAny::new(()),
+    );
+    let _ = shared.refresh_app_declarations();
+    let _ = shared.sync();
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"]);
+
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    let deliveries = shared.lock().take_deliveries();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].target, HotkeySource::App);
+    assert_eq!(marker_of(&deliveries[0]), Some(0));
+}
+
+/// The state-derived set: the callback runs once at start, again only when
+/// the app state may have changed (`mark_app_dirty`, which every
+/// `RefreshDom` does), and its declarations reconcile like a window's.
+#[test]
+fn the_derived_app_callback_declares_from_the_app_state() {
+    let (shared, log) = shared_with_log();
+    let data = RefAny::new(AppHotkeyState {
+        enabled: true,
+        ..AppHotkeyState::default()
+    });
+    shared.set_app_declarations(
+        Vec::new(),
+        Some(GlobalHotkeysCallback::create(app_hotkeys)),
+        data.clone(),
+    );
+    assert!(shared.refresh_app_declarations(), "it runs once at start");
+    let _ = shared.sync();
+    assert_eq!(runs(&data), 1);
+    assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"]);
+
+    assert!(
+        !shared.refresh_app_declarations(),
+        "nothing changed: the callback does not run again"
+    );
+    assert_eq!(runs(&data), 1);
+
+    set_enabled(&data, false);
+    shared.mark_app_dirty();
+    assert!(shared.refresh_app_declarations());
+    let _ = shared.sync();
+    assert_eq!(runs(&data), 2);
+    assert_eq!(log.grabs(), vec!["unregister Ctrl+Alt+K"]);
+}
+
+/// The static list and the callback are ONE source (the app's): the
+/// callback dropping its accelerator never drops the static one.
+#[test]
+fn the_static_list_and_the_derived_callback_are_one_source() {
+    let (shared, log) = shared_with_log();
+    let data = RefAny::new(AppHotkeyState {
+        enabled: true,
+        ..AppHotkeyState::default()
+    });
+    shared.set_app_declarations(
+        vec![declared(ctrl_alt(K::J), 0, callback_a)],
+        Some(GlobalHotkeysCallback::create(app_hotkeys)),
+        data.clone(),
+    );
+    let _ = shared.refresh_app_declarations();
+    let _ = shared.sync();
+    assert_eq!(
+        log.grabs(),
+        vec!["register Ctrl+Alt+J", "register Ctrl+Alt+K"]
+    );
+
+    set_enabled(&data, false);
+    shared.mark_app_dirty();
+    let _ = shared.refresh_app_declarations();
+    let _ = shared.sync();
+    assert_eq!(log.grabs(), vec!["unregister Ctrl+Alt+K"]);
+    assert_eq!(shared.status(&ctrl_alt(K::J)), GlobalHotkeyStatus::Active);
+}
+
+/// A status the app callback READ re-runs it once when it moves - and only
+/// once: the re-run declares the same set, so nothing moves again.
+#[test]
+fn a_status_the_app_callback_read_re_runs_it_once() {
+    let log = Log::default();
+    let shared = SharedGlobalHotkeys::new();
+    let backend = RecordingBackend::pending(&log);
+    let ids = backend.ids.clone();
+    shared.install_backend(Box::new(backend));
+    let data = RefAny::new(AppHotkeyState {
+        enabled: true,
+        read_status: true,
+        ..AppHotkeyState::default()
+    });
+    shared.set_app_declarations(
+        Vec::new(),
+        Some(GlobalHotkeysCallback::create(app_hotkeys)),
+        data.clone(),
+    );
+    let _ = shared.refresh_app_declarations();
+    let _ = shared.sync();
+    assert_eq!(runs(&data), 1);
+
+    // The desktop answers.
+    let os_id = ids
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .next()
+        .map(|id| GlobalHotkeyId { id: *id })
+        .expect("asked for Ctrl+Alt+K");
+    shared.sink().push(BackendEvent::Settled {
+        os_id,
+        result: Ok(AzString::from_const_str("")),
+    });
+    let _ = shared.sync();
+    assert!(shared.refresh_app_declarations(), "the status it read moved");
+    let _ = shared.sync();
+    assert_eq!(runs(&data), 2);
+
+    assert!(
+        !shared.refresh_app_declarations(),
+        "the re-run declared the same set: converged"
+    );
+    assert_eq!(runs(&data), 2);
 }
