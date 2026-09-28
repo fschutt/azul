@@ -2356,12 +2356,13 @@ fn struct_field_list(class_data: &ClassData) -> Vec<(&String, &crate::api::Field
 }
 
 /// The C `Vec` layout every `*Vec` in the API has, e.g. `DomVec`:
-/// `ptr` (a pointer to the elements), `len`, `cap` and `destructor`. Returns
+/// `ptr` (a pointer to the elements), `len`, `cap` and `destructor` (plus the
+/// `flags` byte, see [`is_vec_field_count`]). Returns
 /// the element type (`ptr`'s pointee). This is the only thing that makes a
 /// struct a Vec: no name list, no api.json marker.
 pub fn vec_layout_element(class_data: &ClassData) -> Option<String> {
     let fields = struct_field_list(class_data);
-    if fields.len() != 4 && fields.len() != 5 {
+    if !super::ir::is_vec_field_count(fields.iter().map(|(name, _)| name.as_str())) {
         return None;
     }
     let get = |n: &str| {

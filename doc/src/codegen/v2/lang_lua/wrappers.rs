@@ -415,7 +415,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     // Phase I.1.8 (Lua): `#vec` when this is a Vec wrapper. Decided by
     // the ptr/len/cap layout, never by the name.
-    let is_vec = s.fields.len() == 5
+    let is_vec = crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str()))
         && s.fields[0].name == "ptr"
         && s.fields[1].name == "len"
         && s.fields[2].name == "cap"

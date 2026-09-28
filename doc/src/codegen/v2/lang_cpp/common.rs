@@ -371,10 +371,15 @@ pub fn is_vec_type(struct_def: &StructDef) -> bool {
 /// api.json `vec_element_type` marker that only some Vecs carry (`U8Vec`,
 /// `StringVec`), while `DomVec` or `RibbonTabVec` are categorized `Regular`
 /// yet are Vecs all the same - every `*Vec` class the C API exposes a
-/// `copyFromPtr` for has exactly these four fields.
+/// `copyFromPtr` for has exactly these four fields (plus the `flags` byte,
+/// see `ir::is_vec_field_count`).
 pub fn has_vec_layout(struct_def: &StructDef) -> bool {
     let has = |n: &str| struct_def.fields.iter().any(|f| f.name == n);
-    struct_def.fields.len() == 5 && has("ptr") && has("len") && has("cap") && has("destructor")
+    crate::codegen::v2::ir::is_vec_field_count(struct_def.fields.iter().map(|f| f.name.as_str()))
+        && has("ptr")
+        && has("len")
+        && has("cap")
+        && has("destructor")
 }
 
 /// Check if a struct is a String type

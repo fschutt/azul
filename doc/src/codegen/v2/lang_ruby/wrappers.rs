@@ -628,7 +628,7 @@ fn emit_rb_each_if_vec(
 
 /// Vec-shape detector mirroring lang_haskell::types::detect_vec_elem_type.
 fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     let f_ptr = &s.fields[0];

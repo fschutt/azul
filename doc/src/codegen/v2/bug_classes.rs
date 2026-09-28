@@ -156,7 +156,7 @@ fn vec_category_is_exactly_the_vec_layout() {
         .filter(|(_, c)| {
             let f = fields(c);
             let has = |n: &str| f.iter().any(|(k, _, _)| *k == n);
-            f.len() == 4
+            is_vec_field_count(f.iter().map(|(k, _, _)| *k))
                 && f.iter().any(|(k, _, r)| *k == "ptr" && is_ptr(*r))
                 && has("len")
                 && has("cap")
