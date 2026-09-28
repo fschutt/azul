@@ -1779,8 +1779,8 @@ pub enum FocusableAreaSearchMode {
 /// `CallbackInfo::spatial_navigation_search`.
 ///
 /// Both default to "not given": the search then runs over the VISIBLE
-/// focusable areas of the element's nearest spatial navigation container, and
-/// - as the spec notes - does not climb further up when that container has
+/// focusable areas of the element's nearest spatial navigation container and,
+/// as the spec notes, does not climb further up when that container has
 /// nothing in the direction.
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
