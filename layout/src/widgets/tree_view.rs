@@ -1974,12 +1974,45 @@ mod autotest_generated {
         assert_eq!(text_of(row_parts(rows[0]).1), Some(""));
     }
 
+    /// A render with the callbacks' `RefAny` payloads left out: every node
+    /// pre-order with its child count and stylesheets, its callbacks as
+    /// `(event, function)` pairs. RefAny equality is allocation identity, and
+    /// every row carries its own key-handler payload, so two renders of the
+    /// same tree differ only in those.
+    fn without_callback_payloads(
+        dom: &Dom,
+    ) -> Vec<(
+        azul_core::dom::NodeData,
+        usize,
+        azul_css::css::CssVec,
+        Vec<(azul_core::events::EventFilter, azul_core::callbacks::CoreCallback)>,
+    )> {
+        let mut out = Vec::new();
+        let mut stack = vec![dom];
+        while let Some(d) = stack.pop() {
+            let mut node = d.root.clone();
+            let callbacks = node
+                .callbacks
+                .as_ref()
+                .iter()
+                .map(|c| (c.event.clone(), c.callback.clone()))
+                .collect();
+            node.set_callbacks(Vec::new().into());
+            out.push((node, d.children.as_ref().len(), d.css.clone(), callbacks));
+            stack.extend(d.children.as_ref().iter().rev());
+        }
+        out
+    }
+
     #[test]
     fn from_treeview_for_dom_matches_dom() {
         for shape in shapes() {
             let via_trait: Dom = TreeView::new(shape.clone()).into();
             let via_method = TreeView::new(shape).dom();
-            assert_eq!(via_trait, via_method);
+            assert_eq!(
+                without_callback_payloads(&via_trait),
+                without_callback_payloads(&via_method)
+            );
         }
     }
 
