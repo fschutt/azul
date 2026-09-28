@@ -408,10 +408,8 @@ mod tests {
             LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0)),
             LogicalSize::new(200.0, 1000.0),
             Instant::now(),
-            12.0,
-            12.0,
-            false,
-            true,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
+            crate::solver3::scrollbar::ScrollbarPresence::Classic { thickness: 12.0 },
         );
         w.scroll_manager.calculate_scrollbar_states();
         w

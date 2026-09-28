@@ -14444,10 +14444,8 @@ mod tests {
             ),
             LogicalSize::new(200.0, 1000.0),
             azul_core::task::Instant::now(),
-            12.0,
-            12.0,
-            false,
-            true,
+            azul_layout::solver3::scrollbar::ScrollbarPresence::None,
+            azul_layout::solver3::scrollbar::ScrollbarPresence::Classic { thickness: 12.0 },
         );
         lw.scroll_manager.calculate_scrollbar_states();
         let bar = lw

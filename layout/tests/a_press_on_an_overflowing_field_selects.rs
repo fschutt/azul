@@ -13,12 +13,13 @@
 //!
 //! `textinput_resize_selection.rs` drives the same widget and is green: its
 //! `click` goes straight to the text and never meets the gate. The harness
-//! here takes the gate first, the way the shells do ([`scrollbar_under_press`]),
+//! here takes the gate first, the way the shells do ([`route_press`]),
 //! so the suite sees what the device sees. See
 //! `scripts/SELECTION_WHEN_CLIPPED_ARCHITECTURE_2026_09_26.md` (M1, M1b, M2).
 
 use azul_core::{
-    dom::{Dom, DomId, DomNodeId, NodeId, ScrollbarOrientation},
+    dom::{Dom, DomId, DomNodeId, NodeId},
+    events::MouseButton,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
     selection::Selection,
@@ -28,7 +29,8 @@ use azul_core::{
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     headless::CpuHitTester,
-    managers::scroll_state::{ScrollbarComponent, ScrollbarHit},
+    managers::scroll_state::ScrollbarHit,
+    press_router::PressTarget,
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -43,19 +45,15 @@ const VALUE: &str = "The quick brown fox jumps over the lazy dog and keeps on ru
 const HOST: NodeId = NodeId::new(1);
 const VALUE_P: NodeId = NodeId::new(2);
 
-/// THE SHELLS' PRESS GATE, and nothing else. Every backend asks the scroll
-/// manager's bars before the event pass, and a press that lands on one never
-/// reaches the text. Kept to this one function so it can become
-/// `LayoutWindow::route_press` once there is one.
-fn scrollbar_under_press(lw: &LayoutWindow, at: LogicalPosition) -> Option<ScrollbarHit> {
-    lw.scroll_manager.hit_test_scrollbars(at)
-}
-
-/// A thumb the press grabbed: what `ScrollbarDragState` holds in the shells.
-#[derive(Debug, Clone, Copy)]
-struct ThumbDrag {
-    hit: ScrollbarHit,
-    initial_offset: LogicalPosition,
+/// THE SHELLS' PRESS GATE, and nothing else: every backend presses through
+/// `LayoutWindow::route_press`, which asks the scroll manager's bars before
+/// the event pass, and a press that lands on one never reaches the text.
+fn route_press(lw: &mut LayoutWindow, at: LogicalPosition) -> Option<ScrollbarHit> {
+    let now = Instant::from(std::time::Instant::now());
+    match lw.route_press(at, MouseButton::Left, now) {
+        PressTarget::Scrollbar(hit) => Some(hit),
+        PressTarget::Content => None,
+    }
 }
 
 struct Harness {
@@ -65,8 +63,6 @@ struct Harness {
     system_callbacks: ExternalSystemCallbacks,
     /// Where the last press went, for the failure messages.
     last_press: Option<ScrollbarHit>,
-    /// Set while a press on a thumb is being dragged.
-    thumb_drag: Option<ThumbDrag>,
 }
 
 impl Harness {
@@ -101,7 +97,6 @@ impl Harness {
             renderer_resources,
             system_callbacks,
             last_press: None,
-            thumb_drag: None,
         };
         h.finalize();
         h
@@ -179,25 +174,14 @@ impl Harness {
             .push_hit_test(InputPointId::Mouse, hit_test);
     }
 
-    /// A PHYSICAL press, routed the way every shell routes it: the scrollbar
-    /// gate first. A press on a bar is the bar's - a thumb starts a drag, the
-    /// track pages (not ported: the press is consumed all the same) - and the
-    /// text never hears of it. Only a press past the gate becomes the
-    /// text-selection click and the click-to-focus of the event pass.
+    /// A PHYSICAL press, routed the way every shell routes it: through the
+    /// press router, scrollbar first. A press on a bar is the bar's - a thumb
+    /// starts a drag, the track pages - and the text never hears of it. Only
+    /// a press past the gate becomes the text-selection click and the
+    /// click-to-focus of the event pass.
     fn press(&mut self, at: LogicalPosition, time_ms: u64) {
-        self.last_press = scrollbar_under_press(&self.lw, at);
-        if let Some(hit) = self.last_press {
-            if hit.component == ScrollbarComponent::Thumb {
-                let initial_offset = self
-                    .lw
-                    .scroll_manager
-                    .get_current_offset(hit.dom_id, hit.node_id)
-                    .unwrap_or_default();
-                self.thumb_drag = Some(ThumbDrag {
-                    hit,
-                    initial_offset,
-                });
-            }
+        self.last_press = route_press(&mut self.lw, at);
+        if self.last_press.is_some() {
             return;
         }
         self.update_hit_test_at(at);
@@ -208,54 +192,17 @@ impl Harness {
         }));
     }
 
-    /// The pointer moves with the button held: a grabbed thumb follows it
-    /// (port of the shells' thumb drag, `LayoutWindow::route_move` on the
-    /// press-router branch), anything else extends the text
-    /// selection from the press.
+    /// The pointer moves with the button held: a held thumb takes the move
+    /// (`LayoutWindow::route_move`, as in the shells), anything else extends
+    /// the text selection from the press.
     fn drag(&mut self, from: LogicalPosition, to: LogicalPosition) {
-        let Some(drag) = self.thumb_drag else {
-            self.update_hit_test_at(to);
-            self.lw.process_mouse_drag_for_selection(from, to);
-            return;
-        };
-        let (dom, node, orientation) = (drag.hit.dom_id, drag.hit.node_id, drag.hit.orientation);
-        let Some(bar) = self
-            .lw
-            .scroll_manager
-            .get_scrollbar_state(dom, node, orientation)
-            .copied()
-        else {
-            return;
-        };
-        let Some(info) = self.lw.scroll_manager.get_scroll_node_info(dom, node) else {
-            return;
-        };
-        let (pixel_delta, track, max_scroll, initial) = match orientation {
-            ScrollbarOrientation::Horizontal => (
-                to.x - drag.hit.global_position.x,
-                bar.track_rect.size.width,
-                info.max_scroll_x,
-                drag.initial_offset.x,
-            ),
-            ScrollbarOrientation::Vertical => (
-                to.y - drag.hit.global_position.y,
-                bar.track_rect.size.height,
-                info.max_scroll_y,
-                drag.initial_offset.y,
-            ),
-        };
-        let usable = (track - bar.thumb_size_ratio * track).max(1.0);
-        let target = (initial + pixel_delta / usable * max_scroll).clamp(0.0, max_scroll);
-        let mut offset = info.current_offset;
-        match orientation {
-            ScrollbarOrientation::Horizontal => offset.x = target,
-            ScrollbarOrientation::Vertical => offset.y = target,
-        }
         let now = Instant::from(std::time::Instant::now());
-        self.lw
-            .scroll_manager
-            .set_scroll_position(dom, node, offset, now);
-        self.lw.scroll_manager.calculate_scrollbar_states();
+        if self.lw.route_move(to, now) {
+            self.lw.scroll_manager.calculate_scrollbar_states();
+            return;
+        }
+        self.update_hit_test_at(to);
+        self.lw.process_mouse_drag_for_selection(from, to);
     }
 
     /// The border box of `node` as laid out (static space; nothing above the
