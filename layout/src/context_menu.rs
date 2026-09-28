@@ -59,6 +59,10 @@ const MAX_DOM_HOPS: usize = 16;
 /// `styled_dom_of` looks a dom up (`LayoutWindow::layout_results`).
 /// `host_of` names the node that hosts a child dom
 /// (`VirtualViewManager::host_of_nested_dom`).
+// `'a` is named once: a `dyn Fn` that returns a reference has no input
+// lifetime to elide it from, so it cannot be `'_`.
+#[allow(single_use_lifetimes)]
+#[must_use]
 pub fn nearest_context_menu<'a>(
     styled_dom_of: &dyn Fn(DomId) -> Option<&'a StyledDom>,
     start: DomNodeId,
@@ -98,6 +102,9 @@ pub fn nearest_context_menu<'a>(
 /// walking up to the nearest menu ([`nearest_context_menu`], through the
 /// dom's hosts too). A dom with no menu on that way does not hide the menus
 /// of the doms behind it.
+// `'a`: see `nearest_context_menu`.
+#[allow(single_use_lifetimes)]
+#[must_use]
 pub fn context_menu_under_hit<'a>(
     hit: &FullHitTest,
     styled_dom_of: &dyn Fn(DomId) -> Option<&'a StyledDom>,
@@ -114,7 +121,7 @@ pub fn context_menu_under_hit<'a>(
     })
 }
 
-fn dom_node(dom: DomId, node: NodeId) -> DomNodeId {
+const fn dom_node(dom: DomId, node: NodeId) -> DomNodeId {
     DomNodeId {
         dom,
         node: NodeHierarchyItemId::from_crate_internal(Some(node)),

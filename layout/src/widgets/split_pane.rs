@@ -637,6 +637,7 @@ extern "C" fn on_split_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Up
 /// again, as for any controlled widget. A rebuild that turned the split
 /// round (the other direction) starts over: the anchor is on the other axis.
 /// The `on_resize` hook is always the FRESH build's.
+#[must_use]
 pub extern "C" fn merge_split_pane_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SplitPaneStateWrapper>();
