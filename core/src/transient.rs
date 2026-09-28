@@ -69,6 +69,12 @@ pub enum TransientDismiss {
     Escape,
     /// Nothing closes it but the app. For palettes that stay up.
     None,
+    /// A press outside the window (or the window losing focus) closes it,
+    /// but Escape is left to the CONTENT. For a dialog: it answers Escape
+    /// itself, with a cancelable `cancel` step first (HTML `<dialog
+    /// closedby="any">`), which an engine-side Escape - decided before any
+    /// callback runs - would skip.
+    OutsideOnly,
 }
 
 /// Whether - and how - the user may drag a transient window away from its
@@ -373,6 +379,7 @@ impl TransientDismiss {
             Self::Outside => "outside",
             Self::Escape => "escape",
             Self::None => "none",
+            Self::OutsideOnly => "outside-only",
         }
     }
 
@@ -381,6 +388,7 @@ impl TransientDismiss {
         match s.trim() {
             "escape" => Self::Escape,
             "none" => Self::None,
+            "outside-only" => Self::OutsideOnly,
             _ => Self::Outside,
         }
     }
@@ -422,6 +430,7 @@ mod tests {
             TransientDismiss::Outside,
             TransientDismiss::Escape,
             TransientDismiss::None,
+            TransientDismiss::OutsideOnly,
         ] {
             assert_eq!(TransientDismiss::parse(d.as_str()), d);
         }

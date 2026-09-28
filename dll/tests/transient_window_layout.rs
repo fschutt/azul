@@ -3015,3 +3015,69 @@ fn the_widgets_demo_popover_closes_again_on_a_second_click() {
         "the second click closes the popover again"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `dismiss="outside-only"`: light dismiss by the engine, Escape by the content
+// ---------------------------------------------------------------------------
+
+/// An `outside-only` popup leaves Escape to its content (a dialog answers it
+/// with a cancelable `cancel` first), but an outside press still light-
+/// dismisses it, like `outside`.
+#[test]
+fn an_outside_only_popup_leaves_escape_to_its_content_but_closes_on_an_outside_press() {
+    let mut parent = make_parent(true, TransientDismiss::OutsideOnly);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts.clone(), parent.common.app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+
+    // Escape in the popup: the engine does not close it.
+    popup.snapshot_window_state_baseline("test.escape");
+    popup.common.keyboard_state_mut().pressed_virtual_keycodes =
+        vec![VirtualKeyCode::Escape].into();
+    let _ = popup.process_window_events(0);
+    assert!(
+        !close_requested(&popup),
+        "Escape is the content's to answer, the engine must not close the popup"
+    );
+    assert!(!mailbox_state(&popup_opts.window_state).1, "nothing posted");
+
+    // Escape in the parent: the engine does not close it either.
+    parent.snapshot_window_state_baseline("test.parent.escape");
+    parent.common.keyboard_state_mut().pressed_virtual_keycodes =
+        vec![VirtualKeyCode::Escape].into();
+    let _ = parent.process_window_events(0);
+    parent.snapshot_window_state_baseline("test.parent.escape.up");
+    parent.common.keyboard_state_mut().pressed_virtual_keycodes =
+        Vec::<VirtualKeyCode>::new().into();
+    let _ = parent.process_window_events(0);
+    assert_eq!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .len(),
+        1,
+        "Escape in the parent leaves an outside-only popup open"
+    );
+
+    // A press in the parent (outside the popup) does close it.
+    parent.snapshot_window_state_baseline("test.press");
+    parent.common.mouse_state_mut().cursor_position =
+        CursorPosition::InWindow(LogicalPosition::new(400.0, 400.0));
+    parent.common.mouse_state_mut().left_down = true;
+    let _ = parent.process_window_events(0);
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .is_empty(),
+        "an outside press light-dismisses it"
+    );
+    parent.snapshot_window_state_baseline("test.release");
+    parent.common.mouse_state_mut().left_down = false;
+    let _ = parent.process_window_events(0);
+}
