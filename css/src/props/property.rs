@@ -108,7 +108,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 197] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -311,6 +311,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 196] = [
         CssPropertyType::SpatialNavigationContain,
         "spatial-navigation-contain",
     ),
+    (
+        CssPropertyType::SpatialNavigationFunction,
+        "spatial-navigation-function",
+    ),
     (CssPropertyType::Animation, "animation"),
     (CssPropertyType::AnimationIn, "-azul-animation-in"),
     (CssPropertyType::AnimationOut, "-azul-animation-out"),
@@ -434,6 +438,7 @@ pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility
 pub type StyleAppRegionValue = CssPropertyValue<StyleAppRegion>;
 pub type StyleSpatialNavigationActionValue = CssPropertyValue<StyleSpatialNavigationAction>;
 pub type StyleSpatialNavigationContainValue = CssPropertyValue<StyleSpatialNavigationContain>;
+pub type StyleSpatialNavigationFunctionValue = CssPropertyValue<StyleSpatialNavigationFunction>;
 pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
@@ -824,6 +829,7 @@ pub enum CssProperty {
     AppRegion(StyleAppRegionValue),
     SpatialNavigationAction(StyleSpatialNavigationActionValue),
     SpatialNavigationContain(StyleSpatialNavigationContainValue),
+    SpatialNavigationFunction(StyleSpatialNavigationFunctionValue),
     MixBlendMode(StyleMixBlendModeValue),
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
@@ -1087,6 +1093,7 @@ pub enum CssPropertyType {
     AppRegion,
     SpatialNavigationAction,
     SpatialNavigationContain,
+    SpatialNavigationFunction,
     MixBlendMode,
     Filter,
     BackdropFilter,
@@ -1286,6 +1293,7 @@ impl CssPropertyType {
         Self::AppRegion,
         Self::SpatialNavigationAction,
         Self::SpatialNavigationContain,
+        Self::SpatialNavigationFunction,
         Self::MixBlendMode,
         Self::Filter,
         Self::BackdropFilter,
@@ -1513,6 +1521,7 @@ impl CssPropertyType {
             Self::AppRegion => "-azul-app-region",
             Self::SpatialNavigationAction => "spatial-navigation-action",
             Self::SpatialNavigationContain => "spatial-navigation-contain",
+            Self::SpatialNavigationFunction => "spatial-navigation-function",
             Self::MixBlendMode => "mix-blend-mode",
             Self::Filter => "filter",
             Self::BackdropFilter => "backdrop-filter",
@@ -1690,8 +1699,8 @@ impl CssPropertyType {
             BoxShadowBottom, BoxShadowLeft, BoxShadowRight, BoxShadowTop, Clip, ColumnRuleColor,
             ColumnRuleStyle, Cursor, Filter, MixBlendMode, Opacity, PerspectiveOrigin,
             ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
-            SpatialNavigationAction, SpatialNavigationContain, TextColor, TextShadow, Transform,
-            TransformOrigin,
+            SpatialNavigationAction, SpatialNavigationContain, SpatialNavigationFunction, TextColor,
+            TextShadow, Transform, TransformOrigin,
         };
 
         // Since the border can be larger than the content,
@@ -1755,6 +1764,7 @@ impl CssPropertyType {
             // why they have to be named.
             | SpatialNavigationAction
             | SpatialNavigationContain
+            | SpatialNavigationFunction
         )
     }
 
@@ -1801,7 +1811,8 @@ impl CssPropertyType {
             PaddingLeft, PaddingRight, PaddingTop, PerspectiveOrigin, ScrollbarButton,
             ScrollbarCorner, ScrollbarGutter, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
             ScrollbarVisibility, ScrollbarWidth, SelectionBackgroundColor, SelectionColor,
-            SelectionRadius, SpatialNavigationAction, SpatialNavigationContain, TabSize, TextAlign,
+            SelectionRadius, SpatialNavigationAction, SpatialNavigationContain,
+            SpatialNavigationFunction, TabSize, TextAlign,
             TextAlignLast, TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration,
             TextIndent, TextJustify, TextOrientation, TextOverflow, TextShadow, Transform,
             TransformOrigin, UnicodeBidi, VerticalAlign, WhiteSpace, Width, WordBreak, WordSpacing,
@@ -1868,7 +1879,8 @@ impl CssPropertyType {
             // fallthrough here is `Full`, so being unlisted would cost a whole
             // layout pass per declaration.
             | SpatialNavigationAction
-            | SpatialNavigationContain => RelayoutScope::None,
+            | SpatialNavigationContain
+            | SpatialNavigationFunction => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
@@ -2055,6 +2067,7 @@ pub enum CssParsingError<'a> {
     AppRegion(CssAppRegionParseError<'a>),
     SpatialNavigationAction(CssSpatialNavigationActionParseError<'a>),
     SpatialNavigationContain(CssSpatialNavigationContainParseError<'a>),
+    SpatialNavigationFunction(CssSpatialNavigationFunctionParseError<'a>),
     MixBlendMode(MixBlendModeParseError<'a>),
 
     // Fragmentation
@@ -2233,6 +2246,7 @@ pub enum CssParsingErrorOwned {
     AppRegion(CssAppRegionParseErrorOwned),
     SpatialNavigationAction(CssSpatialNavigationActionParseErrorOwned),
     SpatialNavigationContain(CssSpatialNavigationContainParseErrorOwned),
+    SpatialNavigationFunction(CssSpatialNavigationFunctionParseErrorOwned),
     MixBlendMode(MixBlendModeParseErrorOwned),
 
     // Fragmentation
@@ -2337,6 +2351,7 @@ impl_display! { CssParsingError<'a>, {
     AppRegion(e) => format!("Invalid app-region: {}", e),
     SpatialNavigationAction(e) => format!("Invalid spatial-navigation-action: {}", e),
     SpatialNavigationContain(e) => format!("Invalid spatial-navigation-contain: {}", e),
+    SpatialNavigationFunction(e) => format!("Invalid spatial-navigation-function: {}", e),
     MixBlendMode(e) => format!("Invalid mix-blend-mode: {}", e),
     TextColor(e) => format!("Invalid text color: {}", e),
     FontSize(e) => format!("Invalid font-size: {}", e),
@@ -2642,6 +2657,10 @@ impl_from!(
     CssSpatialNavigationContainParseError<'a>,
     CssParsingError::SpatialNavigationContain
 );
+impl_from!(
+    CssSpatialNavigationFunctionParseError<'a>,
+    CssParsingError::SpatialNavigationFunction
+);
 impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
 
 // Text/Style properties
@@ -2906,6 +2925,9 @@ impl CssParsingError<'_> {
             CssParsingError::SpatialNavigationContain(e) => {
                 CssParsingErrorOwned::SpatialNavigationContain(e.to_contained())
             }
+            CssParsingError::SpatialNavigationFunction(e) => {
+                CssParsingErrorOwned::SpatialNavigationFunction(e.to_contained())
+            }
             CssParsingError::BackfaceVisibility(e) => {
                 CssParsingErrorOwned::BackfaceVisibility(e.to_contained())
             }
@@ -3132,6 +3154,9 @@ impl CssParsingErrorOwned {
             }
             Self::SpatialNavigationContain(e) => {
                 CssParsingError::SpatialNavigationContain(e.to_shared())
+            }
+            Self::SpatialNavigationFunction(e) => {
+                CssParsingError::SpatialNavigationFunction(e.to_shared())
             }
             Self::BackfaceVisibility(e) => CssParsingError::BackfaceVisibility(e.to_shared()),
             Self::MixBlendMode(e) => CssParsingError::MixBlendMode(e.to_shared()),
@@ -3531,6 +3556,9 @@ pub fn parse_css_property(
             }
             CssPropertyType::SpatialNavigationContain => {
                 parse_style_spatial_navigation_contain(value)?.into()
+            }
+            CssPropertyType::SpatialNavigationFunction => {
+                parse_style_spatial_navigation_function(value)?.into()
             }
 
             CssPropertyType::MixBlendMode => parse_style_mix_blend_mode(value)?.into(),
@@ -4643,6 +4671,10 @@ impl_from_css_prop!(
     StyleSpatialNavigationContain,
     CssProperty::SpatialNavigationContain
 );
+impl_from_css_prop!(
+    StyleSpatialNavigationFunction,
+    CssProperty::SpatialNavigationFunction
+);
 impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
@@ -4841,6 +4873,7 @@ impl CssProperty {
             Self::AppRegion(v) => v.get_css_value_fmt(),
             Self::SpatialNavigationAction(v) => v.get_css_value_fmt(),
             Self::SpatialNavigationContain(v) => v.get_css_value_fmt(),
+            Self::SpatialNavigationFunction(v) => v.get_css_value_fmt(),
             Self::MixBlendMode(v) => v.get_css_value_fmt(),
             Self::Filter(v) => v.get_css_value_fmt(),
             Self::BackdropFilter(v) => v.get_css_value_fmt(),
@@ -5347,6 +5380,7 @@ impl CssProperty {
             Self::AppRegion(_) => CssPropertyType::AppRegion,
             Self::SpatialNavigationAction(_) => CssPropertyType::SpatialNavigationAction,
             Self::SpatialNavigationContain(_) => CssPropertyType::SpatialNavigationContain,
+            Self::SpatialNavigationFunction(_) => CssPropertyType::SpatialNavigationFunction,
             Self::MixBlendMode(_) => CssPropertyType::MixBlendMode,
             Self::Filter(_) => CssPropertyType::Filter,
             Self::BackdropFilter(_) => CssPropertyType::BackdropFilter,
@@ -6567,6 +6601,16 @@ impl CssProperty {
     }
 
     #[must_use]
+    pub const fn as_spatial_navigation_function(
+        &self,
+    ) -> Option<&StyleSpatialNavigationFunctionValue> {
+        match self {
+            Self::SpatialNavigationFunction(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub const fn as_app_region(&self) -> Option<&StyleAppRegionValue> {
         match self {
             Self::AppRegion(f) => Some(f),
@@ -7277,7 +7321,8 @@ impl CssProperty {
             ScrollbarResizer, ScrollbarThumb, ScrollbarTrack, ScrollbarVisibility, ScrollbarWidth,
             SelectionBackgroundColor, SelectionColor, SelectionRadius, ShapeImageThreshold,
             ShapeInside, ShapeMargin, ShapeOutside, SpatialNavigationAction,
-            SpatialNavigationContain, StringSet, TabSize, TableLayout, TextAlign, TextAlignLast,
+            SpatialNavigationContain, SpatialNavigationFunction, StringSet, TabSize, TableLayout,
+            TextAlign, TextAlignLast,
             TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration, TextIndent,
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
@@ -7420,6 +7465,7 @@ impl CssProperty {
             AppRegion(c) => c.is_initial(),
             SpatialNavigationAction(c) => c.is_initial(),
             SpatialNavigationContain(c) => c.is_initial(),
+            SpatialNavigationFunction(c) => c.is_initial(),
             BackfaceVisibility(c) => c.is_initial(),
             MixBlendMode(c) => c.is_initial(),
             Filter(c) => c.is_initial(),
@@ -8400,6 +8446,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::SpatialNavigationContain(p) => format!(
             "CssProperty::SpatialNavigationContain({})",
             print_css_property_value(p, tabs, "StyleSpatialNavigationContain")
+        ),
+        CssProperty::SpatialNavigationFunction(p) => format!(
+            "CssProperty::SpatialNavigationFunction({})",
+            print_css_property_value(p, tabs, "StyleSpatialNavigationFunction")
         ),
         CssProperty::AppRegion(p) => format!(
             "CssProperty::AppRegion({})",

@@ -925,6 +925,19 @@ impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavig
     }
 }
 
+impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction>
+    for CssProperty
+{
+    fn extract(
+        &self,
+    ) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction> {
+        match self {
+            Self::SpatialNavigationFunction(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationContain>
     for CssProperty
 {
@@ -6377,6 +6390,12 @@ get_css_property!(
     get_spatial_navigation_contain,
     azul_css::props::style::spatial_nav::StyleSpatialNavigationContain,
     CssPropertyType::SpatialNavigationContain
+);
+get_css_property!(
+    get_spatial_navigation_function,
+    get_spatial_navigation_function,
+    azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction,
+    CssPropertyType::SpatialNavigationFunction
 );
 
 // =============================================================================

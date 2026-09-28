@@ -469,6 +469,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::SpatialNavigationContain => {
                 CssProperty::SpatialNavigationContain(CssPropertyValue::$content_type)
             }
+            CssPropertyType::SpatialNavigationFunction => {
+                CssProperty::SpatialNavigationFunction(CssPropertyValue::$content_type)
+            }
             CssPropertyType::BackfaceVisibility => {
                 CssProperty::BackfaceVisibility(CssPropertyValue::$content_type)
             }

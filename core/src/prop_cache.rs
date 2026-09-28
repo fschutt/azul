@@ -100,7 +100,8 @@ use azul_css::{
             StyleObjectFitValue, StyleObjectPositionValue, StyleOpacityValue,
             StyleOverflowClipMarginValue, StyleOverflowWrapValue, StylePerspectiveOriginValue,
             StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleSpatialNavigationActionValue,
-            StyleSpatialNavigationContainValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleSpatialNavigationContainValue, StyleSpatialNavigationFunctionValue,
+            StyleTabSizeValue, StyleTextAlignLastValue,
             StyleTextAlignValue, StyleTextBoxEdgeValue, StyleTextBoxTrimValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
@@ -4132,6 +4133,12 @@ impl CssPropertyCache {
         StyleSpatialNavigationContainValue,
         SpatialNavigationContain,
         as_spatial_navigation_contain
+    );
+    impl_get_prop!(
+        get_spatial_navigation_function,
+        StyleSpatialNavigationFunctionValue,
+        SpatialNavigationFunction,
+        as_spatial_navigation_function
     );
     impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
     impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);

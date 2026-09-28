@@ -1,8 +1,8 @@
-//! CSS Spatial Navigation Level 1 - the two per-container overrides.
+//! CSS Spatial Navigation Level 1 - the three per-container overrides.
 //!
 //! 9a-i-a made an arrow key try focus first and fall back to scrolling, which
-//! is the spec's default behaviour and is right almost everywhere. These two
-//! properties are how a container opts OUT of that default, and neither is
+//! is the spec's default behaviour and is right almost everywhere. These
+//! properties are how a container opts OUT of that default, and none of them is
 //! expressible any other way:
 //!
 //! - [`StyleSpatialNavigationAction`] forces the choice on a scroll container: always scroll (a
@@ -10,9 +10,11 @@
 //!   button"), or always move focus.
 //! - [`StyleSpatialNavigationContain`] makes an element a spatial navigation CONTAINER even when it
 //!   is not a scroll container, so navigation inside a panel stays inside it.
+//! - [`StyleSpatialNavigationFunction`] picks the candidate-selection rule inside a container: the
+//!   spec's distance function, or `grid`, which prefers the candidate lined up with the focus.
 //!
-//! Both are from `css-nav-1`, and both have `auto` as their initial value, so
-//! adding them changes nothing until a stylesheet asks.
+//! All three are from `css-nav-1`, and each has an initial value that changes
+//! nothing until a stylesheet asks.
 
 use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 
@@ -89,6 +91,46 @@ impl PrintAsCssValue for StyleSpatialNavigationContain {
         String::from(match self {
             Self::Auto => "auto",
             Self::Contain => "contain",
+        })
+    }
+}
+
+/// `spatial-navigation-function` - how a spatial navigation container picks
+/// the next focus among the candidates in the pressed direction (css-nav-1
+/// §9.3).
+///
+/// ```css
+/// .tv-guide { spatial-navigation-contain: contain; spatial-navigation-function: grid; }
+/// ```
+///
+/// Read off the CONTAINER being searched, not off the focused element: the
+/// property "applies to spatial navigation containers".
+///
+/// NOT INHERITED, per the spec. A nested container that wants `grid` says so
+/// itself; a grid of cards holding a free-form toolbar must not force its rule
+/// onto the toolbar.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleSpatialNavigationFunction {
+    /// The spec's distance function: euclidean distance between the two
+    /// closest points, plus a heavy penalty for drift across the axis, minus a
+    /// bonus for overlap along it. Picks the "nearest" candidate the way a
+    /// person reads a free-form layout.
+    #[default]
+    Normal,
+    /// Prefer the candidate that is ALIGNED with the focus (its projection on
+    /// the cross axis overlaps the focus's), nearest along the axis first; only
+    /// when nothing is aligned, the nearest along the axis. What a grid of
+    /// tiles wants: Down goes to the tile below, never to a nearer one that sits
+    /// half a column to the side.
+    Grid,
+}
+
+impl PrintAsCssValue for StyleSpatialNavigationFunction {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Normal => "normal",
+            Self::Grid => "grid",
         })
     }
 }
@@ -197,6 +239,54 @@ impl CssSpatialNavigationContainParseErrorOwned {
     }
 }
 
+/// `spatial-navigation-function` parse error.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssSpatialNavigationFunctionParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+impl core::fmt::Display for CssSpatialNavigationFunctionParseError<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidValue(v) => write!(
+                f,
+                "Invalid spatial-navigation-function value: \"{v}\" (expected normal or grid)"
+            ),
+        }
+    }
+}
+
+/// Owned mirror of [`CssSpatialNavigationFunctionParseError`].
+// `AzString` and `#[repr(C, u8)]` for the same FFI reasons as the two owned
+// errors above.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum CssSpatialNavigationFunctionParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl CssSpatialNavigationFunctionParseError<'_> {
+    #[must_use]
+    pub fn to_contained(&self) -> CssSpatialNavigationFunctionParseErrorOwned {
+        match self {
+            Self::InvalidValue(v) => {
+                CssSpatialNavigationFunctionParseErrorOwned::InvalidValue((*v).into())
+            }
+        }
+    }
+}
+
+impl CssSpatialNavigationFunctionParseErrorOwned {
+    #[must_use]
+    pub fn to_shared(&self) -> CssSpatialNavigationFunctionParseError<'_> {
+        match self {
+            Self::InvalidValue(v) => {
+                CssSpatialNavigationFunctionParseError::InvalidValue(v.as_str())
+            }
+        }
+    }
+}
+
 #[cfg(feature = "parser")]
 /// # Errors
 ///
@@ -223,6 +313,20 @@ pub fn parse_style_spatial_navigation_contain(
         "auto" => Ok(StyleSpatialNavigationContain::Auto),
         "contain" => Ok(StyleSpatialNavigationContain::Contain),
         _ => Err(CssSpatialNavigationContainParseError::InvalidValue(input)),
+    }
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not `normal` or `grid`.
+pub fn parse_style_spatial_navigation_function(
+    input: &str,
+) -> Result<StyleSpatialNavigationFunction, CssSpatialNavigationFunctionParseError<'_>> {
+    match input.trim() {
+        "normal" => Ok(StyleSpatialNavigationFunction::Normal),
+        "grid" => Ok(StyleSpatialNavigationFunction::Grid),
+        _ => Err(CssSpatialNavigationFunctionParseError::InvalidValue(input)),
     }
 }
 
@@ -258,6 +362,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_function_keywords_parse_and_round_trip() {
+        for (text, value) in [
+            ("normal", StyleSpatialNavigationFunction::Normal),
+            ("grid", StyleSpatialNavigationFunction::Grid),
+        ] {
+            assert_eq!(parse_style_spatial_navigation_function(text), Ok(value));
+            assert_eq!(value.print_as_css_value(), text);
+        }
+        assert_eq!(
+            parse_style_spatial_navigation_function(" grid "),
+            Ok(StyleSpatialNavigationFunction::Grid)
+        );
+        assert_eq!(
+            StyleSpatialNavigationFunction::default(),
+            StyleSpatialNavigationFunction::Normal,
+            "the initial value is `normal`",
+        );
+    }
+
     /// `none` is NOT a spelling of either. Accepting it would silently turn a
     /// typo into the initial value, which reads as "the property did nothing".
     #[test]
@@ -266,6 +390,8 @@ mod tests {
         assert!(parse_style_spatial_navigation_action("contain").is_err());
         assert!(parse_style_spatial_navigation_contain("none").is_err());
         assert!(parse_style_spatial_navigation_contain("focus").is_err());
+        assert!(parse_style_spatial_navigation_function("auto").is_err());
+        assert!(parse_style_spatial_navigation_function("flex").is_err());
     }
 
     /// THE PROPERTY NAME HAS TO REACH THE PARSER, and a keyword parser that
