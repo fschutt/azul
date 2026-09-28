@@ -292,6 +292,31 @@ pub fn chain_link(
     })
 }
 
+/// Can the content of the box at `index` scroll at all - does it overflow
+/// the box's scrollport (its padding box, CSS Overflow 3 §2) on some axis?
+///
+/// Decides whether a box only a PROGRAM can scroll (`overflow: hidden` on
+/// every scrolling axis) gets a scroll id - and with it a scroll frame, and
+/// its offset a place in every [`ScrollChain`]. One whose content fits has a
+/// scroll range of zero: nothing a program can clamp to moves it, so it is
+/// painted without a frame, and an unclamped offset stored on it anyway
+/// moves nothing anywhere.
+#[must_use]
+pub fn content_overflows_scrollport(tree: &LayoutTree, index: LayoutNodeId) -> bool {
+    // Rounding in the content extent must not buy a box a frame (the same
+    // tolerance `fc::check_scrollbar_necessity` gives `overflow: auto`).
+    const EPSILON: f32 = 1.0;
+    let Some(node) = tree.get(index) else {
+        return false;
+    };
+    let size = node.used_size.unwrap_or_default();
+    let border = node.box_props.unpack().border;
+    let scrollport_width = (size.width - border.left - border.right).max(0.0);
+    let scrollport_height = (size.height - border.top - border.bottom).max(0.0);
+    let content = tree.get_content_size(index);
+    content.width > scrollport_width + EPSILON || content.height > scrollport_height + EPSILON
+}
+
 /// Does the display list open a `PushScrollFrame` for the box at `index`?
 /// Every box with a scroll id does, except a `VirtualView` (see
 /// [`ScrollChainLink::moves_content`]).

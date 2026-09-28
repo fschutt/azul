@@ -5575,19 +5575,22 @@ where
             &styled_node_state,
         );
 
-        let is_virtual_view = self.is_virtual_view_node(dom_id);
-
         // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
         // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate
         // system Every clipped node pushes a clip (scrollable, hidden, or clip alike).
         builder.push_clip(clip_rect, border_radius);
-        // Regular scrollable nodes ALSO push a scroll frame: WebRender's APZ
-        // manages the offset via define_scroll_frame, CPU renderers translate
-        // children by scroll_offset. VirtualView scroll state is instead managed
-        // by ScrollManager and passed to the callback as scroll_offset, with the
+        // Scroll containers ALSO push a scroll frame: WebRender's APZ manages
+        // the offset via define_scroll_frame, CPU renderers translate children
+        // by scroll_offset. Every box with a scroll id gets one - an
+        // `overflow: hidden` box a program can scroll included: while only
+        // `scroll | auto` were framed here, the hit tester and the scroll
+        // manager added a hidden box's offset back and the raster painted its
+        // content unscrolled. VirtualView scroll state is instead managed by
+        // ScrollManager and passed to the callback as scroll_offset, with the
         // VirtualViewPlaceholder emitted after pop_node_clips in
-        // generate_for_stacking_context — so VirtualView nodes get only the clip.
-        if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+        // generate_for_stacking_context — so VirtualView nodes get only the
+        // clip. See `opens_own_scroll_frame`.
+        if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
             let scroll_id = self
                 .scroll_ids
                 .get(&LayoutNodeId::new(node_index))
@@ -5656,6 +5659,31 @@ where
         })
     }
 
+    /// Does the box at `node_index` open a scroll frame of its OWN (not the
+    /// viewport's - see [`Self::viewport_scroll_frame`]) around its content?
+    ///
+    /// Its own computed overflow makes it a scroll container, it got a
+    /// scroll id (`LayoutWindow::compute_scroll_ids`), and it is not a
+    /// `VirtualView` ([`crate::solver3::scroll_chain::opens_scroll_frame`],
+    /// the rule every `ScrollChain` marks its moving links by).
+    /// `push_node_clips` and `pop_node_clips` both ask this, so they cannot
+    /// disagree.
+    fn opens_own_scroll_frame(
+        &self,
+        node_index: usize,
+        dom_id: NodeId,
+        overflow_x: &super::getters::MultiValue<LayoutOverflow>,
+        overflow_y: &super::getters::MultiValue<LayoutOverflow>,
+    ) -> bool {
+        (overflow_x.is_scroll_container() || overflow_y.is_scroll_container())
+            && crate::solver3::scroll_chain::opens_scroll_frame(
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+                dom_id,
+            )
+    }
+
     /// Pops any clip/scroll commands associated with a node.
     fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) {
         let Some(dom_id) = node.dom_node_id else {
@@ -5698,8 +5726,6 @@ where
 
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
-        let is_virtual_view = self.is_virtual_view_node(dom_id);
-
         // The viewport's frame was pushed last, innermost: it closes first.
         if self
             .viewport_scroll_frame(
@@ -5713,10 +5739,10 @@ where
         }
 
         if needs_clip {
-            // Regular (non-VirtualView) scroll/auto also pushed a scroll frame;
-            // pop it first (LIFO) before the shared clip. Hidden/clip and
-            // VirtualView scroll only pushed a clip.
-            if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+            // A scroll container with a frame of its own pushed it after the
+            // clip; pop it first (LIFO). `clip`, a hidden box with nothing to
+            // scroll and a VirtualView only pushed a clip.
+            if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
                 builder.pop_scroll_frame();
             }
             builder.pop_clip();

@@ -12685,12 +12685,16 @@ impl LayoutWindow {
     /// - `scroll_ids`: Map from layout node index -> external scroll ID
     /// - `scroll_id_to_node_id`: Map from scroll ID -> DOM `NodeId` (for hit testing)
     ///
-    /// NOTE: ids are registered for every scroll CONTAINER (`scroll | auto |
-    /// hidden`), while the display-list builder emits `PushScrollFrame` only
-    /// for `overflow.is_scroll()` — so these tables can carry ids no
-    /// display-list item references. Harmless for the offset map (an
-    /// unreferenced id never matches a frame), but "an id exists" does NOT
-    /// imply "a scroll frame exists".
+    /// An id is a scroll FRAME: the display-list builder opens a
+    /// `PushScrollFrame` for every box that has one (`push_node_clips`,
+    /// through `scroll_chain::opens_scroll_frame`) - except a `VirtualView`,
+    /// whose child dom its `VirtualView` item moves instead - and the hit
+    /// tester, `node_rect_to_screen`, the scroll manager's bar tracks and
+    /// `accumulated_scroll` add back exactly those frames' offsets (their
+    /// `ScrollChain`). Ids go to every scroll CONTAINER (`scroll | auto |
+    /// hidden`), but an `overflow: hidden` box - which only a program can
+    /// scroll - gets one only when its content overflows it
+    /// (`scroll_chain::content_overflows_scrollport`).
     ///
     /// The ROOT element also gets one when the VIEWPORT scrolls it
     /// ([`crate::solver3::scrollbar::is_viewport_scroll_frame`]): its own
@@ -12732,8 +12736,30 @@ impl LayoutWindow {
             let overflow_x = get_overflow_x(styled_dom, dom_node_id, &styled_node_state);
             let overflow_y = get_overflow_y(styled_dom, dom_node_id, &styled_node_state);
 
-            let is_scrollable =
-                overflow_x.is_scroll_container() || overflow_y.is_scroll_container();
+            // A box only a PROGRAM can scroll (`hidden` on every axis that
+            // scrolls) gets an id - and so a scroll frame, and its offset a
+            // place in every `ScrollChain` - only when it has something to
+            // scroll. One whose content fits has a range of zero; painting it
+            // in a frame of its own would cost a compositor layer for nothing
+            // (every `overflow: hidden` clip in the widget set), and an
+            // unclamped offset stored on it must move nothing anywhere.
+            // A `VirtualView`'s extent lives in its child dom, not here.
+            let programmatic_only = !overflow_x.allows_user_scrolling()
+                && !overflow_y.allows_user_scrolling()
+                && !styled_dom
+                    .node_data
+                    .as_container()
+                    .get(dom_node_id)
+                    .is_some_and(|nd| {
+                        matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualView)
+                    });
+            let is_scrollable = (overflow_x.is_scroll_container()
+                || overflow_y.is_scroll_container())
+                && (!programmatic_only
+                    || crate::solver3::scroll_chain::content_overflows_scrollport(
+                        layout_tree,
+                        LayoutNodeId::new(layout_idx),
+                    ));
 
             // THE VIEWPORT'S FRAME. The root element's overflow belongs to
             // the viewport (CSS Overflow 3 §3.3): its own `visible` never
@@ -19219,6 +19245,13 @@ impl LayoutWindow {
     ///   [`crate::headless::node_rect_to_screen`] does.
     /// * [`Inclusivity::SelfAndAncestors`] — "where is this node's CONTENT?" The caret and the
     ///   glyphs inside a scroll box DO move with it.
+    ///
+    /// The offsets are those of the node's `ScrollChain` - the frames the
+    /// display list painted it in - not of every ancestor that happens to
+    /// hold scroll state: an offset a program stored on a box that opens no
+    /// frame (an `overflow: hidden` box whose content fits, a plain `div`)
+    /// moved nothing on screen, and added here it put every click inside
+    /// that box that far away from the text it was aimed at.
     fn accumulated_scroll(
         &self,
         dom_id: DomId,
@@ -19228,10 +19261,16 @@ impl LayoutWindow {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return ScrollOffset::zero();
         };
-        let tree = &layout_result.layout_tree;
-        tree.ancestor_chain(LayoutNodeId::new(layout_idx), inclusivity)
-            .filter_map(|idx| tree.get(idx).and_then(|n| n.dom_node_id))
-            .filter_map(|nid| self.scroll_manager.get_current_offset(dom_id, nid))
+        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            LayoutNodeId::new(layout_idx),
+            inclusivity,
+        );
+        chain
+            .scrolling()
+            .filter_map(|link| self.scroll_manager.get_current_offset(dom_id, link.node))
             .fold(ScrollOffset::zero(), |acc, off| acc.plus(ScrollOffset(off)))
     }
 
@@ -24682,10 +24721,22 @@ mod autotest_generated {
     // accumulated_scroll — the ONE scroll walk, with explicit inclusivity
     // ==================================================================
 
-    /// Lay out `body > div×3`, scroll the body by (10, 20) and the first div
-    /// by (3, 4), and return the window plus the two layout indices.
+    /// Lay out `body > div×3` with the body and the first div scroll
+    /// containers, scroll the body by (10, 20) and the first div by (3, 4),
+    /// and return the window plus the two layout indices.
+    ///
+    /// Both boxes have to BE scroll containers: `accumulated_scroll` adds the
+    /// offsets of the frames the display list paints a node in (its
+    /// `ScrollChain`), and an offset stored on a plain `div` moves nothing.
     fn window_with_two_scrolled_boxes() -> (LayoutWindow, usize, usize) {
-        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        let scrolling = StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_css("overflow: auto;")
+                .with_child(Dom::create_div().with_css("overflow: auto;"))
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div()),
+        );
+        let mut win = laid_out(scrolling, 200.0, 150.0);
         let idx_of = |w: &LayoutWindow, n: usize| -> usize {
             w.layout_results[&DomId::ROOT_ID]
                 .layout_tree
