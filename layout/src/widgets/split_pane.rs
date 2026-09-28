@@ -3086,6 +3086,167 @@ mod autotest_generated {
         );
     }
 
+    // ==================================================================
+    // The keyboard's handle: the divider
+    // ==================================================================
+
+    /// The window with `key` going down while `held` are held.
+    fn key_down(
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> FullWindowState {
+        let mut ws = FullWindowState::default();
+        ws.keyboard_state.current_virtual_keycode = Some(key).into();
+        let mut pressed: Vec<azul_core::window::VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        ws.keyboard_state.pressed_virtual_keycodes = pressed.into();
+        ws
+    }
+
+    /// Presses `key` (with `held`) on the divider (node 3 of the flattened
+    /// `[container 0, pane 1 > user 2, divider 3, pane 4 > user 5]`) through
+    /// the key handler the divider registered. Returns the handler's update
+    /// and changes.
+    fn press_key_on_divider(
+        sp: SplitPane,
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>, RefAny) {
+        let dom = sp.dom();
+        let registered_key = child(&dom, 1)
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .find(|c| {
+                c.event
+                    == EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+            })
+            .expect("the divider has no key handler, so the keyboard cannot move the split")
+            .clone();
+        let state = registered_key.refany.clone();
+        let handler = crate::callbacks::Callback::from_core(registered_key.callback.clone());
+        let sd = StyledDom::create_from_dom(dom);
+        let boxes = [(0, size(200.0, 100.0)), (3, size(6.0, 100.0))];
+        let (update, changes) = drive_in(
+            key_down(key, held),
+            sd,
+            &boxes,
+            node(3),
+            OptionLogicalPosition::None,
+            |info| handler.invoke(state.clone(), info),
+        );
+        (update, changes, state)
+    }
+
+    fn prevented(changes: &[CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::PreventDefault))
+    }
+
+    /// The APG window splitter: the DIVIDER is the focusable separator - a
+    /// tab stop of its own, the splitter role (`Grip`, which the a11y tree
+    /// maps to a splitter), a name and its position as the value. The
+    /// container holds both panes' content and is no stop and no splitter:
+    /// a separator's children are presentational, so the role on the
+    /// container hid the panes from a screen reader.
+    #[test]
+    fn the_divider_is_the_split_panes_focusable_separator() {
+        let dom = plain(SplitDirection::Horizontal).with_ratio(0.25).dom();
+        let divider = child(&dom, 1);
+        assert_eq!(
+            divider.root.get_tab_index(),
+            Some(TabIndex::Auto),
+            "the divider is not a tab stop"
+        );
+        let a11y = divider
+            .root
+            .get_accessibility_info()
+            .expect("the divider carries no accessibility info");
+        assert_eq!(a11y.role, azul_core::a11y::AccessibilityRole::Grip);
+        assert!(
+            a11y.accessibility_name.clone().into_option().is_some(),
+            "the separator needs a name"
+        );
+        assert_eq!(
+            a11y.accessibility_value
+                .clone()
+                .into_option()
+                .map(|v| v.as_str().to_string()),
+            Some("25".to_string()),
+            "the separator's value is the first pane's share, in percent"
+        );
+
+        assert!(dom.root.get_tab_index().is_none(), "the container is a tab stop");
+        assert_ne!(
+            dom.root.get_accessibility_info().map(|a| a.role),
+            Some(azul_core::a11y::AccessibilityRole::Grip),
+            "the container must not be the splitter"
+        );
+    }
+
+    /// Left / Right move a side-by-side divider by 1% (10% with Ctrl),
+    /// Home / End to the ends of the clamp; both panes follow, the app hears
+    /// of it through `on_resize`, and the key does nothing else.
+    #[test]
+    fn the_arrow_keys_move_a_focused_divider() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let mut log = RefAny::new(ResizeLog::default());
+        let sp = plain(SplitDirection::Horizontal)
+            .with_ratio(0.5)
+            .with_on_resize(log.clone(), record_resize as SplitPaneOnResizeCallbackType);
+        let (update, changes, mut state) = press_key_on_divider(sp, K::Right, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "Right: 0.5 -> {r}, expected 0.51");
+        let writes = css_changes(&changes);
+        assert_eq!(writes.len(), 2, "both panes follow the key: {changes:?}");
+        assert_eq!(writes[0].0, NodeId::new(1), "the first pane");
+        assert!((writes[0].1 - 0.51).abs() < 2e-3);
+        assert_eq!(writes[1].0, NodeId::new(4), "the second pane");
+        assert!((writes[1].1 - 0.49).abs() < 2e-3);
+        assert!(prevented(&changes), "the arrow must not also move the focus or scroll");
+        assert_eq!(update, Update::RefreshDom, "on_resize's update is returned");
+        assert_eq!(logged(&mut log).len(), 1);
+
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Left, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.49).abs() < 1e-6, "Left: 0.5 -> {r}");
+
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[K::LControl]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.6).abs() < 1e-6, "Ctrl+Right: 0.5 -> {r}");
+
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Home, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, MIN_RATIO);
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::End, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, MAX_RATIO);
+    }
+
+    /// A stacked split moves on Up / Down; Left / Right are not its keys and
+    /// are left to the rest of the app (spatial navigation).
+    #[test]
+    fn a_stacked_divider_moves_on_up_and_down_only() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let (_, changes, mut state) =
+            press_key_on_divider(plain(SplitDirection::Vertical), K::Down, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "Down: 0.5 -> {r}");
+        assert!(prevented(&changes));
+
+        let (update, changes, mut state) =
+            press_key_on_divider(plain(SplitDirection::Vertical), K::Right, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, 0.5);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a key that is not the split's is left alone: {changes:?}");
+    }
+
     /// A press on a pane (not the divider) is the pane's: nothing captured.
     #[test]
     fn a_press_beside_the_divider_captures_nothing() {
