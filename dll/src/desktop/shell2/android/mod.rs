@@ -756,6 +756,10 @@ pub fn android_main(app: AndroidApp) {
     // (and future native-call paths — permission, soft keyboard) can
     // reach into Java without re-receiving them per call.
     publish_jni_context(&app);
+    // And a waker for the Java threads that hand the loop work while it may
+    // be parked with no timeout (in the background): a notification's
+    // dismiss receiver runs exactly then.
+    let _ = LOOP_WAKER.set(app.create_waker());
 
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
@@ -796,6 +800,20 @@ pub fn android_main(app: AndroidApp) {
         // scroll the physics timer fires at 16 ms, so this alone re-ran the
         // app's layout() ~60x/second for the whole gesture.
         if window.process_timers_and_threads() {
+            window.needs_rerender = true;
+        }
+
+        // Native notifications: queued posts out to the NotificationManager
+        // (through AzulNotifications.java), and the taps, buttons and
+        // dismissals the Java side forwarded - the launch intent, onNewIntent,
+        // the dismiss receiver - routed to their callbacks, or to the
+        // app-level handler when the process did not post the notification
+        // (the cold start a tap causes), and run against this window. The
+        // 16 ms poll above is Android's per-frame slot, so it is the pump.
+        let deliveries = crate::desktop::notifications::pump_notifications();
+        if !deliveries.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(&mut window, deliveries)
+        {
             window.needs_rerender = true;
         }
 
@@ -2299,6 +2317,25 @@ pub fn java_vm_ptr() -> *mut core::ffi::c_void {
 pub fn activity_ptr() -> *mut core::ffi::c_void {
     core::ptr::null_mut()
 }
+
+/// Wakes `android_main`'s `poll_events`, which blocks without a timeout while
+/// the activity has no surface. Set once `android_main` runs.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+static LOOP_WAKER: std::sync::OnceLock<android_activity::AndroidAppWaker> =
+    std::sync::OnceLock::new();
+
+/// Wake the event loop from any thread (a JNI callback that queued work for
+/// it). A no-op before `android_main` ran.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+pub fn wake_event_loop() {
+    if let Some(waker) = LOOP_WAKER.get() {
+        waker.wake();
+    }
+}
+
+/// No loop to wake without the NativeActivity glue.
+#[cfg(not(all(target_os = "android", feature = "android-activity")))]
+pub fn wake_event_loop() {}
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn publish_jni_context(app: &AndroidApp) {

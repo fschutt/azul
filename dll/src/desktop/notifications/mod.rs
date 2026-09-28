@@ -53,8 +53,10 @@ use azul_layout::managers::{
 
 use crate::desktop::extra::capability::PlatformCapability;
 
+/// `pub` for its JNI entry point (`nativeOnNotificationEvent`), which Java
+/// resolves by symbol name - like `extra::media_keys::android`.
 #[cfg(all(target_os = "android", feature = "jni"))]
-mod android;
+pub mod android;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]

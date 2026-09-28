@@ -36,6 +36,7 @@ import com.azul.text.NativeTextBridge;
 import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
+import com.azul.notify.AzulNotifications;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -62,12 +63,23 @@ public class AzulActivity extends NativeActivity {
                 : null;
             if (lib != null) {
                 System.loadLibrary(lib);
+                AzulNotifications.markNativeReady();
             }
         } catch (Exception e) {
             // Fall through: if the lib is truly unloadable, NativeActivity's
             // own load in super.onCreate produces the canonical error.
         }
         super.onCreate(savedInstanceState);
+        // A tap on a notification of an app that was not running started
+        // this activity: its intent carries the notification. Forwarded now
+        // (Rust queues it until android_main's loop routes it to the
+        // app-level handler). Only on a FRESH creation - a recreated activity
+        // holds the same intent, and the tap must not be reported twice.
+        if (savedInstanceState == null) {
+            AzulNotifications.onIntent(this, getIntent(), true);
+        }
+        // Dismissals a receiver kept while the app was not running.
+        AzulNotifications.drainPersisted(this);
         // android_main is starting on its own thread — but the
         // ANDROID_WINDOW_PTR may not be set yet. We attach lazily in
         // onWindowFocusChanged so the AndroidWindow* is guaranteed to
@@ -121,6 +133,18 @@ public class AzulActivity extends NativeActivity {
         // only InputManager.InputDeviceListener reports.
         AzulGamepad.attach(this);
         AzulMediaSession.start(this);
+    }
+
+    /**
+     * A notification tap while the app runs. The activity is
+     * launchMode="singleTop", so the tap lands HERE instead of starting a
+     * second NativeActivity (which would start a second android_main).
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        AzulNotifications.onIntent(this, intent, false);
     }
 
     /**
