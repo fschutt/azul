@@ -131,8 +131,7 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
 /// When a sample is SHOWN, in milliseconds: its decode time `start_time` plus
 /// its composition offset (`ctts`), over the track's `timescale`.
 fn presentation_ms(start_time: u64, rendering_offset: i32, timescale: f64) -> f64 {
-    let _ = rendering_offset;
-    start_time as f64 * 1000.0 / timescale
+    (start_time as f64 + f64::from(rendering_offset)) * 1000.0 / timescale
 }
 
 /// Rewrite one AVCC sample (a run of `[u32 big-endian length][NAL bytes]`) into
