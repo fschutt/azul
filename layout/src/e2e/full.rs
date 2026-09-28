@@ -7731,6 +7731,13 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          There is no LayoutWindow field and nothing node-keyed, so X10 has nothing to judge",
     ),
     (
+        "app_target",
+        "owns no window state: a pure rule (`pick_app_target`) plus the process-wide activation \
+         clock `WindowActivationOrder` reads. The per-window stamps live on the dll shell's \
+         `CommonWindowState`, not on the LayoutWindow, and they order WINDOWS, not DOM nodes - \
+         X10 has no node to judge. The rule itself is pinned by layout/tests/app_target.rs",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -8851,6 +8858,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              `take_fired`, which consumes what it returns - measuring it would swallow the press \
              the app was about to receive, and a change in it could not be attributed to the \
              window this snapshot is of",
+        ),
+        (
+            "app_target",
+            "nothing on the LayoutWindow to hash: the module is a pure rule and a process-wide \
+             clock, and the activation stamps it orders are fields of the dll shell's \
+             CommonWindowState. `manager_fingerprints` takes a `&LayoutWindow`, which never \
+             holds one",
         ),
     ];
     #[cfg(not(feature = "a11y"))]
