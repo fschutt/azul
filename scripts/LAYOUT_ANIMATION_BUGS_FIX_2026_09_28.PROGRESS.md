@@ -26,8 +26,12 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
   test `the_a11y_tree_places_its_nodes_with_linear_scroll_chain_work` (60-deep chain, today 1953
   calls, bound 2 * 62).
 
+- 2e19c4950 FIX bug 4 (part): a11y update_tree computes ScrollChains once per dom (None when the dom
+  has no scroll id); ancestor_scroll_offset(dom, Option<&ScrollChains>, idx, scroll_manager).
+
 ## IN PROGRESS
-- FIX bug 4: a11y update_tree uses ScrollChains::compute once per dom.
+- Next per-frame waste candidates: DL enter_scroll_chain (ScrollChain::of per stacking context /
+  abs child), shell duplicate register_scroll_nodes, probe spans.
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
