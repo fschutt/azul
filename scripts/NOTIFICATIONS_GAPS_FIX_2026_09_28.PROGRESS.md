@@ -31,6 +31,10 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
   AzulActivity hooks, manifest, build script, assets, permission/android.rs `request`, android_main
   pump + LOOP_WAKER). NEXT step 1 below is DONE.
 
+* `5c2d8379a` feat(notifications): Windows WinRT toast (HKCU AUMID, toast_xml, Activated/Dismissed/
+  Failed + WM_AZ_TOAST_WAKE), balloon fallback, `probe()` 3-tuple, `permission_state()`, Cargo
+  features. NEXT step 3 below is DONE.
+
 ## IN PROGRESS (written in the worktree, not yet committed)
 
 * (committed in 274fc0f60, kept for reference:) dll service `dll/src/desktop/notifications/mod.rs` rewritten: backends `apple` (macOS+iOS),
@@ -69,7 +73,7 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
    silent, pendingIntentFlags) -> "" or error. `permissionState(Activity)I` 0/1/2, `cancel(Activity,String)V`,
    `sdkInt()I`.
 2. DONE (274fc0f60, 763256639).
-3. Windows: `windows` crate features `UI_Notifications`, `Data_Xml_Dom` in dll/Cargo.toml; toast
+3. DONE in 5c2d8379a - Windows: `windows` crate features `UI_Notifications`, `Data_Xml_Dom` in dll/Cargo.toml; toast
    inside `notifications/windows.rs` `PlatformNotifier` (toast first, balloon fallback), HKCU
    `AppUserModelId\<aumid>` DisplayName via libloading advapi32 (RegCreateKeyExW/RegSetValueExW/
    RegCloseKey), `windows::probe() -> (bool, String backend, String reason)`,
