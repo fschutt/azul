@@ -2481,6 +2481,37 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
             other => other.hash(&mut h),
         }
 
+        // Localization inputs. A localizable text renders its key's
+        // TRANSLATION, formatted with the Fluent arguments of the node or its
+        // parent, and this fingerprint is taken BEFORE translation - so the
+        // flag and the arguments are part of what the node renders. (`AzString`
+        // hashes its characters only, which a plain "save" and the key
+        // `tr("save")` share.)
+        if let NodeType::Text(text) = node.get_node_type() {
+            text.as_ref().is_localizable().hash(&mut h);
+        }
+        if let Some(args) = node.fluent_args.as_deref() {
+            0xF1u8.hash(&mut h);
+            args.as_slice().len().hash(&mut h);
+            for arg in args.as_slice() {
+                arg.key.hash(&mut h);
+                match &arg.value {
+                    crate::dom::FluentArg::String(s) => {
+                        0u8.hash(&mut h);
+                        s.hash(&mut h);
+                    }
+                    crate::dom::FluentArg::I32(i) => {
+                        1u8.hash(&mut h);
+                        i.hash(&mut h);
+                    }
+                    crate::dom::FluentArg::F32(f) => {
+                        2u8.hash(&mut h);
+                        f.to_bits().hash(&mut h);
+                    }
+                }
+            }
+        }
+
         // ids + classes (order-sensitive, as worn)
         for attr in node.attributes().as_ref() {
             match attr {
