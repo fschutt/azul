@@ -2912,3 +2912,106 @@ fn down_in_the_combobox_field_moves_into_its_open_list() {
         "the field keeps its own focus"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The widgets demo's Popover (device report 2026-09-28: "the popover cannot
+// be closed again")
+// ---------------------------------------------------------------------------
+
+/// The demo's toggle handler: it ignores the new state and asks for a
+/// rebuild, as `examples/azul-widgets` does (`bump` returns `RefreshDom`).
+extern "C" fn popover_toggled_refresh(
+    _data: RefAny,
+    _info: CallbackInfo,
+    _state: azul_layout::widgets::popover::PopoverState,
+) -> Update {
+    Update::RefreshDom
+}
+
+/// The Overlays card of the widgets demo: a Popover built `with_open(false)`
+/// on every layout, whose toggle callback returns `RefreshDom`.
+extern "C" fn demo_popover_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::{
+        button::Button,
+        popover::{Popover, PopoverOnToggleCallbackType},
+    };
+    let on_toggle: PopoverOnToggleCallbackType = popover_toggled_refresh;
+    Dom::create_body().with_child(
+        Popover::new(
+            Button::create("Open popover".into()).dom(),
+            Dom::create_div()
+                .with_ids_and_classes(
+                    vec![azul_core::dom::IdOrClass::Class("demo-popover-body".into())].into(),
+                )
+                .with_child(Dom::create_p_with_text("Popover content")),
+        )
+        .with_open(false)
+        .with_on_toggle(data, on_toggle)
+        .dom(),
+    )
+}
+
+/// Whether the demo popover's content is on screen: either laid out with a
+/// real box in the parent window, or shown in an open transient window.
+fn demo_popover_shown(parent: &HeadlessWindow) -> bool {
+    let lw = parent.get_layout_window().unwrap();
+    if !lw.transient_windows.open_windows().is_empty() {
+        return true;
+    }
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    nodes.linear_iter().any(|n| {
+        let is_body = nodes
+            .get(n)
+            .is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains("demo-popover-body"));
+        is_body
+            && lw
+                .get_node_layout_rect(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                })
+                .is_some_and(|r| r.size.width > 0.0 && r.size.height > 0.0)
+    })
+}
+
+/// The demo builds its popover `with_open(false)` on every layout and its
+/// toggle callback returns `RefreshDom`. The first click on the trigger
+/// opens the popover; the second must close it again.
+#[test]
+fn the_widgets_demo_popover_closes_again_on_a_second_click() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = demo_popover_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout");
+    assert!(
+        !demo_popover_shown(&parent),
+        "premise: the popover starts closed"
+    );
+
+    let trigger = rect_of_class(&parent, "__azul-native-popover-trigger");
+    let at = LogicalPosition::new(
+        trigger.origin.x + trigger.size.width / 2.0,
+        trigger.origin.y + trigger.size.height / 2.0,
+    );
+
+    click_at(&mut parent, at);
+    parent.regenerate_layout().expect("the app's RefreshDom");
+    assert!(
+        demo_popover_shown(&parent),
+        "the first click opens the popover"
+    );
+    parent.pending_window_creates.clear();
+
+    click_at(&mut parent, at);
+    parent.regenerate_layout().expect("the app's RefreshDom");
+    assert!(
+        !demo_popover_shown(&parent),
+        "the second click closes the popover again"
+    );
+}
