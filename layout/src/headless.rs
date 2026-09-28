@@ -31,6 +31,7 @@ use crate::{
     solver3::{
         getters::{get_overflow_x, get_overflow_y},
         layout_tree::{LayoutNodeHot, LayoutNodeId},
+        scroll_chain::{ScrollChain, ScrollChains},
         PositionVec,
     },
     window::DomLayoutResult,
@@ -345,15 +346,13 @@ pub fn node_rect_to_screen(
 ) -> LogicalRect {
     let nodes = &layout_result.layout_tree.nodes;
 
-    // Collect links walking child→root; reversing yields outermost-first
-    // with, per ancestor, Transform before Scroll (the builder nests the
-    // reference frame OUTSIDE the scroll frame).
+    // The transformed layout ancestors, walking child→root; reversing yields
+    // outermost-first, the order their reference frames nest in.
     //
-    // ANCESTORS ONLY, and now said so out loud: a scroll container's own
-    // offset moves its CONTENT, so it must not move the container's own box.
+    // ANCESTORS ONLY, and said so out loud: a scroll container's own offset
+    // moves its CONTENT, so it must not move the container's own box.
     // `LayoutWindow::accumulated_scroll` answers the same question with an
-    // explicit `Inclusivity`; the two used to differ only in a loop's
-    // starting value.
+    // explicit `Inclusivity`.
     let mut links_rev: Vec<HitChainLink> = Vec::new();
     for anc in layout_result
         .layout_tree
@@ -363,18 +362,30 @@ pub fn node_rect_to_screen(
             break;
         };
         if let Some(anid) = anc_node.dom_node_id {
-            if layout_result.scroll_ids.contains_key(&anc) {
-                links_rev.push(HitChainLink::Scroll(dom_id, anid));
-            }
             if resolve_transform(dom_id, anid).is_some() {
                 links_rev.push(HitChainLink::Transform(dom_id, anid));
             }
         }
     }
-    if links_rev.is_empty() {
+    let mut chain: Vec<HitChainLink> = links_rev.into_iter().rev().collect();
+    // The scroll frames the node's box is painted in - the display list's
+    // own answer (`solver3::scroll_chain`), not every ancestor with an id.
+    // Scroll offsets are summed, so they need not interleave with the
+    // transforms (`resolve_chain`).
+    chain.extend(
+        ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            LayoutNodeId::new(layout_idx),
+            Inclusivity::AncestorsOnly,
+        )
+        .scrolling()
+        .map(|link| HitChainLink::Scroll(dom_id, link.node)),
+    );
+    if chain.is_empty() {
         return rect;
     }
-    let chain: Vec<HitChainLink> = links_rev.into_iter().rev().collect();
     let resolved = resolve_chain(&chain, resolve_scroll, resolve_transform);
 
     let corners = [
@@ -438,15 +449,22 @@ impl Default for CpuHitTester {
 
 /// Resolve each layout node's ancestor chain index into `chains`.
 ///
-/// `chain(n) = chain(parent) (+ parent's links)` — an ancestor shifts its
-/// CONTENT, not itself. Scroll membership comes from `scroll_ids` (the exact
-/// set the display-list builder emitted `PushScrollFrame` for); transform
-/// membership from the GPU value cache's `css_transform_keys` via
-/// `has_transform` (the exact set it wrapped in `PushReferenceFrame`). A node
-/// with both nests the reference frame OUTSIDE the scroll frame, same as the
-/// builder.
+/// A node's chain is everything between it and the window that moves its
+/// box: the reference frames of its transformed layout ancestors (the
+/// exact set the display-list builder wrapped in `PushReferenceFrame`, read
+/// off the GPU value cache's `css_transform_keys` via `has_transform`), in
+/// the order they nest, and the scroll frames of its [`ScrollChain`] - the
+/// same frames the builder opened around it (`scroll_chains`). An ancestor
+/// shifts its CONTENT, not itself, so the node's own frames are not in it.
+///
+/// Scroll offsets are summed and transforms composed separately
+/// (`resolve_chain`), so the scroll links follow the transform links
+/// rather than interleaving with them.
+///
+/// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
 fn compute_node_chains(
     layout_result: &DomLayoutResult,
+    scroll_chains: &ScrollChains,
     dom_id: DomId,
     base_chain: u32,
     has_transform: &dyn Fn(NodeId) -> bool,
@@ -454,49 +472,71 @@ fn compute_node_chains(
     chain_lookup: &mut std::collections::HashMap<Vec<HitChainLink>, u32>,
 ) -> Vec<u32> {
     let nodes = &layout_result.layout_tree.nodes;
-    let scroll_ids = &layout_result.scroll_ids;
-    let mut chain_of: Vec<u32> = vec![u32::MAX; nodes.len()];
+
+    // The transforms, along the layout tree: `t(n) = t(parent) (+ parent)`.
+    let mut transforms_of: Vec<u32> = vec![u32::MAX; nodes.len()];
     let mut path: Vec<usize> = Vec::new();
     for start in 0..nodes.len() {
-        if chain_of[start] != u32::MAX {
+        if transforms_of[start] != u32::MAX {
             continue;
         }
         path.clear();
         path.push(start);
         let mut cur = nodes[start].parent;
         while let Some(p) = cur {
-            if chain_of[p] != u32::MAX || path.len() > nodes.len() {
+            if p >= nodes.len() || transforms_of[p] != u32::MAX || path.len() > nodes.len() {
                 break;
             }
             path.push(p);
             cur = nodes[p].parent;
         }
         for &idx in path.iter().rev() {
-            let c = nodes[idx].parent.map_or(base_chain, |p| {
-                let pc = if chain_of[p] == u32::MAX {
-                    base_chain // cycle guard tripped; degrade gracefully
-                } else {
-                    chain_of[p]
-                };
-                let is_scroll = scroll_ids.contains_key(&LayoutNodeId::new(p));
-                let pnid = nodes[p].dom_node_id;
-                let parent_transforms = pnid.is_some_and(has_transform);
-                match (pnid, is_scroll || parent_transforms) {
-                    (Some(pnid), true) => {
-                        let mut v = chains[pc as usize].clone();
-                        if parent_transforms {
+            let c = nodes[idx]
+                .parent
+                .filter(|p| *p < nodes.len())
+                .map_or(base_chain, |p| {
+                    let pc = if transforms_of[p] == u32::MAX {
+                        base_chain // cycle guard tripped; degrade gracefully
+                    } else {
+                        transforms_of[p]
+                    };
+                    match nodes[p].dom_node_id {
+                        Some(pnid) if has_transform(pnid) => {
+                            let mut v = chains[pc as usize].clone();
                             v.push(HitChainLink::Transform(dom_id, pnid));
+                            intern_chain(chains, chain_lookup, v)
                         }
-                        if is_scroll {
-                            v.push(HitChainLink::Scroll(dom_id, pnid));
-                        }
-                        intern_chain(chains, chain_lookup, v)
+                        _ => pc,
                     }
-                    _ => pc,
-                }
-            });
-            chain_of[idx] = c;
+                });
+            transforms_of[idx] = c;
         }
+    }
+
+    // The scroll frames, along the node's scroll chain. Nodes painted in the
+    // same frames under the same transforms share one interned chain.
+    let mut combined: std::collections::HashMap<(u32, u32), u32> =
+        std::collections::HashMap::new();
+    let mut chain_of: Vec<u32> = Vec::with_capacity(nodes.len());
+    for (idx, &t) in transforms_of.iter().enumerate() {
+        let s = scroll_chains.box_chain_id(LayoutNodeId::new(idx));
+        let c = if s == ScrollChains::EMPTY {
+            t
+        } else if let Some(&c) = combined.get(&(t, s)) {
+            c
+        } else {
+            let mut v = chains.get(t as usize).cloned().unwrap_or_default();
+            v.extend(
+                scroll_chains
+                    .chain(s)
+                    .scrolling()
+                    .map(|link| HitChainLink::Scroll(dom_id, link.node)),
+            );
+            let c = intern_chain(chains, chain_lookup, v);
+            combined.insert((t, s), c);
+            c
+        };
+        chain_of.push(c);
     }
     chain_of
 }
@@ -837,8 +877,16 @@ impl CpuHitTester {
             let transform_nodes = gpu
                 .and_then(|g| g.caches.get(dom_id))
                 .map(|c| &c.css_transform_keys);
+            // The frames every node of this dom is painted in - one answer
+            // with the display list (see `solver3::scroll_chain`).
+            let scroll_chains = ScrollChains::compute(
+                &layout_result.layout_tree,
+                styled_dom,
+                &layout_result.scroll_ids,
+            );
             let chain_of = compute_node_chains(
                 layout_result,
+                &scroll_chains,
                 *dom_id,
                 base_chain,
                 &|n| transform_nodes.is_some_and(|t| t.contains_key(&n)),

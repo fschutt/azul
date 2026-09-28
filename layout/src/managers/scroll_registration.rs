@@ -68,6 +68,13 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         let scroll_states = layout_window
             .scroll_manager
             .get_scroll_states_for_dom(*dom_id);
+        // The frames each box - and its bar - is painted in: the display
+        // list's own answer, computed once for the whole dom.
+        let scroll_chains = crate::solver3::scroll_chain::ScrollChains::compute(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+        );
 
         for node_idx in 0..layout_result.layout_tree.nodes.len() {
             let node = &layout_result.layout_tree.nodes[node_idx];
@@ -289,34 +296,17 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 scrollbar_info.presence(ScrollbarOrientation::Vertical),
             );
 
-            // The scroll frames this box - and its bar - are painted in: every
-            // scroll container above it (`scroll_ids`, the set the display list
-            // and the hit tester's chains are built from). With them the scroll
+            // The scroll frames this box - and its bar - are painted in: the
+            // box's `ScrollChain`, the frames the display list opened around
+            // it and the hit tester's chains add back. With them the scroll
             // manager hit-tests the bar where it is drawn, not where it was
             // laid out; the page's own frame puts the root above every box on
             // a page taller than its window.
-            let ancestors: Vec<NodeId> = {
-                let nodes = &layout_result.layout_tree.nodes;
-                let mut found = Vec::new();
-                let mut cur = nodes.get(node_idx).and_then(|n| n.parent);
-                let mut guard = 0usize;
-                while let Some(p) = cur {
-                    guard += 1;
-                    if guard > nodes.len() {
-                        break;
-                    }
-                    let Some(ancestor) = nodes.get(p) else {
-                        break;
-                    };
-                    if layout_result.scroll_ids.contains_key(&LayoutNodeId::new(p)) {
-                        if let Some(ancestor_dom_node) = ancestor.dom_node_id {
-                            found.push(ancestor_dom_node);
-                        }
-                    }
-                    cur = ancestor.parent;
-                }
-                found
-            };
+            let ancestors: Vec<NodeId> = scroll_chains
+                .box_chain(LayoutNodeId::new(node_idx))
+                .scrolling()
+                .map(|link| link.node)
+                .collect();
             layout_window
                 .scroll_manager
                 .set_scroll_ancestors(*dom_id, dom_node_id, ancestors);

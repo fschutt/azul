@@ -16,6 +16,7 @@ pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
+pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
 pub mod taffy_bridge;
