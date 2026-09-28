@@ -64,20 +64,19 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - b30888b98 fix(transient): OutsideOnly in popup_dismiss_cause / dismiss_on_escape / dismiss_outside_on_press / runner / web JS
 - 11377690a test(transient): a viewport placement covers the parent window (RED stub; adds `TransientAnchor::Viewport`, `cover_viewport` stub)
 - 0f418384c feat(transient): Viewport implemented (resolve, resolve_within, dll reconcile maps `cover_viewport(window size)`, Wayland, web)
+- 0b928f480 chore: this checkpoint file
+- 7e12cc7fd test(dialog): dialog.rs with STUBBED handlers + 15 unit tests + 4 dll e2e tests (RED)
 
 ## IN PROGRESS
 
-- `layout/src/widgets/dialog.rs`, the core + the public `Dialog` widget. The
-  plan: commit F1 = the full module with the handler bodies STUBBED
-  (`Update::DoNothing`, merge returns new_data), with unit tests + dll e2e
-  tests -> runtime RED. Then F2 = the real handlers.
+- F2: the real handlers in dialog.rs. The full final version is in the
+  scratchpad (`dialog_final.rs`); if it is lost, re-derive it from the
+  design above. It replaces the "RED STUBS" block, `close_from` and
+  `request_close_from`.
 
 ## NEXT (in order)
 
-1. F1/F2: dialog.rs (register `pub mod dialog;` in widgets/mod.rs after the
-   macro; add "dialog" to `every_widget_dom` + the CONTAINERS theme group).
-   Move MODAL_PANEL/TITLE/CLOSE/CONTENT styles + the backdrop style into
-   dialog.rs.
+1. (F1 done, registration done.)
 2. Popover on the dialog core. This fixes 3ee347c7f. Rewrite popover.rs
    tests. Keep the API; the trigger loses its own tab stop.
 3. Modal: a RED dll test first (a modal the app reopens after its x closed
