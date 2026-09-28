@@ -26,39 +26,26 @@ Source of truth: `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 
 - `5ea0f49f8` RED separator: `the_macos_titlebar_has_no_fill_and_the_system_separator` (light
   #D0D0D0, dark #000000, width > 0, solid, no BackgroundContent).
 
-## IN PROGRESS (fix 3: background + separator)
+- `6f41cf5a5` this checkpoint file.
+- `15cc3df99` FIX separator/background: `TitlebarMetrics.separator_color/_inactive/_width`
+  (macOS width 0.5px, presets #D0D0D0 / #000000); `Titlebar.separator_color/_inactive/_width`
+  (appended), const-fn builders `set_background`, `with_background`, `with_background_inactive`,
+  `set_border_bottom`, `with_border_bottom`, `with_border_bottom_inactive`,
+  `without_border_bottom`; container emits box-sizing border-box + border-bottom (+ dark twin
+  for the default colour, + :backdrop); `dom_controls_only` draws no line.
 
-- Uncommitted: `css/src/system.rs` `TitlebarMetrics` has new fields `separator_color`,
-  `separator_color_inactive`, `separator_width: OptionPixelValue`, set to None in all 6
-  constructors.
-- Still to do for fix 3:
-  - `TitlebarMetrics::macos()`: `separator_width = Some(px 0.5)`.
-  - Presets `macos_modern_light` / `macos_modern_dark`: `titlebar: TitlebarMetrics {
-    separator_color: Some(#D0D0D0 / #000000), ..TitlebarMetrics::macos() }`.
-  - `layout/src/widgets/titlebar.rs`: consts `MACOS_SEPARATOR_LIGHT/DARK`,
-    `DEFAULT_SEPARATOR_COLOR` (macOS Some(light), else None), `DEFAULT_SEPARATOR_WIDTH` (0.5
-    macOS / 1.0); fields `separator_color`, `separator_color_inactive`, `separator_width: f32`
-    (appended at the end of the repr(C) struct); fill them in `new` and in both
-    `from_system_style*` constructors (helper `separator_width_of(tm)`); const-fn builders
-    `set_background`, `with_background`, `with_background_inactive`, `set_border_bottom`,
-    `with_border_bottom`, `with_border_bottom_inactive`, `without_border_bottom`.
-    `build_container_style` emits (after the backgrounds, before the cursor) box-sizing
-    border-box, border-bottom width/style/colour, a dark twin when the colour == light, and
-    :backdrop inactive. `dom_controls_only` clears the separator.
-  - Update the generated tests: `expected_container` (separator decls when Some), relax
-    `all_unconditional` in `build_container_style_emits_the_documented_declarations_in_both_modes`
-    to allow the dark twin, extend `new_uses_the_compile_time_platform_defaults`, and add a
-    builder test.
+## IN PROGRESS
+
+- Demo RED (NEXT 1 below).
 
 ## NEXT (in order)
 
-1. Finish and commit fix 3 (above).
-2. RED demo: make `page_frame`/`PageFrame` in `layout/tests/azul_widgets_demo_follows_the_theme.rs`
+1. RED demo: make `page_frame`/`PageFrame` in `layout/tests/azul_widgets_demo_follows_the_theme.rs`
    `pub(crate)`, add `label` (= `lits[label + 1]`). Add demo geometry tests to the traffic-lights
    file (rebuild `body > titlebar > [title > text, label > text]` from the demo styles, and
    assert height 28 (38 today), title-run centre x 240 (left-aligned today), and title centre
    y 14 (19 today)).
-3. FIX demo `examples/azul-widgets/src/lib.rs` ~L825: `height: 28px; box-sizing: border-box;
+2. FIX demo `examples/azul-widgets/src/lib.rs` ~L825: `height: 28px; box-sizing: border-box;
    display:flex; align-items:center; position: relative; padding-left/right: 78px; border-bottom:
    0.5px solid system:separator;` no fill; title `font-family: system:title:bold; font-size:
    13px; flex-grow:1; flex-basis:0px; min-width:0px; text-align:center; ...`; label `position:
@@ -66,7 +53,7 @@ Source of truth: `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 
    literal order (titlebar style, "Azul Widget Showcase", title style, "custom titlebar", label
    style, body style, scroll style) and only `system:` colours (the theme tests scan them).
    Update the comment at L62-68.
-4. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
+3. Write `scripts/MACOS_TITLEBAR_FIX_2026_09_28.md` (commits + expected REDs, API changes,
    least-sure-to-compile spots, open items) and delete this file in the same commit.
 
 ## Open questions / risks
