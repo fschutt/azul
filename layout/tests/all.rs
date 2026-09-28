@@ -142,6 +142,8 @@ mod a_drag_selection_owns_the_scroll_of_its_field;
 mod a_press_on_an_overflowing_field_selects;
 #[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
 mod a_scroll_box_scrolls_to_its_end_padding;
+#[path = "a_selection_drag_autoscrolls_the_box_its_text_scrolls_in.rs"]
+mod a_selection_drag_autoscrolls_the_box_its_text_scrolls_in;
 #[path = "a_selection_reveal_shows_its_focus_end.rs"]
 mod a_selection_reveal_shows_its_focus_end;
 #[path = "abs_pos_anomalies.rs"]
