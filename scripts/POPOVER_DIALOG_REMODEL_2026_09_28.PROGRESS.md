@@ -68,16 +68,18 @@ closed -> open and writes `display: block` again. It can never be hidden.
 - 7e12cc7fd test(dialog): dialog.rs with STUBBED handlers + 15 unit tests + 4 dll e2e tests (RED)
 - 9a797a7b8 chore: checkpoint
 - a473f4d6a feat(dialog): real handlers (invoker, Escape, backdrop, close button, Dismissed, merge, close_from)
+- 70519f117 chore: checkpoint
+- aec8782ea fix(popover): Popover is a front-end over the dialog core (fixes 3ee347c7f); unit tests rewritten; handlers pub(crate)
 
 ## IN PROGRESS
 
-- Popover on the dialog core (fixes RED 3ee347c7f).
+- Modal: the RED dll test first (the app reopens a modal after its x
+  closed it -> it stays hidden), then Modal on the core.
 
 ## NEXT (in order)
 
 1. (F1 done, registration done.)
-2. Popover on the dialog core. This fixes 3ee347c7f. Rewrite popover.rs
-   tests. Keep the API; the trigger loses its own tab stop.
+2. (Popover done.)
 3. Modal: a RED dll test first (a modal the app reopens after its x closed
    it stays hidden: the display override persists), then Modal on the core
    (modal=true, closedby Auto). Rewrite modal.rs tests.
