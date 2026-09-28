@@ -642,3 +642,532 @@ fn balloon_text_is_truncated_to_its_fixed_buffer_without_splitting_a_character()
     let emoji = wire::utf16_truncated("a\u{1F600}", 3);
     assert_eq!(emoji, vec![u16::from(b'a'), 0]);
 }
+
+// ---------------------------------------------------------------------------
+// The gaps closed on 2026-09-28 (scripts/NOTIFICATIONS_RESEARCH_2026_09_28.md
+// section 7): an app-level handler for events no live callback owns, a
+// payload that survives the process, a full queue that reports instead of
+// dropping, deliveries that wait for a window, an explicit permission
+// request, and the wire vocabulary of the new backends (UN authorization,
+// WinRT toasts, the freedesktop desktop entry, Android intents).
+// ---------------------------------------------------------------------------
+
+mod gaps {
+    use azul_core::notification::{NotificationCallback, OptionNotificationCallback};
+    use azul_layout::managers::{
+        notification::{
+            app_notification_handler, drain_notification_deliveries, has_queued_deliveries,
+            queue_notification_delivery, set_app_notification_handler,
+            take_notification_permission_request, MAX_QUEUED_REQUESTS,
+        },
+        permission::{PermissionQuality, PermissionState},
+    };
+
+    use super::*;
+
+    /// The app-level handler: the same callback + data pair a notification
+    /// carries, installed once per process (`AppConfig::notification_handler`).
+    fn app_handler(data: &RefAny) -> NotificationCallback {
+        NotificationCallback {
+            refany: data.clone(),
+            callback: Callback::from_ptr(remember_event).into(),
+        }
+    }
+
+    fn run_callback(cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: &RefAny) {
+        let mut lw = laid_out_window();
+        let mut cb = Callback::from_ptr(cb);
+        let mut data = data.clone();
+        let state = lw.current_window_state.clone();
+        let (_, update) = lw.invoke_single_callback(
+            &mut cb,
+            &mut data,
+            &RawWindowHandle::Unsupported,
+            &OptionGlContextPtr::None,
+            Arc::new(SystemStyle::default()),
+            &ExternalSystemCallbacks::rust_internal(),
+            &None,
+            &state,
+            &RendererResources::default(),
+        );
+        assert_eq!(update, Update::DoNothing);
+    }
+
+    extern "C" fn post_the_overflow(data: RefAny, mut info: CallbackInfo) -> Update {
+        info.post_notification(
+            Notification::create(s("overflow"), s("One too many"))
+                .with_payload(s("row-17"))
+                .with_callback(data, Callback::from_ptr(remember_event)),
+        );
+        Update::DoNothing
+    }
+
+    extern "C" fn post_a_plain_overflow(_data: RefAny, mut info: CallbackInfo) -> Update {
+        info.post_notification(Notification::create(s("overflow-plain"), s("One too many")));
+        Update::DoNothing
+    }
+
+    extern "C" fn ask_for_the_permission(_data: RefAny, mut info: CallbackInfo) -> Update {
+        info.request_notification_permission();
+        Update::DoNothing
+    }
+
+    // ---- the model ----
+
+    #[test]
+    fn a_notification_carries_a_payload_and_an_event_starts_without_one() {
+        let n = Notification::create(s("mail-7"), s("New mail")).with_payload(s("thread=42"));
+        assert_eq!(n.payload.as_str(), "thread=42");
+        assert_eq!(Notification::create(s("x"), s("t")).payload.as_str(), "");
+
+        let clicked = NotificationEvent::activated(s("mail-7"));
+        assert_eq!(clicked.payload.as_str(), "");
+        assert!(!clicked.launched_app, "only a platform that knows sets it");
+    }
+
+    // ---- the app-level handler (G2) ----
+
+    #[test]
+    fn an_event_for_a_notification_this_process_never_posted_reaches_the_app_handler() {
+        // A tap that cold-launched the app (iOS, Android, a macOS relaunch):
+        // the notification's own callback died with the process that posted
+        // it. Today `route` drops the event: 0 deliveries, expected 1.
+        let handler = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.set_app_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+
+        let mut launch =
+            NotificationEvent::action_invoked(s("posted-before-a-restart"), s("reply"));
+        launch.payload = s("thread=42");
+        launch.launched_app = true;
+        let deliveries = registry.route(vec![launch.clone()]);
+        assert_eq!(deliveries.len(), 1, "the app handler owns orphaned events");
+        assert_eq!(deliveries[0].callback.refany, handler);
+        assert_eq!(deliveries[0].event, launch, "payload and launched_app travel as-is");
+
+        let mut lw = laid_out_window();
+        for delivery in deliveries {
+            assert_eq!(deliver(&mut lw, delivery), Update::DoNothing);
+        }
+        let (events, calls) = seen_by(&handler);
+        assert_eq!(calls, 1);
+        assert_eq!(events, vec![launch], "the handler reads the event like any delivery");
+    }
+
+    #[test]
+    fn a_notification_without_its_own_callback_reports_to_the_app_handler() {
+        let handler = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.set_app_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+        registry.admit(
+            Notification::create(s("fire-and-forget"), s("Saved")).with_payload(s("doc-3")),
+        );
+
+        let deliveries = registry.route(vec![NotificationEvent::activated(s("fire-and-forget"))]);
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].callback.refany, handler);
+        assert_eq!(deliveries[0].event.payload.as_str(), "doc-3");
+    }
+
+    #[test]
+    fn a_close_after_a_click_does_not_reach_the_app_handler_either() {
+        // The freedesktop close that follows a click names an id this process
+        // DID post: it is the notification's echo, not an orphan.
+        let own = RefAny::new(Seen::default());
+        let handler = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.set_app_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+        registry.admit(notification_with_callback("n", &own));
+
+        let deliveries = registry.route(vec![
+            NotificationEvent::activated(s("n")),
+            NotificationEvent::dismissed(s("n")),
+        ]);
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].callback.refany, own);
+        assert!(registry
+            .route(vec![NotificationEvent::dismissed(s("n"))])
+            .is_empty());
+    }
+
+    #[test]
+    fn a_withdrawn_notification_does_not_reach_the_app_handler() {
+        let handler = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.set_app_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+        registry.admit(Notification::create(s("n"), s("t")));
+        assert!(registry.forget("n"));
+        assert!(
+            registry
+                .route(vec![NotificationEvent::dismissed(s("n"))])
+                .is_empty(),
+            "the close that confirms a withdraw is nobody's event"
+        );
+    }
+
+    #[test]
+    fn a_repost_under_an_ended_id_reports_again() {
+        let data = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.admit(notification_with_callback("progress", &data));
+        assert_eq!(
+            registry
+                .route(vec![NotificationEvent::activated(s("progress"))])
+                .len(),
+            1
+        );
+        registry.admit(notification_with_callback("progress", &data));
+        assert_eq!(
+            registry
+                .route(vec![NotificationEvent::activated(s("progress"))])
+                .len(),
+            1,
+            "an ended id that is posted again is live again"
+        );
+    }
+
+    #[test]
+    fn the_app_handler_is_set_once_for_the_process() {
+        let _serial = serial();
+        let handler = RefAny::new(Seen::default());
+        set_app_notification_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+        let read = app_notification_handler();
+        assert_eq!(read.as_ref().map(|h| h.refany.clone()), Some(handler));
+        set_app_notification_handler(OptionNotificationCallback::None);
+        assert!(app_notification_handler().is_none());
+    }
+
+    // ---- the payload (G2, G8) ----
+
+    #[test]
+    fn the_payload_comes_back_in_the_event() {
+        let data = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.admit(notification_with_callback("mail", &data).with_payload(s("msg-9")));
+        let deliveries = registry.route(vec![NotificationEvent::activated(s("mail"))]);
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(
+            deliveries[0].event.payload.as_str(),
+            "msg-9",
+            "freedesktop and the balloon report no payload; the registry fills it in"
+        );
+    }
+
+    #[test]
+    fn a_payload_the_platform_reports_wins() {
+        let data = RefAny::new(Seen::default());
+        let mut registry = NotificationRegistry::new();
+        registry.admit(notification_with_callback("mail", &data).with_payload(s("msg-9")));
+        let mut from_os = NotificationEvent::activated(s("mail"));
+        from_os.payload = s("from-user-info");
+        let deliveries = registry.route(vec![from_os]);
+        assert_eq!(deliveries[0].event.payload.as_str(), "from-user-info");
+    }
+
+    // ---- a full queue reports (G3) ----
+
+    #[test]
+    fn a_post_to_a_full_queue_reports_failed_to_its_own_callback() {
+        let _serial = serial();
+        drop(drain_notification_requests());
+        drop(drain_notification_deliveries());
+        for i in 0..MAX_QUEUED_REQUESTS {
+            assert!(push_notification_request(NotificationRequest::Post(
+                Notification::create(AzString::from(format!("filler-{i}")), s("t"))
+            )));
+        }
+        let data = RefAny::new(Seen::default());
+        run_callback(post_the_overflow, &data);
+        drop(drain_notification_requests());
+
+        // Today `post_notification` discards the `false` and the post is
+        // gone: 0 deliveries. Expected: one `Failed`, to its own callback.
+        let deliveries = drain_notification_deliveries();
+        assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+        assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
+        assert_eq!(deliveries[0].event.notification_id.as_str(), "overflow");
+        assert_eq!(deliveries[0].event.payload.as_str(), "row-17");
+        assert!(
+            !deliveries[0].event.reason.as_str().is_empty(),
+            "the reason says why"
+        );
+        assert_eq!(deliveries[0].callback.refany, data);
+    }
+
+    #[test]
+    fn a_post_to_a_full_queue_without_a_callback_still_reports_failed() {
+        let _serial = serial();
+        drop(drain_notification_requests());
+        drop(drain_notification_events());
+        for i in 0..MAX_QUEUED_REQUESTS {
+            assert!(push_notification_request(NotificationRequest::Post(
+                Notification::create(AzString::from(format!("filler-{i}")), s("t"))
+            )));
+        }
+        run_callback(post_a_plain_overflow, &RefAny::new(()));
+        drop(drain_notification_requests());
+
+        // Into the mailbox, where the registry hands an id it never admitted
+        // to the app handler.
+        let events = drain_notification_events();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].kind, NotificationEventType::Failed);
+        assert_eq!(events[0].notification_id.as_str(), "overflow-plain");
+    }
+
+    // ---- deliveries wait for a window (G7) ----
+
+    #[test]
+    fn deliveries_wait_in_order_until_a_window_takes_them() {
+        let _serial = serial();
+        drop(drain_notification_deliveries());
+        let data = RefAny::new(Seen::default());
+        let first = NotificationDelivery {
+            callback: app_handler(&data),
+            event: NotificationEvent::activated(s("a")),
+        };
+        let second = NotificationDelivery {
+            callback: app_handler(&data),
+            event: NotificationEvent::dismissed(s("b")),
+        };
+        assert!(queue_notification_delivery(first.clone()));
+        assert!(queue_notification_delivery(second.clone()));
+        assert!(has_queued_deliveries());
+        assert_eq!(drain_notification_deliveries(), vec![first.clone(), second]);
+        assert!(!has_queued_deliveries());
+
+        for _ in 0..MAX_QUEUED_EVENTS {
+            assert!(queue_notification_delivery(first.clone()));
+        }
+        assert!(
+            !queue_notification_delivery(first),
+            "a windowless app must not grow the queue without bound"
+        );
+        assert_eq!(drain_notification_deliveries().len(), MAX_QUEUED_EVENTS);
+    }
+
+    // ---- the permission request (G3) ----
+
+    #[test]
+    fn a_permission_request_is_queued_for_the_platform() {
+        let _serial = serial();
+        drop(drain_notification_requests());
+        let _ = take_notification_permission_request();
+        assert!(!has_queued_requests(), "premise: nothing queued");
+
+        run_callback(ask_for_the_permission, &RefAny::new(()));
+        assert!(
+            has_queued_requests(),
+            "the capability pump arms its timer on this, so the prompt is not late"
+        );
+        assert!(take_notification_permission_request());
+        assert!(
+            !take_notification_permission_request(),
+            "one request, one prompt"
+        );
+        assert!(!has_queued_requests());
+    }
+
+    // ---- wire: Apple ----
+
+    #[test]
+    fn apple_authorization_statuses_become_permission_states() {
+        // UNAuthorizationStatus: notDetermined 0, denied 1, authorized 2,
+        // provisional 3, ephemeral 4.
+        assert_eq!(
+            wire::apple_authorization_status(0),
+            PermissionState::NotDetermined
+        );
+        assert_eq!(wire::apple_authorization_status(1), PermissionState::Denied);
+        assert_eq!(
+            wire::apple_authorization_status(2),
+            PermissionState::Granted(PermissionQuality::Full)
+        );
+        assert_eq!(
+            wire::apple_authorization_status(3),
+            PermissionState::Granted(PermissionQuality::Reduced),
+            "provisional = delivered quietly"
+        );
+        assert!(wire::apple_authorization_status(4).is_granted());
+        assert_eq!(
+            wire::apple_authorization_status(99),
+            PermissionState::NotDetermined
+        );
+        assert_eq!(wire::APPLE_PAYLOAD_KEY, "azul.payload");
+    }
+
+    // ---- wire: Windows toasts ----
+
+    #[test]
+    fn toast_arguments_carry_id_action_and_payload_both_ways() {
+        let args = wire::toast_arguments("mail 7&x", "reply", "a=b&c%d é");
+        assert!(args.starts_with(wire::TOAST_ARGS_PREFIX));
+        assert!(!args.contains(' '), "percent-encoded: {args}");
+        assert_eq!(
+            wire::parse_toast_arguments(&args),
+            Some((
+                "mail 7&x".to_string(),
+                "reply".to_string(),
+                "a=b&c%d é".to_string()
+            ))
+        );
+        assert_eq!(
+            wire::parse_toast_arguments("somebody-else's launch string"),
+            None
+        );
+
+        let body = wire::toast_activated_event(&wire::toast_arguments("n", "default", "p"))
+            .expect("our own arguments parse");
+        assert_eq!(body.kind, NotificationEventType::Activated);
+        assert_eq!(body.payload.as_str(), "p");
+        let button = wire::toast_activated_event(&wire::toast_arguments("n", "reply", ""))
+            .expect("our own arguments parse");
+        assert_eq!(
+            button,
+            NotificationEvent::action_invoked(s("n"), s("reply"))
+        );
+    }
+
+    #[test]
+    fn toast_xml_escapes_text_and_lists_the_buttons() {
+        let n = Notification::create(s("n"), s("Tom & <Jerry>"))
+            .with_body(s("\"quoted\""))
+            .with_action(s("reply"), s("Reply"))
+            .with_action(s("default"), s("Shadowed"))
+            .with_payload(s("p"));
+        let xml = wire::toast_xml(&n);
+        assert!(xml.starts_with("<toast "), "{xml}");
+        assert!(xml.contains("Tom &amp; &lt;Jerry&gt;"), "{xml}");
+        assert!(xml.contains("&quot;quoted&quot;"), "{xml}");
+        assert!(xml.contains("template=\"ToastGeneric\""), "{xml}");
+        assert_eq!(
+            xml.matches("<action ").count(),
+            1,
+            "`default` is the body click: {xml}"
+        );
+        assert!(xml.contains("content=\"Reply\""), "{xml}");
+        // The arguments are percent-encoded, so `&` is the only character of
+        // theirs the XML attribute has to escape.
+        let launch = wire::toast_arguments("n", "default", "p").replace('&', "&amp;");
+        assert!(xml.contains(&format!("launch=\"{launch}\"")), "{xml}");
+
+        let silent = wire::toast_xml(
+            &Notification::create(s("q"), s("t")).with_sound(NotificationSound::Silent),
+        );
+        assert!(silent.contains("<audio silent=\"true\"/>"), "{silent}");
+        assert!(
+            !silent.contains("<actions>"),
+            "no buttons, no actions element: {silent}"
+        );
+    }
+
+    #[test]
+    fn a_toast_that_moves_to_the_action_center_has_not_ended() {
+        assert_eq!(
+            wire::toast_dismissed_event("n", wire::TOAST_DISMISSED_USER_CANCELED)
+                .map(|e| e.kind),
+            Some(NotificationEventType::Dismissed)
+        );
+        assert_eq!(
+            wire::toast_dismissed_event("n", wire::TOAST_DISMISSED_TIMED_OUT),
+            None,
+            "a timed-out toast still sits in the Action Center and can be clicked"
+        );
+        assert_eq!(
+            wire::toast_dismissed_event("n", wire::TOAST_DISMISSED_APPLICATION_HIDDEN),
+            None,
+            "the app hid it: the withdraw already ended it"
+        );
+    }
+
+    #[test]
+    fn the_windows_aumid_is_safe_for_the_registry() {
+        assert_eq!(wire::windows_aumid("rs.azul.widgets"), "rs.azul.widgets");
+        let odd = wire::windows_aumid("My App\\v2 (beta)");
+        assert!(
+            !odd.contains('\\'),
+            "a backslash breaks Windows 10 up to 19042: {odd}"
+        );
+        assert!(!odd.contains(' '), "{odd}");
+        assert!(!odd.is_empty());
+        let long = wire::windows_aumid(&"x".repeat(300));
+        assert!(long.len() <= 129, "{} chars", long.len());
+        assert_ne!(
+            long,
+            wire::windows_aumid(&"x".repeat(299)),
+            "long ids stay distinct"
+        );
+        assert!(!wire::windows_aumid("").is_empty());
+        assert_eq!(
+            wire::aumid_registry_key("rs.azul.widgets"),
+            "Software\\Classes\\AppUserModelId\\rs.azul.widgets"
+        );
+    }
+
+    // ---- wire: freedesktop ----
+
+    #[test]
+    fn the_desktop_entry_is_the_executable_name_like_the_wayland_app_id() {
+        assert_eq!(wire::desktop_entry("/usr/bin/az-widgets"), "az-widgets");
+        assert_eq!(
+            wire::desktop_entry("/opt/x/org.example.App.desktop"),
+            "org.example.App"
+        );
+        assert_eq!(wire::desktop_entry(""), "azul");
+    }
+
+    // ---- wire: Android ----
+
+    #[test]
+    fn android_request_codes_are_distinct_per_notification_and_leave_room_for_buttons() {
+        let a = wire::android_request_code("mail-1");
+        let b = wire::android_request_code("mail-2");
+        assert_ne!(
+            a, b,
+            "the same code would make the two share one PendingIntent"
+        );
+        assert_eq!(a, wire::android_request_code("mail-1"), "stable");
+        for code in [a, b, wire::android_request_code("")] {
+            assert!(code >= 0, "{code}");
+            assert_eq!(
+                code & 0xF,
+                0,
+                "the low nibble numbers the buttons and the dismissal"
+            );
+        }
+    }
+
+    #[test]
+    fn android_pending_intents_are_immutable() {
+        const FLAG_IMMUTABLE: i32 = 0x0400_0000;
+        const FLAG_UPDATE_CURRENT: i32 = 0x0800_0000;
+        for sdk in [23, 31, 34] {
+            let flags = wire::android_pending_intent_flags(sdk);
+            assert_eq!(flags & FLAG_IMMUTABLE, FLAG_IMMUTABLE, "sdk {sdk}");
+            assert_eq!(flags & FLAG_UPDATE_CURRENT, FLAG_UPDATE_CURRENT, "sdk {sdk}");
+        }
+        assert_eq!(
+            wire::android_pending_intent_flags(22) & FLAG_IMMUTABLE,
+            0,
+            "no such flag before API 23"
+        );
+    }
+
+    #[test]
+    fn android_intents_become_events() {
+        let tap = wire::android_event("n", wire::ANDROID_DEFAULT_ACTION, "p", true);
+        assert_eq!(tap.kind, NotificationEventType::Activated);
+        assert_eq!(tap.payload.as_str(), "p");
+        assert!(tap.launched_app);
+
+        let gone = wire::android_event("n", wire::ANDROID_DISMISS_ACTION, "", false);
+        assert_eq!(gone.kind, NotificationEventType::Dismissed);
+        assert!(!gone.launched_app);
+
+        let button = wire::android_event("n", "reply", "", false);
+        assert_eq!(
+            button,
+            NotificationEvent::action_invoked(s("n"), s("reply"))
+        );
+    }
+}
