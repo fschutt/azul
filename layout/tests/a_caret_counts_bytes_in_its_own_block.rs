@@ -225,6 +225,31 @@ fn the_ime_document_splices_a_composition_at_a_list_item_caret() {
     );
 }
 
+/// `firstRectForCharacterRange:` asks where a byte of the IME's document is
+/// on screen. The caret's own byte must come back as the caret's own rect -
+/// not the marker's: resolving the byte against the shaped clusters counted
+/// the `::marker`'s bytes into the text, while the document the IME holds
+/// (`ime_document`) starts at the item's first letter.
+#[test]
+fn the_ime_finds_a_list_item_byte_where_its_caret_stands() {
+    let mut lw = list_item("alpha");
+    caret_in_the_item(&mut lw, 2);
+
+    let caret = lw
+        .get_focused_cursor_rect_viewport()
+        .expect("the caret has a rect");
+    let asked = lw
+        .focused_rect_for_byte_offset(2)
+        .expect("byte 2 has a rect");
+    assert!(
+        (asked.origin.x - caret.origin.x).abs() < 0.5
+            && (asked.origin.y - caret.origin.y).abs() < 0.5,
+        "the IME's rect for \"al|pha\" is at {:?}, the caret at {:?}",
+        asked.origin,
+        caret.origin
+    );
+}
+
 #[test]
 fn android_reads_a_list_item_caret_at_its_byte_in_the_text() {
     let mut lw = list_item("alpha");
