@@ -1754,6 +1754,57 @@ impl CallbackInfo {
         self.get_focus_manager().has_focus_for(seat_id, &node_id)
     }
 
+    // Spatial navigation queries (CSS Spatial Navigation Level 1 §5.2)
+    //
+    // The JS API of css-nav-1, answered by the SAME engine the arrow keys
+    // run (`focus_cursor::spatial_navigation_steps`), over the geometry as it
+    // is painted right now. To move the focus to an answer, pass it to
+    // `set_focus(FocusTarget::Id(..))`.
+
+    /// css-nav-1 `element.getSpatialNavigationContainer()`: the nearest
+    /// ANCESTOR of `node_id` that is a spatial navigation container (a scroll
+    /// container, or `spatial-navigation-contain: contain`) - never the node
+    /// itself - or its DOM's root node (the document) when there is none.
+    /// `None` only for a node that does not exist.
+    #[must_use]
+    pub fn get_spatial_navigation_container(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.get_layout_window()
+            .get_spatial_navigation_container(node_id)
+    }
+
+    /// css-nav-1 `element.focusableAreas({ mode })`: the focusable
+    /// descendants of `node_id` in document order (the Tab pool: tabindex −1
+    /// excluded). `FocusableAreaSearchMode::Visible` keeps only the ones at
+    /// least partly on screen - inside every scrollport above them.
+    #[must_use]
+    pub fn get_focusable_areas(
+        &self,
+        node_id: DomNodeId,
+        mode: azul_core::callbacks::FocusableAreaSearchMode,
+    ) -> azul_core::dom::DomNodeIdVec {
+        self.get_layout_window()
+            .get_focusable_areas(node_id, mode)
+            .into()
+    }
+
+    /// css-nav-1 `element.spatialNavigationSearch(dir, options)`: the node an
+    /// arrow in `direction` would pick from `node_id`, among
+    /// `options.candidates` (or the visible focusable areas of the container)
+    /// inside `options.container` (or the node's nearest container), by that
+    /// container's `spatial-navigation-function`. It does not climb out of the
+    /// container and never scrolls; `None` when nothing lies that way.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // by value: the C API passes the options struct
+    pub fn spatial_navigation_search(
+        &self,
+        node_id: DomNodeId,
+        direction: azul_core::callbacks::FocusDirection,
+        options: azul_core::callbacks::SpatialNavigationSearchOptions,
+    ) -> Option<DomNodeId> {
+        self.get_layout_window()
+            .spatial_navigation_search(node_id, direction, &options)
+    }
+
     /// Create a new window (applied after callback returns)
     pub fn create_window(&mut self, options: WindowCreateOptions) {
         self.push_change(CallbackChange::CreateNewWindow { options });

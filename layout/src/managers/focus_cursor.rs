@@ -3376,6 +3376,110 @@ pub fn directional_focus_target(
     }
 }
 
+// ---------------------------------------------------------------------------
+// The css-nav-1 JS API (§5.2), over the same engine
+// ---------------------------------------------------------------------------
+
+/// Is `node` a spatial navigation container: `contain`, a scroll container
+/// (under `auto`), or its DOM's root (the document)?
+fn is_spatial_navigation_container(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> bool {
+    is_dom_root(node)
+        || spatial_navigation_containers(env.layout_results, node)
+            .first()
+            .is_some_and(|innermost| *innermost == node)
+}
+
+/// css-nav-1 `element.getSpatialNavigationContainer()`: the nearest ANCESTOR
+/// of `node` that is a spatial navigation container - never `node` itself -
+/// or the document (its DOM's root node) when the nearest container is the
+/// viewport. `None` only for a node that does not exist.
+#[must_use]
+pub fn get_spatial_navigation_container(
+    env: &SpatialNavigationEnv<'_>,
+    node: DomNodeId,
+) -> Option<DomNodeId> {
+    let lr = env.layout_results.get(&node.dom)?;
+    let n = node.node.into_crate_internal()?;
+    if lr.styled_dom.node_data.as_container().get(n).is_none() {
+        return None;
+    }
+    Some(
+        spatial_navigation_containers(env.layout_results, node)
+            .into_iter()
+            .find(|c| *c != node)
+            .unwrap_or_else(|| dom_root_of(node)),
+    )
+}
+
+/// css-nav-1 `element.focusableAreas({ mode })`: the focusable areas whose
+/// node is a DESCENDANT of `node`, in document order. `Visible` keeps the ones
+/// at least partly inside every scrollport above them; `All` keeps every one
+/// that has a box. The pool is the spatial one (the Tab order: tabindex −1,
+/// popup content and out-of-scope DOMs excluded).
+#[must_use]
+pub fn focusable_areas(
+    env: &SpatialNavigationEnv<'_>,
+    node: DomNodeId,
+    mode: azul_core::callbacks::FocusableAreaSearchMode,
+) -> Vec<DomNodeId> {
+    let geom = SpatialGeometry::new(*env);
+    let visible_only = mode == azul_core::callbacks::FocusableAreaSearchMode::Visible;
+    spatial_candidate_pool(env)
+        .into_iter()
+        .filter(|c| *c != node && is_within(env.layout_results, *c, node))
+        .filter(|c| {
+            geom.rect(*c)
+                .is_some_and(|r| !visible_only || is_visible(env, &geom, *c, r))
+        })
+        .collect()
+}
+
+/// css-nav-1 `element.spatialNavigationSearch(dir, options)`: the best
+/// candidate in `dir` from `node`, by the container's
+/// `spatial-navigation-function`.
+///
+/// The container is `options.container` if that is a spatial navigation
+/// container, else its nearest container ancestor; with no container given,
+/// `node`'s nearest container ancestor. The candidates are
+/// `options.candidates` when given (visible or not, exactly those), else the
+/// VISIBLE focusable areas of that container. Per the spec's note this does
+/// NOT climb further up when the container has nothing in `dir` - that is
+/// what the arrow keys' steps ([`spatial_navigation_steps`]) do.
+#[must_use]
+pub fn spatial_navigation_search(
+    env: &SpatialNavigationEnv<'_>,
+    node: DomNodeId,
+    dir: FocusDirection,
+    options: &azul_core::callbacks::SpatialNavigationSearchOptions,
+) -> Option<DomNodeId> {
+    let geom = SpatialGeometry::new(*env);
+    let origin_rect = geom.rect(node)?;
+    let container = match options.container.into_option() {
+        Some(c) if is_spatial_navigation_container(env, c) => c,
+        Some(c) => get_spatial_navigation_container(env, c)?,
+        None => get_spatial_navigation_container(env, node)?,
+    };
+    let areas: Vec<(DomNodeId, LogicalRect)> = match options.candidates.as_ref() {
+        Some(list) => list
+            .iter()
+            .copied()
+            .filter(|c| *c != node)
+            .filter_map(|c| Some((c, geom.rect(c)?)))
+            .collect(),
+        None => {
+            let pool = spatial_candidate_pool(env);
+            candidates_in(env, &geom, &pool, container, node, true)
+        }
+    };
+    select_best_candidate(
+        origin_rect,
+        inside_area_of(env, node, origin_rect),
+        &areas,
+        dir,
+        function_of(env, container),
+    )
+}
+
 #[allow(clippy::too_many_lines)] // one algorithm, written in the spec's step order
 fn run_spatial_navigation_steps(
     env: &SpatialNavigationEnv<'_>,

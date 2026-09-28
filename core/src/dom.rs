@@ -4203,6 +4203,16 @@ impl_vec_clone!(DomNodeId, DomNodeIdVec, DomNodeIdVecDestructor);
 impl_vec_partialeq!(DomNodeId, DomNodeIdVec);
 impl_vec_partialord!(DomNodeId, DomNodeIdVec);
 
+// "A list of nodes, or none given" - the `candidates` of
+// `SpatialNavigationSearchOptions`, where an EMPTY list (find nothing) and NO
+// list (search the container) mean different things.
+impl_option!(
+    DomNodeIdVec,
+    OptionDomNodeIdVec,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl DomNodeId {
     pub const ROOT: Self = Self {
         dom: DomId::ROOT_ID,

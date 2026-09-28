@@ -10558,6 +10558,47 @@ impl LayoutWindow {
         })
     }
 
+    /// css-nav-1 `element.getSpatialNavigationContainer()` on the live window:
+    /// the nearest ANCESTOR of `node` that is a spatial navigation container,
+    /// or its DOM's root node (the document). `None` for a node that does not
+    /// exist.
+    #[must_use]
+    pub fn get_spatial_navigation_container(&self, node: DomNodeId) -> Option<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::get_spatial_navigation_container(env, node)
+        })
+    }
+
+    /// css-nav-1 `element.focusableAreas({ mode })` on the live window: the
+    /// focusable descendants of `node` in document order - with
+    /// `FocusableAreaSearchMode::Visible`, only the ones on screen right now.
+    #[must_use]
+    pub fn get_focusable_areas(
+        &self,
+        node: DomNodeId,
+        mode: azul_core::callbacks::FocusableAreaSearchMode,
+    ) -> Vec<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::focusable_areas(env, node, mode)
+        })
+    }
+
+    /// css-nav-1 `element.spatialNavigationSearch(dir, options)` on the live
+    /// window: the node an arrow in `direction` would pick from `node` inside
+    /// one container, WITHOUT climbing out of it and without scrolling. The
+    /// same selection rule the arrow keys use.
+    #[must_use]
+    pub fn spatial_navigation_search(
+        &self,
+        node: DomNodeId,
+        direction: azul_core::callbacks::FocusDirection,
+        options: &azul_core::callbacks::SpatialNavigationSearchOptions,
+    ) -> Option<DomNodeId> {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::spatial_navigation_search(env, node, direction, options)
+        })
+    }
+
     /// Scroll `container` the way a keyboard does: a line (20px, the shells'
     /// wheel line), 90% of the container's extent for a page, or all the way
     /// for Home/End. The scroll manager clamps. `false` (and nothing scrolled)

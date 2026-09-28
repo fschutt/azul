@@ -1760,6 +1760,40 @@ pub enum FocusDirection {
     Right,
 }
 
+/// Which focusable areas a css-nav-1 query returns - the `mode` of
+/// `element.focusableAreas({ mode })` (CSS Spatial Navigation Level 1 §5.2).
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum FocusableAreaSearchMode {
+    /// Only the areas at least partly ON SCREEN: inside the scrollport of
+    /// every scroll container above them (and the window's viewport). The
+    /// spec's default.
+    #[default]
+    Visible,
+    /// Every focusable area, scrolled out of view or not.
+    All,
+}
+
+/// The options of `element.spatialNavigationSearch(dir, options)` (CSS
+/// Spatial Navigation Level 1 §5.2), for
+/// `CallbackInfo::spatial_navigation_search`.
+///
+/// Both default to "not given": the search then runs over the VISIBLE
+/// focusable areas of the element's nearest spatial navigation container, and
+/// - as the spec notes - does not climb further up when that container has
+/// nothing in the direction.
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SpatialNavigationSearchOptions {
+    /// Search among exactly these nodes. `None`: the focusable areas of the
+    /// container. `Some` of an empty list finds nothing, as in the spec.
+    pub candidates: crate::dom::OptionDomNodeIdVec,
+    /// The container to search in: itself if it is a spatial navigation
+    /// container, else its nearest container ancestor. `None`: the element's
+    /// nearest container ancestor.
+    pub container: crate::dom::OptionDomNodeId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FocusTargetPath {
