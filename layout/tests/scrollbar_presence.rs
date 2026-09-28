@@ -186,8 +186,7 @@ fn a_box_that_fits_again_loses_its_scrollbar_and_its_offset() {
         now(),
     );
     assert_eq!(
-        lw.scroll_manager
-            .get_current_offset(DomId::ROOT_ID, STRIP),
+        lw.scroll_manager.get_current_offset(DomId::ROOT_ID, STRIP),
         Some(LogicalPosition::new(100.0, 0.0)),
         "harness: the strip scrolls 100px in"
     );
@@ -205,8 +204,7 @@ fn a_box_that_fits_again_loses_its_scrollbar_and_its_offset() {
          the bar was, still finds {press:?}"
     );
     assert_eq!(
-        lw.scroll_manager
-            .get_current_offset(DomId::ROOT_ID, STRIP),
+        lw.scroll_manager.get_current_offset(DomId::ROOT_ID, STRIP),
         Some(LogicalPosition::zero()),
         "content that fits cannot be scrolled out of its box"
     );

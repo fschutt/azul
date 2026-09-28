@@ -8,7 +8,7 @@
 //! - Display list painting (`paint_scrollbars`)
 //! - GPU transform updates (`update_scrollbar_transforms`)
 //! - Hit-testing (`hit_test_component`)
-//! - Drag delta conversion (`handle_scrollbar_drag`)
+//! - Drag delta conversion (`LayoutWindow::route_move`)
 
 use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
@@ -278,7 +278,7 @@ impl ScrollbarRequirements {
 /// - Display list painting (`paint_scrollbars`)
 /// - GPU transform updates (`update_scrollbar_transforms`)
 /// - Hit-testing (`hit_test_component`)
-/// - Drag delta conversion (`handle_scrollbar_drag`)
+/// - Drag delta conversion (`LayoutWindow::route_move`)
 #[derive(Debug, Clone, Copy)]
 pub struct ScrollbarGeometry {
     /// Orientation (vertical or horizontal)
@@ -1438,7 +1438,7 @@ mod autotest_generated {
 
     #[test]
     fn thumb_offset_round_trips_back_to_the_scroll_offset() {
-        // This is the inverse used by `handle_scrollbar_drag`: dragging the thumb to
+        // This is the inverse used by `LayoutWindow::route_move`: dragging the thumb to
         // `thumb_offset` must map back to the scroll offset that produced it.
         for &offset in &[0.0_f32, 25.0, 50.0, 100.0, 150.0, 200.0] {
             let g = compute_scrollbar_geometry(

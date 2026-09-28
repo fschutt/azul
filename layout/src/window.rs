@@ -18479,11 +18479,12 @@ impl LayoutWindow {
                             // consume).
                             crate::managers::scroll_registration::register_scroll_nodes(self, &now);
                         } else {
-                            // Overflow STOPPED. The registration pass skips
-                            // non-needing nodes, so shrink the manager's
-                            // content rect directly — otherwise
-                            // `is_node_scrollable` stays true forever and the
-                            // box keeps eating wheel events.
+                            // Overflow STOPPED. Shrink the manager's content
+                            // rect (and drop its bars) right here, for this
+                            // host only — otherwise `is_node_scrollable` stays
+                            // true until the next registration pass (which
+                            // refreshes a box that stopped overflowing too)
+                            // and the box keeps eating wheel events.
                             self.scroll_manager.register_or_update_scroll_node(
                                 dom_id,
                                 plan.host_dom,

@@ -1512,7 +1512,9 @@ impl ScrollManager {
     /// Registers or updates a scrollable node with its container and content
     /// sizes and the bar each of its axes carries. This should be called after
     /// layout for each node that has overflow:scroll or overflow:auto with
-    /// overflowing content.
+    /// overflowing content - and for each node that HAD, so a box whose
+    /// content fits again loses its bars and its offset instead of keeping the
+    /// ones it overflowed with (`register_scroll_nodes`).
     ///
     /// `horizontal_bar` / `vertical_bar` are layout's per-axis answer
     /// (`ScrollbarRequirements::presence`) - the bars [`Self::calculate_scrollbar_states`]
@@ -1565,7 +1567,17 @@ impl ScrollManager {
             existing.vertical_bar = vertical_bar;
 
             if !was_overscrolling {
-                existing.current_offset = existing.clamp(existing.current_offset);
+                let clamped = existing.clamp(off);
+                // A range that shrank under the offset MOVES the view - a
+                // field whose text fits again goes back to its start - and
+                // the CPU path only rebuilds its display list for a move it
+                // is told about.
+                if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
+                    || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
+                {
+                    self.scroll_dirty = true;
+                }
+                existing.current_offset = clamped;
             }
         } else {
             // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
@@ -1588,6 +1600,28 @@ impl ScrollManager {
                     vertical_bar,
                 },
             );
+        }
+    }
+
+    /// Forget `node_id`'s scroll state - offset, bounds, bars - for a node that
+    /// is no longer a scroll container at all (`register_scroll_nodes`). A
+    /// node that merely stopped overflowing keeps its state, refreshed. A
+    /// thumb held on it is let go: there is no bar left to hold.
+    pub fn remove_scroll_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        let Some(removed) = self.states.remove(&(dom_id, node_id)) else {
+            return;
+        };
+        self.scrollbar_states
+            .retain(|(d, n, _), _| (*d, *n) != (dom_id, node_id));
+        if self
+            .thumb_drag
+            .is_some_and(|(d, n, _)| d == dom_id && n == node_id)
+        {
+            self.thumb_drag = None;
+        }
+        // Content that was painted scrolled is painted where it lies now.
+        if removed.current_offset.x != 0.0 || removed.current_offset.y != 0.0 {
+            self.scroll_dirty = true;
         }
     }
 
@@ -3552,6 +3586,69 @@ mod autotest_generated {
             ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 50.0)));
+    }
+
+    /// A box whose content FITS again (`register_scroll_nodes` refreshes it
+    /// with no bars) goes back to its start - and the move is reported, or
+    /// the CPU path keeps painting the content scrolled out of its box.
+    #[test]
+    fn re_registering_content_that_fits_moves_the_view_home_and_says_so() {
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        m.set_scroll_position(DOM, node(0), pos(0.0, 300.0), at(1));
+        m.clear_scroll_dirty();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 80.0),
+            at(2),
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
+        );
+        assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 0.0)));
+        assert!(m.has_pending_scroll_changes(), "the view moved");
+        m.calculate_scrollbar_states();
+        assert_eq!(m.debug_counts().1, 0, "and it has no bar left");
+
+        // Refreshing it again with nothing changed moves nothing.
+        m.clear_scroll_dirty();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 80.0),
+            at(3),
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
+        );
+        assert!(!m.has_pending_scroll_changes());
+    }
+
+    #[test]
+    fn remove_scroll_node_forgets_the_offset_and_the_bars_and_lets_go_of_the_thumb() {
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(1));
+        m.calculate_scrollbar_states();
+        m.begin_thumb_drag(DOM, node(0), ScrollbarOrientation::Vertical, at(2));
+        m.clear_scroll_dirty();
+
+        m.remove_scroll_node(DOM, node(0));
+        assert!(m.get_current_offset(DOM, node(0)).is_none());
+        assert!(m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .is_none());
+        assert!(m.hit_test_scrollbars(pos(90.0, 50.0)).is_none());
+        assert!(m.thumb_drag().is_none(), "no bar left to hold");
+        assert!(
+            m.has_pending_scroll_changes(),
+            "the content it scrolled is painted where it lies now"
+        );
+
+        // An unknown node (or the same one twice) is a no-op.
+        m.clear_scroll_dirty();
+        m.remove_scroll_node(DOM, node(0));
+        m.remove_scroll_node(DOM1, node(7));
+        assert!(!m.has_pending_scroll_changes());
     }
 
     #[test]

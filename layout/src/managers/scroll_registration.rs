@@ -191,8 +191,32 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 }
             }
 
+            // A box that STOPPED overflowing is still in the manager, with the
+            // rects it was registered with while it overflowed - and with them
+            // its bar and its offset: the text of a field that fits again
+            // stayed scrolled out of its own box, and a bar nobody painted any
+            // more still took presses. Refresh it like any other registration
+            // (the rects shrink, the bars go, the offset is clamped into the
+            // new range). Only its PRINCIPAL box speaks for it: a list item's
+            // `::marker` and a split preview's second part carry the same DOM
+            // node, and must not overwrite its rects with their own. A box
+            // that never scrolled still gets no state - one per scroll
+            // container on the page would make each a candidate for the wheel.
             if !(scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal) {
-                continue;
+                let principal_box = layout_result
+                    .layout_tree
+                    .dom_to_layout
+                    .get(&dom_node_id)
+                    .and_then(|boxes| boxes.first())
+                    .copied();
+                let is_principal_box = principal_box == Some(LayoutNodeId::new(node_idx));
+                let registered = layout_window
+                    .scroll_manager
+                    .get_scroll_state(*dom_id, dom_node_id)
+                    .is_some();
+                if !(is_principal_box && registered) {
+                    continue;
+                }
             }
 
             let container_rect = azul_core::geom::LogicalRect {
@@ -297,6 +321,60 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 .scroll_manager
                 .set_scroll_ancestors(*dom_id, dom_node_id, ancestors);
         }
+
+        // A box that is no longer a scroll container AT ALL - re-rendered
+        // `overflow: visible` or `clip` - has nothing left to scroll, and its
+        // state goes, offset and all. Kept, the offset went on moving the
+        // box's content for the hit tester, which scrolls the content of
+        // every node with a state, while the painter only scrolls a scroll
+        // container. A box that merely stopped overflowing is still one, and
+        // was refreshed above.
+        let stale: Vec<NodeId> = layout_window
+            .scroll_manager
+            .state_keys()
+            .into_iter()
+            .filter(|(d, n)| {
+                *d == *dom_id && !is_scroll_container(&layout_result.styled_dom, *d, *n)
+            })
+            .map(|(_, n)| n)
+            .collect();
+        for node_id in stale {
+            layout_window
+                .scroll_manager
+                .remove_scroll_node(*dom_id, node_id);
+        }
     }
     layout_window.scroll_manager.calculate_scrollbar_states();
+}
+
+/// Is `node_id` of `styled_dom` a SCROLL CONTAINER (CSS Overflow 3 §3.1:
+/// `hidden`, `scroll` or `auto` on either axis)?
+///
+/// The viewport's root always is: the viewport scrolls whatever the root
+/// declares (§3.3). A `VirtualView` host is too - its scroll state is its
+/// callback's, published whatever the host's style. A node the DOM does not
+/// have is not.
+fn is_scroll_container(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    dom_id: DomId,
+    node_id: NodeId,
+) -> bool {
+    if crate::solver3::scrollbar::is_viewport_scroller(dom_id, node_id) {
+        return true;
+    }
+    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+        return false;
+    };
+    if node_data.is_virtual_view_node() {
+        return true;
+    }
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+    let overflow_x = crate::solver3::getters::get_overflow_x(styled_dom, node_id, &node_state);
+    let overflow_y = crate::solver3::getters::get_overflow_y(styled_dom, node_id, &node_state);
+    overflow_x.is_scroll_container() || overflow_y.is_scroll_container()
 }

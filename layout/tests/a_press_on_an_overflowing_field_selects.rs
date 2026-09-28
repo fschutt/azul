@@ -209,7 +209,8 @@ impl Harness {
     }
 
     /// The pointer moves with the button held: a grabbed thumb follows it
-    /// (port of `handle_scrollbar_drag`), anything else extends the text
+    /// (port of the shells' thumb drag, `LayoutWindow::route_move` on the
+    /// press-router branch), anything else extends the text
     /// selection from the press.
     fn drag(&mut self, from: LogicalPosition, to: LogicalPosition) {
         let Some(drag) = self.thumb_drag else {
