@@ -35,7 +35,7 @@ use azul_css::{
 };
 
 use crate::{
-    callbacks::{Callback, CallbackInfo},
+    callbacks::CallbackInfo,
     widgets::dialog::{
         build_dialog, default_backdrop_style, DialogClasses, DialogClosedBy, DialogCompat,
         DialogParts, OptionDialogOnCancel, OptionDialogOnClose,
