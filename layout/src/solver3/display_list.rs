@@ -5348,6 +5348,17 @@ where
             .get(LayoutNodeId::new(child_index))
             .ok_or(LayoutError::InvalidTree)?;
 
+        // An absolutely positioned child is painted in the frames of its
+        // CONTAINING BLOCK's content, not its parent's: the clip and scroll
+        // frames of the boxes in between - the parent's own, when it is not
+        // positioned - are closed around it (`scroll_chain::box_anchor`). A
+        // child in flow sits in its parent's content, which is what is open.
+        let detour = matches!(
+            get_position_type(self.ctx.styled_dom, child_node.dom_node_id),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        )
+        .then(|| self.enter_scroll_chain(builder, child_index));
+
         // Check if this child has a GPU transform (CSS transform or drag)
         let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
             self.gpu_value_cache.and_then(|cache| {
@@ -5440,6 +5451,10 @@ where
         if child_ref_frame.is_some() {
             builder.pop_reference_frame();
             self.open_clips.pop();
+        }
+
+        if let Some(detour) = detour {
+            self.leave_scroll_chain(builder, detour);
         }
 
         Ok(())

@@ -260,9 +260,12 @@ impl ScrollChains {
 ///
 /// A box in flow sits in its parent's content. An out-of-flow box sits in
 /// the content of its CONTAINING BLOCK: every clip and scroll frame between
-/// the two is not its own (CSS 2.2 §11.1.1). For `position: fixed` that is
-/// the nearest transformed ancestor ([`establishes_containing_block`]), and
-/// otherwise the viewport - the page's own scroll frame is left too.
+/// the two is not its own (CSS 2.2 §11.1.1). For `position: absolute` that
+/// is the nearest positioned or transformed ancestor, else the initial
+/// containing block - the root, whose content scrolls with the page. For
+/// `position: fixed` it is the nearest transformed ancestor, and otherwise
+/// the viewport - the page's own scroll frame is left too
+/// ([`establishes_containing_block`]).
 ///
 /// The display list cannot take a box out of a group painted around it
 /// (a stacking context, a clip-path, an image mask - [`paints_as_a_group`]),
@@ -277,6 +280,7 @@ pub(crate) fn box_anchor(
     let node = tree.get(index)?;
     let parent = LayoutNodeId::new(node.parent?);
     let kind = match get_position_type(styled_dom, node.dom_node_id) {
+        LayoutPosition::Absolute => OutOfFlow::Absolute,
         LayoutPosition::Fixed => OutOfFlow::Fixed,
         _ => return Some((parent, true)),
     };
@@ -297,6 +301,9 @@ pub(crate) fn box_anchor(
 /// The containing-block rule [`box_anchor`] walks by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutOfFlow {
+    /// `position: absolute`: the nearest positioned or transformed ancestor,
+    /// or the initial containing block (the root).
+    Absolute,
     /// `position: fixed`: the viewport, or the nearest transformed ancestor.
     Fixed,
 }
@@ -312,13 +319,25 @@ fn establishes_containing_block(
     index: LayoutNodeId,
     kind: OutOfFlow,
 ) -> bool {
-    let Some(node) = tree.get(index).and_then(|n| n.dom_node_id) else {
+    let Some(hot) = tree.get(index) else {
+        return false;
+    };
+    let Some(node) = hot.dom_node_id else {
         return false; // an anonymous box never is
     };
     let state = styled_node_state(styled_dom, node);
     let transformed = crate::solver3::getters::get_transform(styled_dom, node, &state)
         .is_some_and(|t| !t.is_empty());
     match kind {
+        // The same "positioned" layout places the box against
+        // (`positioning::find_absolute_containing_block_rect`); the root
+        // stands for the initial containing block, which scrolls with the
+        // page.
+        OutOfFlow::Absolute => {
+            transformed
+                || hot.parent.is_none()
+                || get_position_type(styled_dom, Some(node)).is_positioned()
+        }
         OutOfFlow::Fixed => transformed,
     }
 }
