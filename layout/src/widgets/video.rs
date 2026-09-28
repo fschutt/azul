@@ -304,6 +304,11 @@ impl VideoWidget {
     }
 }
 
+/// The `<img>` one decoded frame renders as, filling the widget.
+fn frame_image(img: ImageRef) -> Dom {
+    Dom::create_image(img).with_css("width: 100%; height: 100%;")
+}
+
 /// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`
 /// for the latest decoded frame, re-read from the widget's dataset on every
 /// re-render. The decode worker stores frames into `current_frame` and triggers
@@ -343,11 +348,7 @@ extern "C" fn video_widget_render(
                              #44444c;",
                         ))
                     },
-                    |img| {
-                        OptionDom::Some(
-                            Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                        )
-                    },
+                    |img| OptionDom::Some(frame_image(img.clone())),
                 )
             })
     };
@@ -3523,5 +3524,22 @@ mod autotest_generated {
             Some(VideoPhase::Ended),
             "a video still decoding has not ended"
         );
+    }
+
+    /// A decoded frame is the picture BEHIND the player's controls, which the
+    /// app names ("Play video", "Seek"): the frame is marked decorative
+    /// (`role: Nothing`, no name) so it is neither absent-and-unexplained nor
+    /// announced once per frame.
+    #[test]
+    fn a_decoded_frame_is_a_decorative_image() {
+        let dom = frame_image(placeholder_image(b"frame"));
+        assert!(matches!(dom.root.get_node_type(), NodeType::Image(_)));
+        let info = dom
+            .root
+            .accessibility
+            .as_ref()
+            .expect("a frame image must declare accessibility, or it is absent from the tree");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Nothing);
+        assert!(info.accessibility_name.as_ref().is_none());
     }
 }

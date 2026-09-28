@@ -208,6 +208,12 @@ pub struct ProgressBar {
     pub height: PixelValue,
     pub bar_background: StyleBackgroundContentVec,
     pub container_background: StyleBackgroundContentVec,
+    /// What this bar is CALLED, for assistive technology ("Upload",
+    /// "Battery"). The bar's node announces its role and its value itself;
+    /// only the caller knows what it measures. Carried by the WIDGET because
+    /// the node that carries the role is rendered inside the `VirtualView`,
+    /// where a name patched onto the finished `Dom` never arrives.
+    pub accessibility_name: OptionString,
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -246,6 +252,7 @@ impl ProgressBar {
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
+            accessibility_name: OptionString::None,
             theme: crate::widgets::themes::OptionUiTheme::Some(
                 crate::widgets::themes::UiTheme::Flat,
             ),
@@ -283,6 +290,18 @@ impl ProgressBar {
 
     pub const fn set_height(&mut self, height: PixelValue) {
         self.height = height;
+    }
+
+    /// Name the bar for assistive technology, like every other widget's
+    /// `with_accessibility_name`:
+    ///
+    /// ```ignore
+    /// ProgressBar::create(40.0).with_accessibility_name("Upload").dom()
+    /// ```
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
     }
 
     #[must_use]
@@ -1627,5 +1646,32 @@ mod autotest_generated {
         );
         assert_eq!(ret.materialized, LogicalRect::zero());
         assert_eq!(ret.virtual_rect, LogicalRect::zero());
+    }
+
+    /// The name given with `with_accessibility_name` lands on the node that
+    /// carries the ProgressBar role (the one a screen reader reads), in both
+    /// themes; a name on the outer `VirtualView` never reaches that node.
+    #[test]
+    fn a_named_progress_bar_carries_the_name_on_its_progress_bar_node() {
+        for theme in [
+            crate::widgets::themes::UiTheme::Flat,
+            crate::widgets::themes::UiTheme::Flora,
+        ] {
+            let dom = ProgressBar::create(65.0)
+                .with_theme(theme)
+                .with_accessibility_name("Upload")
+                .render_bar();
+            let info = dom
+                .root
+                .accessibility
+                .as_ref()
+                .expect("the bar declares accessibility");
+            assert_eq!(info.role, azul_core::a11y::AccessibilityRole::ProgressBar);
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|s| s.as_str()),
+                Some("Upload"),
+                "{theme:?}: the name did not reach the progress bar node"
+            );
+        }
     }
 }

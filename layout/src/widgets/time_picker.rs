@@ -3683,4 +3683,27 @@ mod autotest_generated {
             );
         }
     }
+
+    // ==================================================================
+    // Accessibility of the stepper arrows
+    // ==================================================================
+
+    /// The ▲ / ▼ glyphs are not names: each arrow says what it changes.
+    #[test]
+    fn the_spinner_arrows_are_named_after_what_they_change() {
+        let name = |dom: &Dom| -> Option<String> {
+            dom.root
+                .accessibility
+                .as_ref()
+                .and_then(|info| info.accessibility_name.as_ref().map(|s| s.as_str().to_string()))
+        };
+        let dom = TimePicker::create(14, 30).dom();
+        let (hour, _, minute) = columns(&dom);
+        let hour_cells = hour.children.as_ref();
+        let minute_cells = minute.children.as_ref();
+        assert_eq!(name(&hour_cells[0]).as_deref(), Some("Increase hour"));
+        assert_eq!(name(&hour_cells[2]).as_deref(), Some("Decrease hour"));
+        assert_eq!(name(&minute_cells[0]).as_deref(), Some("Increase minute"));
+        assert_eq!(name(&minute_cells[2]).as_deref(), Some("Decrease minute"));
+    }
 }
