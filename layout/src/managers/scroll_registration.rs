@@ -352,7 +352,8 @@ fn is_scroll_container(
     if crate::solver3::scrollbar::is_viewport_scroller(dom_id, node_id) {
         return true;
     }
-    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+    let node_data = styled_dom.node_data.as_container();
+    let Some(node_data) = node_data.get(node_id) else {
         return false;
     };
     if node_data.is_virtual_view_node() {

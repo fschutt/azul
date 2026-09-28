@@ -2220,7 +2220,7 @@ pub fn collect_scroll_shifts(
         // wheel step is already a visible 0.6-device-px move).
         ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
     };
-    let mut out = Vec::new();
+    let mut out: Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
     let mut stack: Vec<(f32, f32)> = Vec::new();
     let mut acc = (0.0f32, 0.0f32);
     for item in &display_list.items {
