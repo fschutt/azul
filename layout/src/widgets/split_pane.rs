@@ -65,7 +65,8 @@ use azul_css::{
         basic::{color::ColorU, FloatValue, PixelValue},
         layout::{
             LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
-            LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutWidth,
+            LayoutHeight, LayoutLeft, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
+            LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::{
             CssProperty, LayoutFlexBasisValue, LayoutFlexGrowValue, LayoutHeightValue,
@@ -88,6 +89,9 @@ static SPLIT_PANE_DIVIDER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str
 ))];
 static SPLIT_PANE_SECOND_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-split-pane-second",
+))];
+static SPLIT_PANE_SASH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-split-pane-sash",
 ))];
 
 /// Orientation of a [`SplitPane`].
@@ -177,8 +181,12 @@ impl Default for SplitPaneState {
 // ---- dimensions / limits ----
 /// Divider thickness in logical px.
 const DIVIDER_THICKNESS: isize = 6;
-/// How far (logical px) from the divider centre a press still grabs it.
+/// How far (logical px) from the divider centre a press still grabs it:
+/// half the sash (`DIVIDER_THICKNESS + 2 * SASH_REACH`).
 const GRAB_THRESHOLD: f32 = 9.0;
+/// How far (logical px) the divider's grab area - its transparent sash -
+/// reaches past each side of the visible bar, over the panes' edges.
+const SASH_REACH: isize = 6;
 /// Smallest / largest allowed first-pane fraction (keeps both panes visible).
 const MIN_RATIO: f32 = 0.05;
 const MAX_RATIO: f32 = 0.95;
@@ -329,10 +337,47 @@ fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
         })),
         CssPropertyWithConditions::simple(size_prop),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
+        // The containing block of the sash (`sash_style`).
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
         CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
             DIVIDER_DARK_BG,
         )),
+    ])
+}
+
+/// Builds the divider's SASH: its grab area, transparent, `2 * GRAB_THRESHOLD`
+/// px along the drag axis and centred on the divider, spanning it across, with
+/// the divider's resize cursor. Absolutely positioned in the divider, so it
+/// lies over the panes' edges without taking their space: the visible line
+/// stays thin while the whole grab zone shows that it can be grabbed. (The
+/// grab itself is geometric - `on_split_pointer_down` - and matches the sash.)
+fn sash_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
+    let extent = DIVIDER_THICKNESS + 2 * SASH_REACH;
+    let full = PixelValue::percent(100.0);
+    let (along, start, extent_prop, across, cursor) = match dir {
+        SplitDirection::Horizontal => (
+            CssProperty::const_left(LayoutLeft::const_px(-SASH_REACH)),
+            CssProperty::const_top(LayoutTop::const_px(0)),
+            CssProperty::const_width(LayoutWidth::const_px(extent)),
+            CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(full))),
+            StyleCursor::ColResize,
+        ),
+        SplitDirection::Vertical => (
+            CssProperty::const_top(LayoutTop::const_px(-SASH_REACH)),
+            CssProperty::const_left(LayoutLeft::const_px(0)),
+            CssProperty::const_height(LayoutHeight::const_px(extent)),
+            CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(full))),
+            StyleCursor::RowResize,
+        ),
+    };
+    CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        CssPropertyWithConditions::simple(along),
+        CssPropertyWithConditions::simple(start),
+        CssPropertyWithConditions::simple(extent_prop),
+        CssPropertyWithConditions::simple(across),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
     ])
 }
 
@@ -536,7 +581,14 @@ impl SplitPane {
                 )))
                 .into(),
                 ..Default::default()
-            });
+            })
+            // The grab area, wider than the thin bar (`sash_style`).
+            .with_children(
+                vec![Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SASH_CLASS))
+                    .with_css_props(sash_style(direction))]
+                .into(),
+            );
 
         let second_pane = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SECOND_CLASS))
@@ -1585,8 +1637,9 @@ mod autotest_generated {
     fn divider_style_never_grows_or_shrinks_and_is_visible() {
         for dir in BOTH_DIRECTIONS {
             let s = divider_style(dir);
-            // Five for the light bar, plus its dark-theme colour.
-            assert_eq!(properties(&s).len(), 6, "{dir:?}");
+            // Six for the light bar (the last is `position: relative`, the
+            // sash's containing block), plus its dark-theme colour.
+            assert_eq!(properties(&s).len(), 7, "{dir:?}");
             assert_eq!(
                 s.as_ref().iter().filter(|p| p.is_dark_twin()).count(),
                 1,
@@ -2038,9 +2091,15 @@ mod autotest_generated {
         assert_eq!(second.children.as_ref().len(), 1);
         assert_eq!(dom_classes(child(first, 0)), vec!["alpha".to_string()]);
         assert_eq!(dom_classes(child(second, 0)), vec!["beta".to_string()]);
-        // The divider is a leaf: anything inside it would sit under the cursor
-        // during a drag.
-        assert!(child(&dom, 1).children.as_ref().is_empty());
+        // The divider holds its sash (the grab area) and nothing else: no
+        // user content sits under the cursor during a drag.
+        let divider = child(&dom, 1);
+        assert_eq!(divider.children.as_ref().len(), 1);
+        assert_eq!(
+            dom_classes(child(divider, 0)),
+            vec!["__azul-native-split-pane-sash".to_string()]
+        );
+        assert!(child(divider, 0).children.as_ref().is_empty());
     }
 
     #[test]
@@ -3218,7 +3277,7 @@ mod autotest_generated {
     }
 
     /// Presses `key` (with `held`) on the divider (node 3 of the flattened
-    /// `[container 0, pane 1 > user 2, divider 3, pane 4 > user 5]`) through
+    /// `[container 0, pane 1 > user 2, divider 3 > sash 4, pane 5 > user 6]`) through
     /// the key handler the divider registered. Returns the handler's update
     /// and changes.
     fn press_key_on_divider(
@@ -3318,7 +3377,7 @@ mod autotest_generated {
         assert_eq!(writes.len(), 2, "both panes follow the key: {changes:?}");
         assert_eq!(writes[0].0, NodeId::new(1), "the first pane");
         assert!((writes[0].1 - 0.51).abs() < 2e-3);
-        assert_eq!(writes[1].0, NodeId::new(4), "the second pane");
+        assert_eq!(writes[1].0, NodeId::new(5), "the second pane");
         assert!((writes[1].1 - 0.49).abs() < 2e-3);
         assert!(prevented(&changes), "the arrow must not also move the focus or scroll");
         assert_eq!(update, Update::RefreshDom, "on_resize's update is returned");
