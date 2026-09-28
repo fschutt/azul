@@ -145,8 +145,9 @@ pub mod shader_cache;
 pub mod shell2;
 /// System tray / status icon — NSStatusItem, Shell_NotifyIcon, StatusNotifierItem
 pub mod tray;
-/// Native notifications — UNUserNotificationCenter, org.freedesktop.Notifications,
-/// a Shell_NotifyIcon balloon; the tray's sibling
+/// Native notifications — UNUserNotificationCenter (macOS, iOS),
+/// org.freedesktop.Notifications, a WinRT toast (balloon fallback), Android's
+/// NotificationManager; the tray's sibling
 pub mod notifications;
 /// The run loops' wake-up line for the app-level sources: their fds for the
 /// Linux poll sets, a cross-thread wake, and the per-iteration service.

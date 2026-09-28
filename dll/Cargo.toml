@@ -465,6 +465,12 @@ windows = { version = "0.62", optional = true, features = [
     # platform that can take album art as a URI rather than as decoded pixels.
     "Media",
     "Storage_Streams",
+    # Native notifications as WinRT toasts (desktop/notifications/windows.rs):
+    # ToastNotificationManager / ToastNotification and the XmlDocument their
+    # content is loaded from. The AUMID they need is registered under HKCU
+    # through a dlopen'd advapi32, so no registry feature is needed.
+    "UI_Notifications",
+    "Data_Xml_Dom",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
