@@ -2802,6 +2802,41 @@ mod dom_fingerprint_tests {
     }
 
     #[test]
+    fn a_changed_fluent_argument_changes_the_structure_fingerprint() {
+        // The text a localizable node renders is its key's translation
+        // FORMATTED WITH these arguments: "You have 1 new email" and "You have
+        // 2 new emails" come from the same key. If the fingerprint cannot see
+        // them, `regenerate_layout`'s pre-cascade skip keeps the retained DOM
+        // and the count on screen never changes.
+        use crate::dom::{FluentArg, FluentArgKV};
+        let unread = |count: i32| {
+            Dom::create_p_with_text(azul_css::corety::AzString::tr("unread-emails"))
+                .with_fluent_args(alloc::vec![FluentArgKV {
+                    key: "count".into(),
+                    value: FluentArg::I32(count),
+                }])
+        };
+        let (a, _) = fingerprint_dom(&unread(1));
+        let (b, _) = fingerprint_dom(&unread(2));
+        assert_ne!(
+            a.structure_root, b.structure_root,
+            "a Fluent argument is part of what the node renders"
+        );
+    }
+
+    #[test]
+    fn a_text_becoming_a_translation_key_changes_the_structure_fingerprint() {
+        // `AzString` equality and hashing read the characters only, so
+        // "Save" and `AzString::tr("Save")` hash alike - but one renders
+        // "Save" and the other renders the key's translation.
+        let plain = Dom::create_p_with_text(azul_css::corety::AzString::from("save"));
+        let key = Dom::create_p_with_text(azul_css::corety::AzString::tr("save"));
+        let (a, _) = fingerprint_dom(&plain);
+        let (b, _) = fingerprint_dom(&key);
+        assert_ne!(a.structure_root, b.structure_root);
+    }
+
+    #[test]
     fn with_css_sheet_change_is_style_tier_only() {
         let base = || sample_dom();
         let (a, _) = fingerprint_dom(&base().with_css("div { color: red; }"));
