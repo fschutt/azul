@@ -19,26 +19,18 @@ file is deleted in that last commit.
     `caret_block_content` -> pub `element_content` returning `BlockContent`.
   - 05327dfc0 test: `a_line_per_caret_pastes_into_a_list_items_text`.
 
-## IN PROGRESS (uncommitted in the worktree)
+  - ccd2b9e87 fix: every caret-indexed reader reads its block's content
+    (resolve_cursor_to_text_byte, byte_offset_of_cursor, ime_text_block +
+    ime_document, ime_surrounding_text, set_focused_selection_from_byte_range,
+    seat Backspace + seat typing block, Ctrl+D, paste per caret, preedit
+    splice with affinity, Wayland surrounding text + cursor/anchor swap).
 
-N3 fix commit ("fix(selection): every caret-indexed reader reads the block
-content"). Already edited in window.rs: `resolve_cursor_to_text_byte`,
-`byte_offset_of_cursor`, new `ime_text_block` + `ime_document`,
-`ime_surrounding_text`, `set_focused_selection_from_byte_range`
-(BlockContent::caret_at), `apply_seat_selection_op` (edit element + block
-content, `node_id` param removed; caller updated), seat caret block in
-`apply_one_text_changeset`, `select_next_occurrence` content.
-block_content.rs: `caret_at` always `Some` (blank block -> Leading@(first
-text run | generated, 0)).
-Still to do in this commit: `spliced_text_with_preedits` (element_content +
-`run_byte_of` for affinity, return text part), `paste_one_line_per_caret`
-(element_content + selections_past_generated + split_off), Wayland
-`send_surrounding_text` / `send_seat_surrounding_text` -> `block_content` +
-`byte_offset_of_cursor`.
+## IN PROGRESS
+
+(nothing uncommitted)
 
 ## NEXT (in order)
 
-1. Finish + commit the N3 fix.
 2. Task 2: RED + fix Shift+Arrow over a document selection (extend the focus
    of `cross_block`; at a block edge cross into the adjacent block of
    `selection_extent(anchor)`; collapse back to a single-block range when the
