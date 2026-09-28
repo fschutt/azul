@@ -1233,6 +1233,31 @@ greeting = Hello, { $name }!
     }
 
     #[test]
+    fn arguments_attached_to_an_element_reach_its_translated_text() {
+        use azul_core::dom::{Dom, FluentArg, FluentArgKV, NodeType};
+
+        let localizer = FluentLocalizerHandle::create("en-US", &[]);
+        assert!(localizer.add_resource("en-US", "welcome-greeting = Welcome back, { $userName }!\n"));
+
+        // The guide's own example (localization.md, "Translatable Strings"):
+        // the arguments hang on the `<p>`, the key is the text child that
+        // `create_p_with_text` makes.
+        let mut dom = Dom::create_p_with_text(AzString::tr("welcome-greeting")).with_fluent_args(
+            vec![FluentArgKV {
+                key: "userName".into(),
+                value: FluentArg::String("Alice".into()),
+            }],
+        );
+        translate_texts_in_dom(&mut dom, &localizer, "en-US");
+
+        let text = match &dom.children.as_ref()[0].root.node_type {
+            NodeType::Text(t) => t.as_ref().as_str().to_string(),
+            other => panic!("expected the text child, got {other:?}"),
+        };
+        assert_eq!(text, "Welcome back, Alice!");
+    }
+
+    #[test]
     fn test_syntax_check() {
         // Valid FTL
         let valid = "hello = Hello, world!";
