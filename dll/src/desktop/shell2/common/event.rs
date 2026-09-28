@@ -464,12 +464,13 @@ extern "C" fn auto_scroll_timer_callback(
     // text field scrolled the PAGE instead of the field, and the field's own
     // content never moved. Same shape for any editable that is its own
     // scroller (TextArea, code editors).
-    // `find_scroll_target` returns the FFI node id now, and this caller indexes
-    // with the internal one - so it converts, exactly as the timer wrapper does.
+    // ONE rule for "which box does this drag scroll", in the layout window
+    // (`LayoutWindow::drag_autoscroll_box`), so a test can ask it too.
+    let _ = node_id;
     let scroll_parent = match callback_info
-        .find_scroll_target(dom_id, node_id)
-        .into_option()
-        .and_then(|n| n.into_crate_internal())
+        .get_layout_window()
+        .drag_autoscroll_box(focused_node)
+        .and_then(|n| n.node.into_crate_internal())
     {
         Some(parent_id) => parent_id,
         None => {

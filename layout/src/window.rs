@@ -14428,6 +14428,26 @@ impl LayoutWindow {
             })
     }
 
+    /// The scroll box a drag's autoscroll moves, for a drag anchored on
+    /// `anchor` (the shells' `auto_scroll_timer_callback`: the focused node
+    /// of a text-selection drag, else the node under the pointer).
+    ///
+    /// The scroll box `anchor` LIVES IN - itself included - among its DOM
+    /// ancestors that carry a scroll state.
+    #[must_use]
+    pub fn drag_autoscroll_box(&self, anchor: DomNodeId) -> Option<DomNodeId> {
+        let node = anchor.node.into_crate_internal()?;
+        let layout_result = self.layout_results.get(&anchor.dom)?;
+        let hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
+            layout_result.styled_dom.node_hierarchy.as_ref();
+        self.scroll_manager
+            .find_scroll_parent(anchor.dom, node, hierarchy, Inclusivity::SelfAndAncestors)
+            .map(|found| DomNodeId {
+                dom: anchor.dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(found)),
+            })
+    }
+
     /// The nearest FOCUSABLE ancestor of `node_id` (itself included) — the
     /// caret's "focus scope".
     ///
