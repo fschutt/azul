@@ -38,8 +38,19 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
   no layout-crate RED possible); hit tester compute_node_clips ancestor walk (O(n*depth) overflow
   lookups per rebuild, pre-existing, not a regression).
 
+- cd8a4c8f6 RED bug 3: layout/tests/accordion_animation.rs (engine: height auto->0 tween at 25% must
+  be 75px, today 100; widget open/close must pass through in-between heights, today snap).
+
 ## IN PROGRESS
-- Bug 3 accordion animation.
+- FIX bug 3 engine: window.rs apply_node_css_change - `from` not a length for width/height and `to`
+  a px length -> from = node's laid-out content-box (or border-box) size.
+- FIX bug 3 widget (accordion.rs): body = display flow-root + overflow clip, closed = height 0 +
+  padding-top/bottom 0, open = height auto + padding 12; declared animation (height, padding-top,
+  padding-bottom, 220ms ease-in-out) only under PrefersReducedMotion(False). Handler: animated =
+  body resolves an `animation` AND system style not reduced; OPEN = full write [height auto, pt 12,
+  pb 12] then override-only [height H] (H = body's get_content_size height, measured while closed);
+  CLOSE = full write [height 0, pt 0, pb 0]; not animated + host RefreshDom = write `initial` x3
+  (no latch); not animated self-contained = targets. Rewrite the display-pinning unit tests.
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
