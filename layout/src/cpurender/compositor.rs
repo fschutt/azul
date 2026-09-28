@@ -3576,14 +3576,44 @@ pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
 /// `current` / `previous` are keyed by the child `DomId` (the non-root entries
 /// of `layout_results`). A child that is newly present or newly absent counts
 /// as changed.
+///
+/// `scroll_offsets` are the offsets this frame PAINTS with (`scroll_id` →
+/// offset). A `VirtualView` item inside a scroll frame carries its CONTENT
+/// position, and the rasteriser draws it at that position minus the
+/// accumulated offset of the frames around it. The damage has to land there
+/// too: at the content position, a view in a scrolled box was damaged a scroll
+/// offset below where it is shown, so an in-place re-render (a video frame, a
+/// map tile) repainted pixels nowhere near it and the view froze on screen.
 #[must_use]
 pub fn compute_virtual_view_damage(
     parent: &DisplayList,
     current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
+    // Accumulated offset of the scroll frames enclosing the current item, the
+    // same walk the parent-list diff does.
+    let mut offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
     for item in &parent.items {
+        match item {
+            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                let (ax, ay) = *offset_stack.last().unwrap_or(&(0.0, 0.0));
+                let (sx, sy) = scroll_offsets
+                    .get(scroll_id)
+                    .copied()
+                    .unwrap_or((0.0, 0.0));
+                offset_stack.push((ax + sx, ay + sy));
+                continue;
+            }
+            DisplayListItem::PopScrollFrame => {
+                if offset_stack.len() > 1 {
+                    offset_stack.pop();
+                }
+                continue;
+            }
+            _ => {}
+        }
         if let DisplayListItem::VirtualView {
             child_dom_id,
             bounds,
@@ -3591,7 +3621,17 @@ pub fn compute_virtual_view_damage(
             ..
         } = item
         {
-            let view = *bounds.inner();
+            // Where the view is PAINTED this frame: its content box moved by
+            // the scroll of the frames around it.
+            let (ox, oy) = *offset_stack.last().unwrap_or(&(0.0, 0.0));
+            let content_box = *bounds.inner();
+            let view = LogicalRect {
+                origin: LogicalPosition {
+                    x: content_box.origin.x - ox,
+                    y: content_box.origin.y - oy,
+                },
+                size: content_box.size,
+            };
             match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
                     // Same Arc → definitely unchanged (cheap fast-path).
@@ -5949,14 +5989,16 @@ mod autotest_generated {
 
     #[test]
     fn virtual_view_damage_without_virtual_views_is_empty() {
+        let unscrolled = ScrollOffsetMap::default();
         let parent = dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]);
         let cur: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
         let prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
-        assert!(compute_virtual_view_damage(&parent, &cur, &prev).is_empty());
+        assert!(compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled).is_empty());
     }
 
     #[test]
     fn virtual_view_damage_tracks_child_dom_changes() {
+        let unscrolled = ScrollOffsetMap::default();
         let dom = DomId { inner: 1 };
         let parent = dlist(vec![DisplayListItem::VirtualView {
             child_dom_id: dom,
@@ -5974,26 +6016,26 @@ mod autotest_generated {
         // Same Arc → cheap pointer fast-path → no damage.
         cur.insert(dom, Arc::clone(&shared));
         prev.insert(dom, Arc::clone(&shared));
-        assert!(compute_virtual_view_damage(&parent, &cur, &prev).is_empty());
+        assert!(compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled).is_empty());
 
         // Distinct Arcs, identical content → still no damage.
         cur.insert(dom, Arc::clone(&equal_but_distinct));
-        assert!(compute_virtual_view_damage(&parent, &cur, &prev).is_empty());
+        assert!(compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled).is_empty());
 
         // Content actually changed → damage the VirtualView's on-screen bounds.
         cur.insert(dom, Arc::clone(&different));
-        let d = compute_virtual_view_damage(&parent, &cur, &prev);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].origin.x, 5.0);
         assert_eq!(d[0].size.width, 40.0);
 
         // Newly present child (absent last frame) counts as changed.
         prev.remove(&dom);
-        assert_eq!(compute_virtual_view_damage(&parent, &cur, &prev).len(), 1);
+        assert_eq!(compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled).len(), 1);
 
         // Absent in both → nothing to draw, nothing to damage.
         cur.remove(&dom);
-        assert!(compute_virtual_view_damage(&parent, &cur, &prev).is_empty());
+        assert!(compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled).is_empty());
     }
 
     /// A BLINKING CARET MUST NOT REPAINT THE DOCUMENT.
@@ -6015,6 +6057,7 @@ mod autotest_generated {
     /// in it moved.
     #[test]
     fn a_caret_blink_inside_a_virtual_view_damages_the_caret_not_the_view() {
+        let unscrolled = ScrollOffsetMap::default();
         let dom = DomId { inner: 1 };
         // A document viewport the size of a real window body.
         let parent = dlist(vec![DisplayListItem::VirtualView {
@@ -6052,7 +6095,7 @@ mod autotest_generated {
         prev.insert(dom, Arc::clone(&caret_on));
         cur.insert(dom, Arc::clone(&caret_off));
 
-        let d = compute_virtual_view_damage(&parent, &cur, &prev);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled);
         assert!(
             !d.is_empty(),
             "the caret DID change - something must repaint"
@@ -6079,6 +6122,7 @@ mod autotest_generated {
     /// repainting its position would dirty a neighbour's pixels.
     #[test]
     fn virtual_view_damage_is_clipped_to_the_view() {
+        let unscrolled = ScrollOffsetMap::default();
         let dom = DomId { inner: 1 };
         let parent = dlist(vec![DisplayListItem::VirtualView {
             child_dom_id: dom,
@@ -6099,7 +6143,7 @@ mod autotest_generated {
         prev.insert(dom, Arc::clone(&a));
         cur.insert(dom, Arc::clone(&b));
 
-        for r in compute_virtual_view_damage(&parent, &cur, &prev) {
+        for r in compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled) {
             assert!(
                 r.origin.x >= 0.0
                     && r.origin.y >= 0.0
@@ -6115,6 +6159,7 @@ mod autotest_generated {
     /// is not negotiable.
     #[test]
     fn a_structural_child_change_still_damages_the_whole_view() {
+        let unscrolled = ScrollOffsetMap::default();
         let dom = DomId { inner: 1 };
         let parent = dlist(vec![DisplayListItem::VirtualView {
             child_dom_id: dom,
@@ -6128,10 +6173,83 @@ mod autotest_generated {
         let prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
         cur.insert(dom, Arc::clone(&only));
 
-        let d = compute_virtual_view_damage(&parent, &cur, &prev);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &unscrolled);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].size.width, 40.0);
         assert_eq!(d[0].size.height, 30.0);
+    }
+
+    /// A view inside a scrolled frame is PAINTED at its box minus the frame's
+    /// offset (the rasteriser draws at `pos - accumulated_scroll`), so that is
+    /// where a change inside it must be damaged. Damaged at its content
+    /// position, the repaint lands a scroll offset below the view: the Video
+    /// card of AzWidgets, far down a scrolled page, froze on its first frame.
+    #[test]
+    fn a_virtual_view_inside_a_scrolled_frame_is_damaged_where_it_is_painted() {
+        let scrolled_view = DomId { inner: 1 };
+        let unscrolled_view = DomId { inner: 2 };
+        // Frame 7 clips 0,0 200x100; the first view sits at content y 300 in
+        // it. The second view comes after the frame, which does not move it.
+        let parent = dlist(vec![
+            push_scroll(7, 0.0, 0.0, 200.0, 100.0),
+            DisplayListItem::VirtualView {
+                child_dom_id: scrolled_view,
+                bounds: wlr(10.0, 300.0, 180.0, 60.0),
+                clip_rect: wlr(10.0, 300.0, 180.0, 60.0),
+                content_offset: Default::default(),
+            },
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::VirtualView {
+                child_dom_id: unscrolled_view,
+                bounds: wlr(10.0, 120.0, 50.0, 20.0),
+                clip_rect: wlr(10.0, 120.0, 50.0, 20.0),
+                content_offset: Default::default(),
+            },
+        ]);
+        let before = Arc::new(dlist(vec![opaque_rect(0.0, 0.0, 180.0, 60.0)]));
+        let after = Arc::new(dlist(vec![rect_item(
+            0.0,
+            0.0,
+            180.0,
+            60.0,
+            ColorU {
+                r: 30,
+                g: 220,
+                b: 30,
+                a: 255,
+            },
+        )]));
+        let mut prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        let mut cur: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        for dom in [scrolled_view, unscrolled_view] {
+            prev.insert(dom, Arc::clone(&before));
+            cur.insert(dom, Arc::clone(&after));
+        }
+        let mut scrolled = ScrollOffsetMap::new();
+        scrolled.insert(7, (0.0, 300.0));
+
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &scrolled);
+
+        let covers = |x: f32, y: f32| {
+            d.iter().any(|r| {
+                x >= r.origin.x
+                    && x < r.origin.x + r.size.width
+                    && y >= r.origin.y
+                    && y < r.origin.y + r.size.height
+            })
+        };
+        assert!(
+            covers(50.0, 30.0),
+            "the scrolled view is painted at y 0..60, so its change is damaged there, got {d:?}"
+        );
+        assert!(
+            !d.iter().any(|r| r.origin.y >= 300.0),
+            "nothing is damaged at the view's content position (y 300), got {d:?}"
+        );
+        assert!(
+            covers(20.0, 125.0),
+            "a view after the frame keeps its own position, got {d:?}"
+        );
     }
 
     // ============================== apply_layer_filters ======================

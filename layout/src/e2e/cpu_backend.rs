@@ -309,13 +309,6 @@ impl CpuBackend {
             .filter(|(id, _)| id.inner != dom_id.inner)
             .map(|(id, r)| (*id, r.display_list.clone()))
             .collect();
-        let vview_damage = cpurender::compute_virtual_view_damage(
-            display_list,
-            &vview_dls,
-            &self.previous_vview_dls,
-        );
-        let has_vview_damage = !vview_damage.is_empty();
-        self.previous_vview_dls = vview_dls.clone();
 
         // Scroll: the display list is UNCHANGED on scroll, so the diff above
         // only ever catches the scrollbar. Collect (clip, delta) per frame whose
@@ -350,6 +343,19 @@ impl CpuBackend {
                 }
             })
             .collect();
+
+        // The views' damage lands where this frame PAINTS them: an incremental
+        // frame rasterises at `next_scroll_baseline`, and a view inside a
+        // scrolled box is painted at its content box minus that offset (same
+        // as the shell's `render_frame`).
+        let vview_damage = cpurender::compute_virtual_view_damage(
+            display_list,
+            &vview_dls,
+            &self.previous_vview_dls,
+            &next_scroll_baseline,
+        );
+        let has_vview_damage = !vview_damage.is_empty();
+        self.previous_vview_dls = vview_dls.clone();
 
         // Determine render path.
         let mut all_damage: Vec<LogicalRect>;

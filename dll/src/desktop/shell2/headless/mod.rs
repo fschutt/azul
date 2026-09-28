@@ -845,13 +845,6 @@ impl CpuBackend {
             .filter(|(id, _)| id.inner != dom_id.inner)
             .map(|(id, r)| (*id, r.display_list.clone()))
             .collect();
-        let vview_damage = cpurender::compute_virtual_view_damage(
-            display_list,
-            &vview_dls,
-            &self.previous_vview_dls,
-        );
-        let has_vview_damage = !vview_damage.is_empty();
-        self.previous_vview_dls = vview_dls.clone();
 
         // #13/#14: scroll. The display list is UNCHANGED on scroll — content
         // items live at content coords and the scroll is applied at render time
@@ -901,6 +894,22 @@ impl CpuBackend {
                 }
             })
             .collect();
+
+        // The views' damage lands where this frame PAINTS them: an incremental
+        // frame rasterises at `next_scroll_baseline` (see `render_offsets`
+        // below), and a view inside a scrolled box is painted at its content
+        // box minus that offset. At the content box a view far down a scrolled
+        // page (the AzWidgets Video card) was repainted off-screen on every
+        // frame and froze on its first one. The full-repaint path paints
+        // everything and ignores these rects.
+        let vview_damage = cpurender::compute_virtual_view_damage(
+            display_list,
+            &vview_dls,
+            &self.previous_vview_dls,
+            &next_scroll_baseline,
+        );
+        let has_vview_damage = !vview_damage.is_empty();
+        self.previous_vview_dls = vview_dls.clone();
 
         // Determine render path. Scroll strips are added AFTER the output pixmap
         // is acquired (the pixel move needs the buffer), so the incremental arm
