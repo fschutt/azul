@@ -488,6 +488,8 @@ mod typed_script_font_fallback;
 mod typing_beside_a_block;
 #[path = "typing_into_a_formatted_paragraph.rs"]
 mod typing_into_a_formatted_paragraph;
+#[path = "typing_past_the_right_edge_reveals_the_newest_character.rs"]
+mod typing_past_the_right_edge_reveals_the_newest_character;
 #[path = "unresolved_family_render.rs"]
 mod unresolved_family_render;
 #[path = "variable_font_disk_path.rs"]
