@@ -62,12 +62,12 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   `the_grab_zone_is_centred_on_an_off_centre_divider`, `a_non_finite_move_leaves_the_split_where_it_was`
   (helper `laid_out_divider_centre`).
 
+- `e1dd25104` S4 FIX: const `DIVIDER_THICKNESS_PX`, `pane_space`, `divider_centre`; NaN guard in
+  move; pins via test helper `tracked(anchor, delta, main)`; NaN pins removed.
+
 ## IN PROGRESS
 
-- S4 FIX: `pane_space` / `divider_centre` helpers (no mul_add!), NaN guard in move; update pins
-  (0.75 -> 0.5+50/194 in: pointer_move_applies_the_cursor_delta..., is_anchor_relative (0.6),
-  uses_the_axis (vertical 94), fires_the_hook (0.75), pointer_up_ends_the_drag (0.75),
-  a_released_drag_ignores_further_motion (0.75)); delete the two `..._poisons_the_ratio` pins.
+- S5 RED (grab area wider than the visible line: sash child), NEXT 5.
 
 ## NEXT (in order)
 
