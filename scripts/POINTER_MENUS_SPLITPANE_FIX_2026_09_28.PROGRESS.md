@@ -44,9 +44,12 @@ or `layout/tests/a_padded_table_cell_stays_in_its_row.rs`; no api.json edits.
   `a_press_on_the_divider_captures_the_pointer_for_the_split_pane` (+ 2 guards); harness
   `drive_in`, `button_held`, `registered`.
 
+- `4b2745969` S2 FIX: press `capture_pointer(container)`; MouseLeave -> `on_split_pointer_leave`
+  (ends only when `left_down` is false); pins updated.
+
 ## IN PROGRESS
 
-- S2 FIX (capture on press + `on_split_pointer_leave`), see NEXT 2.
+- S3 RED (keyboard + focusable separator on the divider), see NEXT 3.
 
 ## NEXT (in order)
 
