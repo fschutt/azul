@@ -736,7 +736,7 @@ pub extern "C" fn video_status_writeback(
         None => OptionOnVideoStatus::None,
     };
     match hook {
-        OptionOnVideoStatus::Some(h) => (h.callback.cb)(h.refany, info, status),
+        OptionOnVideoStatus::Some(h) => h.callback.invoke(h.refany, info, status),
         OptionOnVideoStatus::None => Update::DoNothing,
     }
 }

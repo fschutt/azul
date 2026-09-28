@@ -775,7 +775,7 @@ fn toggle(
 ) -> Update {
     match on_toggle.as_ref() {
         Some(TreeViewOnNodeToggle { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, node_index, expand)
+            callback.invoke(refany.clone(), info, node_index, expand)
         }
         None => Update::DoNothing,
     }

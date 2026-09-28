@@ -1256,7 +1256,7 @@ extern "C" fn on_list_view_row_key(mut refany: RefAny, mut info: CallbackInfo) -
         Some(ListViewOnRowClick {
             refany: user_data,
             callback,
-        }) => (callback.cb)(user_data.clone(), info, state, target),
+        }) => callback.invoke(user_data.clone(), info, state, target),
         None => Update::DoNothing,
     }
 }

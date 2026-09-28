@@ -1443,7 +1443,7 @@ extern "C" fn on_tab_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let state = TabHeaderState { active_tab: target };
     let dataset = &mut *dataset;
     match dataset.on_click.as_mut() {
-        Some(TabOnClick { callback, refany }) => (callback.cb)(refany.clone(), info, state),
+        Some(TabOnClick { callback, refany }) => callback.invoke(refany.clone(), info, state),
         None => Update::DoNothing,
     }
 }
