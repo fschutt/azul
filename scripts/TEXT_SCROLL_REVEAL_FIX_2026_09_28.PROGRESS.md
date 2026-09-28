@@ -32,11 +32,12 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 - 1ab63b01d test(layout) RED step 3: `layout/tests/a_selection_reveal_shows_its_focus_end.rs`
   (registered) — range 0..150 reveal must show the focus; control 160..170 shown whole.
 
+- 3a7871e65 fix step 3: `scroll_selection_into_view` reveals the range rect only when it
+  fits (`REVEAL_PADDING_PX` both sides), else the focus caret.
+
 ## IN PROGRESS
 
-- Step 3 fix: in `scroll_selection_into_view` (window.rs), `SelectionScrollType::Selection`
-  reveals the bounding rect only when it fits the scrollport, else the focus-end caret rect
-  (`get_focused_cursor_rect()` = primary cursor = range end).
+- Step 4 (RevealRequest arbiter) — starting.
 
 ## NEXT (in order)
 
