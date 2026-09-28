@@ -393,24 +393,29 @@ impl A11yManager {
     /// DOM ancestor holding scroll state: the page's offset for a fixed box
     /// the page does not move, and any stray offset on a box that opens no
     /// frame.
+    ///
+    /// `scroll_chains` is every box chain of the node's dom, resolved ONCE
+    /// per tree update (`None`: the dom has no scroll id, so no frame moves
+    /// anything). The tree is rebuilt after every layout - every frame of a
+    /// layout-property tween - and resolving each node's chain on its own
+    /// (`ScrollChain::of`) walked all of its ancestors, a cascade lookup per
+    /// level: quadratic in the page's depth, per frame.
     pub(crate) fn ancestor_scroll_offset(
         dom_id: DomId,
-        layout_result: &DomLayoutResult,
+        scroll_chains: Option<&crate::solver3::scroll_chain::ScrollChains>,
         layout_idx: crate::solver3::layout_tree::LayoutNodeId,
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
     ) -> LogicalPosition {
-        crate::solver3::scroll_chain::ScrollChain::of(
-            &layout_result.layout_tree,
-            &layout_result.styled_dom,
-            &layout_result.scroll_ids,
-            layout_idx,
-            azul_core::spaces::Inclusivity::AncestorsOnly,
-        )
-        .scrolling()
-        .filter_map(|link| scroll_manager.get_current_offset(dom_id, link.node))
-        .fold(LogicalPosition::zero(), |acc, off| {
-            LogicalPosition::new(acc.x + off.x, acc.y + off.y)
-        })
+        let Some(chains) = scroll_chains else {
+            return LogicalPosition::zero();
+        };
+        chains
+            .box_chain(layout_idx)
+            .scrolling()
+            .filter_map(|link| scroll_manager.get_current_offset(dom_id, link.node))
+            .fold(LogicalPosition::zero(), |acc, off| {
+                LogicalPosition::new(acc.x + off.x, acc.y + off.y)
+            })
     }
 
     /// Force the collected child lists to satisfy accesskit's `TreeUpdate`
@@ -489,6 +494,16 @@ impl A11yManager {
             let styled_dom = &layout_result.styled_dom;
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let node_data_slice = styled_dom.node_data.as_ref();
+            // Every box chain of this dom in one linear pass - see
+            // `ancestor_scroll_offset`. Without a scroll id no frame moves
+            // anything, and there is nothing to resolve.
+            let scroll_chains = (!layout_result.scroll_ids.is_empty()).then(|| {
+                crate::solver3::scroll_chain::ScrollChains::compute(
+                    &layout_result.layout_tree,
+                    &layout_result.styled_dom,
+                    &layout_result.scroll_ids,
+                )
+            });
 
             // First pass: Create a11y nodes for each DOM node
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
@@ -528,8 +543,12 @@ impl A11yManager {
                 // be the unscrolled layout rects, so after any scroll
                 // VoiceOver's cursor rectangles sat where the content had been.
                 let layout_info = layout_info.map(|(hot, idx, pos)| {
-                    let ancestor_scroll =
-                        Self::ancestor_scroll_offset(*dom_id, layout_result, idx, scroll_manager);
+                    let ancestor_scroll = Self::ancestor_scroll_offset(
+                        *dom_id,
+                        scroll_chains.as_ref(),
+                        idx,
+                        scroll_manager,
+                    );
                     (
                         hot,
                         idx,
