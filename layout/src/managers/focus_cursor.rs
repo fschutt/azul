@@ -6,14 +6,19 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
-    callbacks::{FocusTarget, FocusTargetPath},
+    callbacks::{FocusDirection, FocusTarget, FocusTargetPath},
     dom::{DomId, DomNodeId, NodeId},
+    geom::{LogicalPosition, LogicalRect},
     style::matches_html_element,
     styled_dom::NodeHierarchyItemId,
+    transform::ComputedTransform3D,
     window::UpdateFocusWarning,
 };
+use azul_css::props::style::spatial_nav::{
+    StyleSpatialNavigationAction, StyleSpatialNavigationFunction,
+};
 
-use crate::window::DomLayoutResult;
+use crate::{managers::scroll_state::ScrollNodeInfo, window::DomLayoutResult};
 
 /// Information about a pending contenteditable focus that needs cursor initialization
 /// after layout is complete (W3C "flag and defer" pattern).
@@ -772,6 +777,11 @@ pub fn resolve_focus_target_or_defer(
 /// that variant belongs to [`resolve_focus_target_or_defer`], which parks
 /// targets that arrive before the first layout).
 ///
+/// Layout only: a `Directional` target is searched over the STATIC geometry
+/// (no scroll offsets, no transforms). A caller that has the live window uses
+/// [`resolve_focus_target_in`] with the window's
+/// [`SpatialNavigationEnv`] - `LayoutWindow::resolve_focus_target_live`.
+///
 /// # Errors
 ///
 /// Returns an `UpdateFocusWarning` if the focus target names an invalid
@@ -782,9 +792,32 @@ pub fn resolve_focus_target(
     current_focus: Option<DomNodeId>,
     out_of_scope: &BTreeSet<DomId>,
 ) -> Result<FocusResolution, UpdateFocusWarning> {
+    resolve_focus_target_in(
+        &SpatialNavigationEnv::layout_only(layout_results, out_of_scope),
+        focus_target,
+        current_focus,
+    )
+}
+
+/// [`resolve_focus_target`] against a [`SpatialNavigationEnv`]: the same
+/// answer for every target but `Directional`, which searches the PAINTED
+/// geometry the env describes.
+///
+/// # Errors
+///
+/// Returns an `UpdateFocusWarning` if the focus target names an invalid
+/// dom/node.
+pub fn resolve_focus_target_in(
+    env: &SpatialNavigationEnv<'_>,
+    focus_target: &FocusTarget,
+    current_focus: Option<DomNodeId>,
+) -> Result<FocusResolution, UpdateFocusWarning> {
     use azul_core::callbacks::FocusTarget::{
         Directional, First, Id, Last, Next, NoFocus, Path, Previous,
     };
+
+    let layout_results = env.layout_results;
+    let out_of_scope = env.out_of_scope;
 
     // The explicit clear is answerable without any layout and must stay
     // distinguishable from every kind of miss below.
@@ -851,35 +884,14 @@ pub fn resolve_focus_target(
         )
         .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        // Directional (spatial) navigation. Same candidate pool as Tab —
-        // `collect_tab_order` already honours tabindex=-1, transient windows
-        // and out-of-scope DOMs, and a node that cannot be tabbed to should
-        // not be reachable with an arrow key either.
-        //
-        // Spatial navigation CONTAINERS (9a-i-b, 9a-i-b-i) narrow that pool:
-        // the search runs in the innermost container first, then in each
-        // container outward, and in the whole document last. That chain is
-        // the spec's own shape, so an arrow at the edge of a scroll box or a
-        // `contain` panel still escapes it rather than dying there - but a
-        // candidate INSIDE the box wins over a nearer one outside.
-        Directional(dir) => {
-            let all = collect_tab_order(layout_results, out_of_scope);
-            let chain = current_focus
-                .map(|c| spatial_navigation_containers(layout_results, c))
-                .unwrap_or_default();
-            let found = chain
-                .iter()
-                .find_map(|container| {
-                    let pool: Vec<DomNodeId> = all
-                        .iter()
-                        .copied()
-                        .filter(|cand| is_within(layout_results, *cand, *container))
-                        .collect();
-                    next_in_direction(&pool, layout_results, current_focus, *dir)
-                })
-                .or_else(|| next_in_direction(&all, layout_results, current_focus, *dir));
-            Ok(found.map_or(FocusResolution::NotFound, FocusResolution::Resolved))
-        }
+        // Directional (spatial) navigation: the css-nav-1 engine below. Same
+        // candidate pool as Tab — `collect_tab_order` already honours
+        // tabindex=-1, transient windows and out-of-scope DOMs, and a node
+        // that cannot be tabbed to should not be reachable with an arrow key
+        // either. Spatial navigation CONTAINERS (9a-i-b, 9a-i-b-i) are
+        // searched innermost first, then outward, then the document.
+        Directional(dir) => Ok(directional_focus_target(env, current_focus, *dir)
+            .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
         Next => Ok(next_in_tab_order(
             &collect_tab_order(layout_results, out_of_scope),
@@ -1305,9 +1317,9 @@ mod autotest_generated {
             Some(inside),
             &BTreeSet::new(),
         );
-        // This fixture has no laid-out boxes, so `next_in_direction` falls
-        // back to "the first candidate in the pool" - which is exactly what
-        // makes the POOL observable here.
+        // This fixture has no laid-out boxes, so the engine falls back to
+        // "the first candidate of the innermost container that has one" -
+        // which is exactly what makes the POOL observable here.
         let Ok(FocusResolution::Resolved(target)) = resolved else {
             panic!("expected a resolution, got {resolved:?}");
         };
@@ -2637,98 +2649,991 @@ fn is_within(
         .is_some()
 }
 
-/// Find the focusable nearest to `current` in `dir`.
+// ===========================================================================
+// CSS Spatial Navigation Level 1 - the engine
+// ===========================================================================
+//
+// ONE engine answers every spatial question, so no two of them can disagree:
+//
+// - what an ARROW KEY does: [`spatial_navigation_steps`], read by the keyboard default action
+//   (focus, scroll, or nothing);
+// - where a programmatic directional move lands: [`directional_focus_target`], behind
+//   `FocusTarget::Directional` and the gamepad D-pad.
+//
+// Both search the same candidate pool (the Tab order), through the same
+// container chain, with the same selection rule, over the same PAINTED
+// geometry.
+
+/// Everything a spatial-navigation search reads besides the layout.
 ///
-/// The rule is the one `css-nav-1` describes and every TV framework
-/// re-implements: consider only candidates that lie in the requested
-/// direction, then pick the closest — where "closest" weights movement ALONG
-/// the axis you asked for much more heavily than drift across it.
+/// css-nav-1 §8.4: "All geometrical operations ... work on the result of CSS
+/// layout, including all graphical transformations". `layout_results` alone
+/// is the STATIC geometry. Where a box is on screen also depends on the
+/// scroll offset of every scroll container above it and on transforms, and
+/// those live in the window's managers, so they are handed in here.
 ///
-/// That weighting is the whole algorithm. Plain Euclidean distance picks
-/// diagonal neighbours over the obvious one directly to the side, so pressing
-/// Right in a grid walks diagonally down the screen. Weighting the
-/// cross-axis makes "straight ahead, further away" beat "off to one side,
-/// nearer", which is what a person means by the arrow key.
-fn next_in_direction(
-    candidates: &[DomNodeId],
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-    current: Option<DomNodeId>,
-    dir: azul_core::callbacks::FocusDirection,
-) -> Option<DomNodeId> {
-    use azul_core::callbacks::FocusDirection;
+/// `LayoutWindow::with_spatial_navigation_env` builds the live one.
+/// [`SpatialNavigationEnv::layout_only`] is the model for a caller that has
+/// nothing but layout results: every scroll offset is zero, no transform
+/// applies, and a box "can scroll" forward exactly when layout gave it a bar
+/// on that axis.
+#[derive(Clone, Copy)]
+pub struct SpatialNavigationEnv<'a> {
+    /// Every DOM laid out in the window.
+    pub layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
+    /// DOMs outside this window's focus scope (an open popup's content). They
+    /// hold no candidates, exactly as for Tab.
+    pub out_of_scope: &'a BTreeSet<DomId>,
+    /// The live scroll state of a scroll container (`None` for a node the
+    /// scroll manager does not track). `None` for the whole env means
+    /// layout-only: every offset is zero.
+    pub scroll_info: Option<&'a dyn Fn(DomId, NodeId) -> Option<ScrollNodeInfo>>,
+    /// The transform the renderer currently applies to a node.
+    pub transform: &'a dyn Fn(DomId, NodeId) -> Option<ComputedTransform3D>,
+}
 
-    /// How much harder cross-axis drift counts than along-axis distance.
-    /// 3 is what the CSS spec's reference implementation uses and what feels
-    /// right on a grid: a neighbour one row down has to be three times nearer
-    /// to beat one straight ahead.
-    const CROSS_AXIS_WEIGHT: f32 = 3.0;
+fn no_transform(_dom: DomId, _node: NodeId) -> Option<ComputedTransform3D> {
+    None
+}
 
-    // Absolute position comes from `calculated_positions`, size from the
-    // layout node — the same pair the a11y snapshot reads. There is no
-    // single "rects" table: a DOM node can map to several layout nodes
-    // (inline fragments), so `dom_to_layout` yields a list and the first
-    // entry is the box a focus ring would be drawn around.
-    let rect_of = |n: &DomNodeId| -> Option<azul_core::geom::LogicalRect> {
-        let layout = layout_results.get(&n.dom)?;
-        let node = n.node.into_crate_internal()?;
-        let idx = *layout.layout_tree.dom_to_layout.get(&node)?.first()?;
-        let hot = layout.layout_tree.get(idx)?;
-        let origin = layout.calculated_positions.get(idx.index()).copied()?;
-        // `used_size` is None for a node that was never laid out — an
-        // unmounted subtree, or one still awaiting its first pass. Skipping
-        // it is right: a node with no box cannot be navigated to.
-        Some(azul_core::geom::LogicalRect {
-            origin,
-            size: hot.used_size?,
-        })
-    };
-
-    // With nothing focused there is no "direction from", so an arrow key acts
-    // as an entry point and takes the first tab stop — the same thing a TV
-    // remote does when you wake a menu.
-    let Some(current) = current else {
-        return candidates.first().copied();
-    };
-    let Some(from) = rect_of(&current) else {
-        return candidates.first().copied();
-    };
-    let from_c = (
-        from.origin.x + from.size.width / 2.0,
-        from.origin.y + from.size.height / 2.0,
-    );
-
-    let mut best: Option<(f32, DomNodeId)> = None;
-    for cand in candidates {
-        if *cand == current {
-            continue;
-        }
-        let Some(r) = rect_of(cand) else { continue };
-        let c = (
-            r.origin.x + r.size.width / 2.0,
-            r.origin.y + r.size.height / 2.0,
-        );
-        let (dx, dy) = (c.0 - from_c.0, c.1 - from_c.1);
-
-        // "In the requested direction" is decided by the dominant axis, not
-        // by the sign alone: a node that is 2px right and 400px down is below,
-        // not beside, and offering it to a Right press would make the focus
-        // ring jump across the screen.
-        let (along, cross) = match dir {
-            FocusDirection::Left => (-dx, dy.abs()),
-            FocusDirection::Right => (dx, dy.abs()),
-            FocusDirection::Up => (-dy, dx.abs()),
-            FocusDirection::Down => (dy, dx.abs()),
-        };
-        if along <= 0.0 || cross > along {
-            continue;
-        }
-
-        let score = along + cross * CROSS_AXIS_WEIGHT;
-        if best.is_none_or(|(b, _)| score < b) {
-            best = Some((score, *cand));
+impl<'a> SpatialNavigationEnv<'a> {
+    /// The layout-only model: unscrolled, untransformed, and a box can scroll
+    /// forward on an axis exactly when layout gave it a bar there.
+    #[must_use]
+    pub fn layout_only(
+        layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
+        out_of_scope: &'a BTreeSet<DomId>,
+    ) -> Self {
+        Self {
+            layout_results,
+            out_of_scope,
+            scroll_info: None,
+            transform: &no_transform,
         }
     }
-    best.map(|(_, n)| n)
+
+    /// The current scroll offset of `node`, if it is a tracked scroll
+    /// container. Always `None` in the layout-only model.
+    fn scroll_offset(&self, dom: DomId, node: NodeId) -> Option<LogicalPosition> {
+        let info_of = self.scroll_info?;
+        info_of(dom, node).map(|info| info.current_offset)
+    }
+}
+
+/// What the spatial navigation steps (css-nav-1 §8.3) decide for one arrow
+/// press.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialNavigationOutcome {
+    /// Move the focus to this node. css-nav-1 fires `navbeforefocus` at the
+    /// focused element just before; azul has no such event yet.
+    Focus(DomNodeId),
+    /// Directionally scroll this container. The focus stays where it is.
+    Scroll(DomNodeId),
+    /// No container had a candidate or could scroll. css-nav-1 fires
+    /// `navnotarget` at each container on the way up; azul has no such
+    /// event yet.
+    NoTarget,
+}
+
+/// Which semantics a run of the steps follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StepsMode {
+    /// The arrow-key default action: each container's
+    /// `spatial-navigation-action` decides whether only VISIBLE candidates
+    /// count and whether the container scrolls.
+    Keyboard,
+    /// A programmatic directional move (`FocusTarget::Directional`, the
+    /// D-pad): as if every container said `spatial-navigation-action: focus`,
+    /// so any candidate counts, visible or not, and nothing ever scrolls.
+    FocusOnly,
+}
+
+/// A rect as its four edges, the form css-nav-1's candidate rules are
+/// written in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Edges {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+impl Edges {
+    fn of(r: LogicalRect) -> Self {
+        Self {
+            left: r.origin.x,
+            top: r.origin.y,
+            right: r.origin.x + r.size.width,
+            bottom: r.origin.y + r.size.height,
+        }
+    }
+
+    fn width(&self) -> f32 {
+        self.right - self.left
+    }
+
+    fn height(&self) -> f32 {
+        self.bottom - self.top
+    }
+
+    /// Do the two boxes share any area? Touching edges do not.
+    fn overlaps(&self, other: &Self) -> bool {
+        self.left < other.right
+            && other.left < self.right
+            && self.top < other.bottom
+            && other.top < self.bottom
+    }
+
+    /// The common area, or `None` when there is none.
+    fn intersect(&self, other: &Self) -> Option<Self> {
+        let common = Self {
+            left: self.left.max(other.left),
+            top: self.top.max(other.top),
+            right: self.right.min(other.right),
+            bottom: self.bottom.min(other.bottom),
+        };
+        (common.left < common.right && common.top < common.bottom).then_some(common)
+    }
+}
+
+/// Length of the overlap of two 1-D spans (0 when they are apart).
+fn span_overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
+    (a1.min(b1) - a0.max(b0)).max(0.0)
+}
+
+/// Gap between two 1-D spans (0 when they overlap or touch).
+fn span_gap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
+    if b0 >= a1 {
+        b0 - a1
+    } else if a0 >= b1 {
+        a0 - b1
+    } else {
+        0.0
+    }
+}
+
+/// How far a "beyond" candidate may reach back over the origin's far edge
+/// and still count as past it: layout rounding, not a design tolerance.
+const EDGE_EPSILON: f32 = 0.01;
+
+/// Painted, window-space geometry for one search.
+///
+/// A node's rect is its static layout rect with every ancestor scroll offset
+/// and transform applied (`headless::node_rect_to_screen`, the helper the
+/// a11y tree and menu anchoring use), lifted out of a nested DOM by its
+/// `VirtualView` placement (`headless::nested_dom_window_origin`). The
+/// per-DOM lift is computed once per search, not once per candidate.
+struct SpatialGeometry<'a> {
+    env: SpatialNavigationEnv<'a>,
+    dom_origins: BTreeMap<DomId, LogicalPosition>,
+}
+
+impl<'a> SpatialGeometry<'a> {
+    fn new(env: SpatialNavigationEnv<'a>) -> Self {
+        let mut dom_origins = BTreeMap::new();
+        if env.layout_results.len() > 1 {
+            let scroll = |dom: DomId, node: NodeId| env.scroll_offset(dom, node);
+            for dom_id in env.layout_results.keys() {
+                if *dom_id == DomId::ROOT_ID {
+                    continue;
+                }
+                if let Some(origin) = crate::headless::nested_dom_window_origin(
+                    env.layout_results,
+                    *dom_id,
+                    &scroll,
+                    env.transform,
+                ) {
+                    dom_origins.insert(*dom_id, origin);
+                }
+            }
+        }
+        Self { env, dom_origins }
+    }
+
+    /// Where `node`'s border box is painted, in window space. `None` for a
+    /// node with no box (never laid out, or unmounted).
+    fn rect(&self, node: DomNodeId) -> Option<LogicalRect> {
+        let lr = self.env.layout_results.get(&node.dom)?;
+        let nid = node.node.into_crate_internal()?;
+        let idx = *lr.layout_tree.dom_to_layout.get(&nid)?.first()?;
+        let size = lr.layout_tree.get(idx)?.used_size?;
+        let origin = lr.calculated_positions.get(idx.index()).copied()?;
+        let env = self.env;
+        let scroll = |dom: DomId, n: NodeId| env.scroll_offset(dom, n);
+        let mut painted = crate::headless::node_rect_to_screen(
+            lr,
+            node.dom,
+            idx.index(),
+            LogicalRect { origin, size },
+            &scroll,
+            env.transform,
+        );
+        if let Some(lift) = self.dom_origins.get(&node.dom) {
+            painted.origin.x += lift.x;
+            painted.origin.y += lift.y;
+        }
+        Some(painted)
+    }
+}
+
+/// The root node of `node`'s DOM: the "document" of css-nav-1, the outermost
+/// spatial navigation container of that DOM.
+const fn dom_root_of(node: DomNodeId) -> DomNodeId {
+    DomNodeId {
+        dom: node.dom,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+    }
+}
+
+fn is_dom_root(node: DomNodeId) -> bool {
+    node.node.into_crate_internal().is_some_and(|n| n.index() == 0)
+}
+
+/// `spatial-navigation-action` of `node` itself (not inherited), `auto` when
+/// unset or unresolvable.
+fn action_of(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> StyleSpatialNavigationAction {
+    use crate::solver3::getters::{get_spatial_navigation_action, MultiValue};
+
+    let Some(lr) = env.layout_results.get(&node.dom) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let Some(n) = node.node.into_crate_internal() else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = states.get(n) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    match get_spatial_navigation_action(&lr.styled_dom, n, &sn.styled_node_state) {
+        MultiValue::Exact(action) => action,
+        _ => StyleSpatialNavigationAction::Auto,
+    }
+}
+
+/// `spatial-navigation-function` of the container `node`, `normal` when
+/// unset or unresolvable.
+fn function_of(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> StyleSpatialNavigationFunction {
+    use crate::solver3::getters::{get_spatial_navigation_function, MultiValue};
+
+    let Some(lr) = env.layout_results.get(&node.dom) else {
+        return StyleSpatialNavigationFunction::Normal;
+    };
+    let Some(n) = node.node.into_crate_internal() else {
+        return StyleSpatialNavigationFunction::Normal;
+    };
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = states.get(n) else {
+        return StyleSpatialNavigationFunction::Normal;
+    };
+    match get_spatial_navigation_function(&lr.styled_dom, n, &sn.styled_node_state) {
+        MultiValue::Exact(function) => function,
+        _ => StyleSpatialNavigationFunction::Normal,
+    }
+}
+
+/// Is `node` a CSS scroll container (`overflow` other than `visible`/`clip`
+/// on either axis)? The same test `spatial_navigation_containers` uses.
+fn is_css_scroll_container(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> bool {
+    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+
+    let Some(lr) = env.layout_results.get(&node.dom) else {
+        return false;
+    };
+    let Some(n) = node.node.into_crate_internal() else {
+        return false;
+    };
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = states.get(n) else {
+        return false;
+    };
+    let state = &sn.styled_node_state;
+    get_overflow_x(&lr.styled_dom, n, state).is_scroll_container()
+        || get_overflow_y(&lr.styled_dom, n, state).is_scroll_container()
+}
+
+/// css-nav-1 Appendix A, "can be manually scrolled" in `dir`: a scroll
+/// container whose overflow on that axis is not `hidden`, and which is not at
+/// its scroll boundary in `dir`.
+///
+/// A DOM's root node stands for the viewport, which scrolls although the root
+/// element itself is usually `overflow: visible`; only an explicit `hidden`
+/// stops it.
+///
+/// Live env: the scroll manager's offset against its maximum. Layout-only:
+/// every offset is zero, so a box can scroll Down/Right exactly when layout
+/// gave it a bar on that axis, and never Up/Left.
+fn can_manually_scroll(env: &SpatialNavigationEnv<'_>, node: DomNodeId, dir: FocusDirection) -> bool {
+    use azul_css::props::layout::overflow::LayoutOverflow;
+
+    use crate::solver3::getters::{get_overflow_x, get_overflow_y, MultiValue};
+
+    /// Offsets closer than this to a boundary count as AT it.
+    const BOUNDARY_EPSILON: f32 = 0.5;
+
+    let Some(lr) = env.layout_results.get(&node.dom) else {
+        return false;
+    };
+    let Some(n) = node.node.into_crate_internal() else {
+        return false;
+    };
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = states.get(n) else {
+        return false;
+    };
+    let state = &sn.styled_node_state;
+    let horizontal = matches!(dir, FocusDirection::Left | FocusDirection::Right);
+    let axis = if horizontal {
+        get_overflow_x(&lr.styled_dom, n, state)
+    } else {
+        get_overflow_y(&lr.styled_dom, n, state)
+    };
+    let user_scrollable = if n.index() == 0 {
+        !matches!(axis, MultiValue::Exact(LayoutOverflow::Hidden))
+    } else {
+        axis.allows_user_scrolling()
+    };
+    if !user_scrollable {
+        return false;
+    }
+
+    if let Some(info_of) = env.scroll_info {
+        let Some(info) = info_of(node.dom, n) else {
+            return false;
+        };
+        return match dir {
+            FocusDirection::Up => info.current_offset.y > BOUNDARY_EPSILON,
+            FocusDirection::Down => info.current_offset.y < info.max_scroll_y - BOUNDARY_EPSILON,
+            FocusDirection::Left => info.current_offset.x > BOUNDARY_EPSILON,
+            FocusDirection::Right => info.current_offset.x < info.max_scroll_x - BOUNDARY_EPSILON,
+        };
+    }
+
+    let Some(idx) = lr
+        .layout_tree
+        .dom_to_layout
+        .get(&n)
+        .and_then(|v| v.first().copied())
+    else {
+        return false;
+    };
+    let Some(bars) = lr
+        .layout_tree
+        .warm(idx)
+        .and_then(|w| w.scrollbar_info.as_ref())
+    else {
+        return false;
+    };
+    match dir {
+        FocusDirection::Down => bars.needs_vertical,
+        FocusDirection::Right => bars.needs_horizontal,
+        FocusDirection::Up | FocusDirection::Left => false,
+    }
+}
+
+/// css-nav-1 "find focusable areas ... visibleOnly": is any part of `rect`
+/// (the painted rect of `node`) on screen?
+///
+/// Clipped by the scrollport of EVERY scroll-container ancestor and, for the
+/// window's own DOM, by the viewport - the spec's example of `focusableAreas`
+/// "recursively finds focusable areas" inside nested containers and drops the
+/// ones outside their scrollports. A nested DOM is not clipped by its
+/// `VirtualView` host here (see the audit's open list).
+fn is_visible(
+    env: &SpatialNavigationEnv<'_>,
+    geom: &SpatialGeometry<'_>,
+    node: DomNodeId,
+    rect: LogicalRect,
+) -> bool {
+    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+
+    let Some(lr) = env.layout_results.get(&node.dom) else {
+        return false;
+    };
+    let Some(start) = node.node.into_crate_internal() else {
+        return false;
+    };
+    let mut seen = Edges::of(rect);
+    if node.dom == DomId::ROOT_ID {
+        let viewport = lr.viewport;
+        if viewport.size.width > 0.0 && viewport.size.height > 0.0 {
+            match seen.intersect(&Edges::of(viewport)) {
+                Some(common) => seen = common,
+                None => return false,
+            }
+        }
+    }
+    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let mut current = start;
+    // Bounded by the node count, like every other parent walk in this file.
+    for _ in 0..hierarchy.internal.len().saturating_add(1) {
+        let Some(parent) = hierarchy
+            .get(current)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        else {
+            break;
+        };
+        if let Some(sn) = states.get(parent) {
+            let state = &sn.styled_node_state;
+            let scrolls = get_overflow_x(&lr.styled_dom, parent, state).is_scroll_container()
+                || get_overflow_y(&lr.styled_dom, parent, state).is_scroll_container();
+            if scrolls {
+                let port = geom.rect(DomNodeId {
+                    dom: node.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+                });
+                if let Some(port) = port {
+                    match seen.intersect(&Edges::of(port)) {
+                        Some(common) => seen = common,
+                        None => return false,
+                    }
+                }
+            }
+        }
+        current = parent;
+    }
+    true
+}
+
+/// The candidate pool of every spatial search: the Tab order (tabindex −1,
+/// `<transient-window>` subtrees and out-of-scope DOMs already excluded - the
+/// spec's "remove negative tabindex" step), re-sorted into DOCUMENT order,
+/// which is the order css-nav-1 breaks ties in.
+fn spatial_candidate_pool(env: &SpatialNavigationEnv<'_>) -> Vec<DomNodeId> {
+    let mut pool = collect_tab_order(env.layout_results, env.out_of_scope);
+    pool.sort_by_key(doc_order_key);
+    pool
+}
+
+/// css-nav-1 "find focusable areas within `container`", with their painted
+/// rects: the pool's DESCENDANTS of `container` (not the container itself),
+/// minus `exclude`, and - when `visible_only` - only the ones partly on
+/// screen. A node with no box is never a candidate.
+fn candidates_in(
+    env: &SpatialNavigationEnv<'_>,
+    geom: &SpatialGeometry<'_>,
+    pool: &[DomNodeId],
+    container: DomNodeId,
+    exclude: DomNodeId,
+    visible_only: bool,
+) -> Vec<(DomNodeId, LogicalRect)> {
+    pool.iter()
+        .copied()
+        .filter(|c| *c != exclude && *c != container)
+        .filter(|c| is_within(env.layout_results, *c, container))
+        .filter_map(|c| {
+            let r = geom.rect(c)?;
+            (!visible_only || is_visible(env, geom, c, r)).then_some((c, r))
+        })
+        .collect()
+}
+
+/// The "inside area" of a search origin: its border box, or the viewport when
+/// the origin is the window's document.
+fn inside_area_of(env: &SpatialNavigationEnv<'_>, origin: DomNodeId, rect: LogicalRect) -> LogicalRect {
+    if origin.dom == DomId::ROOT_ID && is_dom_root(origin) {
+        if let Some(lr) = env.layout_results.get(&origin.dom) {
+            let viewport = lr.viewport;
+            if viewport.size.width > 0.0 && viewport.size.height > 0.0 {
+                return viewport;
+            }
+        }
+    }
+    rect
+}
+
+/// css-nav-1 §8.4 "select the best candidate", over painted rects.
+///
+/// `candidates` must be in document order: every tie goes to the earlier one
+/// (the spec's further tie-break, CSS painting order, is not applied).
+///
+/// 1. INSIDERS - candidates overlapping the origin's inside area and lying further along `dir`
+///    than its start edge (a child of a focused box) - win first, nearest start edge first.
+/// 2. Otherwise only candidates entirely BEYOND the origin's far edge count (edges, not centres:
+///    a box below but far to the side is still below), and `function` picks among them.
+///
+/// The spec's single-candidate shortcut is applied after the directional
+/// filter, not before: a lone candidate ABOVE the focus is no answer to Down.
+fn select_best_candidate(
+    origin: LogicalRect,
+    inside_area: LogicalRect,
+    candidates: &[(DomNodeId, LogicalRect)],
+    dir: FocusDirection,
+    function: StyleSpatialNavigationFunction,
+) -> Option<DomNodeId> {
+    let o = Edges::of(origin);
+    let area = Edges::of(inside_area);
+
+    let mut best_insider: Option<(f32, DomNodeId)> = None;
+    for (node, rect) in candidates {
+        let c = Edges::of(*rect);
+        let further = match dir {
+            FocusDirection::Down => c.top > o.top,
+            FocusDirection::Up => c.bottom < o.bottom,
+            FocusDirection::Right => c.left > o.left,
+            FocusDirection::Left => c.right < o.right,
+        };
+        if !(further && c.overlaps(&area)) {
+            continue;
+        }
+        let key = match dir {
+            FocusDirection::Down => c.top - area.top,
+            FocusDirection::Up => area.bottom - c.bottom,
+            FocusDirection::Right => c.left - area.left,
+            FocusDirection::Left => area.right - c.right,
+        };
+        if best_insider.is_none_or(|(b, _)| key < b) {
+            best_insider = Some((key, *node));
+        }
+    }
+    if let Some((_, node)) = best_insider {
+        return Some(node);
+    }
+
+    let beyond: Vec<(DomNodeId, Edges)> = candidates
+        .iter()
+        .map(|(node, rect)| (*node, Edges::of(*rect)))
+        .filter(|(_, c)| {
+            !c.overlaps(&o)
+                && match dir {
+                    FocusDirection::Down => c.top >= o.bottom - EDGE_EPSILON,
+                    FocusDirection::Up => c.bottom <= o.top + EDGE_EPSILON,
+                    FocusDirection::Right => c.left >= o.right - EDGE_EPSILON,
+                    FocusDirection::Left => c.right <= o.left + EDGE_EPSILON,
+                }
+        })
+        .collect();
+
+    match function {
+        StyleSpatialNavigationFunction::Normal => {
+            let mut best: Option<(f32, DomNodeId)> = None;
+            for (node, c) in &beyond {
+                let d = normal_distance(&o, c, dir);
+                if best.is_none_or(|(b, _)| d < b) {
+                    best = Some((d, *node));
+                }
+            }
+            best.map(|(_, node)| node)
+        }
+        StyleSpatialNavigationFunction::Grid => grid_pick(&o, &beyond, dir),
+    }
+}
+
+/// Distance ALONG `dir` from the origin's far edge to the candidate's near
+/// edge (never negative).
+fn along_gap(o: &Edges, c: &Edges, dir: FocusDirection) -> f32 {
+    let gap = match dir {
+        FocusDirection::Down => c.top - o.bottom,
+        FocusDirection::Up => o.top - c.bottom,
+        FocusDirection::Right => c.left - o.right,
+        FocusDirection::Left => o.left - c.right,
+    };
+    gap.max(0.0)
+}
+
+/// `(gap, projected overlap, origin's cross size)` on the axis ORTHOGONAL to
+/// `dir`.
+fn cross_axis(o: &Edges, c: &Edges, dir: FocusDirection) -> (f32, f32, f32) {
+    if matches!(dir, FocusDirection::Left | FocusDirection::Right) {
+        (
+            span_gap(o.top, o.bottom, c.top, c.bottom),
+            span_overlap(o.top, o.bottom, c.top, c.bottom),
+            o.height(),
+        )
+    } else {
+        (
+            span_gap(o.left, o.right, c.left, c.right),
+            span_overlap(o.left, o.right, c.left, c.right),
+            o.width(),
+        )
+    }
+}
+
+/// css-nav-1 §8.4 "find the shortest distance", for a candidate beyond the
+/// origin (so the two never overlap and the `sqrt(Overlap)` term is 0):
+///
+/// `distance = euclidean + displacement - alignment`, where
+/// - `euclidean` is between the closest points P1, P2 of the two boxes;
+/// - `displacement = (cross-axis gap + orthogonalBias) * orthogonalWeight`, `orthogonalBias` half
+///   the origin's cross size, `orthogonalWeight` 30 for Left/Right and 2 for Up/Down;
+/// - `alignment = (projected overlap / origin's cross size) * 5`.
+///
+/// The weights are the spec's own, "determined experimentally" against its
+/// UX test cases. This replaced azul's `along + 3 * cross` on centre deltas,
+/// whose comment wrongly credited the 3 to the spec.
+fn normal_distance(o: &Edges, c: &Edges, dir: FocusDirection) -> f32 {
+    const ALIGN_WEIGHT: f32 = 5.0;
+    let horizontal = matches!(dir, FocusDirection::Left | FocusDirection::Right);
+    let along = along_gap(o, c, dir);
+    let (cross_gap, projected, cross_size) = cross_axis(o, c, dir);
+    let euclidean = along.hypot(cross_gap);
+    let orthogonal_weight = if horizontal { 30.0 } else { 2.0 };
+    let displacement = (cross_gap + cross_size / 2.0) * orthogonal_weight;
+    let alignment = if cross_size > 0.0 {
+        projected / cross_size * ALIGN_WEIGHT
+    } else {
+        0.0
+    };
+    euclidean + displacement - alignment
+}
+
+/// css-nav-1 §9.3 `spatial-navigation-function: grid`.
+///
+/// ALIGNED candidates (their projection on the cross axis overlaps the
+/// origin's) win: nearest along the axis, ties to the one whose centre is
+/// closest to the origin's on the cross axis (the spec's "minimum amount of
+/// alignment" read as the least MIS-alignment). Only when nothing is aligned:
+/// nearest along the axis, ties to the smallest cross-axis gap. Remaining ties
+/// go to document order.
+fn grid_pick(o: &Edges, beyond: &[(DomNodeId, Edges)], dir: FocusDirection) -> Option<DomNodeId> {
+    /// Two distances this close are a tie.
+    const TIE: f32 = 0.01;
+
+    let horizontal = matches!(dir, FocusDirection::Left | FocusDirection::Right);
+    let centre_offset = |c: &Edges| -> f32 {
+        if horizontal {
+            ((c.top + c.bottom) - (o.top + o.bottom)).abs() / 2.0
+        } else {
+            ((c.left + c.right) - (o.left + o.right)).abs() / 2.0
+        }
+    };
+    // Lexicographic on (primary, tie-break), with a tolerance on both.
+    let better = |a: (f32, f32), b: (f32, f32)| {
+        a.0 < b.0 - TIE || ((a.0 - b.0).abs() <= TIE && a.1 < b.1 - TIE)
+    };
+
+    let mut aligned: Option<((f32, f32), DomNodeId)> = None;
+    let mut any: Option<((f32, f32), DomNodeId)> = None;
+    for (node, c) in beyond {
+        let along = along_gap(o, c, dir);
+        let (cross_gap, projected, _) = cross_axis(o, c, dir);
+        if projected > 0.0 {
+            let key = (along, centre_offset(c));
+            if aligned.is_none_or(|(k, _)| better(key, k)) {
+                aligned = Some((key, *node));
+            }
+        }
+        let key = (along, cross_gap);
+        if any.is_none_or(|(k, _)| better(key, k)) {
+            any = Some((key, *node));
+        }
+    }
+    aligned.or(any).map(|(_, node)| node)
+}
+
+/// css-nav-1 §8.3 "spatial navigation steps" for one arrow press from
+/// `origin`: what the arrow-key default action does.
+///
+/// 1. `origin` itself is a scroll container (or its DOM's root, the document): unless its
+///    `spatial-navigation-action` is `focus`, it SCROLLS while it can; then its own candidates are
+///    searched.
+/// 2. Then every spatial navigation container from the innermost outward, the DOM's root last. In
+///    each: the best candidate (VISIBLE ones only, unless the container says `focus`) wins; with
+///    none, a container that can still scroll that way SCROLLS (unless it says `focus`); otherwise
+///    the search moves out (`navnotarget`).
+/// 3. azul extension: when the whole DOM is exhausted, candidates in the window's OTHER DOMs
+///    (VirtualView content, or the host of the DOM the focus is in). This stands in for the spec's
+///    nested-browsing-context step.
+///
+/// `spatial-navigation-function` is read off each container searched.
+#[must_use]
+pub fn spatial_navigation_steps(
+    env: &SpatialNavigationEnv<'_>,
+    origin: DomNodeId,
+    dir: FocusDirection,
+) -> SpatialNavigationOutcome {
+    run_spatial_navigation_steps(env, origin, dir, StepsMode::Keyboard)
+}
+
+/// Where a programmatic directional focus move from `current` lands:
+/// `FocusTarget::Directional` and the gamepad D-pad.
+///
+/// First the arrow-key steps. When they would SCROLL (or find nothing), the
+/// same search again as if every container said `focus` - any candidate,
+/// visible or not - because a focus move cannot scroll, and a D-pad whose next
+/// item is scrolled out of view must still reach it (focus scrolls it in).
+/// With nothing focused, the first tab stop: an arrow wakes the UI the way a
+/// TV remote wakes a menu.
+#[must_use]
+pub fn directional_focus_target(
+    env: &SpatialNavigationEnv<'_>,
+    current: Option<DomNodeId>,
+    dir: FocusDirection,
+) -> Option<DomNodeId> {
+    let Some(origin) = current else {
+        return collect_tab_order(env.layout_results, env.out_of_scope)
+            .first()
+            .copied();
+    };
+    match run_spatial_navigation_steps(env, origin, dir, StepsMode::Keyboard) {
+        SpatialNavigationOutcome::Focus(node) => Some(node),
+        SpatialNavigationOutcome::Scroll(_) | SpatialNavigationOutcome::NoTarget => {
+            match run_spatial_navigation_steps(env, origin, dir, StepsMode::FocusOnly) {
+                SpatialNavigationOutcome::Focus(node) => Some(node),
+                SpatialNavigationOutcome::Scroll(_) | SpatialNavigationOutcome::NoTarget => None,
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)] // one algorithm, written in the spec's step order
+fn run_spatial_navigation_steps(
+    env: &SpatialNavigationEnv<'_>,
+    origin: DomNodeId,
+    dir: FocusDirection,
+    mode: StepsMode,
+) -> SpatialNavigationOutcome {
+    let geom = SpatialGeometry::new(*env);
+    let pool = spatial_candidate_pool(env);
+    let effective_action = |node: DomNodeId| -> StyleSpatialNavigationAction {
+        match mode {
+            StepsMode::Keyboard => action_of(env, node),
+            StepsMode::FocusOnly => StyleSpatialNavigationAction::Focus,
+        }
+    };
+    // Every container ABOVE the origin, innermost first; the origin itself is
+    // step 1's business.
+    let chain: Vec<DomNodeId> = spatial_navigation_containers(env.layout_results, origin)
+        .into_iter()
+        .filter(|c| *c != origin)
+        .collect();
+
+    // No box to search FROM (never laid out, unmounted, or a fixture without
+    // geometry): the first candidate of the innermost container that has one,
+    // else of the whole pool. Keeps containment observable without geometry,
+    // and never answers the origin itself.
+    let Some(origin_rect) = geom.rect(origin) else {
+        let first_in = |container: Option<DomNodeId>| {
+            pool.iter().copied().find(|c| {
+                *c != origin
+                    && container.is_none_or(|k| *c != k && is_within(env.layout_results, *c, k))
+            })
+        };
+        return chain
+            .iter()
+            .find_map(|k| first_in(Some(*k)))
+            .or_else(|| first_in(None))
+            .map_or(SpatialNavigationOutcome::NoTarget, SpatialNavigationOutcome::Focus);
+    };
+
+    // Step 1: the origin is itself a scroll container, or the document.
+    if is_dom_root(origin) || is_css_scroll_container(env, origin) {
+        let action = effective_action(origin);
+        if action != StyleSpatialNavigationAction::Focus && can_manually_scroll(env, origin, dir) {
+            return SpatialNavigationOutcome::Scroll(origin);
+        }
+        let visible_only = action != StyleSpatialNavigationAction::Focus;
+        let inside = candidates_in(env, &geom, &pool, origin, origin, visible_only);
+        if let Some(best) = select_best_candidate(
+            origin_rect,
+            inside_area_of(env, origin, origin_rect),
+            &inside,
+            dir,
+            function_of(env, origin),
+        ) {
+            return SpatialNavigationOutcome::Focus(best);
+        }
+    }
+
+    // Step 2: the container chain, the document last.
+    let mut containers = chain;
+    let root = dom_root_of(origin);
+    if root != origin && !containers.contains(&root) {
+        containers.push(root);
+    }
+    for container in containers {
+        let action = effective_action(container);
+        let visible_only = action != StyleSpatialNavigationAction::Focus;
+        let candidates = candidates_in(env, &geom, &pool, container, origin, visible_only);
+        if let Some(best) = select_best_candidate(
+            origin_rect,
+            origin_rect,
+            &candidates,
+            dir,
+            function_of(env, container),
+        ) {
+            return SpatialNavigationOutcome::Focus(best);
+        }
+        let scrollable = is_dom_root(container) || is_css_scroll_container(env, container);
+        if action != StyleSpatialNavigationAction::Focus
+            && scrollable
+            && can_manually_scroll(env, container, dir)
+        {
+            return SpatialNavigationOutcome::Scroll(container);
+        }
+        // `navnotarget` would fire here, at the focused element, naming
+        // `container`; then the search moves out.
+    }
+
+    // Step 3 (azul extension): the window's other DOMs.
+    let document_action = effective_action(root);
+    let visible_only = document_action != StyleSpatialNavigationAction::Focus;
+    let others: Vec<(DomNodeId, LogicalRect)> = pool
+        .iter()
+        .copied()
+        .filter(|c| c.dom != origin.dom)
+        .filter_map(|c| {
+            let r = geom.rect(c)?;
+            (!visible_only || is_visible(env, &geom, c, r)).then_some((c, r))
+        })
+        .collect();
+    select_best_candidate(
+        origin_rect,
+        origin_rect,
+        &others,
+        dir,
+        function_of(env, root),
+    )
+    .map_or(SpatialNavigationOutcome::NoTarget, SpatialNavigationOutcome::Focus)
+}
+
+#[cfg(test)]
+mod spatial_selection_tests {
+    //! css-nav-1 §8.4 / §9.3 candidate selection on synthetic rects - the
+    //! pure half of the engine, no layout needed.
+
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction;
+
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    fn node(n: usize) -> DomNodeId {
+        FocusSearchContext::make_dom_node_id(DomId::ROOT_ID, NodeId::new(n))
+    }
+
+    fn pick(
+        origin: LogicalRect,
+        candidates: &[(usize, LogicalRect)],
+        dir: FocusDirection,
+        function: StyleSpatialNavigationFunction,
+    ) -> Option<DomNodeId> {
+        let c: Vec<(DomNodeId, LogicalRect)> =
+            candidates.iter().map(|(n, r)| (node(*n), *r)).collect();
+        select_best_candidate(origin, origin, &c, dir, function)
+    }
+
+    /// "Below" is decided by EDGES: a box whose top edge is under the focus's
+    /// bottom edge is below it, however far to the side it sits.
+    #[test]
+    fn a_box_below_counts_as_below_however_far_to_the_side() {
+        let a = rect(0.0, 0.0, 100.0, 20.0);
+        let b = rect(150.0, 30.0, 100.0, 20.0);
+        assert_eq!(
+            pick(a, &[(2, b)], FocusDirection::Down, StyleSpatialNavigationFunction::Normal),
+            Some(node(2)),
+        );
+    }
+
+    /// The single-candidate shortcut comes AFTER the direction filter: a lone
+    /// box above the focus is no answer to Down.
+    #[test]
+    fn a_lone_candidate_the_other_way_is_no_answer() {
+        let a = rect(0.0, 100.0, 100.0, 20.0);
+        let above = rect(0.0, 0.0, 100.0, 20.0);
+        for function in [
+            StyleSpatialNavigationFunction::Normal,
+            StyleSpatialNavigationFunction::Grid,
+        ] {
+            assert_eq!(pick(a, &[(2, above)], FocusDirection::Down, function), None);
+        }
+    }
+
+    /// Touching boxes do not overlap: the next row of a list whose top edge
+    /// IS the focus's bottom edge is below it.
+    #[test]
+    fn the_next_row_of_a_list_is_below_even_when_the_edges_touch() {
+        let a = rect(0.0, 0.0, 100.0, 40.0);
+        let next = rect(0.0, 40.0, 100.0, 40.0);
+        let after = rect(0.0, 80.0, 100.0, 40.0);
+        assert_eq!(
+            pick(
+                a,
+                &[(2, next), (3, after)],
+                FocusDirection::Down,
+                StyleSpatialNavigationFunction::Normal
+            ),
+            Some(node(2)),
+        );
+    }
+
+    /// An INSIDER (a box inside the focused one, further along the axis than
+    /// its start edge) wins over every box beyond it.
+    #[test]
+    fn a_box_inside_the_focus_wins_over_one_beyond_it() {
+        let card = rect(0.0, 0.0, 200.0, 200.0);
+        let inner = rect(10.0, 50.0, 50.0, 20.0);
+        let below = rect(0.0, 210.0, 200.0, 20.0);
+        assert_eq!(
+            pick(
+                card,
+                &[(2, inner), (3, below)],
+                FocusDirection::Down,
+                StyleSpatialNavigationFunction::Normal
+            ),
+            Some(node(2)),
+        );
+    }
+
+    /// The css-nav-1 §9.3 example in both modes: `a` on top, `b` nearer but
+    /// beside the column, `c` further but straight below. `normal` takes the
+    /// nearer `b` (distance 190 vs 675); `grid` takes the aligned `c`.
+    #[test]
+    fn normal_takes_the_nearer_box_and_grid_the_aligned_one() {
+        let a = rect(0.0, 0.0, 100.0, 20.0);
+        let b = rect(100.0, 110.0, 100.0, 20.0);
+        let c = rect(0.0, 600.0, 100.0, 20.0);
+        let candidates = [(3, b), (4, c)];
+        assert_eq!(
+            pick(a, &candidates, FocusDirection::Down, StyleSpatialNavigationFunction::Normal),
+            Some(node(3)),
+        );
+        assert_eq!(
+            pick(a, &candidates, FocusDirection::Down, StyleSpatialNavigationFunction::Grid),
+            Some(node(4)),
+        );
+    }
+
+    /// `grid` with nothing aligned: the nearest along the axis, ties to the
+    /// smallest gap across it.
+    #[test]
+    fn grid_without_an_aligned_box_takes_the_nearest_along_the_axis() {
+        let a = rect(0.0, 0.0, 100.0, 20.0);
+        let far_right = rect(400.0, 50.0, 100.0, 20.0);
+        let near_right = rect(150.0, 50.0, 100.0, 20.0);
+        let deeper = rect(120.0, 90.0, 100.0, 20.0);
+        assert_eq!(
+            pick(
+                a,
+                &[(2, far_right), (3, near_right), (4, deeper)],
+                FocusDirection::Down,
+                StyleSpatialNavigationFunction::Grid
+            ),
+            Some(node(3)),
+        );
+    }
+
+    /// Left/Right weigh drift across the axis 15x harder than Up/Down do
+    /// (orthogonalWeight 30 vs 2): Right prefers the box on the same row even
+    /// when a box one row down is nearer.
+    #[test]
+    fn right_stays_on_the_row() {
+        let a = rect(0.0, 0.0, 50.0, 20.0);
+        let same_row_far = rect(300.0, 0.0, 50.0, 20.0);
+        let next_row_near = rect(60.0, 30.0, 50.0, 20.0);
+        assert_eq!(
+            pick(
+                a,
+                &[(2, same_row_far), (3, next_row_near)],
+                FocusDirection::Right,
+                StyleSpatialNavigationFunction::Normal
+            ),
+            Some(node(2)),
+        );
+    }
 }
 
 #[cfg(test)]

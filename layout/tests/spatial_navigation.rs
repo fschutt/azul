@@ -240,3 +240,83 @@ fn auto_scrolls_the_container_instead_of_leaving_it_while_it_still_has_content_b
          focus (got {action:?})",
     );
 }
+
+// ---------------------------------------------------------------------------
+// Guards: behaviour that must not move
+// ---------------------------------------------------------------------------
+
+/// The same three boxes as the `grid` test, in a panel that does NOT ask for
+/// `grid`: the spec's distance function takes the nearer `b` (190 against
+/// 675), so the property is what makes the difference.
+#[test]
+fn normal_takes_the_nearer_box_when_the_panel_does_not_ask_for_grid() {
+    let lw = lay_out(
+        Dom::create_body()
+            .with_css("margin: 0; padding: 0;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: block; margin: 0; padding: 0; spatial-navigation-contain: \
+                         contain;",
+                    )
+                    .with_child(button(100, 20, "0"))
+                    .with_child(button(100, 20, "90px 0 0 100px"))
+                    .with_child(button(100, 20, "470px 0 0 0")),
+            ),
+        800.0,
+        800.0,
+    );
+    assert_eq!(target_from(&lw, 2, FocusDirection::Down), Some(dnid(3)));
+}
+
+/// `body(0) > scroller(1) > [a(2), b(3), c(4)]` with
+/// `spatial-navigation-action: scroll` on the scroller. css-nav-1 §9.2: "If
+/// the currently focused element is not itself a scroll container, this value
+/// on an ancestor scroll container has the same effect as auto." Down from
+/// `a` focuses the visible `b`.
+#[test]
+fn scroll_on_an_ancestor_scroll_container_behaves_like_auto() {
+    let lw = lay_out(
+        Dom::create_body().with_css("margin: 0; padding: 0;").with_child(
+            Dom::create_div()
+                .with_css(
+                    "display: block; margin: 0; padding: 0; width: 200px; height: 100px; \
+                     overflow-y: auto; spatial-navigation-action: scroll;",
+                )
+                .with_child(button(100, 40, "0"))
+                .with_child(button(100, 40, "0"))
+                .with_child(button(100, 40, "0")),
+        ),
+        800.0,
+        600.0,
+    );
+    assert_eq!(down_arrow_from(&lw, 2), DefaultAction::FocusDown);
+    assert_eq!(target_from(&lw, 2, FocusDirection::Down), Some(dnid(3)));
+}
+
+/// The same scroller, focusable itself and focused: `scroll` on the FOCUSED
+/// scroll container scrolls it, "without changing which element is in
+/// focus, regardless of the presence of focusable descendants".
+#[test]
+fn scroll_on_the_focused_scroll_container_scrolls_it() {
+    let lw = lay_out(
+        Dom::create_body().with_css("margin: 0; padding: 0;").with_child(
+            Dom::create_div()
+                .with_tab_index(TabIndex::OverrideInParent(0))
+                .with_css(
+                    "display: block; margin: 0; padding: 0; width: 200px; height: 100px; \
+                     overflow-y: auto; spatial-navigation-action: scroll;",
+                )
+                .with_child(button(100, 40, "0"))
+                .with_child(button(100, 40, "0"))
+                .with_child(button(100, 40, "0")),
+        ),
+        800.0,
+        600.0,
+    );
+    let action = down_arrow_from(&lw, 1);
+    assert!(
+        default_action_to_focus_target(&action).is_none() && action != DefaultAction::None,
+        "a focused `scroll` container scrolls on Down (got {action:?})",
+    );
+}
