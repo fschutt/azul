@@ -14396,13 +14396,28 @@ impl LayoutWindow {
         // an ANONYMOUS ancestor (`dom_node_id == None`) from re-matching the
         // first anonymous node in the tree.
         let layout_result = self.layout_results.get(&node_id.dom)?;
-        let layout_tree = &layout_result.layout_tree;
-
-        let start = *layout_tree
+        let start = *layout_result
+            .layout_tree
             .dom_to_layout
             .get(&node_id.node.into_crate_internal()?)?
             .first()?;
+        self.scroll_box_of_layout_node(node_id.dom, start)
+    }
 
+    /// The scroll box the laid-out box `start` of `dom` lives in, ITSELF
+    /// INCLUDED: the nearest box on its layout ancestor chain that layout
+    /// made a scroll container (`scrollbar_info`) and that is registered with
+    /// the `ScrollManager` (it overflows).
+    ///
+    /// Keyed on a LAYOUT index, so an anonymous IFC root (which has no DOM
+    /// node to look its box up by) is answered for the box it is, not for
+    /// its container's principal box. [`TextTarget::scroll_box`] is this for
+    /// a text block.
+    ///
+    /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
+    #[must_use]
+    pub fn scroll_box_of_layout_node(&self, dom: DomId, start: LayoutNodeId) -> Option<DomNodeId> {
+        let layout_tree = &self.layout_results.get(&dom)?.layout_tree;
         // SELF-inclusive: "which scroll box does this node live in?" — a
         // TextInput's value `<p>` is both the caret's IFC root and the
         // horizontal scroll box the caret reveal must move.
@@ -14417,13 +14432,9 @@ impl LayoutWindow {
             })
             .filter_map(|idx| layout_tree.get(idx).and_then(|n| n.dom_node_id))
             // ...and a registered scroll state (i.e. it actually overflows).
-            .find(|check| {
-                self.scroll_manager
-                    .get_scroll_state(node_id.dom, *check)
-                    .is_some()
-            })
+            .find(|check| self.scroll_manager.get_scroll_state(dom, *check).is_some())
             .map(|check| DomNodeId {
-                dom: node_id.dom,
+                dom,
                 node: NodeHierarchyItemId::from_crate_internal(Some(check)),
             })
     }
@@ -14432,10 +14443,29 @@ impl LayoutWindow {
     /// `anchor` (the shells' `auto_scroll_timer_callback`: the focused node
     /// of a text-selection drag, else the node under the pointer).
     ///
-    /// The scroll box `anchor` LIVES IN - itself included - among its DOM
-    /// ancestors that carry a scroll state.
+    /// A TEXT-SELECTION drag (`text_selection_drag_anchor` latched) scrolls
+    /// the box its text scrolls in - the editing session's
+    /// [`TextTarget::scroll_box`], the same box the caret reveal moves. The
+    /// anchor is the focused HOST there, and in a TextInput the box that
+    /// scrolls is the value `<p>`, the host's CHILD: the host-and-its-DOM-
+    /// ancestors walk below never found it, and the drag scrolled the page
+    /// (or nothing) instead of the field.
+    ///
+    /// Any other drag (a node drag, an OS file hover) scrolls the box
+    /// `anchor` LIVES IN - itself included - among its DOM ancestors that
+    /// carry a scroll state.
+    ///
+    /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
     #[must_use]
     pub fn drag_autoscroll_box(&self, anchor: DomNodeId) -> Option<DomNodeId> {
+        if self.text_selection_drag_anchor.is_some() {
+            if let Some(text_box) = self
+                .session_text_target()
+                .and_then(|target| target.scroll_box(self))
+            {
+                return Some(text_box);
+            }
+        }
         let node = anchor.node.into_crate_internal()?;
         let layout_result = self.layout_results.get(&anchor.dom)?;
         let hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
@@ -14545,19 +14575,35 @@ impl LayoutWindow {
         // the reveal bailed looking for a scrollable ancestor of a different
         // node, or of no node at all when the session had never taken window
         // focus. The caret then never scrolled into view.
-        let anchor_node = self
+        //
+        // ONE rule with the drag autoscroll (`Self::drag_autoscroll_box`):
+        // the box the session's TEXT scrolls in, `TextTarget::scroll_box` -
+        // walked from the block's own layout box, so an anonymous IFC root is
+        // answered for itself. Without a session, the focused node's box.
+        let session_box = self
             .text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.block.container_dom_node())
-            .or(self.focus_manager.focused_node);
-        let Some(anchor_node) = anchor_node else {
-            return false;
-        };
-
-        // Find scrollable ancestor
-        let Some(scroll_container) = self.find_scrollable_ancestor(anchor_node) else {
-            return false; // No scrollable ancestor
+            .and_then(|_| self.session_text_target())
+            .and_then(|target| target.scroll_box(self));
+        let scroll_container = match session_box {
+            Some(found) => found,
+            None => {
+                let anchor_node = self
+                    .text_edit_manager
+                    .multi_cursor
+                    .as_ref()
+                    .map(|mc| mc.block.container_dom_node())
+                    .or(self.focus_manager.focused_node);
+                let Some(anchor_node) = anchor_node else {
+                    return false;
+                };
+                // Find scrollable ancestor
+                let Some(found) = self.find_scrollable_ancestor(anchor_node) else {
+                    return false; // No scrollable ancestor
+                };
+                found
+            }
         };
 
         // Container bounds and scroll state, measured in the CONTAINER'S OWN

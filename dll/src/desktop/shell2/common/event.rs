@@ -498,22 +498,20 @@ extern "C" fn auto_scroll_timer_callback(
     // `mouse_position` arrives in WINDOW space, and the two agree only while no
     // ancestor of this container is itself scrolled — so for a NESTED scroller
     // the edge tests ran against a box that is not where the container appears,
-    // and it autoscrolled from the wrong edges. Subtract the scroll of every
-    // ancestor ABOVE it; its own offset does not move its box.
-    // `find_scroll_parent` (STRICT ancestors) is the right walker here, unlike
-    // the target lookup above.
-    let mut ancestor_scroll = LogicalPosition::zero();
-    let mut walk = scroll_parent;
-    for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {
-        let Some(parent) = callback_info.find_scroll_parent(dom_id, walk) else {
-            break;
-        };
-        if let Some(info) = callback_info.get_scroll_node_info(dom_id, parent) {
-            ancestor_scroll.x += info.current_offset.x;
-            ancestor_scroll.y += info.current_offset.y;
-        }
-        walk = parent;
-    }
+    // and it autoscrolled from the wrong edges. Subtract the scroll of the
+    // frames ABOVE it; its own offset does not move its box.
+    //
+    // Those frames are the box's `ScrollChain` (containing blocks, the frames
+    // the display list paints it in), which registration publishes and
+    // `ScrollManager::ancestor_scroll_offset` sums - the same answer the
+    // scrollbar hit test and the painter use. This used to be its own walk
+    // over DOM ancestors with a scroll state, a sixth rule that disagreed with
+    // the painter for a `position: fixed/absolute` box and for a programmatic
+    // offset on a box that paints no scroll frame.
+    let ancestor_scroll = callback_info
+        .get_layout_window()
+        .scroll_manager
+        .ancestor_scroll_offset(dom_id, scroll_parent);
 
     // Calculate scroll delta based on mouse distance from container edges
     let container = azul_core::geom::LogicalRect {
@@ -1486,9 +1484,6 @@ pub enum WindowStateSource {
 }
 
 // Input-delta validation (R2)
-
-/// How far the autoscroll edge test walks up summing ancestor scroll offsets.
-const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 
 /// Is the window-state validation gate on?
 ///

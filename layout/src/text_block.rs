@@ -231,6 +231,20 @@ impl TextTarget {
             .or_else(|| self.blank_line_caret())
     }
 
+    /// The scroll box this block's text scrolls in: its IFC root itself when
+    /// that scrolls (a TextInput's value `<p>`), else the nearest scrolling
+    /// box above it (a TextArea's container, a page) - walked on the LAYOUT
+    /// tree from the block's own box ([`LayoutWindow::scroll_box_of_layout_node`]).
+    ///
+    /// THE answer to "which box does a text gesture scroll", shared by the
+    /// caret reveal (`LayoutWindow::scroll_selection_into_view`) and the
+    /// selection drag's autoscroll (`LayoutWindow::drag_autoscroll_box`),
+    /// which used to answer it with two different rules.
+    #[must_use]
+    pub fn scroll_box(&self, window: &LayoutWindow) -> Option<DomNodeId> {
+        window.scroll_box_of_layout_node(self.block.dom(), self.layout_index)
+    }
+
     /// The caret at the flat BYTE offset `offset` into the block's text - the
     /// one converter the byte-offset protocols (the IME's `selectedRange` /
     /// `firstRectForCharacterRange:`, an accessibility `SetTextSelection`)
