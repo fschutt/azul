@@ -3081,3 +3081,256 @@ fn an_outside_only_popup_leaves_escape_to_its_content_but_closes_on_an_outside_p
     parent.common.mouse_state_mut().left_down = false;
     let _ = parent.process_window_events(0);
 }
+
+// ---------------------------------------------------------------------------
+// Dialog: HTML `<dialog>` on a transient window (the 2026-09-28 remodel)
+// ---------------------------------------------------------------------------
+
+use azul_layout::widgets::dialog::{
+    Dialog, DialogClosedBy, DialogOnCancelCallbackType, DialogOnCloseCallbackType, DialogState,
+};
+
+/// The app behind the dialog scenarios.
+struct DialogProbe {
+    open: bool,
+    closed_by: DialogClosedBy,
+    /// `cancel` calls `prevent_default`.
+    keep_open: bool,
+    cancels: usize,
+    /// The return value of every `close`.
+    closes: Vec<String>,
+}
+
+extern "C" fn probe_cancel(mut data: RefAny, mut info: CallbackInfo, _state: DialogState) -> Update {
+    let keep_open = match data.downcast_mut::<DialogProbe>() {
+        Some(mut p) => {
+            p.cancels += 1;
+            p.keep_open
+        }
+        None => false,
+    };
+    if keep_open {
+        info.prevent_default();
+    }
+    Update::DoNothing
+}
+
+/// A well-behaved app: `close` drops its `open` flag and rebuilds.
+extern "C" fn probe_close(mut data: RefAny, _info: CallbackInfo, state: DialogState) -> Update {
+    if let Some(mut p) = data.downcast_mut::<DialogProbe>() {
+        p.open = false;
+        p.closes.push(state.return_value.as_str().to_string());
+    }
+    Update::RefreshDom
+}
+
+/// The dialog's "OK" control: `dialog.close("ok")`.
+extern "C" fn probe_ok(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let _ = Dialog::close_from(&mut info, hit, "ok".into());
+    Update::DoNothing
+}
+
+/// A focusable stop, then a modal "Delete file" dialog whose content holds
+/// a focusable "OK" control.
+extern "C" fn dialog_probe_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let (open, closed_by) = data
+        .downcast_ref::<DialogProbe>()
+        .map_or((false, DialogClosedBy::Auto), |p| (p.open, p.closed_by));
+    let on_cancel: DialogOnCancelCallbackType = probe_cancel;
+    let on_close: DialogOnCloseCallbackType = probe_close;
+    let ok = Dom::create_div()
+        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("dialog-ok".into())].into())
+        .with_css("width: 80px; height: 24px;".into())
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_callback(
+            EventFilter::Hover(azul_core::events::HoverEventFilter::Click),
+            data.clone(),
+            Callback {
+                cb: probe_ok,
+                ctx: azul_core::refany::OptionRefAny::None,
+            }
+            .to_core(),
+        )
+        .with_child(Dom::create_p_with_text("OK"));
+    let stop = Dom::create_div()
+        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("dialog-stop".into())].into())
+        .with_css("width: 80px; height: 20px;".into())
+        .with_tab_index(azul_core::dom::TabIndex::Auto);
+    Dom::create_body().with_child(stop).with_child(
+        Dialog::create(
+            Dom::create_div()
+                .with_child(Dom::create_p_with_text("Delete it?"))
+                .with_child(ok),
+        )
+        .with_title("Delete file".into())
+        .with_modal(true)
+        .with_open(open)
+        .with_closed_by(closed_by)
+        .with_on_cancel(data.clone(), on_cancel)
+        .with_on_close(data, on_close)
+        .dom(),
+    )
+}
+
+fn dialog_parent(closed_by: DialogClosedBy, keep_open: bool) -> HeadlessWindow {
+    let app_data = Arc::new(RefCell::new(RefAny::new(DialogProbe {
+        open: false,
+        closed_by,
+        keep_open,
+        cancels: 0,
+        closes: Vec::new(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = dialog_probe_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    parent.regenerate_layout().expect("layout");
+    parent
+}
+
+fn with_probe<R>(window: &HeadlessWindow, f: impl FnOnce(&mut DialogProbe) -> R) -> R {
+    let mut app = window.common.app_data.borrow_mut();
+    let mut probe = app
+        .downcast_mut::<DialogProbe>()
+        .expect("the app state is a DialogProbe");
+    f(&mut probe)
+}
+
+/// The app shows its modal dialog; returns the popup window the run loop
+/// would create, after its first pass (the one that autofocuses).
+fn show_probe_dialog(parent: &mut HeadlessWindow) -> (HeadlessWindow, WindowCreateOptions) {
+    with_probe(parent, |p| p.open = true);
+    relayout(parent);
+    let popup_opts = take_queued_popup(parent);
+    let mut popup = headless(popup_opts.clone(), parent.common.app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    (popup, popup_opts)
+}
+
+/// `showModal()`: the dialog's window covers its parent exactly and takes
+/// the focus (its first control). Escape runs `cancel`, then closes it: the
+/// app hears `close` with an empty return value, and the parent's focus is
+/// where it was.
+#[test]
+fn escape_in_a_modal_dialog_runs_cancel_then_closes_it_and_hands_focus_back() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    let stop = node_with_class(&parent, "dialog-stop");
+    assert_eq!(focused(&parent), Some(stop), "premise: Tab focused the stop");
+
+    let (mut popup, popup_opts) = show_probe_dialog(&mut parent);
+    assert_eq!(
+        popup_opts.window_state.size.dimensions,
+        LogicalSize {
+            width: 800.0,
+            height: 600.0
+        },
+        "the modal dialog's window covers its parent"
+    );
+    assert!(
+        matches!(
+            popup_opts.window_state.position,
+            azul_core::window::WindowPosition::RelativeToParentWindow(p) if p.x == 0 && p.y == 0
+        ),
+        "at the parent's origin: {:?}",
+        popup_opts.window_state.position
+    );
+    assert_eq!(
+        focused(&popup),
+        Some(node_with_class(&popup, "dialog-ok")),
+        "the dialog focused its first control"
+    );
+
+    key_down(&mut popup, VirtualKeyCode::Escape, &[], "t.escape");
+    assert_eq!(with_probe(&popup, |p| p.cancels), 1, "cancel ran");
+    assert!(close_requested(&popup), "then the dialog closed its window");
+
+    parent
+        .regenerate_layout()
+        .expect("the parent reads the dismissal");
+    assert_eq!(
+        with_probe(&parent, |p| p.closes.clone()),
+        vec![String::new()],
+        "close, with the empty return value Escape leaves"
+    );
+    let _ = parent.process_window_events(0);
+    assert_eq!(focused(&parent), Some(stop), "focus is where it was");
+}
+
+/// `event.preventDefault()` in `cancel` keeps the dialog open on Escape.
+#[test]
+fn a_cancel_that_prevents_default_keeps_the_modal_dialog_open() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, true);
+    let (mut popup, _) = show_probe_dialog(&mut parent);
+    key_down(&mut popup, VirtualKeyCode::Escape, &[], "t.escape");
+    assert_eq!(with_probe(&popup, |p| p.cancels), 1, "cancel ran");
+    assert!(!close_requested(&popup), "and kept the dialog open");
+}
+
+/// `closedby="any"`: a press on a modal dialog's backdrop is a light
+/// dismiss (a close request: `cancel` first). A press inside the dialog
+/// never is, and without `closedby="any"` the backdrop is inert.
+#[test]
+fn a_press_on_the_backdrop_closes_a_modal_dialog_only_with_closedby_any() {
+    for (closed_by, closes) in [(DialogClosedBy::Any, true), (DialogClosedBy::Auto, false)] {
+        let mut parent = dialog_parent(closed_by, false);
+        let (mut popup, _) = show_probe_dialog(&mut parent);
+
+        let panel = rect_of_class(&popup, "__azul-native-dialog-panel");
+        click_at(
+            &mut popup,
+            LogicalPosition::new(panel.origin.x + 4.0, panel.origin.y + 4.0),
+        );
+        assert!(
+            !close_requested(&popup),
+            "a press inside the dialog ({closed_by:?})"
+        );
+
+        click_at(&mut popup, LogicalPosition::new(5.0, 5.0));
+        assert_eq!(
+            close_requested(&popup),
+            closes,
+            "a press on the backdrop ({closed_by:?})"
+        );
+        assert_eq!(
+            with_probe(&popup, |p| p.cancels),
+            usize::from(closes),
+            "a light dismiss is a close request: cancel first ({closed_by:?})"
+        );
+    }
+}
+
+/// A control inside the dialog closes it with a return value
+/// (`Dialog::close_from`, HTML `close("ok")`): no `cancel`, and the app's
+/// `close` sees "ok".
+#[test]
+fn a_control_inside_the_dialog_closes_it_with_its_return_value() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let (mut popup, _) = show_probe_dialog(&mut parent);
+
+    let ok = rect_of_class(&popup, "dialog-ok");
+    click_at(
+        &mut popup,
+        LogicalPosition::new(
+            ok.origin.x + ok.size.width / 2.0,
+            ok.origin.y + ok.size.height / 2.0,
+        ),
+    );
+    assert!(close_requested(&popup), "OK closed the dialog");
+    assert_eq!(with_probe(&popup, |p| p.cancels), 0, "close() runs no cancel");
+
+    parent
+        .regenerate_layout()
+        .expect("the parent reads the dismissal");
+    assert_eq!(
+        with_probe(&parent, |p| p.closes.clone()),
+        vec!["ok".to_string()]
+    );
+}

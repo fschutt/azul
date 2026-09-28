@@ -196,6 +196,11 @@ pub mod combobox;
 /// number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid
 /// in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
+/// Dialog widget: HTML `<dialog>` semantics (`show` / `show_modal` / `close`,
+/// `returnValue`, a cancelable `cancel`, `closedby`, focus in and back, a
+/// modal `::backdrop` in the top layer) on a `<transient-window>`. Popover
+/// and Modal are front-ends over it; see `dialog.rs`.
+pub mod dialog;
 /// Divider / separator rule widget (horizontal or vertical).
 ///
 /// See `divider.rs`.
@@ -848,6 +853,7 @@ mod label_convention {
             color_input::ColorInput,
             combobox::ComboBox,
             date_picker::DatePicker,
+            dialog::Dialog,
             divider::Divider,
             drop_down::DropDown,
             file_input::FileInput,
@@ -934,6 +940,13 @@ mod label_convention {
             ),
             ("combobox", ComboBox::new(labels(&["one", "two"])).dom()),
             ("date_picker", DatePicker::create(2024, 2, 15).dom()),
+            (
+                "dialog",
+                Dialog::create(user_content())
+                    .with_title(AzString::from("Dialog"))
+                    .show_modal()
+                    .dom(),
+            ),
             ("divider", Divider::create().dom()),
             ("drop_down", DropDown::new(labels(&["one", "two"])).dom()),
             ("file_input", FileInput::create(OptionString::None).dom()),
@@ -1795,6 +1808,7 @@ mod theme_contrast {
     const CONTAINERS: &[&str] = &[
         "accordion",
         "card",
+        "dialog",
         "divider",
         "frame",
         "modal",
