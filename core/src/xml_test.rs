@@ -4687,10 +4687,11 @@ mod autotest_generated {
 
     #[test]
     fn test_data_l10n_creates_localizable_text_node() {
-        // `<p data-l10n="greeting">` should produce a Text node whose AzString
-        // is marked localizable and carries the key "greeting".
-        use crate::dom::{NodeType, FluentArg};
-        use azul_css::css::BoxOrStatic;
+        // `<p data-l10n="greeting">` stays a `<p>` (its UA style, its `p`
+        // selectors, its a11y role) and gets ONE text child: the key
+        // "greeting", marked localizable. The guide's own example reads
+        // "Result: <p>Welcome back, Alice!</p>".
+        use crate::dom::NodeType;
 
         let xml_node = XmlNode {
             node_type: "p".into(),
@@ -4710,15 +4711,50 @@ mod autotest_generated {
         let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
             .expect("parse ok");
 
-        match &dom.root.node_type {
+        assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");
+        assert_eq!(dom.children.as_ref().len(), 1, "exactly one child: the key");
+        match &dom.children.as_ref()[0].root.node_type {
             NodeType::Text(boxed) => {
                 let s = boxed.as_ref();
                 assert!(s.is_localizable(), "text node must be flagged localizable");
                 assert_eq!(s.as_str(), "greeting", "text node must carry the l10n key");
             }
-            other => panic!("expected Text node, got {:?}", other),
+            other => panic!("expected Text child, got {:?}", other),
         }
         assert!(dom.root.fluent_args.is_none(), "no fluent args expected");
+    }
+
+    #[test]
+    fn a_data_l10n_element_keeps_its_tag_in_the_arena_builder_too() {
+        // `xml_node_to_fast_dom` shares `apply_xml_node_attributes` with the
+        // tree builder above and must produce the same shape: p > text(key).
+        use crate::dom::NodeType;
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut pairs = Vec::new();
+                pairs.push(crate::window::AzStringPair { key: "data-l10n".into(), value: "greeting".into() });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let mut builder = CompactDomBuilder::new();
+        xml_node_to_fast_dom(&xml_node, &component_map, false, &mut builder, 0).expect("parse ok");
+        let fast = builder.finish();
+        let nodes = fast.node_data.as_ref();
+
+        assert_eq!(nodes.len(), 2, "p + its key text, got {nodes:?}");
+        assert_eq!(nodes[0].node_type, NodeType::P, "the element keeps its tag");
+        match &nodes[1].node_type {
+            NodeType::Text(boxed) => {
+                assert!(boxed.as_ref().is_localizable());
+                assert_eq!(boxed.as_ref().as_str(), "greeting");
+            }
+            other => panic!("expected Text child, got {:?}", other),
+        }
     }
 
     #[test]
@@ -4742,14 +4778,17 @@ mod autotest_generated {
         let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
             .expect("parse ok");
 
-        match &dom.root.node_type {
+        assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");
+        match &dom.children.as_ref()[0].root.node_type {
             NodeType::Text(boxed) => {
                 assert!(boxed.as_ref().is_localizable());
                 assert_eq!(boxed.as_ref().as_str(), "user-count");
             }
-            other => panic!("expected Text node, got {:?}", other),
+            other => panic!("expected Text child, got {:?}", other),
         }
 
+        // The arguments stay on the ELEMENT; its text child formats with
+        // them (`translate_texts_in_dom` reads a text node's parent's args).
         let args = dom.root.fluent_args.as_ref().expect("fluent_args must be set");
         assert_eq!(args.as_slice().len(), 1);
         let kv = &args.as_slice()[0];

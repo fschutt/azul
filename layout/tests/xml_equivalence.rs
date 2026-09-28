@@ -105,3 +105,51 @@ fn test_core_and_layout_xml_parsing_equivalence_permutations() {
         Some("blank"),
     );
 }
+
+/// `<p data-l10n="k" data-l10n-name="Alice">` is a `<p>` whose one text child is
+/// the key `k`, marked localizable, with the arguments on the `<p>` - in the
+/// tree builder AND in the streaming FastDom parser. Both used to turn the
+/// `<p>` itself into a text node; the streaming parser then hung the
+/// element's markup content under that TEXT node.
+#[test]
+fn a_data_l10n_element_keeps_its_tag_in_both_xml_paths() {
+    let xml = r#"<body><p data-l10n="welcome-message" data-l10n-userName="Alice"></p></body>"#;
+
+    // Path 1 (Core/Dom)
+    let dom = dom_from_parsed_xml(parse_xml(xml).expect("core parses"));
+    fn find_p(dom: &Dom) -> Option<&Dom> {
+        if dom.root.node_type == NodeType::P {
+            return Some(dom);
+        }
+        dom.children.as_slice().iter().find_map(find_p)
+    }
+    let p = find_p(&dom).expect("the <p> survives the core path");
+    assert_eq!(p.children.as_slice().len(), 1, "one child: the key");
+    match &p.children.as_slice()[0].root.node_type {
+        NodeType::Text(t) => {
+            assert!(t.as_ref().is_localizable());
+            assert_eq!(t.as_ref().as_str(), "welcome-message");
+        }
+        other => panic!("core: expected the key text, got {other:?}"),
+    }
+    assert!(p.root.fluent_args.is_some(), "core: args stay on the <p>");
+
+    // Path 2 (Layout/FastDom)
+    let fast = parse_xml_to_fast_dom(xml).expect("layout parses");
+    let nodes = fast.node_data.as_ref();
+    let p_idx = nodes
+        .iter()
+        .position(|n| n.node_type == NodeType::P)
+        .expect("the <p> survives the streaming path");
+    assert!(nodes[p_idx].fluent_args.is_some(), "layout: args stay on the <p>");
+    let key = &nodes[p_idx + 1];
+    let parent = fast.node_hierarchy.as_ref()[p_idx + 1].parent_id();
+    assert_eq!(parent.map(|id| id.index()), Some(p_idx), "layout: the key is the <p>'s child");
+    match &key.node_type {
+        NodeType::Text(t) => {
+            assert!(t.as_ref().is_localizable());
+            assert_eq!(t.as_ref().as_str(), "welcome-message");
+        }
+        other => panic!("layout: expected the key text, got {other:?}"),
+    }
+}
