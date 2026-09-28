@@ -336,11 +336,19 @@ impl Titlebar {
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
+        // The BAR centres the title's line box on its midline, in both modes.
+        // That is the line AppKit centres the traffic lights on (y = 14 in a
+        // 28pt bar), and the line a CSD bar centres its own controls on.
+        // The title used to centre itself with `padding-top: (height -
+        // font_size) / 2`, as if its line were exactly `font_size` tall. A
+        // line box is about 1.2x the font size, so the title sat most of a
+        // pixel low in title-only mode, and inside the CSD row (which already
+        // centres its children) the padding pushed it 3.5px below the controls.
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_display(LayoutDisplay::Flex),
+        ));
         if show_buttons {
-            // CSD mode: flex layout to place buttons + title side by side
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_display(LayoutDisplay::Flex),
-            ));
+            // CSD mode: buttons + title side by side, centred on the midline.
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_flex_direction(LayoutFlexDirection::Row),
             ));
@@ -348,10 +356,16 @@ impl Titlebar {
                 CssProperty::const_align_items(LayoutAlignItems::Center),
             ));
         } else {
-            // Title-only mode: block layout — title fills width automatically.
-            // Avoids flex-grow complexity; text centers via text-align.
+            // Title-only mode: a COLUMN. Its one title block keeps the bar's
+            // full width (the cross axis stretches), so `text-align: center`
+            // still lands on the window's middle, and `justify-content`
+            // centres the block's line on the midline. The title claims no
+            // flex share of its own.
             props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_display(LayoutDisplay::Block),
+                CssProperty::const_flex_direction(LayoutFlexDirection::Column),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_justify_content(LayoutJustifyContent::Center),
             ));
         }
         props.push(CssPropertyWithConditions::simple(
@@ -480,13 +494,8 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_overflow_x(LayoutOverflow::Hidden),
         ));
-        // Vertically center the text: pad from top by (height - font_size) / 2
-        let v_pad = ((self.height - self.font_size) / 2.0).max(0.0);
-        if v_pad > 0.0 {
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_padding_top(LayoutPaddingTop::const_px(v_pad as isize)),
-            ));
-        }
+        // No vertical padding: the bar centres the title's line box (see
+        // `build_container_style`), whatever the font's line height is.
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
@@ -644,7 +653,7 @@ impl Titlebar {
         //   Right (Win/Lin): [spacer]  [title] [buttons]
         //
         // The spacer exists ONLY to balance the button block, so title-only
-        // mode - which has no buttons and is not even a flex container -
+        // mode - which has no buttons, and is a column around the one title -
         // keeps its single child.
         match button_side {
             TitlebarButtonSide::Left => {
@@ -1390,12 +1399,17 @@ mod autotest_generated {
     /// The exact container declarations the widget documents, for a given mode.
     fn expected_container(t: &Titlebar, show_buttons: bool) -> Vec<CssProperty> {
         let mut v = Vec::new();
+        // The bar centres the title on its midline in both modes: a row
+        // beside the controls, a column around the lone title.
+        v.push(CssProperty::const_display(LayoutDisplay::Flex));
         if show_buttons {
-            v.push(CssProperty::const_display(LayoutDisplay::Flex));
             v.push(CssProperty::const_flex_direction(LayoutFlexDirection::Row));
             v.push(CssProperty::const_align_items(LayoutAlignItems::Center));
         } else {
-            v.push(CssProperty::const_display(LayoutDisplay::Block));
+            v.push(CssProperty::const_flex_direction(LayoutFlexDirection::Column));
+            v.push(CssProperty::const_justify_content(
+                LayoutJustifyContent::Center,
+            ));
         }
         v.push(CssProperty::const_height(LayoutHeight::const_px(
             t.height as isize,
@@ -1456,12 +1470,7 @@ mod autotest_generated {
             StyleWhiteSpace::Nowrap,
         )));
         v.push(CssProperty::const_overflow_x(LayoutOverflow::Hidden));
-        let v_pad = ((t.height - t.font_size) / 2.0).max(0.0);
-        if v_pad > 0.0 {
-            v.push(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-                v_pad as isize,
-            )));
-        }
+        // No padding-top: the BAR centres the title vertically.
         v
     }
 
@@ -2217,28 +2226,36 @@ mod autotest_generated {
         }
     }
 
+    /// The bar centres its title on the midline in BOTH modes: a column around
+    /// the lone title (whose block keeps the bar's width, so `text-align`
+    /// still lands on the window's middle), a row beside the controls.
     #[test]
-    fn build_container_style_switches_flex_only_for_the_csd_mode() {
+    fn build_container_style_centres_the_title_on_the_midline_in_both_modes() {
         let t = tb("x");
 
-        let block = t.build_container_style(false);
-        let flex = t.build_container_style(true);
+        let column = properties(&t.build_container_style(false));
+        let row = properties(&t.build_container_style(true));
 
-        assert!(properties(&block).contains(&CssProperty::const_display(LayoutDisplay::Block)));
-        assert!(properties(&flex).contains(&CssProperty::const_display(LayoutDisplay::Flex)));
-        // Title-only mode must *not* declare flex layout — the doc comment says it
-        // deliberately avoids flex-grow complexity.
-        assert!(
-            !properties(&block).iter().any(|p| matches!(
-                p,
-                CssProperty::FlexDirection(_) | CssProperty::AlignItems(_)
-            )),
-            "title-only mode leaked flex declarations",
-        );
+        for props in [&column, &row] {
+            assert!(props.contains(&CssProperty::const_display(LayoutDisplay::Flex)));
+        }
+        assert!(column.contains(&CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column
+        )));
+        assert!(column.contains(&CssProperty::const_justify_content(
+            LayoutJustifyContent::Center
+        )));
+        assert!(row.contains(&CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row
+        )));
+        assert!(row.contains(&CssProperty::const_align_items(
+            LayoutAlignItems::Center
+        )));
         // Everything else is identical.
-        assert_eq!(height_px(&block), height_px(&flex));
-        assert_eq!(padding_left_px(&block), padding_left_px(&flex));
-        assert_eq!(padding_right_px(&block), padding_right_px(&flex));
+        let (column, row) = (t.build_container_style(false), t.build_container_style(true));
+        assert_eq!(height_px(&column), height_px(&row));
+        assert_eq!(padding_left_px(&column), padding_left_px(&row));
+        assert_eq!(padding_right_px(&column), padding_right_px(&row));
     }
 
     /// A CSD titlebar paints the DESKTOP's titlebar colour, not the window
@@ -2547,46 +2564,35 @@ mod autotest_generated {
         }
     }
 
+    /// The title declares NO vertical padding, at any height or font size and
+    /// in either mode: the bar centres its line box. A padding sized from the
+    /// font size pushed the line box below the midline (a line is taller
+    /// than its font size), and doubled up with the CSD row's own centring.
     #[test]
-    fn build_title_style_centres_vertically_with_half_the_leftover_height() {
-        for (h, fs, expected) in [
-            (30.0_f32, 13.0_f32, Some(8.0_f32)), // (30-13)/2 = 8.5 -> 8px
-            (32.0, 12.0, Some(10.0)),
-            (40.0, 20.0, Some(10.0)),
-            (14.0, 13.0, Some(0.0)), // 0.5 -> declared, but 0px
-        ] {
-            let mut t = tb("x");
-            t.set_height(h);
-            t.font_size = fs;
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                expected,
-                "h={h} fs={fs} produced the wrong vertical padding",
-            );
-        }
-    }
-
-    #[test]
-    fn build_title_style_omits_the_vertical_padding_when_the_text_does_not_fit() {
-        // `.max(0.0)` must swallow the negative gap: a negative padding-top would
-        // push the title above the titlebar.
+    fn build_title_style_leaves_the_vertical_centring_to_the_bar() {
         for (h, fs) in [
-            (13.0_f32, 13.0_f32),
-            (10.0, 20.0),
+            (28.0_f32, 13.0_f32),
+            (30.0, 13.0),
+            (32.0, 12.0),
+            (40.0, 20.0),
+            (14.0, 13.0),
+            (13.0, 13.0),
             (0.0, 13.0),
             (-100.0, 13.0),
             (f32::NEG_INFINITY, 13.0),
             (f32::NAN, 13.0),
             (13.0, f32::NAN),
         ] {
-            let mut t = tb("x");
-            t.set_height(h);
-            t.font_size = fs;
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                None,
-                "h={h} fs={fs} declared a vertical padding it should have clamped away",
-            );
+            for show_buttons in [false, true] {
+                let mut t = tb("x");
+                t.set_height(h);
+                t.font_size = fs;
+                assert_eq!(
+                    padding_top_px(&t.build_title_style(show_buttons)),
+                    None,
+                    "h={h} fs={fs} (show_buttons = {show_buttons}) declared a vertical padding",
+                );
+            }
         }
     }
 
@@ -2656,42 +2662,20 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(panic = "unwind")]
+    /// The title no longer turns the bar's HEIGHT into a length (it used to,
+    /// through `padding-top`), so no height - however unencodable - can
+    /// break the title's style. The container's `height` still encodes it:
+    /// see `heights_outside_the_encodable_range_are_not_saturated`.
     #[test]
-    fn an_unencodable_vertical_gap_reaches_the_padding_encoder_unclamped() {
-        use std::{
-            hint::black_box,
-            panic::{catch_unwind, AssertUnwindSafe},
-        };
-
-        let profile_traps_overflow = catch_unwind(AssertUnwindSafe(|| {
-            let big = black_box(isize::MAX);
-            let _ = black_box(big * black_box(1000_isize));
-        }))
-        .is_err();
-
-        // A *positive* unencodable height also blows up through `padding-top`,
-        // because `(h - fs) / 2` is still unencodable. The negative ones are
-        // clamped away by `.max(0.0)` and are therefore safe — asserted here so
-        // the asymmetry is not mistaken for full coverage.
-        for bogus in [f32::INFINITY, f32::MAX] {
+    fn the_title_style_does_not_depend_on_the_bar_height() {
+        let reference = properties(&tb("x").build_title_style(false));
+        for h in [f32::INFINITY, f32::MAX, f32::NEG_INFINITY, f32::MIN, 0.0, 28.0] {
             let mut t = tb("x");
-            t.set_height(bogus);
-            let panicked =
-                catch_unwind(AssertUnwindSafe(|| drop(t.build_title_style(false)))).is_err();
+            t.set_height(h);
             assert_eq!(
-                panicked, profile_traps_overflow,
-                "height {bogus} via padding-top"
-            );
-        }
-
-        for safe in [f32::NEG_INFINITY, f32::MIN] {
-            let mut t = tb("x");
-            t.set_height(safe);
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                None,
-                "height {safe} must be clamped away by .max(0.0)",
+                properties(&t.build_title_style(false)),
+                reference,
+                "height {h} changed the title's declarations"
             );
         }
     }
