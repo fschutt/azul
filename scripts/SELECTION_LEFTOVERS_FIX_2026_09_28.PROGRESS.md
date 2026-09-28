@@ -49,19 +49,18 @@ file is deleted in that last commit.
   (typing keyed to the PRIMARY's block) fixed in ccd2b9e87.
 - Task 6 (N5 a11y):
   - 5d7870735 test: `layout/tests/a_screen_reader_reads_a_host_with_paragraphs.rs`.
+  - c907240ee fix: `ScopeText`, `AccessibleSelection`, `scope_text`,
+    `accessible_selection` (block_content.rs); a11y full + incremental +
+    SetTextSelection through them; `a11y_children_of`; contract test reads the
+    increment on the host (CONTAINER).
+  - N4 (CaretPos) and N8 (one store): NOT done - list as open.
 
 ## IN PROGRESS
 
-Task 6 fix: `ScopeText` in block_content.rs + `LayoutWindow::scope_text`;
-a11y cursor info + incremental update + SetTextSelection through it.
+(nothing uncommitted)
 
 ## NEXT (in order)
 
-6. Task 6 (N5) fix: a11y offsets in a host's flat text: new scope text (blocks of
-   the host joined by '\n'), `update_a11y_tree` + `update_a11y_tree_incremental`
-   publish host value + selection in it; `SetTextSelection` maps char index ->
-   FlatByte -> (block, caret) per end, cross-block when the ends differ. RED
-   with `div[ce] > [p "one", p "two"]`.
 7. Task 7: E2E `get_selection_state` affinity + byte offsets (layout/src/e2e/full.rs);
    dll headless test `step()` handles Scroll/TextInput via helpers shared with
    `run()` (dll/src/desktop/shell2/headless/mod.rs).
