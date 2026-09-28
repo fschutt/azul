@@ -130,14 +130,16 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     info) + scenario `examples/azul-widgets/e2e/global_hotkey.json` (UNVERIFIED: needs
     regenerated bindings and a headless run; Linux/Windows accelerator spelling).
 
+15a. test(macos): manifest rows F13..F20 macOS column 0 -> 1 - RED by assertion
+    (`every_platform_table_matches_the_manifest`: macOS maps 0 codes to F13, manifest says 1).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
-15. optional fix(macos) F13-F20: RED = manifest rows F13..F20 macOS column 0 -> 1 in
-    `layout/tests/keycode_table_manifest_is_exhaustive.rs`; fix = arms 0x69 F13, 0x6B F14, 0x71
-    F15, 0x6A F16, 0x40 F17, 0x4F F18, 0x50 F19, 0x5A F20 in `macos_keycode_to_virtual_key`.
+15b. fix(macos): arms 0x69 F13, 0x6B F14, 0x71 F15, 0x6A F16, 0x40 F17, 0x4F F18, 0x50 F19,
+    0x5A F20 in `macos_keycode_to_virtual_key` (dll/src/desktop/shell2/common/event.rs).
 16. final report `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md`, delete this file;
     module_map check for new type names.
 
