@@ -89,13 +89,17 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    -> HotkeyTurn { deliveries: Vec<(usize, HotkeyDelivery)>, relayout: Vec<usize>,
    undeliverable: Vec<HotkeyDelivery> }`.
 
+10. feat(hotkeys): pumps deliver to the owner window - `HotkeyTurn` + `SharedGlobalHotkeys::
+    begin_turn(&[WindowSeq])` in layout; dll `pump_macos_windows` / `pump_win32_windows` /
+    `pump_linux_windows` (renamed from `pump_into_first_*`, 4 one-line call-site edits in run.rs)
+    and `pump_headless` all go through `begin_turn`; relayouts now also on desktop.
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-10. feat: pumps deliver to the owner window (no more "first window").
 11. RED pure portal planner test + refactor portal: one session per batch, stable ids =
     `portal_trigger(hk)`, `trigger_description` kept; dll `attach_loop_waker` / `wake_fds`;
     headless condvar waker.

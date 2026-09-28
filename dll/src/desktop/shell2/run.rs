@@ -1145,8 +1145,9 @@ pub fn run(
                         pump_notifications_into_windows();
 
                         // Global hotkeys the Carbon handler parked, run
-                        // against the first window like the tray's clicks.
-                        crate::desktop::global_hotkey::pump_into_first_macos_window();
+                        // against the window that owns each (its declarer,
+                        // or for an app-level one the last focused window).
+                        crate::desktop::global_hotkey::pump_macos_windows();
 
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
@@ -1408,7 +1409,7 @@ pub fn run(
                         // (this iteration's drain, or the post-wake drain of
                         // the last one) and parked the id; deliver it BEFORE
                         // parking, or it would wait for the next event.
-                        crate::desktop::global_hotkey::pump_into_first_macos_window();
+                        crate::desktop::global_hotkey::pump_macos_windows();
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
@@ -2004,10 +2005,10 @@ pub fn run(
 
         // --- Global hotkeys ---
         // `WM_HOTKEY` woke `WaitMessage` and the thread-queue drain above ran
-        // the message-only window's procedure, which parked the id. Run the
-        // callbacks against the first window; a rebuild they ask for is
+        // the message-only window's procedure, which parked the press. Run
+        // each against the window that owns it; a rebuild they ask for is
         // picked up by the render pass below.
-        crate::desktop::global_hotkey::pump_into_first_win32_window();
+        crate::desktop::global_hotkey::pump_win32_windows();
 
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
@@ -2596,10 +2597,10 @@ fn run_linux_windows(
         }
 
         // Global hotkeys: read the X grab connection (the portal's listener
-        // thread parks its own), then run what fired against the first
-        // window - the tray's route. The loops below cap their park while a
-        // hotkey is registered, so this runs a few times a second at least.
-        crate::desktop::global_hotkey::pump_into_first_linux_window();
+        // thread parks its own), then run what fired against the window
+        // that owns it. The loops below cap their park while a hotkey is
+        // grabbed, so this runs a few times a second at least.
+        crate::desktop::global_hotkey::pump_linux_windows();
 
         // Process events for all windows
         for wid in &window_ids {

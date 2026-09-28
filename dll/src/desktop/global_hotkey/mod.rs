@@ -27,15 +27,23 @@
 //! # Delivery
 //!
 //! The backends only park presses in their sink. Each run loop calls its
-//! pump per iteration, which syncs the manager and runs the pressed
-//! accelerators' callbacks through `PlatformWindow::invoke_menu_callback` -
-//! the route a tray menu click takes, and for the same reason: a
-//! `CallbackInfo` needs a window.
+//! pump per iteration (`pump_macos_windows`, `pump_win32_windows`,
+//! `pump_linux_windows`, `pump_headless`), which syncs the manager and runs
+//! each press through `PlatformWindow::invoke_menu_callback` - the route a
+//! tray menu click takes, because a `CallbackInfo` needs a window - against
+//! the window that OWNS it: its declaring window (the most recently focused
+//! of several, then the oldest), or for an `AppConfig` hotkey the most
+//! recently focused window, then the oldest. Never "the first window" of a
+//! registry, whose order is an address / hash order.
+//!
+//! The pumps also run the relayouts a status change owes (a `layout()` that
+//! read a status that moved runs once more), and the `AppConfig`'s derived
+//! hotkeys callback when it is due.
 
 use azul_core::events::ProcessEventResult;
 use azul_layout::managers::global_hotkey::{
     self as manager, GlobalHotkeyBackend, GlobalHotkeyProbe, HotkeyDelivery, HotkeySink,
-    SharedGlobalHotkeys,
+    HotkeyTurn, SharedGlobalHotkeys, WindowSeq,
 };
 
 use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
@@ -179,15 +187,65 @@ fn platform_probe() -> GlobalHotkeyProbe {
     }
 }
 
-/// One turn of the manager: re-derive the `AppConfig`'s set if it is due
-/// (its callback runs here, without the lock), poll the backend, sync, and
-/// take every press waiting to run.
-fn take_deliveries(app: &SharedGlobalHotkeys) -> Vec<HotkeyDelivery> {
-    let _ = app.refresh_app_declarations();
-    let mut manager = app.lock();
-    manager.poll_backend();
-    let _ = manager.sync();
-    manager.take_deliveries()
+/// The sequence number a window declares its global hotkeys under (0, which
+/// no window ever gets, for one still without a layout window).
+fn seq_of<W: PlatformWindow>(window: &W) -> WindowSeq {
+    window
+        .get_layout_window()
+        .map_or(0, |lw| lw.global_hotkeys.seq())
+}
+
+/// Presses with no live window to run against are reported, never run
+/// against some other window.
+fn report_undeliverable(turn: &HotkeyTurn) {
+    for delivery in &turn.undeliverable {
+        crate::plog_debug!(
+            "[global-hotkey] {} pressed, but its window is gone (or no window exists): dropped",
+            delivery.event.hotkey.to_display_string().as_str()
+        );
+    }
+}
+
+/// Run one turn against `windows` (the pointers `turn`'s indices refer to):
+/// every press against its owner window, a relayout for every window whose
+/// `layout()` read a status that moved, then `after` once per window whose
+/// result asks for something. (The Linux pump inlines it: its registry
+/// holds an enum of two window types.)
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn run_turn<W: PlatformWindow>(
+    app: &SharedGlobalHotkeys,
+    turn: HotkeyTurn,
+    windows: &[*mut W],
+    mut after: impl FnMut(&mut W, ProcessEventResult),
+) {
+    report_undeliverable(&turn);
+    let mut results = vec![ProcessEventResult::DoNothing; windows.len()];
+    for (index, delivery) in turn.deliveries {
+        let Some(&ptr) = windows.get(index) else {
+            continue;
+        };
+        // SAFETY: the registry's pointers are valid for this loop turn; one
+        // window is borrowed at a time.
+        let window = unsafe { &mut *ptr };
+        results[index] = results[index].max(deliver(window, app, delivery));
+    }
+    for index in turn.relayout {
+        let Some(&ptr) = windows.get(index) else {
+            continue;
+        };
+        let window = unsafe { &mut *ptr };
+        window.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
+        results[index] =
+            results[index].max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+    }
+    for (index, result) in results.into_iter().enumerate() {
+        if matches!(result, ProcessEventResult::DoNothing) {
+            continue;
+        }
+        if let Some(&ptr) = windows.get(index) {
+            after(unsafe { &mut *ptr }, result);
+        }
+    }
 }
 
 /// Run one press against `window`, with the press readable through
@@ -237,113 +295,122 @@ pub(crate) fn deliver<W: PlatformWindow>(
 pub fn pump_headless(
     window: &mut crate::desktop::shell2::headless::HeadlessWindow,
 ) -> ProcessEventResult {
-    let Some((shared, source)) = window
+    let Some(shared) = window
         .get_layout_window()
-        .map(|lw| (lw.global_hotkeys.shared().clone(), lw.global_hotkeys.source()))
+        .map(|lw| lw.global_hotkeys.shared().clone())
     else {
         return ProcessEventResult::DoNothing;
     };
+    let turn = shared.begin_turn(&[seq_of(&*window)]);
+    report_undeliverable(&turn);
     let mut result = ProcessEventResult::DoNothing;
-    for delivery in take_deliveries(&shared) {
+    for (_, delivery) in turn.deliveries {
         result = result.max(deliver(window, &shared, delivery));
     }
-    if shared.take_relayout(source) {
+    if !turn.relayout.is_empty() {
         window.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
         result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
     }
     result
 }
 
-/// macOS: deliver against the first window. Called from both macOS run
+/// macOS: one hotkey turn over every window. Called from both macOS run
 /// loops (`NSApplication::run`'s drain timer and the manual loop), next to
 /// the tray pump.
 #[cfg(target_os = "macos")]
-pub(crate) fn pump_into_first_macos_window() {
+pub(crate) fn pump_macos_windows() {
     let Some(app) = app() else {
         return;
     };
-    let deliveries = take_deliveries(&app);
-    if deliveries.is_empty() {
-        return;
-    }
-    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
-    let Some(&wptr) = window_ptrs.first() else {
-        crate::plog_debug!("[global-hotkey] a hotkey fired but no window exists to run it");
-        return;
-    };
-    let window = unsafe { &mut *wptr };
-    let mut result = ProcessEventResult::DoNothing;
-    for delivery in deliveries {
-        result = result.max(deliver(window, &app, delivery));
-    }
-    if !matches!(result, ProcessEventResult::DoNothing) {
-        window.request_redraw();
-    }
+    let windows = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
+    // SAFETY: registry pointers are valid for this loop turn.
+    let live: Vec<WindowSeq> = windows.iter().map(|w| seq_of(unsafe { &**w })).collect();
+    let turn = app.begin_turn(&live);
+    run_turn(&app, turn, &windows, |window, _| window.request_redraw());
 }
 
-/// Windows: deliver against the first window. Called from the run loop
+/// Windows: one hotkey turn over every window. Called from the run loop
 /// after the message drain (which is what ran the `WM_HOTKEY` window
-/// procedure); a callback's rebuild is picked up by the loop's render pass
-/// right after.
+/// procedure).
 #[cfg(target_os = "windows")]
-pub(crate) fn pump_into_first_win32_window() {
+pub(crate) fn pump_win32_windows() {
     use crate::desktop::shell2::windows::registry;
     let Some(app) = app() else {
         return;
     };
-    let deliveries = take_deliveries(&app);
-    if deliveries.is_empty() {
-        return;
-    }
-    let Some(wptr) = registry::get_all_window_handles()
-        .first()
-        .and_then(|hwnd| registry::get_window(*hwnd))
-    else {
-        return;
-    };
-    let window = unsafe { &mut *wptr };
-    for delivery in deliveries {
-        let _ = deliver(window, &app, delivery);
-    }
+    let windows: Vec<*mut crate::desktop::shell2::windows::Win32Window> =
+        registry::get_all_window_handles()
+            .into_iter()
+            .filter_map(registry::get_window)
+            .collect();
+    // SAFETY: registry pointers are valid for this loop turn.
+    let live: Vec<WindowSeq> = windows.iter().map(|w| seq_of(unsafe { &**w })).collect();
+    let turn = app.begin_turn(&live);
+    run_turn(&app, turn, &windows, |window, _| window.request_redraw());
 }
 
-/// X11 / Wayland: poll the grab connection, then deliver against the first
+/// X11 / Wayland: poll the grab connection, then one hotkey turn over every
 /// window.
 #[cfg(az_x11)]
-pub(crate) fn pump_into_first_linux_window() {
+pub(crate) fn pump_linux_windows() {
     use crate::desktop::shell2::linux::{registry, LinuxWindow};
     let Some(app) = app() else {
         return;
     };
-    let deliveries = take_deliveries(&app);
-    if deliveries.is_empty() {
-        return;
+    let windows: Vec<*mut LinuxWindow> = registry::get_all_window_ids()
+        .into_iter()
+        .filter_map(|id| unsafe { registry::get_window(id) })
+        .collect();
+    // SAFETY: registry pointers are valid for this loop turn.
+    let live: Vec<WindowSeq> = windows
+        .iter()
+        .map(|w| match unsafe { &**w } {
+            LinuxWindow::X11(x) => seq_of(x),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(wl) => seq_of(wl),
+        })
+        .collect();
+    let turn = app.begin_turn(&live);
+    report_undeliverable(&turn);
+    let mut results = vec![ProcessEventResult::DoNothing; windows.len()];
+    for (index, delivery) in turn.deliveries {
+        let Some(&ptr) = windows.get(index) else {
+            continue;
+        };
+        let result = match unsafe { &mut *ptr } {
+            LinuxWindow::X11(x) => deliver(x, &app, delivery),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(wl) => deliver(wl, &app, delivery),
+        };
+        results[index] = results[index].max(result);
     }
-    let Some(wptr) = registry::get_all_window_ids()
-        .first()
-        .and_then(|id| unsafe { registry::get_window(*id) })
-    else {
-        return;
-    };
-    match unsafe { &mut *wptr } {
-        LinuxWindow::X11(w) => {
-            let mut result = ProcessEventResult::DoNothing;
-            for delivery in deliveries {
-                result = result.max(deliver(w, &app, delivery));
+    for index in turn.relayout {
+        let Some(&ptr) = windows.get(index) else {
+            continue;
+        };
+        match unsafe { &mut *ptr } {
+            LinuxWindow::X11(x) => {
+                x.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
             }
-            if !matches!(result, ProcessEventResult::DoNothing) {
-                w.request_redraw();
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(wl) => {
+                wl.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
             }
         }
-        #[cfg(target_os = "linux")]
-        LinuxWindow::Wayland(w) => {
-            let mut result = ProcessEventResult::DoNothing;
-            for delivery in deliveries {
-                result = result.max(deliver(w, &app, delivery));
-            }
-            if !matches!(result, ProcessEventResult::DoNothing) {
-                w.request_redraw();
-            }
+        results[index] =
+            results[index].max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+    }
+    for (index, result) in results.into_iter().enumerate() {
+        if matches!(result, ProcessEventResult::DoNothing) {
+            continue;
+        }
+        let Some(&ptr) = windows.get(index) else {
+            continue;
+        };
+        match unsafe { &mut *ptr } {
+            LinuxWindow::X11(x) => x.request_redraw(),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(wl) => wl.request_redraw(),
         }
     }
 }

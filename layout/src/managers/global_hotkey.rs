@@ -1393,7 +1393,59 @@ impl SharedGlobalHotkeys {
     }
 }
 
+/// What one run-loop turn has to do, for the live windows it was given (see
+/// [`SharedGlobalHotkeys::begin_turn`]). Indices are into that list.
+#[derive(Debug, Default)]
+pub struct HotkeyTurn {
+    /// Each press, with the index of the window it runs against: its owner
+    /// window, or for an app-level press the most recently focused live
+    /// window, else the oldest.
+    pub deliveries: Vec<(usize, HotkeyDelivery)>,
+    /// The windows whose last `layout()` read a status that moved: each must
+    /// lay out once more.
+    pub relayout: Vec<usize>,
+    /// Presses with no live window to run against (the owner is not in the
+    /// list, or an app-level press while no window exists). Never handed to
+    /// some other window instead.
+    pub undeliverable: Vec<HotkeyDelivery>,
+}
+
 impl SharedGlobalHotkeys {
+    /// One turn of a run loop's hotkey pump, given its live windows'
+    /// sequence numbers in any order: re-derive the `AppConfig`'s set if it
+    /// is due, poll the backend, sync, and route every press to its OWNER's
+    /// window - not to whichever window a platform registry lists first
+    /// (address order on macOS, `HWND` order on Windows, hash order on
+    /// Linux). Run the deliveries WITHOUT the manager's lock (this returns
+    /// with it released).
+    pub fn begin_turn(&self, live: &[WindowSeq]) -> HotkeyTurn {
+        let _ = self.refresh_app_declarations();
+        let mut manager = self.lock();
+        manager.poll_backend();
+        let _ = manager.sync();
+        let presses = manager.take_deliveries();
+        let app_window = manager
+            .app_target(live)
+            .and_then(|seq| live.iter().position(|s| *s == seq));
+        let mut turn = HotkeyTurn::default();
+        for delivery in presses {
+            let index = match delivery.target {
+                HotkeySource::Window(seq) => live.iter().position(|s| *s == seq),
+                HotkeySource::App => app_window,
+            };
+            match index {
+                Some(index) => turn.deliveries.push((index, delivery)),
+                None => turn.undeliverable.push(delivery),
+            }
+        }
+        for (index, seq) in live.iter().enumerate() {
+            if manager.take_relayout(HotkeySource::Window(*seq)) {
+                turn.relayout.push(index);
+            }
+        }
+        turn
+    }
+
     /// See [`GlobalHotkeyManager::take_relayout`].
     pub fn take_relayout(&self, source: HotkeySource) -> bool {
         self.lock().take_relayout(source)
