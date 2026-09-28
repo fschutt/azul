@@ -2684,6 +2684,135 @@ fn a_light_dismiss_blurs_the_popups_focused_field_before_it_closes() {
     );
 }
 
+/// A ColorInput between two plain tab stops: `.stop-before`, the swatch,
+/// `.stop-after`.
+extern "C" fn picker_between_two_stops_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+    let stop = |class: &'static str| -> Dom {
+        Dom::create_div()
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+            .with_css("width: 80px; height: 20px;".into())
+            .with_tab_index(azul_core::dom::TabIndex::Auto)
+    };
+    Dom::create_body()
+        .with_child(stop("stop-before"))
+        .with_child(ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom())
+        .with_child(stop("stop-after"))
+}
+
+/// Tab past `.stop-before` onto the swatch and open the picker with Space:
+/// `(parent, popup, swatch)`, the popup after its first pass (its plane
+/// autofocused and ringed), the ring on in both windows.
+fn open_picker_between_stops_from_the_keyboard() -> (HeadlessWindow, HeadlessWindow, DomNodeId)
+{
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_between_two_stops_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    ring_on(&mut parent);
+    parent.regenerate_layout().expect("layout");
+    for site in ["t.tab1", "t.tab2"] {
+        key_down(&mut parent, VirtualKeyCode::Tab, &[], site);
+        keys_up(&mut parent, site);
+    }
+    let swatch = node_with_class(&parent, "native_color_input");
+    assert_eq!(
+        focused(&parent),
+        Some(swatch),
+        "premise: two Tabs reach the swatch"
+    );
+    key_down(&mut parent, VirtualKeyCode::Space, &[], "t.space");
+    keys_up(&mut parent, "t.space.up");
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    ring_on(&mut popup);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    (parent, popup, swatch)
+}
+
+/// USER RULING (open question 2): Escape CLOSES the picker - no colour
+/// restore - and hands focus AND a visible ring back to the swatch, so the
+/// next Tab continues from it. Escape delivered to the POPUP, as macOS and
+/// Win32 deliver it (the popup is the key window).
+#[test]
+fn escape_in_the_picker_closes_it_and_tab_moves_on_from_the_swatch() {
+    let (mut parent, mut popup, swatch) = open_picker_between_stops_from_the_keyboard();
+    key_down(&mut popup, VirtualKeyCode::Escape, &[], "t.escape");
+    assert!(close_requested(&popup), "premise: Escape closed the picker");
+
+    // The parent reads the dismissal on its next layout (the wake-up the
+    // popup asked for) and pays the owed focus on its next pass.
+    parent.regenerate_layout().expect("the parent reads the dismissal");
+    let _ = parent.process_window_events(0);
+    assert_eq!(focused(&parent), Some(swatch), "focus is back on the swatch");
+    assert!(
+        parent.get_layout_window().unwrap().focus_manager.focus_is_visible,
+        "as KEYBOARD focus"
+    );
+    assert_eq!(
+        focus_rings(&parent),
+        1,
+        "and the swatch is ringed before the next key"
+    );
+
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    assert_eq!(
+        focused(&parent),
+        Some(node_with_class(&parent, "stop-after")),
+        "Tab continues from the swatch to the stop after it, not from the first stop"
+    );
+}
+
+/// The same ruling with Escape delivered to the PARENT, as X11 delivers it
+/// (the override-redirect popup never has the keyboard): the picker closes,
+/// focus and ring stay on the swatch, Shift+Tab goes to the stop before it.
+#[test]
+fn escape_in_the_parent_closes_the_picker_and_shift_tab_moves_back_from_the_swatch() {
+    let (mut parent, _popup, swatch) = open_picker_between_stops_from_the_keyboard();
+    key_down(&mut parent, VirtualKeyCode::Escape, &[], "t.escape");
+    keys_up(&mut parent, "t.escape.up");
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .is_empty(),
+        "premise: Escape in the parent closed the picker"
+    );
+    parent
+        .regenerate_layout()
+        .expect("drain the Dismissed event");
+    let _ = parent.process_window_events(0);
+    assert_eq!(focused(&parent), Some(swatch), "focus is on the swatch");
+    assert!(
+        parent.get_layout_window().unwrap().focus_manager.focus_is_visible,
+        "as KEYBOARD focus"
+    );
+    assert_eq!(focus_rings(&parent), 1, "and the swatch is ringed");
+
+    key_down(
+        &mut parent,
+        VirtualKeyCode::Tab,
+        &[VirtualKeyCode::LShift],
+        "t.shift_tab",
+    );
+    keys_up(&mut parent, "t.shift_tab.up");
+    assert_eq!(
+        focused(&parent),
+        Some(node_with_class(&parent, "stop-before")),
+        "Shift+Tab goes from the swatch to the stop before it"
+    );
+}
+
 /// A ComboBox whose list was opened by a click on its field: `(parent,
 /// popup, field)`, the popup after its first pass.
 fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
