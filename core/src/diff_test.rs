@@ -2589,6 +2589,51 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_moved_tab_stop_is_not_a_layout_change() {
+        // REPORTED (RadioGroup indicators turned into tall pills, "sometimes"):
+        // a roving-tabindex group rewrites its rows' tab indices on every
+        // selection change - `set_tab_index` on the live DOM, and a rebuilt
+        // DOM with the new stop. The tab index shares `NodeData::flags` with
+        // contenteditable, the whole of `flags` sat in `attrs_hash`, and an
+        // `attrs_hash` change is CONTENTEDITABLE: every row whose stop moved
+        // went LAYOUT-dirty and was rebuilt as a fresh relayout root. Which
+        // key Tab lands on changes neither layout nor paint.
+        for (from, to) in [
+            (TabIndex::Auto, TabIndex::NoKeyboardFocus),
+            (TabIndex::NoKeyboardFocus, TabIndex::Auto),
+            (TabIndex::Auto, TabIndex::OverrideInParent(3)),
+        ] {
+            let a = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(from), None);
+            let b = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(to), None);
+            assert!(
+                !a.might_affect_layout(&b),
+                "{from:?} -> {to:?}: a tab stop is not layout"
+            );
+            assert!(
+                !a.diff(&b).needs_layout(),
+                "{from:?} -> {to:?}: a tab stop must never relayout: {:?}",
+                a.diff(&b)
+            );
+            assert!(!a.diff(&b).needs_paint(), "{from:?} -> {to:?}: nor repaint");
+        }
+        // Gaining a tab stop is no layout change either.
+        let plain = NodeDataFingerprint::compute(&NodeData::create_div(), None);
+        let tabbed = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_tab_index(TabIndex::Auto),
+            None,
+        );
+        assert!(!plain.diff(&tabbed).needs_layout());
+        // contenteditable still is.
+        let editable = NodeDataFingerprint::compute(
+            &NodeData::create_div()
+                .with_tab_index(TabIndex::Auto)
+                .with_contenteditable(true),
+            None,
+        );
+        assert!(tabbed.diff(&editable).needs_layout());
+    }
+
+    #[test]
     fn autotest_fingerprint_diff_is_symmetric() {
         let a = NodeDataFingerprint::compute(
             &NodeData::create_text_do_not_use_without_block_level_wrapper("a"),
