@@ -2282,6 +2282,15 @@ pub(crate) fn reconcile_transient_windows(
         });
         rects
     };
+    // `anchor="viewport"` (a modal dialog's top layer) covers the whole
+    // window instead of hanging off its anchor node: anchored to the
+    // viewport and laid out at its size, so a resize of this window resizes
+    // the cover on the next pass.
+    let viewport = current_window_state.size.dimensions;
+    let wanted: Vec<_> = wanted
+        .into_iter()
+        .map(|p| p.cover_viewport(viewport))
+        .collect();
 
     // 2. Reconcile, measuring each popup's content on demand (on scratch caches — the popup window
     //    lays the content out itself).

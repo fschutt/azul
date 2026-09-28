@@ -9552,9 +9552,15 @@ impl WaylandPopup {
             // says so; a menu opens at its trigger's bottom-right like before.
             use azul_core::transient::TransientAnchor;
             let (anchor, gravity) = match edge {
-                // `Viewport` is not yet special: placed like `Bottom`.
-                TransientAnchor::Bottom | TransientAnchor::Viewport => (
+                TransientAnchor::Bottom => (
                     XDG_POSITIONER_ANCHOR_BOTTOM_LEFT,
+                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                ),
+                // The anchor rect is the parent's whole surface
+                // (`cover_viewport`): hang the popup off its top-left
+                // corner, growing down and right, so it covers the parent.
+                TransientAnchor::Viewport => (
+                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
                     XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
                 ),
                 TransientAnchor::Top => (

@@ -450,8 +450,10 @@ impl RenderContext {
         // Edge placement overrides the UA `top: 100%` default; `Cursor` has
         // no cursor on a static page and falls back to "below".
         let edge = match cfg.anchor {
-            TransientAnchor::Bottom | TransientAnchor::Cursor | TransientAnchor::Viewport => {
-                "top:100%;left:0;"
+            TransientAnchor::Bottom | TransientAnchor::Cursor => "top:100%;left:0;",
+            // The page's top layer: the whole viewport, above everything.
+            TransientAnchor::Viewport => {
+                "position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483000;"
             }
             TransientAnchor::Top => "bottom:100%;top:auto;left:0;",
             TransientAnchor::Left => "right:100%;top:0;left:auto;",

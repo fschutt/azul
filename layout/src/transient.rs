@@ -85,10 +85,8 @@ impl TransientPlacement {
             TransientAnchor::Left => LogicalPosition::new(a.origin.x - size.width, a.origin.y),
             TransientAnchor::Right => LogicalPosition::new(a.origin.x + a.size.width, a.origin.y),
             TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
-            // Not yet special: placed like `Bottom`.
-            TransientAnchor::Viewport => {
-                LogicalPosition::new(a.origin.x, a.origin.y + a.size.height)
-            }
+            // The anchor rect IS the viewport (`cover_viewport`).
+            TransientAnchor::Viewport => a.origin,
         }
     }
 
@@ -99,8 +97,14 @@ impl TransientPlacement {
     /// current size, so a parent resize resizes the window.
     #[must_use]
     pub fn cover_viewport(self, viewport: LogicalSize) -> Self {
-        let _ = viewport;
-        self
+        if self.anchor != TransientAnchor::Viewport {
+            return self;
+        }
+        Self {
+            anchor_rect: LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport),
+            size: OptionLogicalSize::Some(viewport),
+            ..self
+        }
     }
 
     /// [`Self::resolve`], then keep the popup inside `bounds` — a rect in the
@@ -118,6 +122,12 @@ impl TransientPlacement {
         cursor: Option<azul_core::geom::LogicalPosition>,
         bounds: LogicalRect,
     ) -> azul_core::geom::LogicalPosition {
+        // A viewport cover sits exactly on its parent: flipping or sliding
+        // it into the monitor would uncover part of the parent it exists to
+        // cover.
+        if self.anchor == TransientAnchor::Viewport {
+            return self.anchor_rect.origin;
+        }
         let a = self.anchor_rect;
         let (min_x, min_y) = (bounds.origin.x, bounds.origin.y);
         let (max_x, max_y) = (bounds.max_x(), bounds.max_y());
