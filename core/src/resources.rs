@@ -1058,6 +1058,11 @@ pub struct AppConfig {
     pub report_problem: OptionEmailAddress,
     /// Configuration for localization, tracking known languages.
     pub localization: LocalizationConfig,
+    /// The app's Fluent translations: one `(locale, .ftl source)` pair per
+    /// entry, e.g. `("de", include_str!("resources/de.ftl"))`. Every window
+    /// translates the `AzString::tr` keys of its DOM with them. Default: none
+    /// (keys render as written).
+    pub fluent_locales: crate::window::StringPairVec,
 }
 
 impl AppConfig {
@@ -1094,6 +1099,7 @@ impl AppConfig {
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
             localization: LocalizationConfig::default(),
+            fluent_locales: crate::window::StringPairVec::from_const_slice(&[]),
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

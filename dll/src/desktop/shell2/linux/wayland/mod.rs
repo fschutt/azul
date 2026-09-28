@@ -2063,6 +2063,7 @@ impl WaylandWindow {
                 WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
             })?;
         layout_window.routes = resources.config.routes.clone();
+        layout_window.set_app_localization(&resources.config);
 
         let mut common = event::CommonWindowState::new(
             FullWindowState {
@@ -2773,6 +2774,7 @@ impl WaylandWindow {
                 layout_window.current_window_state = window.common.current_window_state().clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 layout_window.routes = window.resources.config.routes.clone();
+                layout_window.set_app_localization(&window.resources.config);
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::refresh_monitors();
@@ -2836,6 +2838,7 @@ impl WaylandWindow {
                         window.common.current_window_state().clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     layout_window.routes = window.resources.config.routes.clone();
+                    layout_window.set_app_localization(&window.resources.config);
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
                         *guard = crate::desktop::display::refresh_monitors();
@@ -9518,6 +9521,7 @@ impl WaylandPopup {
             .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
         };
         layout_window.routes = parent.resources.config.routes.clone();
+        layout_window.set_app_localization(&parent.resources.config);
         // Seed with the parent window's image map so css-id / url("...")
         // images inside the popup resolve (whole-map seed at creation).
         if let Some(parent_lw) = parent.common.layout_window.as_ref() {

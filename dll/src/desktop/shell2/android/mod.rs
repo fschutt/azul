@@ -215,6 +215,7 @@ impl AndroidWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
         // THE ENGINE DRAWS THE SELECTION HANDLES HERE (U2-a). Android has no
         // handle API for a custom view: `TextView`'s `Editor` draws the
         // teardrops for itself and for nobody else, and `NativeTextBridge`

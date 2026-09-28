@@ -15600,6 +15600,23 @@ impl LayoutWindow {
         self.fluent_localizer = Some(localizer);
     }
 
+    /// Take the app's localization from its config: a Fluent localizer over
+    /// `AppConfig::fluent_locales` (none when the app registered no
+    /// translations).
+    ///
+    /// Every shell calls this where it builds the window's `LayoutWindow`,
+    /// next to handing it `config.routes` - without it no window ever
+    /// translates anything.
+    pub fn set_app_localization(&mut self, config: &azul_core::resources::AppConfig) {
+        #[cfg(feature = "fluent")]
+        {
+            self.fluent_localizer =
+                FluentLocalizerHandle::from_locale_sources(config.fluent_locales.as_ref());
+        }
+        #[cfg(not(feature = "fluent"))]
+        let _ = config;
+    }
+
     /// Hand this window the app's icon storage. Called by the shell next to
     /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
     /// needs.

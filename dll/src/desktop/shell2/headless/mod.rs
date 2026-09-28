@@ -1624,6 +1624,7 @@ impl HeadlessWindow {
             Some(azul_core::resources::SystemAnimations::disabled());
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
 
         let wake_condvar = Arc::new(Condvar::new());
         let wake_mutex = Arc::new(Mutex::new(WakeState { woken: false }));

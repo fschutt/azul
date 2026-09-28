@@ -420,6 +420,32 @@ impl FluentLocalizerHandle {
         }
     }
 
+    /// A localizer over an app's `(locale, .ftl source)` pairs
+    /// (`AppConfig::fluent_locales`), or `None` when there are none.
+    ///
+    /// The default locale - where a key missing in the active locale is
+    /// looked up last, then in its language (`en`) - is `en-US`, as for
+    /// [`Self::default`]. A source that does not load (a parse error, or a
+    /// message id the locale already has) is reported to the diagnostics sink
+    /// and skipped; the other sources still load.
+    #[must_use]
+    pub fn from_locale_sources(sources: &[azul_core::window::AzStringPair]) -> Option<Self> {
+        if sources.is_empty() {
+            return None;
+        }
+        let localizer = Self::create("en-US", &[]);
+        for source in sources {
+            if !localizer.add_resource(source.key.as_str(), source.value.as_str()) {
+                azul_core::diagnostics::emit(format!(
+                    "[azul][warn] [fluent] the .ftl source for locale {:?} did not load \
+                     (a syntax error, or a message id that locale already defines)",
+                    source.key.as_str()
+                ));
+            }
+        }
+        Some(localizer)
+    }
+
     /// Get a reference to the inner data.
     #[inline]
     const fn inner(&self) -> &FluentLocalizerInner {

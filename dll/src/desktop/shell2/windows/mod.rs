@@ -647,6 +647,7 @@ impl Win32Window {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
 
         // Initialize monitor cache once at window creation
         if let Ok(mut guard) = layout_window.monitors.lock() {

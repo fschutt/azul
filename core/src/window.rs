@@ -1947,6 +1947,14 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
+impl AzStringPair {
+    /// A pair from its two halves.
+    #[must_use]
+    pub const fn new(key: AzString, value: AzString) -> Self {
+        Self { key, value }
+    }
+}
+
 impl_option!(
     AzStringPair,
     OptionStringPair,

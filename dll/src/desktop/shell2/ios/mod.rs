@@ -1614,6 +1614,7 @@ impl IOSWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
         let (ui_window, ui_view_controller, ui_view) = unsafe {
