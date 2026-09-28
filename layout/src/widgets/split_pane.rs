@@ -8,8 +8,11 @@
 //! (so the cursor stays inside the callback node for the whole drag, exactly like
 //! the map's pan), `MouseDown` near the divider begins the drag, `MouseOver` while
 //! dragging recomputes the split ratio from the cursor delta and live-resizes the
-//! two panes via `set_css_property` (`flex-grow`), and `MouseUp` / `MouseLeave`
-//! ends it.
+//! two panes via `set_css_property` (`flex-grow`), and `MouseUp` ends it. The
+//! grabbing press captures the pointer for the container, so the drag goes on
+//! outside it; a `MouseLeave` ends it only when the button is already up (a
+//! lost release). A rebuild of the app's DOM mid-drag keeps the drag
+//! (`merge_split_pane_state`).
 //!
 //! ## Layout model
 //! The container is a flex row (horizontal split: panes left/right) or column
@@ -445,7 +448,7 @@ impl SplitPane {
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_split_pointer_up as usize,
+                on_split_pointer_leave as usize,
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -510,10 +513,12 @@ impl Default for SplitPane {
     }
 }
 
-/// Pointer down → if the press lands near the divider, begin a drag and record
-/// the anchor (cursor position + ratio at this moment). A press elsewhere is left
-/// alone so it can reach the pane content.
-extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+/// Pointer down → if the press lands near the divider, begin a drag, record
+/// the anchor (cursor position + ratio at this moment) and CAPTURE the
+/// pointer for the container, so the moves and the release reach it wherever
+/// the cursor goes until the button is up. A press elsewhere is left alone so
+/// it can reach the pane content.
+extern "C" fn on_split_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
         return Update::DoNothing;
     };
@@ -535,6 +540,8 @@ extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Upd
         sp.is_dragging = true;
         sp.drag_start_px = main;
         sp.ratio_at_drag_start = sp.inner.ratio;
+        let container = info.get_hit_node();
+        info.capture_pointer(container);
     }
     Update::DoNothing
 }
@@ -584,8 +591,29 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
     }
 }
 
-/// Pointer up / leave → end the drag.
+/// Pointer up → end the drag.
 extern "C" fn on_split_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() {
+        sp.is_dragging = false;
+    }
+    Update::DoNothing
+}
+
+/// Pointer leave → end a drag only if its release was lost.
+///
+/// Every event bubbles to the container (W3C `mouseleave` does not), so the
+/// DIVIDER's leave arrives here too - and the first pixels of every drag
+/// leave the 6px divider, which follows the cursor only after the relayout
+/// the move asks for. Ending the drag on that let the divider follow the
+/// cursor for a move or two and stop. While the button is held the press's
+/// pointer capture delivers the moves and the release to the container, so
+/// a leave means nothing; a leave with the button already UP is a release
+/// that never reached the container, and ends the drag so the divider cannot
+/// stay stuck to a hovering cursor.
+extern "C" fn on_split_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
     if let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() {
         sp.is_dragging = false;
     }
@@ -1971,7 +1999,7 @@ mod autotest_generated {
             ),
             (
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_split_pointer_up as usize,
+                on_split_pointer_leave as usize,
             ),
             (
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -2135,7 +2163,14 @@ mod autotest_generated {
             |info| on_split_pointer_down(state.clone(), info),
         );
         assert_eq!(update, Update::DoNothing, "the press itself never redraws");
-        assert!(changes.is_empty(), "the press must not touch the DOM");
+        assert!(
+            matches!(
+                changes.as_slice(),
+                [CallbackChange::CapturePointer { node: n, .. }] if *n == node(0)
+            ),
+            "the press captures the pointer for the container and touches nothing else: \
+             {changes:?}"
+        );
         let mut state = state;
         let w = wrapper(&mut state);
         assert!(w.is_dragging);
