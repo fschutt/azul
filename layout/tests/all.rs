@@ -140,6 +140,8 @@ mod a_context_menu_opens_from_a_secondary_press;
 mod a_press_on_an_overflowing_field_selects;
 #[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
 mod a_scroll_box_scrolls_to_its_end_padding;
+#[path = "a_selection_reveal_shows_its_focus_end.rs"]
+mod a_selection_reveal_shows_its_focus_end;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
