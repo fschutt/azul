@@ -578,8 +578,8 @@ mod autotest_generated {
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::RendererResources,
-        styled_dom::NodeHierarchyItemId,
-        window::{MonitorVec, RawWindowHandle},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::system::SystemStyle;
     use rust_fontconfig::FcFontCache;
@@ -589,6 +589,7 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
+        widgets::roving::test_support as rv,
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -1810,5 +1811,222 @@ mod autotest_generated {
             expected,
             "clicking row N must report N's pre-order index, collapsed siblings included"
         );
+    }
+
+    // ==================================================================
+    // Roving tabindex (WAI-ARIA APG tree view, P2-12)
+    // ==================================================================
+
+    /// The keyboard fixture. Visible rows, top to bottom:
+    /// `root, a, b, c, c1` - `a` is collapsed over `a1`, `b` is selected.
+    ///
+    /// ```text
+    /// root (expanded)
+    /// |- a (collapsed) - a1
+    /// |- b (selected)
+    /// `- c (expanded) - c1
+    /// ```
+    fn keyboard_tree() -> TreeViewNode {
+        leaf("root")
+            .with_expanded(true)
+            .with_child(leaf("a").with_child(leaf("a1")))
+            .with_child(leaf("b").with_selected(true))
+            .with_child(leaf("c").with_expanded(true).with_child(leaf("c1")))
+    }
+
+    /// A plain tab stop, the tree, another plain tab stop.
+    fn tree_page(tv: TreeView) -> StyledDom {
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), tv.dom(), stop()].into());
+        StyledDom::create_from_dom(page)
+    }
+
+    fn page_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn page_before() -> DomNodeId {
+        page_node(1)
+    }
+
+    /// The trailing stop is the last node in document order.
+    fn page_after(styled: &StyledDom) -> DomNodeId {
+        page_node(styled.node_hierarchy.as_ref().len() - 1)
+    }
+
+    /// The row whose label reads `label`: the label text's grandparent
+    /// (`row > <p> > text`). Looked up, never assumed from a flatten index.
+    fn row_labelled(styled: &StyledDom, label: &str) -> DomNodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in styled.node_data.as_ref().iter().enumerate() {
+            let NodeType::Text(s) = nd.get_node_type() else {
+                continue;
+            };
+            if s.as_ref().as_str() != label {
+                continue;
+            }
+            let p = hierarchy[i].parent_id().expect("a label sits in its <p>");
+            let row = hierarchy[p.index()]
+                .parent_id()
+                .expect("a label <p> sits in its row");
+            return DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(row)),
+            };
+        }
+        panic!("no row is labelled {label:?}");
+    }
+
+    /// Presses `key` on the row labelled `label`; panics when the row has no
+    /// key handler - the state of every tree row before P2-12.
+    fn press_row(
+        styled: &StyledDom,
+        label: &str,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, row_labelled(styled, label), key, held)
+            .expect("every tree row must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_lands_on_the_selected_row_and_the_next_tab_leaves_the_tree() {
+        let styled = tree_page(TreeView::new(keyboard_tree()));
+        let after = page_after(&styled);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![row_labelled(&styled, "b"), after],
+            "the tree is ONE tab stop: the selected row, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after), false, 2),
+            vec![row_labelled(&styled, "b"), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_no_visible_row_selected_the_first_row_is_the_tab_stop() {
+        // `a1` is selected but hidden under the collapsed `a`.
+        let tree = leaf("root")
+            .with_expanded(true)
+            .with_child(leaf("a").with_child(leaf("a1").with_selected(true)))
+            .with_child(leaf("b"));
+        let styled = tree_page(TreeView::new(tree));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![row_labelled(&styled, "root"), page_after(&styled)],
+        );
+    }
+
+    #[test]
+    fn up_and_down_move_focus_through_the_visible_rows_only() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            ("root", K::Down, "a"),
+            ("a", K::Down, "b"), // a1 is hidden under the collapsed a
+            ("b", K::Up, "a"),
+            ("c", K::Down, "c1"),
+            ("c1", K::Up, "c"),
+        ] {
+            let styled = tree_page(TreeView::new(keyboard_tree()));
+            let (update, changes) = press_row(&styled, from, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(row_labelled(&styled, to)),
+                "{key:?} on {from}",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on {from}");
+            assert_eq!(update, Update::DoNothing, "moving focus selects nothing");
+        }
+    }
+
+    #[test]
+    fn up_on_the_first_row_and_down_on_the_last_stay_in_the_tree_and_go_nowhere() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key) in [("root", K::Up), ("c1", K::Down)] {
+            let styled = tree_page(TreeView::new(keyboard_tree()));
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert!(rv::prevented(&changes), "{key:?} on {from}");
+            assert_eq!(rv::focus_request(&changes), None, "{key:?} on {from}");
+        }
+    }
+
+    #[test]
+    fn right_enters_an_open_row_and_left_climbs_to_the_parent() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            ("root", K::Right, "a"), // open: Right moves to its first child
+            ("c", K::Right, "c1"),
+            ("c1", K::Left, "c"), // a child: Left moves to its parent
+            ("b", K::Left, "root"),
+            ("a", K::Left, "root"), // a closed parent is a child of root too
+        ] {
+            let styled = tree_page(TreeView::new(keyboard_tree()));
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(row_labelled(&styled, to)),
+                "{key:?} on {from}",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on {from}");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_first_and_the_last_visible_row() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, to) in [(K::Home, "root"), (K::End, "c1")] {
+            let styled = tree_page(TreeView::new(keyboard_tree()));
+            let (_, changes) = press_row(&styled, "b", key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(row_labelled(&styled, to)),
+                "{key:?}",
+            );
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_row_is_the_trees_only_tab_stop() {
+        let mut styled = tree_page(TreeView::new(keyboard_tree()));
+        let (_, changes) = press_row(&styled, "b", VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let after = page_after(&styled);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![row_labelled(&styled, "c1"), after],
+        );
+    }
+
+    #[test]
+    fn modified_and_unused_keys_on_a_row_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Down, Some(K::LAlt)),
+            (K::Right, Some(K::LShift)),
+            (K::Left, Some(K::LControl)),
+            (K::End, Some(K::LWin)),
+            (K::Tab, None),
+            (K::Return, None),
+            (K::PageDown, None),
+        ] {
+            let styled = tree_page(TreeView::new(keyboard_tree()));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_row(&styled, "b", key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
     }
 }
