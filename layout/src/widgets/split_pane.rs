@@ -3350,6 +3350,103 @@ mod autotest_generated {
         assert!(changes.is_empty(), "a key that is not the split's is left alone: {changes:?}");
     }
 
+    // ==================================================================
+    // The divider tracks the cursor
+    // ==================================================================
+
+    /// Where the divider's centre is along the main axis at `ratio`, the way
+    /// the layout places it: the first pane is `ratio` of the space the two
+    /// panes share (the container LESS the fixed divider), then half the
+    /// divider.
+    fn laid_out_divider_centre(ratio: f32, main: f32) -> f32 {
+        let thickness = DIVIDER_THICKNESS as f32;
+        ratio * (main - thickness) + thickness / 2.0
+    }
+
+    /// The divider stays under the cursor that drags it. The panes share the
+    /// container's main size less the divider's thickness, so a ratio step
+    /// of `delta / container` moved the divider by `delta * (W - 6) / W`: it
+    /// slid out from under the cursor, 3% of the travel on a 200px pane.
+    #[test]
+    fn the_divider_stays_under_the_cursor_that_drags_it() {
+        let boxes = [(0, size(200.0, 100.0))];
+        for to in [150.0_f32, 60.0, 180.0] {
+            let (_, _, mut state) = press_then_move(
+                plain(SplitDirection::Horizontal),
+                &boxes,
+                (100.0, 50.0),
+                (to, 50.0),
+            );
+            let centre = laid_out_divider_centre(wrapper(&mut state).inner.ratio, 200.0);
+            assert!(
+                (centre - to).abs() < 1e-3,
+                "the cursor went to {to}, the divider's centre to {centre}"
+            );
+        }
+    }
+
+    /// The grab zone is centred on the divider as it is laid out - off the
+    /// middle too, where `ratio * container` missed its centre by up to
+    /// half the divider.
+    #[test]
+    fn the_grab_zone_is_centred_on_an_off_centre_divider() {
+        for (ratio, x) in [(0.25_f32, 60.0_f32), (0.75, 139.5)] {
+            let centre = laid_out_divider_centre(ratio, 200.0);
+            assert!((x - centre).abs() <= GRAB_THRESHOLD, "fixture: {x} vs {centre}");
+            let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(ratio));
+            let (_, _) = drive(
+                sd,
+                &[(0, size(200.0, 100.0))],
+                node(0),
+                cursor(x, 50.0),
+                |info| on_split_pointer_down(state.clone(), info),
+            );
+            let mut state = state;
+            assert!(
+                wrapper(&mut state).is_dragging,
+                "ratio {ratio}: a press at {x}, {} from the divider's centre, missed it",
+                (x - centre).abs()
+            );
+        }
+    }
+
+    /// A non-finite cursor or container size mid-drag leaves the split where
+    /// it was: `clamp` passes NaN through, and a NaN ratio wrote
+    /// `flex-grow: 0` on BOTH panes - an invisible split.
+    #[test]
+    fn a_non_finite_move_leaves_the_split_where_it_was() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let (_, changes, mut state) = press_then_move(
+            plain(SplitDirection::Horizontal),
+            &boxes,
+            (100.0, 50.0),
+            (f32::NAN, 50.0),
+        );
+        let w = wrapper(&mut state);
+        assert_eq!(w.inner.ratio, 0.5, "a NaN cursor moved the split");
+        assert!(w.is_dragging, "a NaN cursor must not end the drag either");
+        assert!(css_changes(&changes).is_empty(), "{changes:?}");
+
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, _) = drive(sd.clone(), &boxes, node(0), cursor(100.0, 50.0), |info| {
+            on_split_pointer_down(state.clone(), info)
+        });
+        let (_, changes) = drive(
+            sd,
+            &[(0, size(f32::NAN, 100.0))],
+            node(0),
+            cursor(150.0, 50.0),
+            |info| on_split_pointer_move(state.clone(), info),
+        );
+        let mut state = state;
+        assert_eq!(
+            wrapper(&mut state).inner.ratio,
+            0.5,
+            "a NaN container size moved the split"
+        );
+        assert!(css_changes(&changes).is_empty(), "{changes:?}");
+    }
+
     /// A press on a pane (not the divider) is the pane's: nothing captured.
     #[test]
     fn a_press_beside_the_divider_captures_nothing() {
