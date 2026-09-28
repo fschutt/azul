@@ -487,10 +487,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_placeholder("Multi-line text area...")
                     .with_on_focus_lost(
                         data.clone(),
-                        TextAreaOnFocusLostCallback {
-                            cb: on_textarea_focus_lost,
-                            callable: OptionRefAny::None,
-                        },
+                        on_textarea_focus_lost,
                     )
                     .dom(),
             ),
@@ -506,10 +503,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Slider::create(s.slider_value, 0.0, 100.0)
                     .with_on_value_change(
                         data.clone(),
-                        SliderOnValueChangeCallback {
-                            cb: on_slider,
-                            callable: OptionRefAny::None,
-                        },
+                        on_slider,
                     )
                     .dom(),
             ),
@@ -518,10 +512,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Switch::create(s.switch_on)
                     .with_on_toggle(
                         data.clone(),
-                        SwitchOnToggleCallback {
-                            cb: on_switch,
-                            callable: OptionRefAny::None,
-                        },
+                        on_switch,
                     )
                     .dom(),
             ),
@@ -543,10 +534,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_selected_index(s.selected_radio)
                     .with_on_change(
                         data.clone(),
-                        RadioGroupOnChangeCallback {
-                            cb: on_radio,
-                            callable: OptionRefAny::None,
-                        },
+                        on_radio,
                     )
                     .dom(),
             ),
@@ -556,10 +544,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_selected_index(s.selected_segment)
                     .with_on_change(
                         data.clone(),
-                        SegmentedOnChangeCallback {
-                            cb: on_segmented,
-                            callable: OptionRefAny::None,
-                        },
+                        on_segmented,
                     )
                     .dom(),
             ),
@@ -577,10 +562,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_text(s.combo_text.clone())
                     .with_on_select(
                         data.clone(),
-                        ComboBoxOnSelectCallback {
-                            cb: on_combobox,
-                            callable: OptionRefAny::None,
-                        },
+                        on_combobox,
                     )
                     .dom(),
             ),
@@ -629,10 +611,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_removable(true)
                     .with_on_remove(
                         data.clone(),
-                        ChipOnRemoveCallback {
-                            cb: on_chip_remove,
-                            callable: OptionRefAny::None,
-                        },
+                        on_chip_remove,
                     )
                     .dom(),
             ),
@@ -677,10 +656,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_dismissible(true)
                     .with_on_dismiss(
                         data.clone(),
-                        AlertOnDismissCallback {
-                            cb: on_alert_dismiss,
-                            callable: OptionRefAny::None,
-                        },
+                        on_alert_dismiss,
                     )
                     .dom(),
             ),
@@ -696,10 +672,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_close_button(true)
                     .with_on_close(
                         data.clone(),
-                        ModalOnCloseCallback {
-                            cb: on_modal_close,
-                            callable: OptionRefAny::None,
-                        },
+                        on_modal_close,
                     )
                     .dom(),
             ),
@@ -729,10 +702,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Breadcrumb::create(strs(&["Home", "Library", "Data"]))
                     .with_on_navigate(
                         data.clone(),
-                        BreadcrumbOnNavigateCallback {
-                            cb: on_breadcrumb,
-                            callable: OptionRefAny::None,
-                        },
+                        on_breadcrumb,
                     )
                     .dom(),
             ),
@@ -741,10 +711,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Pagination::create(s.current_page, 10)
                     .with_on_change(
                         data.clone(),
-                        PaginationOnChangeCallback {
-                            cb: on_pagination,
-                            callable: OptionRefAny::None,
-                        },
+                        on_pagination,
                     )
                     .dom(),
             ),
@@ -754,10 +721,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_current_step(s.current_step)
                     .with_on_step_change(
                         data.clone(),
-                        StepperOnStepChangeCallback {
-                            cb: on_stepper,
-                            callable: OptionRefAny::None,
-                        },
+                        on_stepper,
                     )
                     .dom(),
             ),
@@ -777,10 +741,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 ])
                 .with_on_toggle(
                     data.clone(),
-                    AccordionOnToggleCallback {
-                        cb: on_accordion,
-                        callable: OptionRefAny::None,
-                    },
+                    on_accordion,
                 )
                 .dom(),
             ),
@@ -799,10 +760,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_open(false)
                 .with_on_toggle(
                     data.clone(),
-                    PopoverOnToggleCallback {
-                        cb: on_popover,
-                        callable: OptionRefAny::None,
-                    },
+                    on_popover,
                 )
                 .dom(),
             ),
@@ -816,10 +774,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_ratio(0.5)
                 .with_on_resize(
                     data.clone(),
-                    SplitPaneOnResizeCallback {
-                        cb: on_splitpane,
-                        callable: OptionRefAny::None,
-                    },
+                    on_splitpane,
                 )
                 .dom()
                 .with_css("height: 120px;"),
@@ -835,10 +790,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 DatePicker::create(s.date.year, s.date.month, s.date.day)
                     .with_on_change(
                         data.clone(),
-                        DatePickerOnChangeCallback {
-                            cb: on_datepicker,
-                            callable: OptionRefAny::None,
-                        },
+                        on_datepicker,
                     )
                     .dom(),
             ),
@@ -849,10 +801,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_pm(s.time.is_pm)
                     .with_on_change(
                         data.clone(),
-                        TimePickerOnChangeCallback {
-                            cb: on_timepicker,
-                            callable: OptionRefAny::None,
-                        },
+                        on_timepicker,
                     )
                     .dom(),
             ),

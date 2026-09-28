@@ -123,10 +123,7 @@ pub fn card(state: &RefAny) -> Dom {
     let video = VideoWidget::create(config)
         .with_on_status(
             state.clone(),
-            OnVideoStatusCallback {
-                cb: on_video_status,
-                callable: OptionRefAny::None,
-            },
+            on_video_status,
         )
         .dom()
         .with_css("width: 100%; height: 100%;");
