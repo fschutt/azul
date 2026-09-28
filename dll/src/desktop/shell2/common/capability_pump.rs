@@ -166,6 +166,15 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
 
+    // Native notifications: hand queued posts / withdrawals to the backend
+    // (nothing is started while nothing is queued). Here as well as in the
+    // run loops' notification pump because THIS runs on every target - on
+    // mobile, where no run loop pumps notifications, it is what turns a post
+    // into a logged `Failed` instead of silence. Events are NOT delivered
+    // here: a delivery needs a window to invoke against, which the run loops
+    // have and this pass does not.
+    crate::desktop::notifications::dispatch_queued_requests();
+
     // Eyedropper: only the results addressed to THIS window's requests (the
     // loupe / system sampler answers by request id; another window's pick
     // stays in the channel for that window).
@@ -215,6 +224,9 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
         // unrelated event before being shown.
         || azul_layout::managers::biometric::has_queued_requests()
         || azul_layout::managers::keyring::has_queued_requests()
+        // A notification posted by a DoNothing callback must not wait for
+        // an unrelated event to reach the OS.
+        || azul_layout::managers::notification::has_queued_requests()
         || lw.eyedropper_manager.has_pending_async()
         // Resumable-API requests (file dialogs, device lists, ...) completed or still pending.
         || azul_layout::request::has_work()

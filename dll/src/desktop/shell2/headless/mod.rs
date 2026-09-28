@@ -2980,6 +2980,21 @@ impl HeadlessWindow {
             #[cfg(feature = "a11y")]
             self.process_accessibility_actions();
 
+            // ── Phase 1c: Native notifications ───────────────────
+            // The slot the desktop loops give their notification pump. Here
+            // the backend RECORDS instead of showing (`AZ_BACKEND=headless`,
+            // see desktop/notifications), and any event queued into the
+            // mailbox - by a test - runs its notification's callback through
+            // the same `invoke_menu_callback` path the OS shells use.
+            let deliveries = crate::desktop::notifications::pump_notifications();
+            if !deliveries.is_empty()
+                && crate::desktop::notifications::invoke_deliveries(&mut self, deliveries)
+            {
+                self.service_frame(
+                    azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
+                );
+            }
+
             // ── Phase 2: Tick timers and threads ─────────────────
             // Use the shared PlatformWindow trait method to invoke
             // expired timer callbacks and poll background threads.

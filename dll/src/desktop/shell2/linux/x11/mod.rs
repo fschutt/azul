@@ -4985,7 +4985,10 @@ impl X11Window {
             // A live tray talks D-Bus, whose fd is not in this poll set — the
             // panel's property reads sit unanswered until the loop wakes. Cap
             // the park so the run loop's tray pump runs a few times a second.
-            let has_tray = crate::desktop::tray::has_live_tray();
+            // An outstanding native notification is the same case: the
+            // server's ActionInvoked / NotificationClosed arrive on D-Bus.
+            let has_tray = crate::desktop::tray::has_live_tray()
+                || crate::desktop::notifications::needs_polling();
             let timeout_ms: i32 = if has_threads {
                 16
             } else if has_tray {

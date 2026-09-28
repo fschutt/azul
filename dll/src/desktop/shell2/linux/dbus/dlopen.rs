@@ -109,7 +109,23 @@ pub struct DBusLib {
     // is present on the session bus.
     pub dbus_bus_name_has_owner:
         unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
+
+    // Signal subscription, for native notifications (`ActionInvoked` /
+    // `NotificationClosed`). A match rule makes the bus ROUTE a broadcast
+    // signal to this connection at all; a filter sees every message the
+    // connection dispatches. Both exist in every libdbus-1 ever shipped.
+    pub dbus_bus_add_match: unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError),
+    pub dbus_connection_add_filter: unsafe extern "C" fn(
+        *mut DBusConnection,
+        DBusHandleMessageFunction,
+        *mut c_void,
+        Option<unsafe extern "C" fn(*mut c_void)>,
+    ) -> c_uint,
 }
+
+/// `DBusHandleMessageFunction`: a filter, returning a `DBUS_HANDLER_RESULT_*`.
+pub type DBusHandleMessageFunction =
+    Option<unsafe extern "C" fn(*mut DBusConnection, *mut DBusMessage, *mut c_void) -> c_int>;
 
 // Safety: DBusLib only holds the dlopen handle (an opaque, process-wide
 // identifier) and function pointers loaded once at construction; nothing
@@ -408,6 +424,21 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError) -> c_int,
                 "dbus_bus_name_has_owner"
+            ),
+            dbus_bus_add_match: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, *const c_char, *mut DBusError),
+                "dbus_bus_add_match"
+            ),
+            dbus_connection_add_filter: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *mut DBusConnection,
+                    DBusHandleMessageFunction,
+                    *mut c_void,
+                    Option<unsafe extern "C" fn(*mut c_void)>,
+                ) -> c_uint,
+                "dbus_connection_add_filter"
             ),
 
             _lib: lib,

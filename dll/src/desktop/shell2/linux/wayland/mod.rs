@@ -3143,7 +3143,10 @@ impl WaylandWindow {
             // A live tray talks D-Bus, whose fd is not in this poll set — cap
             // the park so the run loop's tray pump answers the panel's
             // property reads (same reasoning as `has_threads`).
-            let has_tray = crate::desktop::tray::has_live_tray();
+            // An outstanding native notification is the same case: the
+            // server's ActionInvoked / NotificationClosed arrive on D-Bus.
+            let has_tray = crate::desktop::tray::has_live_tray()
+                || crate::desktop::notifications::needs_polling();
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {

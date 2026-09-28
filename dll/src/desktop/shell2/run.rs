@@ -497,6 +497,11 @@ fn run_headless(
         "[Headless] Creating StubWindow + entering blocking event loop"
     );
 
+    // No notification server in a headless run: posts are RECORDED (for
+    // tests and the `assert_notification` E2E assertion) instead of shown.
+    // Before the window exists, so before anything can post.
+    crate::desktop::notifications::use_headless_backend();
+
     // Extract icon_provider from config (same as real platforms do)
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
@@ -980,6 +985,9 @@ pub fn run(
                         // the tray event mailbox. Self-gating when there is no
                         // tray.
                         pump_tray_into_windows();
+                        // Notifications: queued posts out, clicks back in.
+                        // Self-gating when nothing was ever posted.
+                        pump_notifications_into_windows();
 
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
@@ -1081,6 +1089,7 @@ pub fn run(
                         // what runs for the DEFAULT termination behaviour, so
                         // skipping it here is what made the tray menu inert.
                         pump_tray_into_windows();
+                        pump_notifications_into_windows();
 
                         // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our
@@ -1229,6 +1238,11 @@ pub fn run(
                                 }
                             }
                         }
+
+                        // A notification a callback posted during the event
+                        // dispatch above goes out NOW, not after the next
+                        // unrelated event wakes the loop.
+                        pump_notifications_into_windows();
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask
@@ -1771,6 +1785,35 @@ pub fn run(
         // `super::macos::drain_closed_windows()` in the macOS loop.
         registry::drain_closed_windows();
 
+        // --- Native notifications ---
+        // Queued posts go out as a notification-area balloon, and the balloon
+        // clicks / timeouts the hidden notify window's procedure queued during
+        // the thread-queue drain above run the notification's callback -
+        // against the first window, the tray's shape on macOS and Linux.
+        {
+            let deliveries = crate::desktop::notifications::pump_notifications();
+            if !deliveries.is_empty() {
+                let first = registry::get_all_window_handles()
+                    .first()
+                    .and_then(|h| registry::get_window(*h));
+                match first {
+                    Some(wptr) => {
+                        let window = unsafe { &mut *wptr };
+                        if crate::desktop::notifications::invoke_deliveries(window, deliveries) {
+                            window.request_redraw();
+                        }
+                    }
+                    None => {
+                        log_debug!(
+                            debug_server::LogCategory::Callbacks,
+                            "[notifications] {} event(s) had no window to run against",
+                            deliveries.len()
+                        );
+                    }
+                }
+            }
+        }
+
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
         // NOTE: window_proc already calls process_window_events() for mouse/keyboard
@@ -1952,6 +1995,10 @@ pub fn run(
     // last window closed, and `std::process::exit` below runs no destructors
     // that could catch it.
     crate::desktop::extra::gamepad::stop_all_rumble();
+
+    // The notification balloon's notify icon, likewise: the shell keeps a dead
+    // process's icon in the notification area until the mouse passes over it.
+    crate::desktop::notifications::shutdown();
 
     // Handle termination behavior
     match config.termination_behavior {
@@ -2302,6 +2349,43 @@ fn run_linux_windows(
                         debug_server::LogCategory::Callbacks,
                         "[tray] {} menu callback(s) had no window to run against",
                         tray_callbacks.len()
+                    );
+                }
+            }
+        }
+
+        // Native notifications: queued posts out to the freedesktop server,
+        // its ActionInvoked / NotificationClosed signals (read off the same
+        // shared D-Bus connection the tray dispatches) routed to the
+        // callbacks of the notifications they name, and run against the
+        // first window - the tray's shape. The loops' poll is bounded while a
+        // notification is outstanding (`notifications::needs_polling`), since
+        // the D-Bus socket is not in their wait set.
+        {
+            let deliveries = crate::desktop::notifications::pump_notifications();
+            if !deliveries.is_empty() {
+                if let Some(win_ptr) = window_ids
+                    .first()
+                    .and_then(|wid| unsafe { registry::get_window(*wid) })
+                {
+                    match unsafe { &mut *win_ptr } {
+                        LinuxWindow::X11(w) => {
+                            if crate::desktop::notifications::invoke_deliveries(w, deliveries) {
+                                w.request_redraw();
+                            }
+                        }
+                        #[cfg(target_os = "linux")]
+                        LinuxWindow::Wayland(w) => {
+                            if crate::desktop::notifications::invoke_deliveries(w, deliveries) {
+                                w.request_redraw();
+                            }
+                        }
+                    }
+                } else {
+                    log_debug!(
+                        debug_server::LogCategory::Callbacks,
+                        "[notifications] {} event(s) had no window to run against",
+                        deliveries.len()
                     );
                 }
             }
@@ -2688,6 +2772,40 @@ fn pump_tray_into_windows() {
     }
 }
 
+/// Dispatch queued notifications and run the callbacks of the ones the user
+/// clicked, pressed a button on or dismissed.
+///
+/// The notification twin of [`pump_tray_into_windows`], called from the same
+/// places for the same reason (the default `EndProcess` loop and the
+/// `RunForever` timer both), and delivering the same way: through
+/// `invoke_menu_callback` against the first window - a notification has no
+/// window of its own, and a `CallbackInfo` needs one. The events are queued
+/// by `UNUserNotificationCenter`'s delegate on UN's own queue, which also
+/// posts the app-defined NSEvent that wakes this loop to get here.
+#[cfg(target_os = "macos")]
+fn pump_notifications_into_windows() {
+    let deliveries = crate::desktop::notifications::pump_notifications();
+    if deliveries.is_empty() {
+        return;
+    }
+    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
+    match window_ptrs.first() {
+        Some(&wptr) => {
+            let window = unsafe { &mut *wptr };
+            if crate::desktop::notifications::invoke_deliveries(window, deliveries) {
+                window.request_redraw();
+            }
+        }
+        None => {
+            log_debug!(
+                LogCategory::Callbacks,
+                "[notifications] {} event(s) had no window to run against",
+                deliveries.len()
+            );
+        }
+    }
+}
+
 /// Run tray menu callbacks against SOME window - a real one, or the headless
 /// stub a tray-only app uses.
 ///
@@ -2833,6 +2951,13 @@ pub fn run_tray_only(
                 let window = unsafe { &mut *headless_ptr };
                 // Nothing to repaint: there is no window on screen.
                 let _ = invoke_tray_callbacks(window, callbacks);
+            }
+            // A tray utility is exactly the app that notifies: its callbacks
+            // run against the same headless stand-in.
+            let deliveries = crate::desktop::notifications::pump_notifications();
+            if !deliveries.is_empty() {
+                let window = unsafe { &mut *headless_ptr };
+                let _ = crate::desktop::notifications::invoke_deliveries(window, deliveries);
             }
         },
     );

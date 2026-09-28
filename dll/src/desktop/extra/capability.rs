@@ -394,6 +394,17 @@ impl PlatformCapability {
         }
     }
 
+    /// Probe native desktop notifications (`CallbackInfo::post_notification`).
+    /// macOS: `UNUserNotificationCenter`, available only when the process runs
+    /// from a `.app` bundle with a `CFBundleIdentifier` (an unbundled binary
+    /// reports `false` and says why - UN would abort it). Linux: a real query
+    /// of `org.freedesktop.Notifications` on the session bus (cached 10 s).
+    /// Windows: a notification-area balloon (no buttons, one at a time).
+    /// Headless, mobile and web: `false`.
+    pub fn notifications() -> PlatformCapability {
+        crate::desktop::notifications::probe()
+    }
+
     /// Probe hardware video decode for real (see
     /// [`crate::desktop::extra::video_codec::provision`]): on Apple/Android the
     /// built-in system codec, on Linux/Windows a live Vulkan

@@ -140,6 +140,9 @@ pub mod shader_cache;
 pub mod shell2;
 /// System tray / status icon — NSStatusItem, Shell_NotifyIcon, StatusNotifierItem
 pub mod tray;
+/// Native notifications — UNUserNotificationCenter, org.freedesktop.Notifications,
+/// a Shell_NotifyIcon balloon; the tray's sibling
+pub mod notifications;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
 /// Font & image resource handling, lookup and caching

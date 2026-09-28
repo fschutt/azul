@@ -96,4 +96,14 @@ impl PlatformCapability {
     pub fn video_codec() -> PlatformCapability {
         Self::unavailable()
     }
+    pub fn notifications() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str(
+                "no native notification backend on wasm (the browser Notification API is not \
+                 wired up yet)",
+            ),
+        }
+    }
 }
