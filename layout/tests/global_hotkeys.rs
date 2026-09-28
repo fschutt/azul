@@ -45,7 +45,8 @@ use azul_layout::{
     callbacks::{Callback, CallbackInfo},
     managers::global_hotkey::{
         BackendEvent, BackendGrant, GlobalHotkeyBackend, GlobalHotkeyManager, HotkeyDelivery,
-        HotkeySource, SharedGlobalHotkeys, MAX_PENDING_FIRES, SIMULATED_BACKEND_NAME,
+        HotkeySource, SharedGlobalHotkeys, SimulatedAnswer, MAX_PENDING_FIRES,
+        SIMULATED_BACKEND_NAME,
     },
 };
 
@@ -1155,4 +1156,112 @@ fn a_status_the_app_callback_read_re_runs_it_once() {
         "the re-run declared the same set: converged"
     );
     assert_eq!(runs(&data), 2);
+}
+
+// ---------------------------------------------------------------------------
+// 7. One loop turn: presses routed to their owner's window, never "the first"
+// ---------------------------------------------------------------------------
+
+fn simulated() -> SharedGlobalHotkeys {
+    let shared = SharedGlobalHotkeys::new();
+    shared.install_simulated_backend();
+    shared
+}
+
+/// A pump sees its platform's live windows as a list of sequence numbers
+/// (in whatever order its registry happens to keep them - a `BTreeMap` by
+/// `NSWindow` address on macOS, a `HashMap` on Linux) and runs each press
+/// against the index its OWNER has in that list.
+#[test]
+fn a_press_runs_against_the_window_that_owns_it() {
+    let shared = simulated();
+    shared.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    shared.declare(W2, vec![declared(ctrl_alt(K::K), 2, callback_a)], false);
+    let _ = shared.sync();
+    shared.note_focus(2);
+
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    // The registry lists window 2 FIRST: position must not matter.
+    let turn = shared.begin_turn(&[2, 1]);
+    assert_eq!(turn.deliveries.len(), 1);
+    let (index, delivery) = &turn.deliveries[0];
+    assert_eq!(*index, 0, "window 2 is at index 0 of this list");
+    assert_eq!(marker_of(delivery), Some(2));
+    assert!(turn.undeliverable.is_empty());
+}
+
+/// An app-level press runs against the window the user last worked in;
+/// with no focus history, the OLDEST window - not whichever the registry
+/// lists first.
+#[test]
+fn an_app_level_press_runs_against_the_last_focused_window_else_the_oldest() {
+    let shared = simulated();
+    shared.declare(
+        HotkeySource::App,
+        vec![declared(ctrl_alt(K::K), 0, callback_a)],
+        false,
+    );
+    let _ = shared.sync();
+
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    let turn = shared.begin_turn(&[7, 3]);
+    assert_eq!(turn.deliveries.len(), 1);
+    assert_eq!(turn.deliveries[0].0, 1, "window 3 is the oldest");
+    assert_eq!(turn.deliveries[0].1.target, HotkeySource::App);
+
+    shared.note_focus(7);
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    let turn = shared.begin_turn(&[7, 3]);
+    assert_eq!(turn.deliveries[0].0, 0, "window 7 was focused last");
+}
+
+/// A press owned by a window this loop does not run is never handed to
+/// some other window instead.
+#[test]
+fn a_press_whose_owner_is_not_live_is_not_run_against_another_window() {
+    let shared = simulated();
+    shared.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], false);
+    let _ = shared.sync();
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    let turn = shared.begin_turn(&[2]);
+    assert!(turn.deliveries.is_empty());
+    assert_eq!(turn.undeliverable.len(), 1);
+}
+
+/// With every window closed (`RunForever`), an app-level press has no
+/// window to run against: it is reported, not silently run somewhere.
+#[test]
+fn an_app_level_press_with_no_window_is_undeliverable() {
+    let shared = simulated();
+    shared.declare(
+        HotkeySource::App,
+        vec![declared(ctrl_alt(K::K), 0, callback_a)],
+        false,
+    );
+    let _ = shared.sync();
+    assert!(shared.simulate(&ctrl_alt(K::K)));
+    let turn = shared.begin_turn(&[]);
+    assert!(turn.deliveries.is_empty());
+    assert_eq!(turn.undeliverable.len(), 1);
+}
+
+/// The turn also names the windows whose last `layout()` read a status
+/// that moved - once each.
+#[test]
+fn a_turn_names_the_windows_that_must_lay_out_again() {
+    let shared = simulated();
+    assert!(shared.program_answer(ctrl_alt(K::K), SimulatedAnswer::Pending));
+    shared.declare(W1, vec![declared(ctrl_alt(K::K), 1, callback_a)], true);
+    shared.declare(W2, vec![declared(ctrl_alt(K::K), 2, callback_a)], false);
+    // The grab itself moved K from NotRegistered to Pending.
+    let turn = shared.begin_turn(&[1, 2]);
+    assert_eq!(turn.relayout, vec![0]);
+
+    assert!(shared.settle(&ctrl_alt(K::K), Ok(AzString::from_const_str(""))));
+    let turn = shared.begin_turn(&[1, 2]);
+    assert_eq!(turn.relayout, vec![0], "only window 1 read a status");
+    assert_eq!(shared.status(&ctrl_alt(K::K)), GlobalHotkeyStatus::Active);
+
+    let turn = shared.begin_turn(&[1, 2]);
+    assert!(turn.relayout.is_empty(), "nothing moved since");
 }

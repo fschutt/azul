@@ -84,13 +84,17 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    regenerates all windows for an App-level press that asked for a rebuild; regenerate_layout
    marks the app dirty on `RelayoutReason::RefreshDom`. `deliver_fired` removed (unused).
 
+9. test(hotkeys): presses run against their owner - RED, does not compile:
+   `layout/tests/global_hotkeys.rs` section 7 needs `SharedGlobalHotkeys::begin_turn(&[WindowSeq])
+   -> HotkeyTurn { deliveries: Vec<(usize, HotkeyDelivery)>, relayout: Vec<usize>,
+   undeliverable: Vec<HotkeyDelivery> }`.
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-9. RED: presses run against their owner (layout-level `begin_turn` routing tests).
 10. feat: pumps deliver to the owner window (no more "first window").
 11. RED pure portal planner test + refactor portal: one session per batch, stable ids =
     `portal_trigger(hk)`, `trigger_description` kept; dll `attach_loop_waker` / `wake_fds`;
