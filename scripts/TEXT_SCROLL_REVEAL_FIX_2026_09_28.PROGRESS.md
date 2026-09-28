@@ -46,7 +46,11 @@ Sources: `scripts/TEXT_SCROLL_VS_CARET_REVEAL_ARCHITECTURE_2026_09_26.md` §8 st
 ## IN PROGRESS
 
 - 2d5068ff6 test(layout) RED step 5: `a_drag_selection_owns_the_scroll_of_its_field.rs` (registered).
-- Step 5 FIX in progress: `process_mouse_drag_for_selection` drops the pending reveal (note_user_scroll); dll drag-autoscroll timer pass claims too.
+- f7ecec42a fix step 5: `process_mouse_drag_for_selection` calls `note_user_scroll` (drag + W9 claim the view; W9 already re-resolves after its scroll in the dll MWA-B8b block).
+
+## IN PROGRESS (next)
+
+- M3 refactor: extract `LayoutWindow::drag_autoscroll_box(anchor)` (behaviour preserving).
 
 ## NEXT (in order)
 
