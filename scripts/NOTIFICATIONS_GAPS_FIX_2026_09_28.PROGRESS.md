@@ -27,6 +27,10 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
   launch hook + display_tick pump, permission/{macos,ios}.rs. mod.rs names android/windows/linux
   functions that are NOT YET WRITTEN (see NEXT).
 
+* `763256639` feat(notifications): Android backend (notifications/android.rs + AzulNotifications.java,
+  AzulActivity hooks, manifest, build script, assets, permission/android.rs `request`, android_main
+  pump + LOOP_WAKER). NEXT step 1 below is DONE.
+
 ## IN PROGRESS (written in the worktree, not yet committed)
 
 * (committed in 274fc0f60, kept for reference:) dll service `dll/src/desktop/notifications/mod.rs` rewritten: backends `apple` (macOS+iOS),
@@ -55,7 +59,7 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
 
 ## NEXT (in order)
 
-1. `dll/src/desktop/notifications/android.rs` (NOT WRITTEN): `PlatformNotifier::{new, post,
+1. DONE in 763256639: `dll/src/desktop/notifications/android.rs`: `PlatformNotifier::{new, post,
    withdraw}`, `probe() -> (bool, String)`, `request_permission()`, JNI entry
    `Java_com_azul_notify_AzulNotifications_nativeOnNotificationEvent` -> `wire::android_event` ->
    queue + `shell2::android::wake_event_loop()`. Helper via `extra::find_app_class`
@@ -64,7 +68,7 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
    (activity, channelName, tag, requestCode, title, body, actionIds, actionLabels, payload,
    silent, pendingIntentFlags) -> "" or error. `permissionState(Activity)I` 0/1/2, `cancel(Activity,String)V`,
    `sdkInt()I`.
-2. Commit Apple/service/iOS/loops, then Android.
+2. DONE (274fc0f60, 763256639).
 3. Windows: `windows` crate features `UI_Notifications`, `Data_Xml_Dom` in dll/Cargo.toml; toast
    inside `notifications/windows.rs` `PlatformNotifier` (toast first, balloon fallback), HKCU
    `AppUserModelId\<aumid>` DisplayName via libloading advapi32 (RegCreateKeyExW/RegSetValueExW/
