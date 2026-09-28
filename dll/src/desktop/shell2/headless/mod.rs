@@ -2447,6 +2447,28 @@ impl HeadlessWindow {
         let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
 
+        // A global-hotkey press simulated from another thread (a test, the
+        // e2e runner) signals this loop's condvar instead of waiting for the
+        // 60 Hz poll: with the waker attached, `needs_loop_polling` is false.
+        if let Some(hotkeys) = self
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.global_hotkeys.shared().clone())
+        {
+            let condvar = self.wake_condvar.clone();
+            let mutex = self.wake_mutex.clone();
+            hotkeys.attach_loop_waker(
+                Arc::new(move || {
+                    if let Ok(mut guard) = mutex.lock() {
+                        guard.woken = true;
+                        condvar.notify_one();
+                    }
+                }),
+                false,
+            );
+        }
+
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
             let mut events_need_redraw = false;

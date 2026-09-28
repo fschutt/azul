@@ -64,15 +64,26 @@ pub(crate) struct CommitPlan {
 /// across launches and declaration orders; `None` for a key the portal
 /// cannot name.
 pub(crate) fn shortcut_id(hotkey: &GlobalHotkey) -> Option<String> {
-    let _ = hotkey;
-    None
+    azul_core::global_hotkey::portal_trigger(hotkey)
 }
 
 /// Plan the end of one batch: `sessions` as they stand, `pending` the
 /// shortcuts registered since the last commit.
 pub(crate) fn plan_commit(sessions: &[SessionView], pending: &[PlannedShortcut]) -> CommitPlan {
-    let _ = (sessions, pending);
-    CommitPlan::default()
+    let mut plan = CommitPlan::default();
+    for session in sessions {
+        if session.live.is_empty() {
+            // Nothing in it is wanted any more.
+            plan.close_now.push(session.key);
+        } else if session.released > 0 && !pending.is_empty() {
+            // A new session is made anyway: take the survivors over, so the
+            // tombstones do not live on for the rest of the run.
+            plan.close_after_bind.push(session.key);
+            plan.bind.extend(session.live.iter().cloned());
+        }
+    }
+    plan.bind.extend(pending.iter().cloned());
+    plan
 }
 
 #[cfg(test)]

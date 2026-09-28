@@ -132,6 +132,30 @@ pub fn needs_loop_polling() -> bool {
     app().is_some_and(|app| app.needs_loop_polling())
 }
 
+/// For a run loop that can be woken from another thread (an eventfd write, a
+/// condvar notify): hand the current App's hotkey sink that waker, so a
+/// press arriving on a backend thread (the portal's D-Bus listener, the
+/// headless simulation) wakes the loop instead of waiting for its next poll.
+///
+/// Pass `watches_wake_fds = true` only if the loop ALSO has every fd of
+/// [`wake_fds`] in its poll set (X11's grab connection); then
+/// [`needs_loop_polling`] answers `false` for every backend and the loop may
+/// park indefinitely. This is the integration point for the Linux loop-waker
+/// rework: call it once the shared loop waker exists, before the loop parks.
+pub fn attach_loop_waker(waker: manager::LoopWaker, watches_wake_fds: bool) {
+    if let Some(app) = app() {
+        app.attach_loop_waker(waker, watches_wake_fds);
+    }
+}
+
+/// The fds a Linux loop should poll so a hotkey press wakes it: X11's grab
+/// connection once it is open (empty for every other backend, and before
+/// the first grab).
+#[must_use]
+pub fn wake_fds() -> Vec<i32> {
+    app().and_then(|app| app.wake_fd()).into_iter().collect()
+}
+
 /// The capability probe's answer, for [`crate::desktop::extra::capability`].
 /// Pure: it never installs a backend. With a backend installed for the
 /// current App it asks that one (a headless run reports the simulation);
