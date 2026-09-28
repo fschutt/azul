@@ -394,6 +394,99 @@ fn an_item_scrolled_into_view_is_focused_where_it_is_painted() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// The css-nav-1 JS API (§5.2): getSpatialNavigationContainer(),
+// focusableAreas(), spatialNavigationSearch()
+// ---------------------------------------------------------------------------
+
+/// `getSpatialNavigationContainer()`: the nearest ANCESTOR that is a spatial
+/// navigation container - never the element itself - or the document (the
+/// DOM's root node) when that is the viewport.
+#[test]
+fn the_container_of_a_list_item_is_its_scroll_box_and_of_the_box_the_document() {
+    let lw = scroll_list();
+    assert_eq!(lw.get_spatial_navigation_container(dnid(3)), Some(dnid(1)));
+    assert_eq!(
+        lw.get_spatial_navigation_container(dnid(1)),
+        Some(dnid(0)),
+        "a container's own container is its nearest container ANCESTOR",
+    );
+    assert_eq!(lw.get_spatial_navigation_container(dnid(6)), Some(dnid(0)));
+}
+
+/// `focusableAreas({ mode })`: the focusable DESCENDANTS, in document order;
+/// `visible` keeps the ones inside every scrollport above them.
+#[test]
+fn focusable_areas_are_the_visible_ones_or_all_of_them() {
+    use azul_core::callbacks::FocusableAreaSearchMode;
+
+    let lw = scroll_list();
+    let ids = |v: &[usize]| v.iter().map(|n| dnid(*n)).collect::<Vec<_>>();
+    assert_eq!(
+        lw.get_focusable_areas(dnid(1), FocusableAreaSearchMode::Visible),
+        ids(&[2, 3]),
+        "a2 and a3 are scrolled out of the 80px box",
+    );
+    assert_eq!(
+        lw.get_focusable_areas(dnid(1), FocusableAreaSearchMode::All),
+        ids(&[2, 3, 4, 5]),
+    );
+    assert_eq!(
+        lw.get_focusable_areas(dnid(0), FocusableAreaSearchMode::Visible),
+        ids(&[2, 3, 6]),
+    );
+    assert_eq!(
+        lw.get_focusable_areas(dnid(0), FocusableAreaSearchMode::All),
+        ids(&[2, 3, 4, 5, 6]),
+    );
+}
+
+/// `spatialNavigationSearch(dir, options)`.
+///
+/// No options: the VISIBLE areas of the nearest container only, and - the
+/// spec's note - no climbing further up, so Down from `a1` finds nothing
+/// (`a2` is scrolled out). With the document as the container, `outside`.
+/// With explicit candidates, the best of exactly those, visible or not.
+#[test]
+fn spatial_navigation_search_searches_the_container_or_the_candidates_it_is_given() {
+    use azul_core::{
+        callbacks::SpatialNavigationSearchOptions,
+        dom::{OptionDomNodeId, OptionDomNodeIdVec},
+    };
+
+    let lw = scroll_list();
+    assert_eq!(
+        lw.spatial_navigation_search(
+            dnid(3),
+            FocusDirection::Down,
+            &SpatialNavigationSearchOptions::default()
+        ),
+        None,
+    );
+    assert_eq!(
+        lw.spatial_navigation_search(
+            dnid(3),
+            FocusDirection::Down,
+            &SpatialNavigationSearchOptions {
+                candidates: OptionDomNodeIdVec::None,
+                container: OptionDomNodeId::Some(dnid(0)),
+            }
+        ),
+        Some(dnid(6)),
+    );
+    assert_eq!(
+        lw.spatial_navigation_search(
+            dnid(3),
+            FocusDirection::Down,
+            &SpatialNavigationSearchOptions {
+                candidates: OptionDomNodeIdVec::Some(vec![dnid(5), dnid(4)].into()),
+                container: OptionDomNodeId::None,
+            }
+        ),
+        Some(dnid(4)),
+    );
+}
+
 /// At the bottom of the list (offset 80, its maximum) nothing below `a3` is
 /// left to scroll to: `navnotarget`, then the document, where `outside` is.
 #[test]
