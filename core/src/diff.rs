@@ -2193,7 +2193,8 @@ pub struct NodeDataFingerprint {
     pub ids_classes_hash: u64,
     /// Hash of callbacks (event types + function pointers)
     pub callbacks_hash: u64,
-    /// Hash of the layout-relevant attributes (contenteditable, flags)
+    /// Hash of the layout-relevant attributes (contenteditable and the
+    /// anonymous-box flag - never the tab index, see [`Self::compute`])
     pub attrs_hash: u64,
     /// Hash of the dataset's PRESENCE and TYPE — never its allocation.
     ///
@@ -2270,11 +2271,19 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Attributes hash — the layout-relevant ones only
+        // Attributes hash — the layout-relevant ones only: contenteditable
+        // and the anonymous-box bit. NOT the tab index, although it lives in
+        // the same `flags` word: which node Tab lands on changes neither
+        // layout nor paint, and hashed here it made every row of a
+        // roving-tabindex group (radio group, segmented control, tab list)
+        // LAYOUT-dirty whenever its stop moved - rebuilt as a fresh relayout
+        // root on each selection change. A tab-index-only change now
+        // fingerprints identical; the node data it lives in is read live by
+        // the focus manager, so nothing cached goes stale.
         let attrs_hash = {
             let mut h = crate::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
-            node.flags.hash(&mut h);
+            node.flags.is_anonymous().hash(&mut h);
             h.finish()
         };
 
