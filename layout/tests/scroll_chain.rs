@@ -290,3 +290,112 @@ fn a_translucent_block_in_a_scrolled_box_is_painted_scrolled_and_clipped_with_it
         "the block is clipped by the box it sits in (x < 200), got the pixel {px:?} at (250, 75)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `position: fixed` - the viewport is its containing block
+// ---------------------------------------------------------------------------
+
+const PAGE_ROOT: NodeId = NodeId::new(0);
+const FIXED_BOX: NodeId = NodeId::new(1);
+
+fn is_green(px: (u8, u8, u8)) -> bool {
+    px.0 < 60 && px.1 > 200 && px.2 < 60
+}
+
+/// The viewport scrolled to `y` the way a wheel step lands: an immediate,
+/// clamped `set_scroll_position` on the root element.
+fn scroll_viewport_to(lw: &mut LayoutWindow, y: f32) {
+    let travel = lw
+        .scroll_manager
+        .get_scroll_state(DomId::ROOT_ID, PAGE_ROOT)
+        .expect("harness: the viewport scrolls a page taller than the window")
+        .max_scroll_offsets()
+        .1;
+    assert!(travel >= y, "harness: the page has room for {y}px, got {travel}px");
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        PAGE_ROOT,
+        LogicalPosition::new(0.0, y),
+        now(),
+    );
+    lw.scroll_manager.calculate_scrollbar_states();
+}
+
+/// A fixed box's containing block is the viewport (CSS Positioned Layout
+/// §3.4): scrolling the page moves the page under it, never the box. It was
+/// painted - and hit-tested - inside the page's scroll frame, so a fixed
+/// header scrolled away with the text.
+///
+/// `body > [fixed green 100x50 at (0,0), blue 200px, red 100px, 700px]` in
+/// a 400x300 window, the page scrolled by 150.
+#[test]
+fn a_fixed_box_stays_where_it_is_when_the_page_scrolls() {
+    let mut lw = window_with(
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(Dom::create_div().with_css(
+                "position: fixed; top: 0px; left: 0px; width: 100px; height: 50px; \
+                 background-color: #00ff00;",
+            ))
+            .with_child(Dom::create_div().with_css("height: 200px; background-color: #0000ff;"))
+            .with_child(Dom::create_div().with_css("height: 100px; background-color: #ff0000;"))
+            .with_child(Dom::create_div().with_css("height: 700px;")),
+    );
+    scroll_viewport_to(&mut lw, 150.0);
+
+    let frame = render(&lw);
+    assert!(
+        is_red(pixel(&frame, 200, 100)),
+        "harness: the page itself scrolls - the red block laid out at y=200 is at y=50"
+    );
+    let px = pixel(&frame, 50, 25);
+    assert!(
+        is_green(px),
+        "the fixed box must stay at the top of the window, got the pixel {px:?} at (50, 25): \
+         it scrolled away with the page"
+    );
+    assert_eq!(
+        node_under(&lw, LogicalPosition::new(50.0, 25.0)),
+        Some(FIXED_BOX),
+        "the pointer at (50, 25) must find the fixed box painted there"
+    );
+    let rect = lw
+        .get_node_rect_in_viewport(dom_node(FIXED_BOX))
+        .expect("the fixed box is laid out");
+    assert_eq!(
+        rect.origin.y, 0.0,
+        "the fixed box is on screen at y=0, its viewport rect says y={}",
+        rect.origin.y
+    );
+}
+
+/// A fixed box is not clipped by an `overflow: hidden` ancestor that is not
+/// its containing block - CSS 2.2 §11.1.1 exempts every descendant whose
+/// containing block is the viewport. Painted in the page's frames it is
+/// whole; the pointer must find all of it.
+///
+/// `body > wrapper(100x50, hidden) > fixed green 200x40 at (0,0)`: the part
+/// right of x=100 overhangs the wrapper.
+#[test]
+fn a_fixed_box_is_not_clipped_by_a_box_that_is_not_its_containing_block() {
+    let lw = window_with(
+        Dom::create_body().with_css("margin: 0;").with_child(
+            Dom::create_div()
+                .with_css("width: 100px; height: 50px; overflow: hidden;")
+                .with_child(Dom::create_div().with_css(
+                    "position: fixed; top: 0px; left: 0px; width: 200px; height: 40px; \
+                     background-color: #00ff00;",
+                )),
+        ),
+    );
+    let px = pixel(&render(&lw), 150, 20);
+    assert!(
+        is_green(px),
+        "the fixed box overhanging the wrapper must be painted there, got {px:?} at (150, 20)"
+    );
+    assert_eq!(
+        node_under(&lw, LogicalPosition::new(150.0, 20.0)),
+        Some(NodeId::new(2)),
+        "the pointer at (150, 20) must find the fixed box painted there"
+    );
+}
