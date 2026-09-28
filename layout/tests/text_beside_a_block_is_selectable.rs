@@ -190,3 +190,51 @@ fn a_selection_across_text_beside_a_block_paints_and_copies_it() {
         "each of the three lines is highlighted"
     );
 }
+
+/// The pointer's hit test is the click's first source: its hit on the text
+/// "Item" names the anonymous block by the text's IFC membership. The hover
+/// path demanded that the membership's root have a DOM node and skipped the
+/// hit, so only the fallback scan by window position could still find the
+/// block - and a click whose window position that scan does not resolve (the
+/// debug server's, a transformed box) placed no caret.
+#[test]
+fn a_hit_on_text_beside_a_block_places_the_caret_in_it() {
+    use azul_core::hit_test::{FullHitTest, HitTest, HitTestItem};
+    use azul_layout::managers::hover::InputPointId;
+
+    let mut lw = document();
+    assert!(
+        lw.get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .layout_tree
+            .dom_to_layout
+            .contains_key(&NodeId::new(ITEM)),
+        "premise: the text \"Item\" has a box of its own inside the anonymous block"
+    );
+
+    let mut hit = HitTest::empty();
+    hit.regular_hit_test_nodes.insert(
+        NodeId::new(ITEM),
+        HitTestItem {
+            point_in_viewport: on_item(&lw),
+            point_relative_to_item: Default::default(),
+            is_focusable: false,
+            is_virtual_view_hit: None,
+            hit_depth: 0,
+        },
+    );
+    let mut full = FullHitTest::empty(None);
+    full.hovered_nodes.insert(DomId::ROOT_ID, hit);
+    lw.hover_manager.push_hit_test(InputPointId::Mouse, full);
+
+    // A window position no text block's box contains: only the hit test can
+    // place this caret.
+    lw.process_mouse_click_for_selection(LogicalPosition::new(790.0, 590.0), 0)
+        .expect("the hit on \"Item\" places a caret");
+
+    assert_eq!(
+        lw.text_edit_manager.get_editing_block(),
+        Some(block_of(&lw, ITEM)),
+        "the caret is in the anonymous block around \"Item\""
+    );
+}
