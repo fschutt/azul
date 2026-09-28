@@ -8071,7 +8071,8 @@ impl MacOSWindow {
                     "[build_atomic_txn] Scroll animation active, repaint needed"
                 );
                 // Keep CPU-side scrollbar geometry in sync with animated scroll offsets
-                // so that perform_scrollbar_hit_test returns correct thumb positions.
+                // so that the press router (`LayoutWindow::route_press`) finds the
+                // thumb where it is painted.
                 layout_window.scroll_manager.calculate_scrollbar_states();
             }
         }

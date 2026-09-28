@@ -4406,20 +4406,20 @@ impl WaylandWindow {
 
         self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(logical_pos);
 
-        // Handle scrollbar dragging if active
-        if self.common.scrollbar_drag_state.is_some() {
-            use crate::desktop::shell2::common::event::PlatformWindow;
-            let result = PlatformWindow::handle_scrollbar_drag(self, logical_pos);
+        // A held scrollbar thumb takes the motion (the press router's other
+        // half). The shared helper records the cursor and swallows the delta
+        // (SANCTIONED SWALLOW: it must not surface as a MouseMove later).
+        if let Some(result) = PlatformWindow::route_pointer_move(
+            self,
+            logical_pos,
+            "wayland.pointer_motion.scrollbar_drag",
+        ) {
             // Route like every other pointer path: a scroll callback can restyle
             // (ShouldIncrementalRelayout → incremental fast path) or rebuild the DOM
             // (ShouldRegenerateDom* → request_regeneration). DoNothing stays a
             // no-op and the redraw-only variants still request_redraw, so plain
             // scrollbar drags behave exactly as before.
             self.handle_process_event_result(result);
-            // SANCTIONED SWALLOW: the thumb drag consumed this motion; the
-            // cursor delta must not surface as a MouseMove event later.
-            use crate::desktop::shell2::common::event::PlatformWindow as _;
-            self.discard_input_delta("wayland.pointer_motion.scrollbar_drag");
             return;
         }
 
@@ -4564,14 +4564,17 @@ impl WaylandWindow {
             }
         }
 
-        // Check for scrollbar hit FIRST (before state changes)
+        // The press router FIRST (before state changes): scrollbar, then
+        // content. The shared helpers record what the scrollbar consumed (the
+        // button stays PHYSICALLY DOWN for the whole thumb drag) and swallow
+        // it.
         if is_down {
-            use crate::desktop::shell2::common::event::PlatformWindow;
-            if let Some(scrollbar_hit_id) =
-                PlatformWindow::perform_scrollbar_hit_test(self, position)
-            {
-                let result =
-                    PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            if let Some(result) = PlatformWindow::route_pointer_press(
+                self,
+                position,
+                mouse_button,
+                "wayland.handle_pointer_button.scrollbar_click",
+            ) {
                 // Route like every other pointer path (see handle_pointer_motion): a
                 // scroll callback can restyle / rebuild the DOM. DoNothing stays a
                 // no-op; the other variants still request_redraw.
@@ -4598,10 +4601,17 @@ impl WaylandWindow {
                     }
                 }
             }
-        } else if self.common.scrollbar_drag_state.is_some() {
-            // End scrollbar drag if active. Whether that STOPS the button
-            // event here is the shared rule - `scrollbar_stops_the_button_event`.
-            PlatformWindow::set_scrollbar_drag_state(self, None);
+        } else if PlatformWindow::end_scrollbar_drag(
+            self,
+            position,
+            mouse_button,
+            "wayland.handle_pointer_button.scrollbar_release",
+        )
+        .is_some()
+        {
+            // The release let go of a held thumb and cleared the button the
+            // press latched. Whether that STOPS the button event here is the
+            // shared rule - `scrollbar_stops_the_button_event`.
             self.request_redraw();
             if scrollbar_stops_the_button_event(is_down, true) {
                 return;

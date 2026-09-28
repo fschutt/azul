@@ -9,8 +9,10 @@
 //! The `PlatformWindow` trait provides **default implementations** for all complex logic:
 //! - Event processing (state diffing via `process_window_events()`)
 //! - Callback invocation (`dispatch_events_propagated()`)
-//! - Hit testing (`perform_scrollbar_hit_test()`)
-//! - Scrollbar interaction (`handle_scrollbar_click()`, `handle_scrollbar_drag()`)
+//! - Scrollbar presses, thumb drags and releases (`route_pointer_press()`,
+//!   `route_pointer_move()`, `end_scrollbar_drag()`) - thin platform wrappers
+//!   around the ONE press router in `azul_layout::press_router`, which the
+//!   scripted `ModifyWindowState` path and the headless E2E runner use too
 //!
 //! Platform implementations only need to:
 //! 1. Implement simple getter methods to access their window state
@@ -1109,9 +1111,13 @@ pub fn csd_resize_edge_at(
 ///
 /// A RELEASE that ends a live thumb drag is NOT. Ending the drag is the
 /// scrollbar's business; the BUTTON GOING UP is the window's. `mouse_state`
-/// has to see the button fall and the state-diff pass has to emit the
-/// `MouseUp` — both Linux backends used to return before either, and the
-/// window then believed the button was held for the rest of its life. That is
+/// has to see the button fall, and the rest of the release path (the gesture
+/// session's end, the hit test, the state-diff pass) still runs — both Linux
+/// backends used to return before any of it, and the window then believed
+/// the button was held for the rest of its life. (The fall itself is recorded
+/// by `end_scrollbar_drag`, which swallows it the way `route_pointer_press`
+/// swallowed the press: the press never became a `MouseDown`, so its release
+/// is no `MouseUp` on whatever node the drag ended over.) That is
 /// the state `x11/mod.rs`'s FocusOut handler already names: "`left_down` would
 /// stay true forever — every later move reads as a DRAG (text selects, buttons
 /// stop clicking)". With it stuck, the press edge `curr_down && !prev_down`
@@ -1122,7 +1128,7 @@ pub fn csd_resize_edge_at(
 /// Left-drag selects nothing; middle-drag selects.
 ///
 /// Headless has always said this (its `MouseUp` arm ends the drag and then
-/// still records the button and runs the pass).
+/// still records the button and runs the pass); X11 and Wayland follow it.
 pub const fn scrollbar_stops_the_button_event(is_down: bool, scrollbar_acted: bool) -> bool {
     scrollbar_acted && is_down
 }
@@ -1148,8 +1154,8 @@ mod scrollbar_button_event_tests {
 
     /// THE LAW: a RELEASE that ends a thumb drag does not stop there. Ending
     /// the drag is the scrollbar's business; the BUTTON GOING UP is the
-    /// window's. `mouse_state.left_down` has to fall and the state-diff pass
-    /// has to emit the `MouseUp`.
+    /// window's. `mouse_state.left_down` has to fall and the rest of the
+    /// release path has to run.
     ///
     /// Swallow it and the window believes the button is held for the rest of
     /// its life - the state `x11/mod.rs`'s `FocusOut` handler already names:
@@ -2905,8 +2911,6 @@ pub struct CommonWindowState {
     /// A callback's `commit_undo_snapshot` / `undo_app_state` / `redo_app_state`
     /// drives this; undo/redo relayouts all windows.
     pub undo_manager: SharedUndoManager,
-    /// Current scrollbar drag state (if dragging a scrollbar thumb)
-    pub scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
     /// `None` only during initialization on X11/Wayland before WebRender is set up.
     /// Not used in CPU mode — see `cpu_hit_tester` instead.
@@ -3244,7 +3248,6 @@ impl CommonWindowState {
             system_style,
             app_data,
             undo_manager,
-            scrollbar_drag_state: None,
             hit_tester: None,
             cpu_hit_tester: None,
             last_hovered_node: None,
@@ -3637,31 +3640,14 @@ macro_rules! impl_platform_window_getters {
             &mut self.$field
         }
         fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
-            self.$field.scrollbar_drag_state.as_ref()
-        }
-        fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
-            &mut self.$field.scrollbar_drag_state
-        }
-        fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
-            // The scroll manager keeps its own view of the drag (see
-            // `ScrollManager::begin_thumb_drag`): the fade it drives must know
-            // the bar is being held. Every start and end of a drag goes
-            // through here so the two never disagree.
-            if let Some(lw) = self.$field.layout_window.as_mut() {
-                let now = (azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                    .get_system_time_fn
-                    .cb)();
-                match state.as_ref().map(|s| s.hit_id) {
-                    Some(azul_core::hit_test::ScrollbarHitId::VerticalThumb(dom, node)) => lw
-                        .scroll_manager
-                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Vertical, now),
-                    Some(azul_core::hit_test::ScrollbarHitId::HorizontalThumb(dom, node)) => lw
-                        .scroll_manager
-                        .begin_thumb_drag(dom, node, azul_core::dom::ScrollbarOrientation::Horizontal, now),
-                    Some(_) | None => lw.scroll_manager.end_thumb_drag(now),
-                }
-            }
-            self.$field.scrollbar_drag_state = state;
+            // The held thumb lives on the layout window, where the press
+            // router (`azul_layout::press_router`) sets and clears it and a
+            // DOM rebuild remaps it - one drag for the physical and the
+            // scripted pointer alike.
+            self.$field
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.scrollbar_drag())
         }
         fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
             self.$field.cpu_hit_tester.as_ref()
@@ -3735,10 +3721,9 @@ macro_rules! impl_platform_window_getters {
 ///   `propagate_event()` + `prepare_callback_invocation()`
 /// - `process_window_events()` - Main event processing with recursion
 /// - `apply_user_change()` - Apply individual callback changes
-/// - `perform_scrollbar_hit_test()` - Scrollbar interaction
-/// - `handle_scrollbar_click()` - Scrollbar click handling
-/// - `handle_scrollbar_drag()` - Scrollbar drag handling
-/// - `gpu_scroll()` - GPU-accelerated smooth scrolling
+/// - `route_pointer_press()` / `route_pointer_move()` / `end_scrollbar_drag()` -
+///   the press router (`LayoutWindow::route_press` & co.) plus the pointer
+///   bookkeeping every backend owes a press a scrollbar took
 ///
 /// ## Platform Implementation Checklist
 ///
@@ -3915,14 +3900,10 @@ pub trait PlatformWindow {
 
     // Scrollbar State
 
-    /// Get the current scrollbar drag state
+    /// The scrollbar thumb the pointer holds, if any. Read-only: only the
+    /// press router starts and ends a drag (`route_pointer_press`,
+    /// `end_scrollbar_drag`, the `ModifyWindowState` arm).
     fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState>;
-
-    /// Get mutable access to scrollbar drag state
-    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState>;
-
-    /// Set scrollbar drag state
-    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>);
 
     // Hit Testing
 
@@ -5387,7 +5368,20 @@ pub trait PlatformWindow {
 
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
-                let old_state = self.get_current_window_state().clone();
+                let mut old_state = self.get_current_window_state().clone();
+
+                // THE PRESS ROUTER, for a scripted pointer (`DebugEvent::MouseDown`,
+                // a `click` op, any callback that pushes a button): the same
+                // scrollbar-first arbitration a physical press gets in the
+                // shells (`route_pointer_press`). Whatever the scrollbar layer
+                // takes is folded into `old_state`, the baseline the pass
+                // below diffs against, so a press on a bar does not ALSO
+                // become a MouseDown on the content under it - the scripted
+                // twin of the shells' `discard_input_delta`. Without this an
+                // AZ_E2E script could never reproduce a press a scrollbar took
+                // on the device.
+                let pointer_to_scrollbar = old_state.mouse_state != state.mouse_state
+                    && self.route_pointer_transition(&mut old_state.mouse_state, &state.mouse_state);
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
 
@@ -5431,8 +5425,11 @@ pub trait PlatformWindow {
                     || dpi_changed
                     || touch_state_changed;
 
-                // Save previous state BEFORE modifying (for synthetic event detection)
-                if anything_changed {
+                // Save previous state BEFORE modifying (for synthetic event
+                // detection). A push the scrollbar took whole advances it too:
+                // its delta is spent, and a baseline left behind would read it
+                // as an unconsumed input at the next snapshot.
+                if anything_changed || pointer_to_scrollbar {
                     self.set_previous_window_state(old_state);
                 }
 
@@ -5571,7 +5568,15 @@ pub trait PlatformWindow {
             CallbackChange::QueueWindowStateSequence { states } => {
                 let mut result = ProcessEventResult::DoNothing;
                 for queued_state in states {
-                    let old_state = self.get_current_window_state().clone();
+                    let mut old_state = self.get_current_window_state().clone();
+                    // THE PRESS ROUTER for each queued state, as in
+                    // `ModifyWindowState`: the `click` op queues move / down /
+                    // up, and a down on a scrollbar is the scrollbar's.
+                    let pointer_to_scrollbar = old_state.mouse_state != queued_state.mouse_state
+                        && self.route_pointer_transition(
+                            &mut old_state.mouse_state,
+                            &queued_state.mouse_state,
+                        );
                     self.set_previous_window_state(old_state);
 
                     self.get_common_mut()
@@ -5591,13 +5596,18 @@ pub trait PlatformWindow {
                             self.update_seat_hit_test_at(seat.seat_id, pos);
                         }
                     }
+                    // A pointer the scrollbar took is not over the content:
+                    // no hover re-resolve for it, as on a physical thumb drag.
                     let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
-                    if let Some(pos) = mouse_pos {
+                    if let (Some(pos), false) = (mouse_pos, pointer_to_scrollbar) {
                         self.update_hit_test_at(pos);
                     }
 
                     let nested = self.process_window_events(0);
                     result = result.max(nested);
+                    if pointer_to_scrollbar {
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    }
                 }
                 result
             }
@@ -6227,7 +6237,8 @@ pub trait PlatformWindow {
                         }
 
                         // Recalculate scrollbar geometry so CPU-side hit testing
-                        // (perform_scrollbar_hit_test) has up-to-date thumb positions.
+                        // (the press router, `LayoutWindow::route_press`) has
+                        // up-to-date thumb positions.
                         lw.scroll_manager.calculate_scrollbar_states();
 
                         // The delivered a11y tree now has stale bounds and
@@ -9253,67 +9264,6 @@ pub trait PlatformWindow {
             any_prevent_default,
             scroll_prevented,
         )
-    }
-
-    // PROVIDED: Complete Logic (Default Implementations)
-
-    /// GPU-accelerated smooth scrolling.
-    ///
-    /// Updates the ScrollManager state with the scroll delta. Does NOT set
-    /// a regeneration request — scrolling only requires a lightweight
-    /// WebRender transaction (scroll offsets + GPU values), not a full layout
-    /// regeneration or display list rebuild.
-    ///
-    /// Callers (`handle_scrollbar_click`, `handle_scrollbar_drag`) return
-    /// `ShouldReRenderCurrentWindow` which triggers `request_redraw()`. The
-    /// platform render function then sends a lightweight transaction via
-    /// `build_image_only_transaction` (which includes `scroll_all_nodes`).
-    ///
-    /// ## Parameters
-    /// * `dom_id` - The DOM ID containing the scrollable node
-    /// * `node_id` - The scrollable node ID
-    /// * `delta_x` - Horizontal scroll delta (pixels)
-    /// * `delta_y` - Vertical scroll delta (pixels)
-    ///
-    /// ## Returns
-    /// * `Ok(())` - Scroll applied successfully
-    /// * `Err(msg)` - Error message if scroll failed
-    fn gpu_scroll(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        delta_x: f32,
-        delta_y: f32,
-    ) -> Result<(), String> {
-        use azul_core::{events::EasingFunction, geom::LogicalPosition};
-
-        let layout_window = self.get_layout_window_mut().ok_or("No layout window")?;
-
-        let external = ExternalSystemCallbacks::rust_internal();
-
-        // Apply scroll delta to ScrollManager
-        layout_window.scroll_manager.scroll_by(
-            dom_id,
-            node_id,
-            LogicalPosition::new(delta_x, delta_y),
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff {
-                secs: 0,
-                nanos: 0,
-            }),
-            EasingFunction::Linear,
-            (external.get_system_time_fn.cb)(),
-        );
-
-        // Recalculate scrollbar thumb positions after offset change
-        layout_window.scroll_manager.calculate_scrollbar_states();
-
-        // NOTE: We intentionally do NOT call request_regeneration() here.
-        // Scroll offset changes are frame-level operations in WebRender
-        // (FrameMsg::SetScrollOffsets), not scene-level changes. The platform
-        // render function will send scroll offsets via build_image_only_transaction
-        // which calls scroll_all_nodes() + synchronize_gpu_values() +
-        // txn.skip_scene_builder() + txn.generate_frame().
-        Ok(())
     }
 
     // PROVIDED: Input Recording for Gesture Detection
@@ -12880,138 +12830,103 @@ pub trait PlatformWindow {
         needs_redraw
     }
 
-    /// Perform scrollbar hit-test at the given position.
+    /// THE scrollbar half of a physical press: ask the window's press router
+    /// ([`LayoutWindow::route_press`]) whether a scrollbar takes it, and if
+    /// one does, record the pointer state it consumed and swallow the delta.
     ///
-    /// Returns `Some(ScrollbarHitId)` if a scrollbar was hit, `None` otherwise.
+    /// `None`: the press is the document's; the caller runs its normal path
+    /// (snapshot, button write, hit test, event pass). `Some`: the scrollbar
+    /// took it and has already acted (thumb grabbed, track paged, arrow
+    /// stepped); the caller adds only platform work (pointer capture, the
+    /// redraw) and returns.
     ///
-    /// Uses CPU-side ScrollManager geometry instead of WebRender's hit-tester.
-    /// WebRender's hit-tester uses the spatial tree from the last display list build,
-    /// which is NOT updated during lightweight transactions (skip_scene_builder).
-    /// Since scrollbar thumb positions are GPU-animated via reference frame transforms,
-    /// the WebRender hit areas become stale after scrolling. The CPU-side geometry
-    /// (ScrollbarState) is always up-to-date because calculate_scrollbar_states()
-    /// runs on every scroll update.
-    fn perform_scrollbar_hit_test(
-        &self,
-        position: LogicalPosition,
-    ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use azul_core::dom::ScrollbarOrientation;
-        use azul_layout::managers::scroll_state::ScrollbarComponent;
-
-        let layout_window = self.get_layout_window()?;
-        let hit = layout_window.scroll_manager.hit_test_scrollbars(position)?;
-
-        // Convert ScrollbarHit → ScrollbarHitId
-        match (hit.orientation, hit.component) {
-            (ScrollbarOrientation::Vertical, ScrollbarComponent::Thumb) => Some(
-                azul_core::hit_test::ScrollbarHitId::VerticalThumb(hit.dom_id, hit.node_id),
-            ),
-            (ScrollbarOrientation::Vertical, _) => Some(
-                azul_core::hit_test::ScrollbarHitId::VerticalTrack(hit.dom_id, hit.node_id),
-            ),
-            (ScrollbarOrientation::Horizontal, ScrollbarComponent::Thumb) => Some(
-                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(hit.dom_id, hit.node_id),
-            ),
-            (ScrollbarOrientation::Horizontal, _) => Some(
-                azul_core::hit_test::ScrollbarHitId::HorizontalTrack(hit.dom_id, hit.node_id),
-            ),
-        }
-    }
-
-    /// Handle scrollbar click (thumb or track).
+    /// The scripted pointer reaches the SAME router through the
+    /// `ModifyWindowState` arm, and the headless E2E runner through its port
+    /// of that arm, so a script and a device agree on which presses a
+    /// scrollbar takes.
     ///
-    /// Returns `ProcessEventResult` indicating whether to redraw.
-    fn handle_scrollbar_click(
-        &mut self,
-        hit_id: azul_core::hit_test::ScrollbarHitId,
-        position: LogicalPosition,
-    ) -> ProcessEventResult {
-        use azul_core::hit_test::ScrollbarHitId;
-
-        match hit_id {
-            ScrollbarHitId::VerticalThumb(dom_id, node_id)
-            | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
-                // Start drag
-                let layout_window = match self.get_layout_window() {
-                    Some(lw) => lw,
-                    None => return ProcessEventResult::DoNothing,
-                };
-
-                let scroll_offset = layout_window
-                    .scroll_manager
-                    .get_current_offset(dom_id, node_id)
-                    .unwrap_or_default();
-
-                self.set_scrollbar_drag_state(Some(ScrollbarDragState {
-                    hit_id,
-                    initial_mouse_pos: position,
-                    initial_scroll_offset: scroll_offset,
-                }));
-
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-
-            ScrollbarHitId::VerticalTrack(dom_id, node_id) => {
-                self.handle_track_click(dom_id, node_id, position, true)
-            }
-
-            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
-                self.handle_track_click(dom_id, node_id, position, false)
-            }
-        }
-    }
-
-    /// THE scrollbar press path: record the pointer state the scrollbar is
-    /// about to consume, run [`Self::handle_scrollbar_click`], and swallow the
-    /// delta.
-    ///
-    /// A thumb drag is routed around the event system by design — that is what
-    /// the `discard_input_delta` is for — but the button is still PHYSICALLY
+    /// The bar is routed around the event system by design - that is what
+    /// the `discard_input_delta` is for - but the button is still PHYSICALLY
     /// DOWN and the cursor still moved. A handler that returns before writing
     /// `mouse_state` leaves `left_down == false` and `cursor_position` stale
     /// for the whole drag, so every reader of the live pointer state
     /// (`CallbackInfo`'s mouse state, `MouseState::matches`, a widget's own
     /// "am I being dragged" test) disagrees with the hardware for as long as
-    /// the user holds the thumb. The headless backend — the one the E2E suite
-    /// scripts against, so the one whose answer the tests encode — already
-    /// wrote them; every desktop backend returned first. macOS and Win32 route
-    /// through here now; X11 and Wayland still early-return and should adopt
-    /// this too.
+    /// the user holds the thumb. Every backend goes through here, so every
+    /// backend writes them.
     ///
     /// `site` is the audit string for the sanctioned swallow, e.g.
     /// `"macos.handle_mouse_down.scrollbar_click"`.
-    fn handle_scrollbar_press(
+    fn route_pointer_press(
         &mut self,
-        hit_id: azul_core::hit_test::ScrollbarHitId,
         position: LogicalPosition,
         button: azul_core::events::MouseButton,
         site: &str,
-    ) -> ProcessEventResult {
+    ) -> Option<ProcessEventResult> {
+        let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+        let target = self
+            .get_layout_window_mut()?
+            .route_press(position, button, now);
+        if !target.is_scrollbar() {
+            return None;
+        }
         self.get_common_mut().update_unsynced_state(|ws| {
             apply_pointer_button_state(&mut ws.mouse_state, position, button, true);
         });
-        let result = self.handle_scrollbar_click(hit_id, position);
         self.discard_input_delta(site);
-        result
+        // A thumb press repaints the held bar; a track or arrow press moved
+        // the box. Either way the offset reaches the screen through the
+        // lightweight scroll transaction, not a relayout.
+        Some(ProcessEventResult::ShouldReRenderCurrentWindow)
     }
 
-    /// The other half of [`Self::handle_scrollbar_press`]: end an active
-    /// scrollbar drag and record the release that ended it.
+    /// A pointer move while a scrollbar thumb is held: the thumb takes it
+    /// ([`LayoutWindow::route_move`]) and it is not a move over the content.
     ///
-    /// `None` means there was no drag and the caller must run its normal
-    /// button-up path. Clearing the button here is not optional — the press
+    /// `None`: no thumb is held; the caller runs its normal move path.
+    /// `Some`: the box scrolled with the thumb; the cursor position is
+    /// recorded (the live pointer state tracks the hardware during the drag
+    /// too) and the delta swallowed, so it does not surface as a `MouseMove`.
+    fn route_pointer_move(
+        &mut self,
+        position: LogicalPosition,
+        site: &str,
+    ) -> Option<ProcessEventResult> {
+        // Every mouse move lands here: ask the cheap question first.
+        self.get_scrollbar_drag_state()?;
+        let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+        if !self.get_layout_window_mut()?.route_move(position, now) {
+            return None;
+        }
+        self.get_common_mut().update_unsynced_state(|ws| {
+            ws.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(position);
+        });
+        self.discard_input_delta(site);
+        Some(ProcessEventResult::ShouldReRenderCurrentWindow)
+    }
+
+    /// The other half of [`Self::route_pointer_press`]: the primary release
+    /// lets go of a held thumb ([`LayoutWindow::route_release`]), and the
+    /// button the press latched is cleared.
+    ///
+    /// `None` means no drag ended and the caller must run its normal
+    /// button-up path. Clearing the button here is not optional - the press
     /// set it, and a release that skipped the write would leave the button
-    /// latched DOWN forever after the first thumb drag.
+    /// latched DOWN forever after the first thumb drag. The delta is
+    /// swallowed like the press's was: the press never became a `MouseDown`,
+    /// so its release does not become a `MouseUp` on whatever node the
+    /// pointer ended the drag over.
     fn end_scrollbar_drag(
         &mut self,
         position: LogicalPosition,
         button: azul_core::events::MouseButton,
         site: &str,
     ) -> Option<ProcessEventResult> {
-        if self.get_scrollbar_drag_state().is_none() {
+        self.get_scrollbar_drag_state()?;
+        let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+        if !self.get_layout_window_mut()?.route_release(button, now) {
             return None;
         }
-        self.set_scrollbar_drag_state(None);
         self.get_common_mut().update_unsynced_state(|ws| {
             apply_pointer_button_state(&mut ws.mouse_state, position, button, false);
         });
@@ -13019,146 +12934,21 @@ pub trait PlatformWindow {
         Some(ProcessEventResult::ShouldReRenderCurrentWindow)
     }
 
-    /// Handle a click on the non-thumb part of a scrollbar: arrow buttons
-    /// line-scroll, track clicks follow the OS preference (jump-to-position
-    /// or page-up/down).
-    fn handle_track_click(
+    /// The press router for a pointer STATE push (a scripted press, move or
+    /// release: `DebugEvent::MouseDown`, `click`, a callback's
+    /// `modify_window_state`). See [`LayoutWindow::route_pointer_transition`]:
+    /// what the scrollbar layer takes is folded into `baseline`, the state
+    /// the event pass diffs against. `true` when it took the pointer change.
+    fn route_pointer_transition(
         &mut self,
-        dom_id: DomId,
-        node_id: CoreNodeId,
-        click_position: LogicalPosition,
-        is_vertical: bool,
-    ) -> ProcessEventResult {
-        use azul_core::dom::ScrollbarOrientation;
-
-        // MWA-C-scroll: SystemStyle.scrollbar_preferences.track_click was
-        // computed on every platform but never consumed — every track click
-        // hard-jumped to position regardless of the OS setting.
-        let track_click_pref = self.get_system_style().scrollbar_preferences.track_click;
-
-        // Get scrollbar state to calculate target position
-        let layout_window = match self.get_layout_window() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // MWA-C-scroll: ScrollbarHitId has no button variants, so arrow
-        // buttons arrive here folded into *Track — re-run the component
-        // hit-test to tell them apart (they used to jump-scroll like track).
-        let component = layout_window
-            .scroll_manager
-            .hit_test_scrollbars(click_position)
-            .map(|h| h.component);
-
-        // Get current scrollbar geometry
-        let scrollbar_state = if is_vertical {
-            layout_window.scroll_manager.get_scrollbar_state(
-                dom_id,
-                node_id,
-                ScrollbarOrientation::Vertical,
-            )
-        } else {
-            layout_window.scroll_manager.get_scrollbar_state(
-                dom_id,
-                node_id,
-                ScrollbarOrientation::Horizontal,
-            )
-        };
-
-        let scrollbar_state = match scrollbar_state {
-            Some(s) if s.visible => s,
-            _ => return ProcessEventResult::DoNothing,
-        };
-
-        // Get current scroll state. `get_scroll_node_info` rather than
-        // `get_scroll_state` because its `max_scroll_x`/`max_scroll_y` are THE
-        // definition of "how far can this thing scroll" — they prefer
-        // `virtual_scroll_size` over `content_rect`, and on a `VirtualView` the
-        // content rect holds the VIEWPORT size (`invoke_virtual_view_callback_impl`
-        // overwrites it), so deriving the extent from `content_rect` here made
-        // `max_scroll` zero and `JumpToPosition` a silent no-op on every
-        // virtualized list. Same accessor `auto_scroll_timer_callback` already uses.
-        let scroll_state = match layout_window
-            .scroll_manager
-            .get_scroll_node_info(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Calculate which position on the track was clicked (0.0 = top/left, 1.0 = bottom/right)
-        let click_ratio = if is_vertical {
-            let track_top = scrollbar_state.track_rect.origin.y;
-            let track_height = scrollbar_state.track_rect.size.height;
-            ((click_position.y - track_top) / track_height).clamp(0.0, 1.0)
-        } else {
-            let track_left = scrollbar_state.track_rect.origin.x;
-            let track_width = scrollbar_state.track_rect.size.width;
-            ((click_position.x - track_left) / track_width).clamp(0.0, 1.0)
-        };
-
-        // Calculate target scroll position
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
-        } else {
-            scroll_state.container_rect.size.width
-        };
-
-        let max_scroll = if is_vertical {
-            scroll_state.max_scroll_y
-        } else {
-            scroll_state.max_scroll_x
-        };
-        let target_scroll = click_ratio * max_scroll;
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let scroll_delta = {
-            use azul_css::system::ScrollbarTrackClick;
-            use azul_layout::managers::scroll_state::ScrollbarComponent;
-            match component {
-                // Arrow buttons: one line per click, toward the arrow.
-                Some(ScrollbarComponent::TopButton) => -KEYBOARD_SCROLL_LINE_PX,
-                Some(ScrollbarComponent::BottomButton) => KEYBOARD_SCROLL_LINE_PX,
-                _ => match track_click_pref {
-                    ScrollbarTrackClick::JumpToPosition => target_scroll - current_scroll,
-                    ScrollbarTrackClick::PageUpDown => {
-                        // Page toward the click: before the thumb pages
-                        // back, past it pages forward (Windows default).
-                        let page = container_size * 0.9;
-                        let thumb_center = scrollbar_state.thumb_position_ratio
-                            + scrollbar_state.thumb_size_ratio * 0.5;
-                        if click_ratio < thumb_center {
-                            -page
-                        } else {
-                            page
-                        }
-                    }
-                },
-            }
-        };
-
-        // Apply scroll using gpu_scroll
-        if let Err(e) = self.gpu_scroll(
-            dom_id,
-            node_id,
-            if is_vertical { 0.0 } else { scroll_delta },
-            if is_vertical { scroll_delta } else { 0.0 },
-        ) {
-            log_warn!(
-                super::debug_server::LogCategory::Input,
-                "Track click scroll failed: {}",
-                e
-            );
-            return ProcessEventResult::DoNothing;
+        baseline: &mut azul_core::window::MouseState,
+        current: &azul_core::window::MouseState,
+    ) -> bool {
+        let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+        match self.get_layout_window_mut() {
+            Some(lw) => lw.route_pointer_transition(baseline, current, now),
+            None => false,
         }
-
-        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
     // PROVIDED: Timer Invocation (Cross-Platform Implementation)
@@ -13536,128 +13326,6 @@ pub trait PlatformWindow {
         }
 
         Some((changes_result, update))
-    }
-
-    /// Handle scrollbar drag - update scroll position based on mouse delta.
-    fn handle_scrollbar_drag(
-        &mut self,
-        current_pos: LogicalPosition,
-    ) -> ProcessEventResult {
-        use azul_core::{dom::ScrollbarOrientation, hit_test::ScrollbarHitId};
-
-        let drag_state = match self.get_scrollbar_drag_state() {
-            Some(ds) => ds.clone(),
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let layout_window = match self.get_layout_window() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Calculate delta
-        let (dom_id, node_id, is_vertical) = match drag_state.hit_id {
-            ScrollbarHitId::VerticalThumb(dom_id, node_id) => (dom_id, node_id, true),
-            ScrollbarHitId::HorizontalThumb(dom_id, node_id) => (dom_id, node_id, false),
-            _ => return ProcessEventResult::DoNothing,
-        };
-
-        let pixel_delta = if is_vertical {
-            current_pos.y - drag_state.initial_mouse_pos.y
-        } else {
-            current_pos.x - drag_state.initial_mouse_pos.x
-        };
-
-        // Get scrollbar geometry
-        let orientation = if is_vertical {
-            ScrollbarOrientation::Vertical
-        } else {
-            ScrollbarOrientation::Horizontal
-        };
-
-        let scrollbar_state =
-            match layout_window
-                .scroll_manager
-                .get_scrollbar_state(dom_id, node_id, orientation)
-            {
-                Some(s) if s.visible => s,
-                _ => return ProcessEventResult::DoNothing,
-            };
-
-        // `get_scroll_node_info`, not `get_scroll_state`: its `max_scroll_*`
-        // already prefers `virtual_scroll_size` over `content_rect`. On a
-        // `VirtualView` the content rect is the VIEWPORT
-        // (`invoke_virtual_view_callback_impl` overwrites it), so computing the
-        // extent from it gave max_scroll = 0 — the thumb was grabbable but
-        // dragging it clamped every target to [0, 0] and moved nothing.
-        let scroll_state = match layout_window
-            .scroll_manager
-            .get_scroll_node_info(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Convert pixel delta to scroll delta
-        // pixel_delta / track_size = scroll_delta / max_scroll
-        let track_size = if is_vertical {
-            scrollbar_state.track_rect.size.height
-        } else {
-            scrollbar_state.track_rect.size.width
-        };
-
-        let max_scroll = if is_vertical {
-            scroll_state.max_scroll_y
-        } else {
-            scroll_state.max_scroll_x
-        };
-
-        // Account for thumb size: usable track size is track_size - thumb_size
-        let thumb_size = scrollbar_state.thumb_size_ratio * track_size;
-        let usable_track_size = (track_size - thumb_size).max(1.0);
-
-        // Calculate scroll delta
-        let scroll_delta = if usable_track_size > 0.0 {
-            (pixel_delta / usable_track_size) * max_scroll
-        } else {
-            0.0
-        };
-
-        // Calculate target scroll position (initial + delta from drag start)
-        let target_scroll = if is_vertical {
-            drag_state.initial_scroll_offset.y + scroll_delta
-        } else {
-            drag_state.initial_scroll_offset.x + scroll_delta
-        };
-
-        // Clamp to valid range
-        let target_scroll = target_scroll.clamp(0.0, max_scroll);
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let delta_from_current = target_scroll - current_scroll;
-
-        // Use gpu_scroll to update scroll position
-        if let Err(e) = self.gpu_scroll(
-            dom_id,
-            node_id,
-            if is_vertical { 0.0 } else { delta_from_current },
-            if is_vertical { delta_from_current } else { 0.0 },
-        ) {
-            log_warn!(
-                super::debug_server::LogCategory::Input,
-                "Scrollbar drag failed: {}",
-                e
-            );
-            return ProcessEventResult::DoNothing;
-        }
-
-        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 }
 
@@ -14750,8 +14418,46 @@ mod tests {
 
     // Pointer state a scrollbar consumes
 
-    fn thumb_hit() -> azul_core::hit_test::ScrollbarHitId {
-        azul_core::hit_test::ScrollbarHitId::VerticalThumb(DomId { inner: 0 }, CoreNodeId::ZERO)
+    /// The seeded scroll box. Not node 0: the root DOM's node 0 is the
+    /// viewport scroller, which the scrollbar layer orders specially.
+    const SCROLL_BOX: CoreNodeId = CoreNodeId::new(1);
+
+    /// Give the stub window one 200x100 scroll box over 1000px of content,
+    /// with a CLASSIC 12px vertical bar, and return the window point at the
+    /// centre of its thumb - what the press router finds there is a real
+    /// thumb, not a hand-made hit id.
+    fn seed_a_scroll_box_thumb(window: &mut HeadlessWindow) -> LogicalPosition {
+        use azul_core::dom::ScrollbarOrientation;
+
+        let dom = DomId { inner: 0 };
+        let lw = window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("the stub has a layout window");
+        lw.scroll_manager.register_or_update_scroll_node(
+            dom,
+            SCROLL_BOX,
+            azul_core::geom::LogicalRect::new(
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(200.0, 100.0),
+            ),
+            LogicalSize::new(200.0, 1000.0),
+            azul_core::task::Instant::now(),
+            12.0,
+            12.0,
+            false,
+            true,
+        );
+        lw.scroll_manager.calculate_scrollbar_states();
+        let bar = lw
+            .scroll_manager
+            .get_scrollbar_state(dom, SCROLL_BOX, ScrollbarOrientation::Vertical)
+            .expect("the box overflows, so it has a vertical bar");
+        LogicalPosition::new(
+            bar.track_rect.origin.x + bar.track_rect.size.width / 2.0,
+            bar.track_rect.origin.y + bar.button_size + bar.thumb_offset + bar.thumb_length / 2.0,
+        )
     }
 
     /// The scrollbar is routed around the event system, but the BUTTON is still
@@ -14762,16 +14468,20 @@ mod tests {
     fn a_scrollbar_press_records_the_button_and_swallows_the_delta() {
         require_validation_gate();
         let mut window = headless_stub();
+        let at = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");
 
-        let at = LogicalPosition::new(310.0, 120.0);
-        let _ = window.handle_scrollbar_press(
-            thumb_hit(),
+        let routed = window.route_pointer_press(
             at,
             azul_core::events::MouseButton::Left,
             "test.scrollbar.press",
         );
 
+        assert!(routed.is_some(), "a press on the thumb is the scrollbar's");
+        assert!(
+            window.get_scrollbar_drag_state().is_some(),
+            "a thumb press holds the thumb"
+        );
         assert!(
             window.get_current_window_state().mouse_state.left_down,
             "the thumb is being HELD: left_down must be true for the whole drag"
@@ -14794,17 +14504,72 @@ mod tests {
         window.snapshot_window_state_baseline("test.scrollbar.next-handler");
     }
 
+    /// A press the router gives to the content leaves the pointer state
+    /// alone: the caller's normal path writes it and runs the pass.
+    #[test]
+    fn a_press_beside_the_scrollbar_is_left_to_the_caller() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        let _ = seed_a_scroll_box_thumb(&mut window);
+        window.snapshot_window_state_baseline("test.seed");
+
+        let routed = window.route_pointer_press(
+            LogicalPosition::new(50.0, 50.0),
+            azul_core::events::MouseButton::Left,
+            "test.content.press",
+        );
+
+        assert!(routed.is_none());
+        assert!(window.get_scrollbar_drag_state().is_none());
+        assert!(!window.get_current_window_state().mouse_state.left_down);
+    }
+
+    /// While the thumb is held, a move is the thumb's: the live cursor
+    /// follows the hardware, and the delta is swallowed (no MouseMove).
+    #[test]
+    fn a_move_while_the_thumb_is_held_records_the_cursor_and_swallows_the_delta() {
+        require_validation_gate();
+        let mut window = headless_stub();
+        let at = seed_a_scroll_box_thumb(&mut window);
+        window.snapshot_window_state_baseline("test.seed");
+        let _ = window.route_pointer_press(
+            at,
+            azul_core::events::MouseButton::Left,
+            "test.scrollbar.press",
+        );
+
+        let to = LogicalPosition::new(at.x, at.y + 10.0);
+        let routed = window.route_pointer_move(to, "test.scrollbar.move");
+
+        assert!(routed.is_some(), "the held thumb takes the move");
+        assert_eq!(
+            window
+                .get_current_window_state()
+                .mouse_state
+                .cursor_position,
+            CursorPosition::InWindow(to)
+        );
+        let scrolled = window
+            .get_layout_window()
+            .and_then(|lw| {
+                lw.scroll_manager
+                    .get_current_offset(DomId { inner: 0 }, SCROLL_BOX)
+            })
+            .map_or(0.0, |o| o.y);
+        assert!(scrolled > 0.0, "dragging the thumb down scrolls the box");
+        window.snapshot_window_state_baseline("test.scrollbar.next-handler");
+    }
+
     /// The other half: the release that ends the drag has to CLEAR what the
     /// press latched, or the button stays down forever after the first drag.
     #[test]
     fn ending_a_scrollbar_drag_releases_the_button_the_press_latched() {
         require_validation_gate();
         let mut window = headless_stub();
+        let down_at = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");
 
-        let down_at = LogicalPosition::new(310.0, 120.0);
-        let _ = window.handle_scrollbar_press(
-            thumb_hit(),
+        let _ = window.route_pointer_press(
             down_at,
             azul_core::events::MouseButton::Left,
             "test.scrollbar.press",
@@ -14814,7 +14579,7 @@ mod tests {
             "a thumb press starts a drag"
         );
 
-        let up_at = LogicalPosition::new(310.0, 200.0);
+        let up_at = LogicalPosition::new(down_at.x, down_at.y + 80.0);
         let ended = window.end_scrollbar_drag(
             up_at,
             azul_core::events::MouseButton::Left,
@@ -14848,6 +14613,18 @@ mod tests {
                 )
                 .is_none(),
             "with no drag active the caller must run its normal button-up path"
+        );
+    }
+
+    /// An arrow-button click is one scroll LINE, the same unit a wheel
+    /// detent is. The router lives in the layout crate and cannot see the
+    /// dll's constant, so the two are pinned equal here.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn a_scrollbar_arrow_step_is_one_wheel_line() {
+        assert_eq!(
+            azul_layout::press_router::SCROLLBAR_ARROW_STEP_PX,
+            WHEEL_SCROLL_PIXELS_PER_LINE
         );
     }
 

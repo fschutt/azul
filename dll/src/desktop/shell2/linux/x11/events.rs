@@ -616,23 +616,31 @@ impl X11Window {
             }
         }
 
-        // Check for scrollbar hit FIRST (before state changes). Whether the
-        // scrollbar's involvement STOPS the button event here is one shared
-        // rule — `scrollbar_stops_the_button_event`.
+        // The press router FIRST (before state changes): scrollbar, then
+        // content. The shared helpers record what the scrollbar consumed (the
+        // button stays PHYSICALLY DOWN for the whole thumb drag) and swallow
+        // it. Whether the scrollbar's involvement STOPS the button event here
+        // is one shared rule — `scrollbar_stops_the_button_event`.
         let mut ended_scrollbar_drag = false;
         if is_down {
-            if let Some(scrollbar_hit_id) =
-                PlatformWindow::perform_scrollbar_hit_test(self, position)
-            {
-                let handled =
-                    PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            if let Some(handled) = PlatformWindow::route_pointer_press(
+                self,
+                position,
+                button,
+                "x11.handle_mouse_button.scrollbar_click",
+            ) {
                 if scrollbar_stops_the_button_event(is_down, true) {
                     return handled;
                 }
             }
-        } else if self.common.scrollbar_drag_state.is_some() {
-            // End scrollbar drag if active
-            PlatformWindow::set_scrollbar_drag_state(self, None);
+        } else if PlatformWindow::end_scrollbar_drag(
+            self,
+            position,
+            button,
+            "x11.handle_mouse_button.scrollbar_release",
+        )
+        .is_some()
+        {
             ended_scrollbar_drag = true;
             if scrollbar_stops_the_button_event(is_down, true) {
                 return ProcessEventResult::ShouldReRenderCurrentWindow;
@@ -762,9 +770,14 @@ impl X11Window {
         // Physical (X11 wire) → logical.
         let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
-        // Handle active scrollbar drag (special case - not part of normal event system)
-        if self.common.scrollbar_drag_state.is_some() {
-            return PlatformWindow::handle_scrollbar_drag(self, position);
+        // A held scrollbar thumb takes the move (not part of the normal event
+        // system); the shared helper records the cursor and swallows the delta.
+        if let Some(result) = PlatformWindow::route_pointer_move(
+            self,
+            position,
+            "x11.handle_mouse_move.scrollbar_drag",
+        ) {
+            return result;
         }
 
         // Save previous state BEFORE making changes

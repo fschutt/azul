@@ -3240,12 +3240,12 @@ impl Win32Window {
         }
     }
 
-    // Query WebRender hit-tester for scrollbar hits at given position
+    // Scrollbar presses, thumb drags and releases
     //
-    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindow trait as default methods.
-    // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event.rs for the implementation.
+    // NOTE: route_pointer_press(), route_pointer_move() and end_scrollbar_drag()
+    // are provided by the PlatformWindow trait. They wrap the ONE press router
+    // (`LayoutWindow::route_press` & co. in azul_layout::press_router), which a
+    // scripted press and the E2E runner go through too.
     //
     // Windows-specific note: Mouse capture (SetCapture) is handled in WM_LBUTTONDOWN,
     // and redraw requests (InvalidateRect) are handled by checking ProcessEventResult.
@@ -4682,13 +4682,18 @@ unsafe extern "system" fn window_proc(
                 y as f32 / hidpi_factor.inner.get(),
             );
 
-            // Handle active scrollbar drag (special case - not part of normal event system)
-            if window.common.scrollbar_drag_state.is_some() {
-                // Route the result! handle_scrollbar_drag returns
-                // ShouldReRenderCurrentWindow after gpu_scroll — discarding it
-                // (`let _`) meant NO InvalidateRect: the content scrolled
-                // internally but the screen froze until an unrelated event.
-                let r = PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
+            // A held scrollbar thumb takes the move (not part of the normal
+            // event system); the shared helper records the cursor and swallows
+            // the delta.
+            if let Some(r) = PlatformWindow::route_pointer_move(
+                &mut *window,
+                logical_pos,
+                "windows.wm_mousemove.scrollbar_drag",
+            ) {
+                // Route the result! The drag answers ShouldReRenderCurrentWindow
+                // — discarding it (`let _`) meant NO InvalidateRect: the content
+                // scrolled internally but the screen froze until an unrelated
+                // event.
                 window.route_main_window_result(hwnd, r);
                 return 0;
             }
@@ -4935,20 +4940,15 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            if let Some(scrollbar_hit_id) =
-                PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
-            {
-                // The scrollbar consumes the press, but the button is still
-                // PHYSICALLY DOWN: the shared helper records `left_down` and
-                // the cursor position before swallowing the delta, so the live
-                // pointer state agrees with the hardware for the whole drag.
-                let r = PlatformWindow::handle_scrollbar_press(
-                    &mut *window,
-                    scrollbar_hit_id,
-                    logical_pos,
-                    azul_core::events::MouseButton::Left,
-                    "windows.wm_lbuttondown.scrollbar_click",
-                );
+            // The press router: scrollbar first, then content. A press a
+            // scrollbar takes is recorded (the button is still PHYSICALLY
+            // DOWN for the whole drag) and swallowed by the shared helper.
+            if let Some(r) = PlatformWindow::route_pointer_press(
+                &mut *window,
+                logical_pos,
+                azul_core::events::MouseButton::Left,
+                "windows.wm_lbuttondown.scrollbar_click",
+            ) {
                 // Capture the mouse so a fast thumb-drag leaving the client
                 // area keeps receiving WM_MOUSEMOVE (this early-return used to
                 // skip the SetCapture further down, so the drag died at the

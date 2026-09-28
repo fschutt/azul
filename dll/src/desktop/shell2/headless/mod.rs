@@ -2694,23 +2694,21 @@ impl HeadlessWindow {
                         let pos = LogicalPosition { x, y };
                         self.common.mouse_state_mut().cursor_position =
                             CursorPosition::InWindow(pos);
-                        // MWA-C-scroll: active scrollbar thumb drag (desktop
-                        // pattern) — scrollbar interaction was untestable in
-                        // E2E because headless never routed it.
-                        if self.common.scrollbar_drag_state.is_some() {
-                            let r = PlatformWindow::handle_scrollbar_drag(&mut self, pos);
+                        // MWA-C-scroll: a held scrollbar thumb takes the motion
+                        // (the press router's other half, the same shared
+                        // helper every desktop backend calls). It records the
+                        // cursor and swallows the delta, so it does not surface
+                        // as a MouseMove event later.
+                        let thumb_drag = PlatformWindow::route_pointer_move(
+                            &mut self,
+                            pos,
+                            "headless.mouse_move.scrollbar_drag",
+                        );
+                        if let Some(r) = thumb_drag {
                             events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
-                            // SANCTIONED SWALLOW: the thumb drag consumed this
-                            // motion; the cursor delta must not surface as a
-                            // MouseMove event later. Same exception as the
-                            // desktop shells.
-                            PlatformWindow::discard_input_delta(
-                                &mut self,
-                                "headless.mouse_move.scrollbar_drag",
-                            );
                         } else {
                             self.update_hit_test_at(pos);
                             record_headless_input(&mut self, false, false); // MWA-A4
@@ -2723,35 +2721,31 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::MouseDown { button } => {
                         self.snapshot_window_state_baseline("headless.run.mouse_down");
-                        // MWA-C-scroll: scrollbar hit first (desktop pattern).
-                        let sb_hit = if matches!(button, azul_core::events::MouseButton::Left) {
-                            self.common
-                                .current_window_state()
-                                .mouse_state
-                                .cursor_position
-                                .get_position()
-                                .and_then(|p| {
-                                    PlatformWindow::perform_scrollbar_hit_test(&self, p)
-                                        .map(|h| (h, p))
-                                })
-                        } else {
-                            None
+                        // MWA-C-scroll: the press router first, scrollbar then
+                        // content (the same shared helper every desktop
+                        // backend calls). A press a scrollbar takes is
+                        // recorded and swallowed: it must not surface as a
+                        // MouseDown event later.
+                        let press_at = self
+                            .common
+                            .current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position();
+                        let routed = match press_at {
+                            Some(p) => PlatformWindow::route_pointer_press(
+                                &mut self,
+                                p,
+                                button,
+                                "headless.mouse_down.scrollbar_click",
+                            ),
+                            None => None,
                         };
-                        if let Some((hit, p)) = sb_hit {
-                            self.common.mouse_state_mut().left_down = true;
-                            let r = PlatformWindow::handle_scrollbar_click(&mut self, hit, p);
+                        if let Some(r) = routed {
                             events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
                                 events_need_redraw = true;
                             }
-                            // SANCTIONED SWALLOW: the scrollbar consumed this
-                            // press; the left_down delta must not surface as a
-                            // MouseDown event later. Same exception as the
-                            // motion arm above.
-                            PlatformWindow::discard_input_delta(
-                                &mut self,
-                                "headless.mouse_down.scrollbar_click",
-                            );
                         } else {
                             match button {
                                 azul_core::events::MouseButton::Left => {
@@ -2775,10 +2769,29 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::MouseUp { button } => {
                         self.snapshot_window_state_baseline("headless.run.mouse_up");
-                        // MWA-C-scroll: a release ends any scrollbar drag.
-                        if self.common.scrollbar_drag_state.is_some() {
-                            PlatformWindow::set_scrollbar_drag_state(&mut self, None);
-                            events_need_redraw = true;
+                        // MWA-C-scroll: the primary release lets go of a held
+                        // thumb and clears the button its press latched (the
+                        // shared helper). The button event is not stopped
+                        // (`scrollbar_stops_the_button_event`): the pass below
+                        // still runs, and finds no delta left to turn into a
+                        // MouseUp.
+                        let release_at = self
+                            .common
+                            .current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position();
+                        if let Some(p) = release_at {
+                            if PlatformWindow::end_scrollbar_drag(
+                                &mut self,
+                                p,
+                                button,
+                                "headless.mouse_up.scrollbar_drag",
+                            )
+                            .is_some()
+                            {
+                                events_need_redraw = true;
+                            }
                         }
                         match button {
                             azul_core::events::MouseButton::Left => {
@@ -8776,15 +8789,15 @@ mod tests {
             HeadlessEvent::MouseMove { x, y } => {
                 let pos = LogicalPosition { x, y };
                 window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
-                // MWA-C-scroll: active scrollbar thumb drag (desktop pattern).
-                if window.common.scrollbar_drag_state.is_some() {
-                    tier = tier.max_self(PlatformWindow::handle_scrollbar_drag(window, pos));
-                    // SANCTIONED SWALLOW: mirrors `run()`'s MouseMove arm — the
-                    // thumb drag consumed this motion.
-                    PlatformWindow::discard_input_delta(
-                        window,
-                        "headless.test.step.scrollbar_drag",
-                    );
+                // MWA-C-scroll: mirrors `run()`'s MouseMove arm — a held thumb
+                // takes the motion and the shared helper swallows it.
+                let thumb_drag = PlatformWindow::route_pointer_move(
+                    window,
+                    pos,
+                    "headless.test.step.scrollbar_drag",
+                );
+                if let Some(r) = thumb_drag {
+                    tier = tier.max_self(r);
                 } else {
                     window.update_hit_test_at(pos);
                     record_headless_input(window, false, false); // MWA-A4
@@ -8792,30 +8805,25 @@ mod tests {
                 }
             }
             HeadlessEvent::MouseDown { button } => {
-                // MWA-C-scroll: scrollbar hit first (desktop pattern) —
-                // thumb drags / track jumps were untestable in E2E.
-                let sb_hit = if matches!(button, MouseButton::Left) {
-                    window
-                        .common
-                        .current_window_state()
-                        .mouse_state
-                        .cursor_position
-                        .get_position()
-                        .and_then(|p| {
-                            PlatformWindow::perform_scrollbar_hit_test(window, p).map(|h| (h, p))
-                        })
-                } else {
-                    None
-                };
-                if let Some((hit, p)) = sb_hit {
-                    window.common.mouse_state_mut().left_down = true;
-                    tier = tier.max_self(PlatformWindow::handle_scrollbar_click(window, hit, p));
-                    // SANCTIONED SWALLOW: mirrors `run()`'s MouseDown arm — the
-                    // scrollbar consumed this press.
-                    PlatformWindow::discard_input_delta(
+                // MWA-C-scroll: mirrors `run()`'s MouseDown arm — the press
+                // router first, scrollbar then content.
+                let press_at = window
+                    .common
+                    .current_window_state()
+                    .mouse_state
+                    .cursor_position
+                    .get_position();
+                let routed = match press_at {
+                    Some(p) => PlatformWindow::route_pointer_press(
                         window,
+                        p,
+                        button,
                         "headless.test.step.scrollbar_click",
-                    );
+                    ),
+                    None => None,
+                };
+                if let Some(r) = routed {
+                    tier = tier.max_self(r);
                 } else {
                     match button {
                         MouseButton::Left => window.common.mouse_state_mut().left_down = true,
@@ -8828,10 +8836,24 @@ mod tests {
                 }
             }
             HeadlessEvent::MouseUp { button } => {
-                // MWA-C-scroll: a release ends any scrollbar drag.
-                let ended_scrollbar_drag = window.common.scrollbar_drag_state.is_some();
+                // MWA-C-scroll: mirrors `run()`'s MouseUp arm — the primary
+                // release lets go of a held thumb; the pass below still runs.
+                let release_at = window
+                    .common
+                    .current_window_state()
+                    .mouse_state
+                    .cursor_position
+                    .get_position();
+                let ended_scrollbar_drag = release_at.is_some_and(|p| {
+                    PlatformWindow::end_scrollbar_drag(
+                        &mut *window,
+                        p,
+                        button,
+                        "headless.test.step.scrollbar_drag_end",
+                    )
+                    .is_some()
+                });
                 if ended_scrollbar_drag {
-                    PlatformWindow::set_scrollbar_drag_state(&mut *window, None);
                     tier = tier.max_self(ProcessEventResult::ShouldIncrementalRelayout);
                 }
                 match button {

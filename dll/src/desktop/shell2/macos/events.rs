@@ -161,10 +161,11 @@ impl MacOSWindow {
         Self::convert_process_result(result)
     }
 
-    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindow trait as default methods.
-    // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event.rs for the implementation.
+    // NOTE: route_pointer_press(), route_pointer_move() and end_scrollbar_drag()
+    // are provided by the PlatformWindow trait. They wrap the ONE press router
+    // (`LayoutWindow::route_press` & co. in azul_layout::press_router), which a
+    // scripted press and the E2E runner go through too; this file adds only
+    // the platform tail (the result fan-out).
 
     /// Process a mouse button down event.
     pub fn handle_mouse_down(
@@ -176,24 +177,17 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        // Check for scrollbar hit FIRST (before state changes)
-        // Use trait method from PlatformWindow
-        if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position) {
-            // The scrollbar consumes the press, but the button is still
-            // PHYSICALLY DOWN: returning before writing the mouse state left
-            // `left_down == false` and `cursor_position` stale for the whole
-            // thumb drag, so the live pointer state disagreed with the hardware
-            // for as long as the user held the thumb. The headless backend
-            // (which the E2E suite scripts against) always wrote them; the
-            // write plus its sanctioned swallow now live in the shared trait so
-            // every backend gets the same answer.
-            let result = PlatformWindow::handle_scrollbar_press(
-                self,
-                scrollbar_hit_id,
-                position,
-                button,
-                "macos.handle_mouse_down.scrollbar_click",
-            );
+        // The press router FIRST (before state changes): scrollbar, then
+        // content. A press a scrollbar takes is recorded (the button is still
+        // PHYSICALLY DOWN for the whole thumb drag) and swallowed by the
+        // shared helper, so every backend - and a scripted press - gets the
+        // same answer.
+        if let Some(result) = PlatformWindow::route_pointer_press(
+            self,
+            position,
+            button,
+            "macos.handle_mouse_down.scrollbar_click",
+        ) {
             return self.convert_result_with_fanout(result);
         }
 
@@ -353,10 +347,13 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        // Handle active scrollbar drag (special case - not part of normal event system)
-        // Use trait method from PlatformWindow
-        if self.common.scrollbar_drag_state.is_some() {
-            let result = PlatformWindow::handle_scrollbar_drag(self, position);
+        // A held scrollbar thumb takes the move (not part of the normal event
+        // system); the shared helper records the cursor and swallows the delta.
+        if let Some(result) = PlatformWindow::route_pointer_move(
+            self,
+            position,
+            "macos.handle_mouse_move.scrollbar_drag",
+        ) {
             return self.convert_result_with_fanout(result);
         }
 
