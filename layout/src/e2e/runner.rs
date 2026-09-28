@@ -6041,4 +6041,61 @@ mod tests {
             scroll.current_offset.x,
         );
     }
+
+    /// P1-7 / C11: the runner's `SetTransientWindowOpen` arm keeps the
+    /// desktop shell's focus-return bookkeeping - remember where focus was
+    /// as the popup opens, hand it back WITH its ring when the callback
+    /// closes it - so an E2E scenario can cover focus return at all.
+    #[test]
+    fn a_callback_closed_popup_hands_focus_and_ring_back_in_the_runner() {
+        use azul_core::{
+            dom::{NodeData, NodeType, TabIndex},
+            transient::TransientWindowConfig,
+        };
+
+        // body = 0, swatch = 1, <transient-window> = 2, its content = 3.
+        let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div());
+        let mut swatch = Dom::create_div().with_child(popup);
+        swatch.set_tab_index(TabIndex::Auto);
+        let mut dom = Dom::create_body().with_child(swatch);
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+
+        let node = |i: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        };
+        runner
+            .layout_window
+            .focus_manager
+            .set_focused_node_with_visibility(Some(node(1)), true);
+        let _ = runner.apply_user_change(&CallbackChange::SetTransientWindowOpen {
+            node: node(2),
+            open: true,
+        });
+        // Focus went elsewhere while the popup was open (into it, or away).
+        runner
+            .layout_window
+            .focus_manager
+            .set_focused_node_with_visibility(None, false);
+        let _ = runner.apply_user_change(&CallbackChange::SetTransientWindowOpen {
+            node: node(2),
+            open: false,
+        });
+
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(node(1)),
+            "closing the popup hands focus back to the swatch that opened it"
+        );
+        assert!(
+            runner.layout_window.focus_manager.focus_is_visible,
+            "with the ring it had when the popup opened"
+        );
+    }
 }
