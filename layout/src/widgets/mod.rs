@@ -261,6 +261,10 @@ pub mod quick_access;
 pub mod radio_group;
 /// Ribbon widget
 pub mod ribbon;
+/// WAI-ARIA "roving tabindex" shared by the composite widgets (radio group,
+/// segmented control, tabs, list view, tree view, date grid): one Tab stop per
+/// group, arrow keys move within it; see `roving.rs`.
+pub(crate) mod roving;
 /// Screen-capture widget (P6) — identical "dumb widget" architecture to the
 /// camera widget, capturing a display/window instead.
 ///
