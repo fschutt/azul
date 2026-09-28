@@ -19,8 +19,11 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
 - ecb899ed5 RED bug 2b: radio_group_geometry.rs narrow-row test (today circle 10x18) + demo-page
   click/relayout guard (RED status unknown).
 
+- 89860e79c FIX bug 2b: radio_group.rs const NO_SHRINK (flex-shrink 0) on circle + both dots.
+  Open: check_box / switch / other fixed-size indicators have no flex-shrink 0 either.
+
 ## IN PROGRESS
-- FIX 2b (flex-shrink 0 on circle + dots).
+- RED bug 4 (a11y per-node ScrollChain::of).
 
 TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
 to verify") - keep commit messages free of those characters; run git add and git commit separately.
