@@ -5,10 +5,7 @@
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
-    },
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)]
@@ -62,6 +59,42 @@ azul_core::impl_managed_callback! {
     from_handle_fn: AzTreeViewOnNodeClickCallback_createFromHostHandle,
     extra_args:     [ node_index: usize ],
 }
+
+/// Callback invoked when the KEYBOARD asks to open or close a node (WAI-ARIA
+/// APG tree view: Right on a closed parent, Left on an open one).
+///
+/// `node_index` is the node's depth-first index, exactly as for
+/// [`TreeViewOnNodeClickCallbackType`]; `expand` is the state asked for -
+/// `true` to open, `false` to close. The tree does not own expansion: the app
+/// stores it and rebuilds with [`TreeViewNode::with_expanded`]. A click is
+/// still reported through `on_node_click` only.
+pub type TreeViewOnNodeToggleCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, usize, bool) -> Update;
+impl_widget_callback!(
+    TreeViewOnNodeToggle,
+    OptionTreeViewOnNodeToggle,
+    TreeViewOnNodeToggleCallback,
+    TreeViewOnNodeToggleCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        TreeViewOnNodeToggleCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TREE_VIEW_ON_NODE_TOGGLE_INVOKER,
+    invoker_ty:     AzTreeViewOnNodeToggleCallbackInvoker,
+    thunk_fn:       az_tree_view_on_node_toggle_callback_thunk,
+    setter_fn:      AzApp_setTreeViewOnNodeToggleCallbackInvoker,
+    from_handle_fn: AzTreeViewOnNodeToggleCallback_createFromHostHandle,
+    extra_args:     [ node_index: usize, expand: bool ],
+}
+
+/// The class of the tree's container and of every row: how the arrow-key
+/// handler finds the tree it is in and tells rows from children containers.
+const TREE_CLASS_NAME: &str = "__azul-native-tree-view";
+const TREE_ROW_CLASS_NAME: &str = "__azul-native-tree-view-row";
+const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
 
 // -- Font --
 
@@ -358,6 +391,10 @@ pub struct TreeView {
     pub root: TreeViewNode,
     /// Optional callback fired when any node is clicked.
     pub on_node_click: OptionTreeViewOnNodeClick,
+    /// Optional callback fired when the keyboard asks to open or close a node
+    /// (Right on a closed parent, Left on an open one). Without it those two
+    /// keys do nothing; every other key of the tree works regardless.
+    pub on_node_toggle: OptionTreeViewOnNodeToggle,
 }
 
 impl TreeView {
@@ -367,6 +404,7 @@ impl TreeView {
         Self {
             root,
             on_node_click: None.into(),
+            on_node_toggle: None.into(),
         }
     }
 
@@ -394,18 +432,49 @@ impl TreeView {
         self
     }
 
+    /// Sets the callback invoked when the keyboard asks to open or close a node.
+    pub fn set_on_node_toggle<C: Into<TreeViewOnNodeToggleCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.on_node_toggle = Some(TreeViewOnNodeToggle {
+            callback: callback.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// Builder method: sets the node-toggle callback.
+    #[must_use]
+    pub fn with_on_node_toggle<C: Into<TreeViewOnNodeToggleCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_node_toggle(data, callback);
+        self
+    }
+
     /// Renders the tree view into a [`Dom`] subtree.
     #[must_use]
     pub fn dom(self) -> Dom {
-        const TREE_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-tree-view"))];
+        const TREE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_CLASS_NAME))];
 
-        let on_node_click = self.on_node_click;
         let root = self.root;
+        // WAI-ARIA APG tree view: the tree is ONE Tab stop - the first VISIBLE
+        // selected row, or the first row when none is. The arrow keys move
+        // within it (`on_tree_row_key`).
+        let stop = first_visible_selected(&root, &mut 0).unwrap_or(0);
+        let rows = RowContext {
+            on_click: self.on_node_click,
+            on_toggle: self.on_node_toggle,
+            stop,
+        };
 
         let mut children = Vec::new();
         let mut index: usize = 0;
-        render_node(&root, &on_node_click, &mut index, &mut children);
+        render_rows(&root, &rows, &mut index, &mut children);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
@@ -420,12 +489,56 @@ impl TreeView {
 // Internal: recursive DOM rendering
 // ============================================================================
 
+/// What every row of one tree shares while it renders.
+struct RowContext {
+    on_click: OptionTreeViewOnNodeClick,
+    on_toggle: OptionTreeViewOnNodeToggle,
+    /// The depth-first index of the row that holds the tree's one Tab stop.
+    stop: usize,
+}
+
+/// The depth-first index of the first selected node a user can SEE (every
+/// ancestor expanded), counting hidden nodes exactly as `render_rows` does.
+fn first_visible_selected(node: &TreeViewNode, index: &mut usize) -> Option<usize> {
+    let current = *index;
+    *index += 1;
+    if node.is_selected {
+        return Some(current);
+    }
+    let children = node.children.as_slice();
+    if children.is_empty() {
+        return None;
+    }
+    if node.is_expanded {
+        for child in children {
+            if let Some(found) = first_visible_selected(child, index) {
+                return Some(found);
+            }
+        }
+    } else {
+        count_descendants(children, index);
+    }
+    None
+}
+
+/// `render_rows` with no toggle hook and the first row as the Tab stop - the
+/// shape the rendering tests drive directly.
+#[cfg(test)]
 fn render_node(
     node: &TreeViewNode,
     on_click: &OptionTreeViewOnNodeClick,
     index: &mut usize,
     out: &mut Vec<Dom>,
 ) {
+    let rows = RowContext {
+        on_click: on_click.clone(),
+        on_toggle: None.into(),
+        stop: *index,
+    };
+    render_rows(node, &rows, index, out);
+}
+
+fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &mut Vec<Dom>) {
     let current_index = *index;
     *index += 1;
 
@@ -458,10 +571,15 @@ fn render_node(
     let label = crate::widgets::widget_p_with_text(node.label.clone())
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE));
 
-    // Build the row with click callback
+    // Build the row: one Tab stop per tree (the roving tabindex), the arrow
+    // keys on every row, the click only when the app listens for it.
     let mut row = Dom::create_div()
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(row_style))
-        .with_tab_index(TabIndex::Auto)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_ROW_CLASS))
+        .with_tab_index(crate::widgets::roving::item_tab_index(
+            current_index,
+            rows.stop,
+        ))
             // Role so the accessibility tree knows what this IS:
             // a hierarchy, so level and expansion can be reported. The NAME comes from the widget's own text,
             // which azul derives when a readable label is present.
@@ -471,8 +589,9 @@ fn render_node(
             })
         .with_children(DomVec::from_vec(vec![icon_or_spacer, label]));
 
-    // Attach click callback if provided
-    if let Some(cb) = on_click.as_ref() {
+    let mut callbacks: Vec<CoreCallbackData> = Vec::with_capacity(2);
+    // The click callback, if provided - always FIRST.
+    if let Some(cb) = rows.on_click.as_ref() {
         let cb_data = NodeClickData {
             node_index: current_index,
             on_node_click: Some(TreeViewOnNodeClick {
@@ -481,18 +600,29 @@ fn render_node(
             })
             .into(),
         };
-        row = row.with_callbacks(
-            vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                refany: RefAny::new(cb_data),
-                callback: CoreCallback {
-                    cb: on_tree_node_click as usize,
-                    ctx: azul_core::refany::OptionRefAny::None,
-                },
-            }]
-            .into(),
-        );
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::Click),
+            refany: RefAny::new(cb_data),
+            callback: CoreCallback {
+                cb: on_tree_node_click as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        });
     }
+    callbacks.push(CoreCallbackData {
+        event: EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+        refany: RefAny::new(TreeRowData {
+            node_index: current_index,
+            has_children,
+            is_expanded: node.is_expanded,
+            on_node_toggle: rows.on_toggle.clone(),
+        }),
+        callback: CoreCallback {
+            cb: on_tree_row_key as usize,
+            ctx: azul_core::refany::OptionRefAny::None,
+        },
+    });
+    row = row.with_callbacks(callbacks.into());
 
     out.push(row);
 
@@ -500,7 +630,7 @@ fn render_node(
     if has_children && node.is_expanded {
         let mut child_doms = Vec::new();
         for child in node.children.as_slice() {
-            render_node(child, on_click, index, &mut child_doms);
+            render_rows(child, rows, index, &mut child_doms);
         }
 
         let children_container = Dom::create_div()
@@ -535,6 +665,14 @@ struct NodeClickData {
     on_node_click: OptionTreeViewOnNodeClick,
 }
 
+/// What the arrow-key handler needs to know about the row it runs on.
+struct TreeRowData {
+    node_index: usize,
+    has_children: bool,
+    is_expanded: bool,
+    on_node_toggle: OptionTreeViewOnNodeToggle,
+}
+
 // ============================================================================
 // Callbacks
 // ============================================================================
@@ -552,6 +690,142 @@ extern "C" fn on_tree_node_click(mut refany: RefAny, info: CallbackInfo) -> Upda
         }
         None => Update::DoNothing,
     }
+}
+
+/// Arrow keys on the focused row (WAI-ARIA APG tree view):
+///
+/// * Up / Down - the previous / next VISIBLE row (a closed parent's children
+///   are skipped), holding at the ends;
+/// * Right - on a closed parent, ask the app to open it (`on_node_toggle`); on
+///   an open one, move to its first child; on a leaf, nothing;
+/// * Left - on an open parent, ask the app to close it; otherwise move to the
+///   parent row (nothing on a top-level row);
+/// * Home / End - the first / last visible row.
+///
+/// Moving focus selects nothing (Enter/Space - a click - does); the target row
+/// becomes the tree's one Tab stop. Every handled key is `prevent_default`-ed,
+/// including one that goes nowhere, so spatial navigation cannot walk out of
+/// the tree. Any key held with Alt, Ctrl, Cmd or Shift, and every other key,
+/// keeps its default.
+extern "C" fn on_tree_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving;
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    if !matches!(
+        key,
+        K::Up | K::Down | K::Left | K::Right | K::Home | K::End
+    ) {
+        return Update::DoNothing;
+    }
+    let (node_index, has_children, is_expanded, on_toggle) = {
+        let Some(row) = data.downcast_ref::<TreeRowData>() else {
+            return Update::DoNothing;
+        };
+        (
+            row.node_index,
+            row.has_children,
+            row.is_expanded,
+            row.on_node_toggle.clone(),
+        )
+    };
+
+    let focused = info.get_hit_node();
+    let Some(tree) = tree_container_of(&info, focused) else {
+        return Update::DoNothing;
+    };
+    let mut rows = Vec::new();
+    collect_visible_rows(&info, tree, &mut rows);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+
+    info.prevent_default();
+    let open = has_children && is_expanded;
+    let target = match key {
+        K::Up => current.checked_sub(1),
+        K::Down => Some(current + 1).filter(|t| *t < rows.len()),
+        K::Home => Some(0),
+        K::End => rows.len().checked_sub(1),
+        // An open parent's first child is the next visible row.
+        K::Right if open => Some(current + 1).filter(|t| *t < rows.len()),
+        K::Right if has_children => return toggle(&on_toggle, info, node_index, true),
+        K::Left if open => return toggle(&on_toggle, info, node_index, false),
+        K::Left => parent_row_of(&info, tree, focused)
+            .and_then(|parent| rows.iter().position(|n| *n == parent)),
+        _ => None,
+    };
+    let Some(target) = target.filter(|t| *t != current) else {
+        return Update::DoNothing;
+    };
+    roving::move_stop(&mut info, &rows, target);
+    Update::DoNothing
+}
+
+/// Asks the app to open (`expand`) or close node `node_index`.
+fn toggle(
+    on_toggle: &OptionTreeViewOnNodeToggle,
+    info: CallbackInfo,
+    node_index: usize,
+    expand: bool,
+) -> Update {
+    match on_toggle.as_ref() {
+        Some(TreeViewOnNodeToggle { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, node_index, expand)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The tree container `node` sits in: its nearest ancestor with the tree class.
+fn tree_container_of(
+    info: &CallbackInfo,
+    node: azul_core::dom::DomNodeId,
+) -> Option<azul_core::dom::DomNodeId> {
+    let mut cur = info.get_parent(node);
+    while let Some(n) = cur {
+        if crate::widgets::roving::has_class(info, n, TREE_CLASS_NAME) {
+            return Some(n);
+        }
+        cur = info.get_parent(n);
+    }
+    None
+}
+
+/// Every row under `parent` in document order - which is the visible order:
+/// a closed parent renders no children container at all.
+fn collect_visible_rows(
+    info: &CallbackInfo,
+    parent: azul_core::dom::DomNodeId,
+    out: &mut Vec<azul_core::dom::DomNodeId>,
+) {
+    let mut cur = info.get_first_child(parent);
+    while let Some(n) = cur {
+        if crate::widgets::roving::has_class(info, n, TREE_ROW_CLASS_NAME) {
+            out.push(n);
+        } else {
+            // A children container: its rows follow the row that owns it.
+            collect_visible_rows(info, n, out);
+        }
+        cur = info.get_next_sibling(n);
+    }
+}
+
+/// The row that owns `row`: a child row sits in a children container, which
+/// directly follows its parent's row. `None` for a top-level row.
+fn parent_row_of(
+    info: &CallbackInfo,
+    tree: azul_core::dom::DomNodeId,
+    row: azul_core::dom::DomNodeId,
+) -> Option<azul_core::dom::DomNodeId> {
+    let container = info.get_parent(row)?;
+    if container == tree {
+        return None;
+    }
+    info.get_previous_sibling(container)
 }
 
 // ============================================================================
@@ -572,7 +846,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId, NodeType},
+        dom::{DomId, DomNodeId, NodeId, NodeType, TabIndex},
         geom::OptionLogicalPosition,
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -1433,10 +1707,15 @@ mod autotest_generated {
             );
 
             for row in rows_of(&out) {
+                // The arrow-key handler is on every row; the click is opt-in.
+                let cbs = row.root.get_callbacks();
                 assert!(
-                    row.root.get_callbacks().as_ref().is_empty(),
-                    "no callback configured => no callback attached"
+                    cbs.as_ref()
+                        .iter()
+                        .all(|cb| cb.event != EventFilter::Hover(HoverEventFilter::Click)),
+                    "no click callback configured => no click callback attached"
                 );
+                assert_eq!(cbs.as_ref().len(), 1, "only the arrow-key handler");
             }
         }
     }
@@ -1639,17 +1918,33 @@ mod autotest_generated {
             .with_on_node_click(RefAny::new(log.clone()), cb(record_click));
         let dom = tv.dom();
 
-        for row in rows_of(dom.children.as_ref()) {
+        // deep_mixed selects `c`, a visible child of the open root: the tree's
+        // one Tab stop. Every other row is reached with the arrow keys.
+        let rows = rows_of(dom.children.as_ref());
+        let stops: Vec<String> = rows
+            .iter()
+            .filter(|row| matches!(row.root.get_tab_index(), Some(TabIndex::Auto)))
+            .map(|row| text_of(row_parts(row).1).unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(stops, vec!["c".to_string()], "exactly one stop: the selected row");
+        for row in rows {
             assert!(
-                matches!(row.root.get_tab_index(), Some(TabIndex::Auto)),
-                "every row must be keyboard focusable"
+                matches!(
+                    row.root.get_tab_index(),
+                    Some(TabIndex::Auto | TabIndex::NoKeyboardFocus)
+                ),
+                "every row must stay focusable"
             );
             let cbs = row.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "exactly one click callback per row");
+            assert_eq!(cbs.as_ref().len(), 2, "the click and the arrow-key callback");
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::Click),
                 "rows fire on mouse-up"
+            );
+            assert_eq!(
+                cbs.as_ref()[1].event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
             );
         }
     }
@@ -2028,5 +2323,101 @@ mod autotest_generated {
                 "{held:?}+{key:?} must not be consumed: {changes:?}"
             );
         }
+    }
+
+    /// Every `(node_index, expand)` an `on_node_toggle` hears.
+    type ToggleLog = Arc<Mutex<Vec<(usize, bool)>>>;
+
+    extern "C" fn record_toggle(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        node_index: usize,
+        expand: bool,
+    ) -> Update {
+        if let Some(log) = data.downcast_ref::<ToggleLog>() {
+            log.lock()
+                .expect("toggle log poisoned")
+                .push((node_index, expand));
+        }
+        Update::RefreshDom
+    }
+
+    fn toggle_cb(f: TreeViewOnNodeToggleCallbackType) -> TreeViewOnNodeToggleCallback {
+        f.into()
+    }
+
+    fn toggles(log: &ToggleLog) -> Vec<(usize, bool)> {
+        log.lock().expect("toggle log poisoned").clone()
+    }
+
+    /// `keyboard_tree` whose toggles land in `log`. Depth-first indices:
+    /// root 0, a 1, a1 2 (hidden), b 3, c 4, c1 5.
+    fn toggling_tree(log: &ToggleLog) -> StyledDom {
+        tree_page(
+            TreeView::new(keyboard_tree())
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        )
+    }
+
+    #[test]
+    fn arrow_right_on_a_closed_row_with_children_asks_the_app_to_expand_it() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let styled = toggling_tree(&log);
+        let (update, changes) = press_row(&styled, "a", VirtualKeyCode::Right, &[]);
+        assert_eq!(toggles(&log), vec![(1, true)], "open node 1 (a)");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert!(rv::prevented(&changes));
+        assert_eq!(rv::focus_request(&changes), None, "focus stays on the row");
+    }
+
+    #[test]
+    fn arrow_left_on_an_open_row_asks_the_app_to_collapse_it() {
+        for (label, index) in [("c", 4), ("root", 0)] {
+            let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+            let styled = toggling_tree(&log);
+            let (_, changes) = press_row(&styled, label, VirtualKeyCode::Left, &[]);
+            assert_eq!(toggles(&log), vec![(index, false)], "close {label}");
+            assert!(rv::prevented(&changes));
+            assert_eq!(rv::focus_request(&changes), None);
+        }
+    }
+
+    #[test]
+    fn right_on_a_leaf_and_left_on_a_closed_top_level_row_go_nowhere() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let styled = toggling_tree(&log);
+        let (_, changes) = press_row(&styled, "b", VirtualKeyCode::Right, &[]);
+        assert!(rv::prevented(&changes), "the tree keeps the key");
+        assert_eq!(rv::focus_request(&changes), None);
+
+        let lone = tree_page(
+            TreeView::new(leaf("top").with_child(leaf("hidden")))
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        );
+        let (_, changes) = press_row(&lone, "top", VirtualKeyCode::Left, &[]);
+        assert!(rv::prevented(&changes));
+        assert_eq!(rv::focus_request(&changes), None);
+        assert!(toggles(&log).is_empty(), "nothing was opened or closed");
+    }
+
+    #[test]
+    fn without_a_toggle_hook_right_on_a_closed_parent_stays_in_the_tree() {
+        let styled = tree_page(TreeView::new(keyboard_tree()));
+        let (update, changes) = press_row(&styled, "a", VirtualKeyCode::Right, &[]);
+        assert_eq!(update, Update::DoNothing);
+        assert!(rv::prevented(&changes));
+        assert_eq!(rv::focus_request(&changes), None);
+    }
+
+    #[test]
+    fn set_on_node_toggle_installs_then_overwrites_and_new_installs_none() {
+        let tv = TreeView::new(leaf("root"));
+        assert!(tv.on_node_toggle.is_none());
+
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let mut tv = tv.with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle));
+        assert!(tv.on_node_toggle.is_some());
+        tv.set_on_node_toggle(RefAny::new(log), toggle_cb(record_toggle));
+        assert!(tv.on_node_toggle.is_some());
     }
 }
