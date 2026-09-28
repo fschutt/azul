@@ -853,6 +853,8 @@ impl CpuHitTester {
 
         for (dom_id, layout_result) in layout_results {
             let mut entries = Vec::new();
+            // The layout node of every entry, for the paint-order sort below.
+            let mut entry_layout_idx: Vec<usize> = Vec::new();
 
             let positions = &layout_result.calculated_positions;
             let nodes = &layout_result.layout_tree.nodes;
@@ -1017,7 +1019,23 @@ impl CpuHitTester {
                     pointer_events_none: false,
                     clip_path: node_clip_path(styled_dom, node_id),
                 });
+                entry_layout_idx.push(idx);
             }
+
+            // PAINT ORDER, taken from the display list itself: the topmost hit
+            // has to be the box painted on top. Layout order is not paint
+            // order - a positioned box paints after the in-flow blocks that
+            // follow it in the tree (CSS 2.2 Appendix E), so a fixed header
+            // lost the pointer to the page content scrolled under it. The
+            // sort is stable: ties keep tree order.
+            let ranks = paint_ranks(&layout_result.display_list, nodes);
+            let mut ranked: Vec<(usize, HitTestEntry)> = entry_layout_idx
+                .into_iter()
+                .map(|idx| ranks.get(idx).copied().unwrap_or(usize::MAX))
+                .zip(entries)
+                .collect();
+            ranked.sort_by_key(|(rank, _)| *rank);
+            let entries: Vec<HitTestEntry> = ranked.into_iter().map(|(_, e)| e).collect();
 
             self.node_rects.insert(*dom_id, entries);
         }
@@ -1120,6 +1138,50 @@ impl CpuHitTester {
 
         results
     }
+}
+
+/// The paint rank of every layout node of one dom: the index of its first
+/// item in `display_list`, which the generator emits in CSS painting order.
+/// A node that paints nothing of its own ranks at its first painted
+/// descendant, and one with neither at its parent, so it stays where it
+/// would paint.
+fn paint_ranks(
+    display_list: &crate::solver3::display_list::DisplayList,
+    nodes: &[crate::solver3::layout_tree::LayoutNodeHot],
+) -> Vec<usize> {
+    let mut own = vec![usize::MAX; nodes.len()];
+    for (item, mapping) in display_list.layout_node_mapping.iter().enumerate() {
+        let Some((idx, _)) = mapping else {
+            continue;
+        };
+        if let Some(rank) = own.get_mut(*idx) {
+            if *rank == usize::MAX {
+                *rank = item;
+            }
+        }
+    }
+    // The tree is built pre-order (a parent's index is below its
+    // children's): one sweep from the end carries each subtree's first
+    // painted item up to its root.
+    let mut subtree = own.clone();
+    for idx in (0..nodes.len()).rev() {
+        if let Some(parent) = nodes[idx].parent {
+            if subtree[idx] < subtree[parent] {
+                subtree[parent] = subtree[idx];
+            }
+        }
+    }
+    let mut rank = vec![usize::MAX; nodes.len()];
+    for idx in 0..nodes.len() {
+        rank[idx] = if own[idx] != usize::MAX {
+            own[idx]
+        } else if subtree[idx] != usize::MAX {
+            subtree[idx]
+        } else {
+            nodes[idx].parent.map_or(usize::MAX, |p| rank[p])
+        };
+    }
+    rank
 }
 
 /// A node's clip path: its own SVG geometry, with the `viewBox` it is drawn
