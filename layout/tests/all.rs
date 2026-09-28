@@ -330,6 +330,8 @@ mod run_remap;
 mod safe_area_inset;
 #[path = "scroll_box_reserves_its_gutter.rs"]
 mod scroll_box_reserves_its_gutter;
+#[path = "scroll_chain.rs"]
+mod scroll_chain;
 #[path = "scroll_degenerate_ifc.rs"]
 mod scroll_degenerate_ifc;
 #[path = "scroll_id_identity.rs"]
