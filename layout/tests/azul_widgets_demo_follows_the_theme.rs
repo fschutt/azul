@@ -213,20 +213,24 @@ fn the_check_tells_a_themed_style_from_a_fixed_one() {
 // ---------------------------------------------------------------------------
 
 /// The demo's own page frame, rebuilt from its source: `body > [titlebar >
-/// title, scroll > heading]`, each node carrying the inline style the demo
-/// gives it. Located by the literals around it: the first
+/// [title, label], scroll > heading]`, each node carrying the inline style
+/// the demo gives it. Located by the literals around it: the first
 /// `"Azul Widget Showcase"` is the heading's text (its style follows), the
 /// second the titlebar title's (the titlebar's style precedes it), and the
-/// body and scroll styles follow the `"custom titlebar"` label's.
-struct PageFrame {
-    body: String,
-    titlebar: String,
-    title: String,
-    scroll: String,
-    heading: String,
+/// label, body and scroll styles follow the `"custom titlebar"` label's text.
+///
+/// Shared with `the_macos_titlebar_lines_up_with_its_traffic_lights`, which
+/// lays the demo's titlebar out.
+pub(crate) struct PageFrame {
+    pub(crate) body: String,
+    pub(crate) titlebar: String,
+    pub(crate) title: String,
+    pub(crate) label: String,
+    pub(crate) scroll: String,
+    pub(crate) heading: String,
 }
 
-fn page_frame() -> PageFrame {
+pub(crate) fn page_frame() -> PageFrame {
     let lits = string_literals(DEMO);
     let at = |text: &str| -> Vec<usize> {
         lits.iter()
@@ -242,6 +246,7 @@ fn page_frame() -> PageFrame {
         heading: lits[titles[0] + 1].clone(),
         titlebar: lits[titles[1] - 1].clone(),
         title: lits[titles[1] + 1].clone(),
+        label: lits[label + 1].clone(),
         body: lits[label + 2].clone(),
         scroll: lits[label + 3].clone(),
     };
@@ -249,6 +254,7 @@ fn page_frame() -> PageFrame {
         ("heading", &frame.heading, "font-size"),
         ("titlebar", &frame.titlebar, "app-region"),
         ("title", &frame.title, "font-size"),
+        ("label", &frame.label, "no-drag"),
         ("body", &frame.body, "margin"),
         ("scroll", &frame.scroll, "overflow"),
     ] {
