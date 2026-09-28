@@ -3632,6 +3632,31 @@ mod autotest_generated {
         }
     }
 
+    /// A bold system face on macOS is the SYSTEM font, drawn bold.
+    ///
+    /// `SFNS.ttf` ("System Font") is one variable font: a `wght` axis from 1
+    /// to 1000 with a named Bold instance at 700. It is what AppKit's
+    /// `titleBarFont` and `boldSystemFontOfSize:` draw with. The bold chain
+    /// skipped it for Helvetica Neue ("System Font has no Bold variant in
+    /// fontconfig"), so every bold title and label on macOS came out in a
+    /// different typeface from the regular text beside it. Helvetica Neue,
+    /// which has static bold faces, stays behind it for a system without SFNS.
+    #[test]
+    fn a_bold_system_font_on_macos_is_the_system_font_first() {
+        for ty in [SystemFontType::UiBold, SystemFontType::TitleBold] {
+            let chain = ty.get_fallback_chain(&Platform::MacOs);
+            assert_eq!(
+                chain.first().copied(),
+                Some(apple_fonts::SYSTEM_FONT),
+                "{ty:?}: {chain:?}"
+            );
+            assert!(
+                chain.contains(&apple_fonts::HELVETICA_NEUE),
+                "{ty:?} keeps Helvetica Neue behind the system font: {chain:?}"
+            );
+        }
+    }
+
     // ── Platform::current ────────────────────────────────────────────────
 
     #[test]
@@ -3761,6 +3786,18 @@ mod autotest_generated {
         assert_eq!(
             TitlebarMetrics::windows().safe_area,
             SafeAreaInsets::default()
+        );
+    }
+
+    /// The macOS title is `NSFont.titleBarFont`: SF at 13pt with the weight
+    /// trait 0.4, which is `NSFontWeightBold` = 700 (measured through AppKit
+    /// on macOS 15.5). 600 is the semibold of a TOOLBAR-style bar's 15pt
+    /// title, not of the plain 28pt titlebar.
+    #[test]
+    fn the_macos_title_is_bold_like_the_titlebarfont() {
+        assert_eq!(
+            TitlebarMetrics::macos().title_font_weight.into_option(),
+            Some(700)
         );
     }
 

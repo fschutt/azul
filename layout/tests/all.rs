@@ -130,6 +130,8 @@ mod fakefont;
 
 // --- the registered integration tests, alphabetically ---
 
+#[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
+mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
 #[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
 mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "a_press_on_an_overflowing_field_selects.rs"]
