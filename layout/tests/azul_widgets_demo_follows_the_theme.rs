@@ -26,6 +26,20 @@ use azul_css::{
 /// `examples/azul-widgets/src/lib.rs`, verbatim, at compile time.
 const DEMO: &str = include_str!("../../examples/azul-widgets/src/lib.rs");
 
+/// The Video card, a module of its own (`examples/azul-widgets/src/video.rs`):
+/// its styles are the demo's styles too.
+const VIDEO_CARD: &str = include_str!("../../examples/azul-widgets/src/video.rs");
+
+/// Every inline style the demo writes, over all of its source files. The
+/// page frame (`page_frame`) is still read from `lib.rs` alone.
+fn demo_styles() -> Vec<String> {
+    [DEMO, VIDEO_CARD]
+        .iter()
+        .flat_map(|src| string_literals(src))
+        .filter(|l| l.contains(':') && l.contains(';'))
+        .collect()
+}
+
 /// Every `"..."` literal in `src`, escapes decoded (`\` line continuations
 /// included). Line comments are skipped; the demo writes no raw strings.
 fn string_literals(src: &str) -> Vec<String> {
@@ -141,13 +155,14 @@ fn colours_without_a_dark_twin(style: &str) -> Vec<CssPropertyType> {
 
 #[test]
 fn every_colour_the_demo_paints_follows_the_theme() {
-    let styles: Vec<String> = string_literals(DEMO)
-        .into_iter()
-        .filter(|l| l.contains(':') && l.contains(';'))
-        .collect();
+    let styles = demo_styles();
     assert!(
         styles.iter().any(|s| s.contains("flex-direction")),
         "premise: the scan found the demo's inline styles"
+    );
+    assert!(
+        styles.iter().any(|s| s.contains("system:accent-text")),
+        "premise: the scan found the video card's styles"
     );
 
     let bad: Vec<String> = styles
@@ -378,10 +393,7 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
 /// with its own light palette (or accent) the page kept the demo's greys.
 #[test]
 fn the_demo_paints_from_the_system_palette_directly() {
-    let styles: Vec<String> = string_literals(DEMO)
-        .into_iter()
-        .filter(|l| l.contains(':') && l.contains(';'))
-        .collect();
+    let styles = demo_styles();
 
     let mut fixed = Vec::new();
     let mut twins = Vec::new();
