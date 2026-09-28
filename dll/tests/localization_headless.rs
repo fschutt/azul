@@ -9,7 +9,7 @@
 use std::{
     cell::RefCell,
     sync::{
-        atomic::{AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
     },
 };
@@ -19,15 +19,16 @@ use azul::desktop::shell2::{
     headless::HeadlessWindow,
 };
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackType},
     dom::{Dom, DomId, FluentArg, FluentArgKV, NodeType},
+    events::ProcessEventResult,
     icon::{IconProviderHandle, SharedIconProvider},
     refany::{OptionRefAny, RefAny},
     resources::AppConfig,
     window::{AzStringPair, StringPairVec},
 };
 use azul_css::{corety::AzString, system::SystemLanguage};
-use azul_layout::window_state::WindowCreateOptions;
+use azul_layout::{callbacks::CallbackChange, window_state::WindowCreateOptions};
 use rust_fontconfig::FcFontCache;
 
 const EN: &str = "greeting = Hello
@@ -80,6 +81,10 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 }
 
 fn make_window(model: Model) -> HeadlessWindow {
+    make_window_with(RefAny::new(model), layout_cb)
+}
+
+fn make_window_with(data: RefAny, layout: LayoutCallbackType) -> HeadlessWindow {
     let mut config = AppConfig::default();
     config.fluent_locales = StringPairVec::from_vec(vec![
         AzStringPair {
@@ -96,13 +101,13 @@ fn make_window(model: Model) -> HeadlessWindow {
 
     let mut options = WindowCreateOptions::default();
     options.window_state.layout_callback = LayoutCallback {
-        cb: layout_cb,
+        cb: layout,
         ctx: OptionRefAny::None,
     };
 
     HeadlessWindow::new(
         options,
-        Arc::new(RefCell::new(RefAny::new(model))),
+        Arc::new(RefCell::new(data)),
         SharedUndoManager::new(),
         config,
         SharedIconProvider::from_handle(IconProviderHandle::default()),
@@ -161,4 +166,86 @@ fn a_changed_argument_is_laid_out_after_the_next_rebuild() {
 
     let texts = laid_out_texts(&window);
     assert!(has(&texts, "one new email"), "got {texts:?}");
+}
+
+// ---- `CallbackInfo::set_locale` (the guide's "Changing Locale") ----
+
+#[test]
+fn set_locale_relocalizes_the_laid_out_text_without_rebuilding_the_dom() {
+    let model = Model::new(3);
+    let mut window = make_window(model.clone());
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(model.layout_calls.load(Ordering::SeqCst), 1);
+
+    let result = window.apply_user_change(&CallbackChange::SetLocale {
+        locale: "de-DE".into(),
+    });
+    assert_ne!(result, ProcessEventResult::DoNothing, "the text changed: it must be re-laid out");
+
+    let texts = laid_out_texts(&window);
+    assert!(has(&texts, "Hallo"), "got {texts:?}");
+    assert!(has(&texts, "3 neue E-Mails"), "got {texts:?}");
+    // "Under normal circumstances this does not cause a full refresh, only
+    // the strings are re-localized."
+    assert_eq!(
+        model.layout_calls.load(Ordering::SeqCst),
+        1,
+        "layout() must not run again for a locale its DOM does not depend on"
+    );
+}
+
+#[test]
+fn the_chosen_locale_outlives_the_next_rebuild() {
+    let model = Model::new(3);
+    let mut window = make_window(model);
+    window.regenerate_layout().expect("first layout");
+
+    let _ = window.apply_user_change(&CallbackChange::SetLocale {
+        locale: "de-DE".into(),
+    });
+    // An unrelated RefreshDom rebuilds the DOM from the app's keys again.
+    window.regenerate_layout().expect("rebuild");
+
+    let texts = laid_out_texts(&window);
+    assert!(has(&texts, "Hallo"), "got {texts:?}");
+}
+
+#[derive(Clone)]
+struct DirectionModel {
+    rtl_seen: Arc<AtomicBool>,
+}
+
+/// A `layout()` whose DOM depends on the text direction - it asks.
+extern "C" fn direction_aware_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let rtl = info.is_rtl();
+    if let Some(model) = data.downcast_ref::<DirectionModel>() {
+        model.rtl_seen.store(rtl, Ordering::SeqCst);
+    }
+    Dom::create_body().with_child(Dom::create_p_with_text(AzString::tr("greeting")))
+}
+
+#[test]
+fn a_layout_that_read_is_rtl_is_rebuilt_when_the_locale_turns_rtl() {
+    let model = DirectionModel {
+        rtl_seen: Arc::new(AtomicBool::new(false)),
+    };
+    let mut window = make_window_with(RefAny::new(model.clone()), direction_aware_layout);
+    window.regenerate_layout().expect("first layout");
+    assert!(!model.rtl_seen.load(Ordering::SeqCst), "en-US is left-to-right");
+
+    // `ar-EG` is right-to-left in `LocalizationConfig::default()`.
+    let result = window.apply_user_change(&CallbackChange::SetLocale {
+        locale: "ar-EG".into(),
+    });
+    assert_eq!(
+        result,
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow,
+        "layout() read is_rtl(), so its DOM depends on the direction"
+    );
+
+    window.regenerate_layout().expect("rebuild");
+    assert!(
+        model.rtl_seen.load(Ordering::SeqCst),
+        "the rebuilt layout() must see the new direction"
+    );
 }
