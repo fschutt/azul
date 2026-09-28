@@ -20,7 +20,6 @@ use azul_core::{
         DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
     },
     geom::{LogicalPosition, LogicalSize},
-    styled_dom::NodeHierarchyItem,
 };
 use azul_css::AzString;
 
@@ -382,42 +381,36 @@ impl A11yManager {
         due
     }
 
-    /// Sum of every ANCESTOR scroll container's current offset — what
-    /// translates a node's static layout position to where it is on screen.
-    /// A scroller's own box does not move when it scrolls; its content does,
-    /// so the walk starts at the parent.
-    /// The accumulated scroll offset of every scrollable ANCESTOR of a node.
+    /// The summed offset of the scroll frames the display list paints a
+    /// node's BOX in - its `ScrollChain` - which is what translates its
+    /// static layout position to where it is on screen. A scroller's own box
+    /// does not move when it scrolls; its content does, so the node's own
+    /// frame is not in it.
     ///
-    /// Layout rects are in CONTENT space; anything drawn or reported in
-    /// VIEWPORT space (the a11y tree's bounds, the focus ring) has to
-    /// subtract this or it lands where the node would be if nothing were
-    /// scrolled. `pub(crate)` because the focus ring needs the very same
-    /// answer - one projection, not two that can disagree.
+    /// Layout rects are in CONTENT space; anything reported in VIEWPORT
+    /// space (the a11y tree's bounds) has to subtract this or it lands where
+    /// the node would be if nothing were scrolled. It used to add up every
+    /// DOM ancestor holding scroll state: the page's offset for a fixed box
+    /// the page does not move, and any stray offset on a box that opens no
+    /// frame.
     pub(crate) fn ancestor_scroll_offset(
         dom_id: DomId,
-        node_hierarchy: &[NodeHierarchyItem],
-        dom_idx: usize,
+        layout_result: &DomLayoutResult,
+        layout_idx: crate::solver3::layout_tree::LayoutNodeId,
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
     ) -> LogicalPosition {
-        let mut acc = LogicalPosition::zero();
-        let mut cur = node_hierarchy
-            .get(dom_idx)
-            .and_then(NodeHierarchyItem::parent_id);
-        let mut guard = 0usize;
-        while let Some(parent) = cur {
-            guard += 1;
-            if guard > 65_536 {
-                break;
-            }
-            if let Some(off) = scroll_manager.get_current_offset(dom_id, parent) {
-                acc.x += off.x;
-                acc.y += off.y;
-            }
-            cur = node_hierarchy
-                .get(parent.index())
-                .and_then(NodeHierarchyItem::parent_id);
-        }
-        acc
+        crate::solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            layout_idx,
+            azul_core::spaces::Inclusivity::AncestorsOnly,
+        )
+        .scrolling()
+        .filter_map(|link| scroll_manager.get_current_offset(dom_id, link.node))
+        .fold(LogicalPosition::zero(), |acc, off| {
+            LogicalPosition::new(acc.x + off.x, acc.y + off.y)
+        })
     }
 
     /// Force the collected child lists to satisfy accesskit's `TreeUpdate`
@@ -530,13 +523,13 @@ impl A11yManager {
                         Some((hot, layout_idx, abs_pos))
                     });
 
-                // Screen position = static layout position minus every
-                // ancestor scroller's offset. Bounds used to be the
-                // unscrolled layout rects, so after any scroll VoiceOver's
-                // cursor rectangles sat where the content had been.
-                let ancestor_scroll =
-                    Self::ancestor_scroll_offset(*dom_id, node_hierarchy, dom_idx, scroll_manager);
+                // Screen position = static layout position minus the offsets
+                // of the scroll frames the node is painted in. Bounds used to
+                // be the unscrolled layout rects, so after any scroll
+                // VoiceOver's cursor rectangles sat where the content had been.
                 let layout_info = layout_info.map(|(hot, idx, pos)| {
+                    let ancestor_scroll =
+                        Self::ancestor_scroll_offset(*dom_id, layout_result, idx, scroll_manager);
                     (
                         hot,
                         idx,

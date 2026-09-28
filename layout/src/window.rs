@@ -9207,44 +9207,26 @@ impl LayoutWindow {
     /// the one clock on which the truncating and the exact spellings of the
     /// progress ratio agree — so on the wall clock the unit bug below is
     /// untestable by construction.
-    /// The scroll frame the focus ring must live INSIDE: the innermost
-    /// scrollable ancestor of `node`, as a display-list `scroll_id`.
+    /// The scroll frame the focus ring must live INSIDE: the innermost frame
+    /// the display list paints `node`'s box in (the last moving link of its
+    /// `ScrollChain`), as a display-list `scroll_id`.
     ///
-    /// `None` means no ancestor scrolls, so the ring can be appended at the end
-    /// of the list, where no offset is applied and content space is viewport
-    /// space.
-    fn enclosing_scroll_id(
-        dom_id: DomId,
-        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
-        node: NodeId,
-        scroll_manager: &ScrollManager,
-        layout_result: &DomLayoutResult,
-    ) -> Option<u64> {
-        let mut cur = node_hierarchy
-            .get(node.index())
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        let mut guard = 0usize;
-        while let Some(parent) = cur {
-            guard += 1;
-            if guard > 65_536 {
-                return None;
-            }
-            if scroll_manager.get_current_offset(dom_id, parent).is_some() {
-                // The first ancestor that scrolls is the frame the ring rides
-                // in; its id is whatever the display list called it.
-                if let Some((id, _)) = layout_result
-                    .scroll_id_to_node_id
-                    .iter()
-                    .find(|(_, n)| **n == parent)
-                {
-                    return Some(*id);
-                }
-            }
-            cur = node_hierarchy
-                .get(parent.index())
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        None
+    /// `None` means no frame moves the box, so the ring can be appended at
+    /// the end of the list, where no offset is applied and content space is
+    /// viewport space. This used to walk the DOM for the first ancestor
+    /// holding scroll STATE: the page's frame for a fixed box the page does
+    /// not move, and any stray offset on a box that opens no frame.
+    fn enclosing_scroll_id(layout_result: &DomLayoutResult, node: NodeId) -> Option<u64> {
+        let index = *layout_result.layout_tree.dom_to_layout.get(&node)?.first()?;
+        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            index,
+            Inclusivity::AncestorsOnly,
+        );
+        let innermost = chain.scrolling().last()?;
+        layout_result.scroll_ids.get(&innermost.layout_index).copied()
     }
 
     /// Index of the `PopScrollFrame` that closes `scroll_id`'s frame — where
@@ -9347,7 +9329,6 @@ impl LayoutWindow {
                         let r = self.get_node_layout_rect(fnode)?;
                         let node_id = fnode.node.into_crate_internal()?;
                         let lr = self.layout_results.get(&fnode.dom)?;
-                        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
 
                         // THE RING IS EMITTED INSIDE THE SCROLL FRAME IT
                         // BELONGS TO, in CONTENT space, exactly like the node
@@ -9365,13 +9346,7 @@ impl LayoutWindow {
                         // moves with it for free - and is clipped by the frame,
                         // which is what should happen to a control scrolled out
                         // of sight.
-                        focus_ring_scroll_id = Self::enclosing_scroll_id(
-                            fnode.dom,
-                            hierarchy.internal,
-                            node_id,
-                            &self.scroll_manager,
-                            lr,
-                        );
+                        focus_ring_scroll_id = Self::enclosing_scroll_id(lr, node_id);
                         // No enclosing frame: the list has no offset to apply
                         // at the append point, so content space IS viewport
                         // space and the rect goes in as it is.
