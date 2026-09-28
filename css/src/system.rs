@@ -3763,7 +3763,8 @@ mod autotest_generated {
         assert_eq!(d.theme, Theme::Light);
         assert!(d.app_specific_stylesheet.is_none());
         assert!(d.scrollbar.is_none());
-        assert!(d.language.id.as_str().is_empty());
+        // The language is the one field with a real default: en-US, left to right.
+        assert_eq!(d.language, SystemLanguage::new("en-US", false));
         assert!(d.colors.text.is_none());
     }
 

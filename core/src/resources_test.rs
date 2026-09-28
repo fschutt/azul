@@ -426,7 +426,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn app_config_add_route_replaces_same_pattern_and_orders_by_insertion() {
+    fn app_config_add_route_replaces_same_pattern_and_matches_the_most_specific() {
         extern "C" fn layout_a(
             _: RefAny,
             _: crate::callbacks::LayoutCallbackInfo,
@@ -441,12 +441,14 @@ mod autotest_generated {
         config.add_route(AzString::from_const_str("/dup"), cb);
         assert_eq!(config.routes.as_ref().len(), 1, "same pattern must replace");
 
-        // First matching route wins: a catch-all registered first shadows later routes.
+        // The most specific route wins, whatever the order the routes were
+        // registered in: a literal segment beats a parameter, so a catch-all
+        // registered first no longer shadows the routes after it.
         let mut config = AppConfig::create();
         config.add_route(AzString::from_const_str("/:anything"), cb);
         config.add_route(AzString::from_const_str("/about"), cb);
         let (route, _) = config.match_route_for_path("/about").expect("matches");
-        assert_eq!(route.pattern.as_str(), "/:anything");
+        assert_eq!(route.pattern.as_str(), "/about");
     }
 
     // =====================================================================

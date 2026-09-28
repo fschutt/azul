@@ -3502,7 +3502,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn css_path_display_and_debug_agree_and_compose() {
+    fn css_path_display_composes_and_debug_names_the_type() {
         let p = CssPath::new(vec![
             CssPathSelector::Type(NodeTypeTag::Div),
             CssPathSelector::Id("id".to_string().into()),
@@ -3512,11 +3512,13 @@ mod autotest_generated {
         assert_eq!(format!("{p}"), "div#id.cls:hover");
         assert_eq!(
             format!("{p:?}"),
-            format!("{p}"),
-            "Debug delegates to Display"
+            format!("CssPath({p})"),
+            "Debug wraps Display in the type name"
         );
-        // An empty path renders as the empty string — deterministic, no panic.
+        // An empty path displays as the empty string, and debug-formats to
+        // `CssPath()`, never to nothing - deterministic, no panic.
         assert_eq!(format!("{}", CssPath::default()), "");
+        assert_eq!(format!("{:?}", CssPath::default()), "CssPath()");
     }
 
     #[test]
