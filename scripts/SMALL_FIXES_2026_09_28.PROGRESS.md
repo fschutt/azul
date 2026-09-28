@@ -37,11 +37,24 @@ first, then the fix. Stage explicit paths. Final report goes to
 
 ## IN PROGRESS
 
-(none)
+5. AzWidgets demo a11y
+   - 877c4906b RED: date_picker.rs `every_day_cell_is_a_button_named_by_its_full_date`,
+     `the_month_navigation_buttons_are_named`; chip.rs
+     `the_remove_button_is_named_after_the_chip_it_removes`.
+   - a2da2c573 fix: day cells PushButton + "Tuesday, 23 June 2026" names
+     (named in build_grid; build_day_cell signature kept), nav "Previous
+     month"/"Next month", chip × "Remove <label>".
+   - NEXT STEP: demo call sites in examples/azul-widgets/src/*.rs:
+     section titles / Card body / other `create_div_with_text` -> heading /
+     p / span (keep the look: set margin-top: 0 on headings);
+     `.with_accessibility_name` on Slider/Switch/CheckBox/RadioGroup builders;
+     ProgressBar name; image a11y; the files drop zone (labelled() gives it
+     a11y with role Unknown while it has callbacks) needs a role; icon-only
+     node 318 (an Explore survey was running to identify it).
 
 ## NEXT (in order)
 
-5. AzWidgets demo a11y (`examples/azul-widgets/src/*.rs`,
+5b. (rest of 5, see IN PROGRESS) (`examples/azul-widgets/src/*.rs`,
    `layout/src/widgets/date_picker.rs`): div-as-text headings, icon-only
    control (node 318), Slider/Switch/CheckBox/RadioGroup names, date-picker
    day names ("Tuesday, 23 June 2026"), Progress name, image a11y, role
