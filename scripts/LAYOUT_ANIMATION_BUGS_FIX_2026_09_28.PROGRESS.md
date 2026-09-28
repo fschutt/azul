@@ -11,9 +11,14 @@ every fix; explicit staging; commit this file after every commit. Delete it in t
   new `in_flow_scrollable_extent`: in-flow box children margin boxes + leading/trailing padding).
   IFC roots and abs/fixed children skipped. Padded scroll boxes (TextArea too) scroll further.
 
+- 8778955df RED bug 2a: core/src/diff_test.rs `a_moved_tab_stop_is_not_a_layout_change` (today
+  might_affect_layout == true).
+
 ## IN PROGRESS
-- RED bug 2a: core/src/diff_test.rs `a_moved_tab_stop_is_not_a_layout_change` (written, not yet
-  committed at the time of this checkpoint).
+- FIX 2a (next commit).
+
+TRAP: the sandbox refuses `git commit -F - <<EOF` whose body contains `<`, `>` or `!` ("too complex
+to verify") - keep commit messages free of those characters; run git add and git commit separately.
 
 ## NEXT (in order)
 1. FIX 2a: core/src/diff.rs `NodeDataFingerprint::compute` attrs_hash = contenteditable +
