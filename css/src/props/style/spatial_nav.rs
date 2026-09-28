@@ -306,6 +306,28 @@ mod tests {
         assert!(!CssPropertyType::SpatialNavigationContain.can_trigger_relayout());
     }
 
+    /// `spatial-navigation-function` (css-nav-1 §9.3) reaches the parser by
+    /// its CSS name, prints back to the keyword it was written as, and charges
+    /// no layout pass. Written against the name table and `CssProperty::value`
+    /// only, so it says the same thing before and after the type exists.
+    #[test]
+    fn the_function_property_parses_from_its_css_name_and_prints_back() {
+        use crate::props::property::{get_css_key_map, parse_css_property, CssPropertyType};
+
+        let map = get_css_key_map();
+        let ty = CssPropertyType::from_str("spatial-navigation-function", &map)
+            .expect("`spatial-navigation-function` must be a known property name");
+        for keyword in ["normal", "grid"] {
+            let parsed = parse_css_property(ty, keyword)
+                .unwrap_or_else(|e| panic!("`{keyword}` must parse, got {e:?}"));
+            assert_eq!(parsed.get_type(), ty);
+            assert_eq!(parsed.value(), keyword, "`{keyword}` must print back as itself");
+        }
+        // `auto` is a keyword of the two sibling properties, not of this one.
+        assert!(parse_css_property(ty, "auto").is_err());
+        assert!(!ty.can_trigger_relayout());
+    }
+
     /// Both default to `auto`, which is what makes adding them a no-op for
     /// every stylesheet that does not mention them.
     #[test]
