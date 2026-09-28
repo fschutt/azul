@@ -376,6 +376,8 @@ mod selection_handles;
 mod selection_skips_unselectable_text;
 #[path = "session_regression.rs"]
 mod session_regression;
+#[path = "shift_arrows_extend_a_document_selection.rs"]
+mod shift_arrows_extend_a_document_selection;
 #[path = "single_block_copy.rs"]
 mod single_block_copy;
 #[path = "spatial_navigation.rs"]
