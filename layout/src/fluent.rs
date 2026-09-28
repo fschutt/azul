@@ -258,7 +258,11 @@ impl FluentLocaleBundle {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
                     }
                     FmtValue::Float(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
+                        // Through the f32's shortest decimal form: `f64::from`
+                        // is exact in binary, so 0.1f32 would print as
+                        // 0.10000000149011612.
+                        let widened = n.to_string().parse::<f64>().unwrap_or(f64::from(*n));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(widened));
                     }
                     FmtValue::Double(n) => {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n));
