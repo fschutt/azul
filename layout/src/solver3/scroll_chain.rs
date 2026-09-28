@@ -17,7 +17,7 @@
 //! around the node, and the hit tester, the scroll manager and the text paths
 //! add back exactly these offsets.
 //!
-//! The chain follows CONTAINING BLOCKS, not layout parents ([`box_anchor`]):
+//! The chain follows CONTAINING BLOCKS, not layout parents (`box_anchor`):
 //! a box is clipped and scrolled by the boxes its containing block sits in
 //! (CSS 2.2 §11.1.1), so a `position: fixed` box leaves every frame up to
 //! the viewport - the page's own included.
@@ -67,10 +67,10 @@ impl ScrollChain {
     /// [`Inclusivity::AncestorsOnly`] is where the node's BOX is painted: a
     /// scroll container's own offset moves its content, never its own border
     /// box. [`Inclusivity::SelfAndAncestors`] is where its CONTENT is
-    /// painted: the same chain, plus the node itself when it opens a frame of
-    /// its own.
+    /// painted: the same chain, plus the node itself when it clips or scrolls
+    /// what is inside it ([`chain_link`]).
     ///
-    /// Walks one anchor per level ([`box_anchor`]), so it costs the depth of
+    /// Walks one anchor per level (`box_anchor`), so it costs the depth of
     /// the tree; [`ScrollChains`] computes every node's chain at once.
     #[must_use]
     pub fn of(
