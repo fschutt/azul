@@ -10473,6 +10473,148 @@ impl LayoutWindow {
             .collect()
     }
 
+    /// Run `f` against this window's LIVE spatial-navigation inputs: its focus
+    /// scope, the scroll manager's offsets and the transforms the renderer
+    /// applies - everything a [`crate::managers::focus_cursor::SpatialNavigationEnv`]
+    /// holds.
+    ///
+    /// Every spatial question the window answers goes through here: the
+    /// arrow-key default action ([`Self::keyboard_default_action`]),
+    /// `FocusTarget::Directional` ([`Self::resolve_focus_target_live`]) and
+    /// the css-nav-1 query API. So they all see the same PAINTED geometry, and
+    /// the decision and its application cannot disagree.
+    pub fn with_spatial_navigation_env<R>(
+        &self,
+        f: impl FnOnce(&crate::managers::focus_cursor::SpatialNavigationEnv<'_>) -> R,
+    ) -> R {
+        let out_of_scope = self.focus_out_of_scope_doms();
+        let scroll_info =
+            |dom: DomId, node: NodeId| self.scroll_manager.get_scroll_node_info(dom, node);
+        let scroll_info_dyn: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> = &scroll_info;
+        let transform = |dom: DomId, node: NodeId| {
+            self.gpu_state_manager
+                .caches
+                .get(&dom)
+                .and_then(|c| c.css_current_transform_values.get(&node))
+                .copied()
+        };
+        let transform_dyn: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D> = &transform;
+        let env = crate::managers::focus_cursor::SpatialNavigationEnv {
+            layout_results: &self.layout_results,
+            out_of_scope: &out_of_scope,
+            scroll_info: Some(scroll_info_dyn),
+            transform: transform_dyn,
+        };
+        f(&env)
+    }
+
+    /// The keyboard default action for this window, with spatial navigation
+    /// run on the LIVE geometry (scroll offsets, transforms, focus scope) -
+    /// what the shells and the headless runner call after a key's callbacks
+    /// did not `prevent_default`.
+    #[must_use]
+    pub fn keyboard_default_action(
+        &self,
+        keyboard_state: &azul_core::window::KeyboardState,
+        focused_node: Option<DomNodeId>,
+        prevented: bool,
+        editing: Option<&crate::default_actions::EditingQueryState>,
+    ) -> azul_core::events::DefaultActionResult {
+        self.with_spatial_navigation_env(|env| {
+            crate::default_actions::determine_keyboard_default_action_with_env(
+                keyboard_state,
+                focused_node,
+                env,
+                prevented,
+                editing,
+            )
+        })
+    }
+
+    /// [`crate::managers::focus_cursor::resolve_focus_target`] against this
+    /// window's live state: its focus scope, and - for `Directional` - the
+    /// painted geometry. The application of a focus default action must use
+    /// this, so it lands where [`Self::keyboard_default_action`] decided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `UpdateFocusWarning` if the target names an invalid dom/node.
+    pub fn resolve_focus_target_live(
+        &self,
+        target: &FocusTarget,
+        current: Option<DomNodeId>,
+    ) -> Result<
+        crate::managers::focus_cursor::FocusResolution,
+        azul_core::window::UpdateFocusWarning,
+    > {
+        self.with_spatial_navigation_env(|env| {
+            crate::managers::focus_cursor::resolve_focus_target_in(env, target, current)
+        })
+    }
+
+    /// Scroll `container` the way a keyboard does: a line (20px, the shells'
+    /// wheel line), 90% of the container's extent for a page, or all the way
+    /// for Home/End. The scroll manager clamps. `false` (and nothing scrolled)
+    /// when `container` is not a registered scroll container.
+    ///
+    /// `duration` is the shells' 150 ms ease; the headless runner passes zero.
+    #[allow(clippy::cast_precision_loss)] // px extents of a laid-out box
+    pub fn scroll_container_by_keyboard(
+        &mut self,
+        container: DomNodeId,
+        direction: azul_core::events::ScrollDirection,
+        amount: azul_core::events::ScrollAmount,
+        duration: Duration,
+        now: Instant,
+    ) -> bool {
+        use azul_core::events::{ScrollAmount, ScrollDirection};
+
+        /// One arrow-key line, the dll's `WHEEL_SCROLL_PIXELS_PER_LINE`.
+        const LINE_PX: f32 = 20.0;
+        /// Home/End: "all the way"; the scroll manager clamps it.
+        const DOCUMENT_PX: f32 = 100_000.0;
+
+        let Some(node) = container.node.into_crate_internal() else {
+            return false;
+        };
+        if self
+            .scroll_manager
+            .get_scroll_state(container.dom, node)
+            .is_none()
+        {
+            return false;
+        }
+        let (width, height) = self
+            .get_node_bounds(container.dom, node)
+            .map_or((800.0, 600.0), |b| (b.size.width as f32, b.size.height as f32));
+        let magnitude = |extent: f32| match amount {
+            ScrollAmount::Line => LINE_PX,
+            ScrollAmount::Page => extent * 0.9,
+            ScrollAmount::Document => DOCUMENT_PX,
+        };
+        let (dx, dy) = match direction {
+            ScrollDirection::Up => (0.0, -magnitude(height)),
+            ScrollDirection::Down => (0.0, magnitude(height)),
+            ScrollDirection::Left => (-magnitude(width), 0.0),
+            ScrollDirection::Right => (magnitude(width), 0.0),
+        };
+        self.scroll_manager.scroll_by(
+            container.dom,
+            node,
+            LogicalPosition { x: dx, y: dy },
+            duration,
+            EasingFunction::EaseOut,
+            now,
+        );
+        true
+    }
+
     /// The node's inline layout with CLUSTERS IN IT.
     ///
     /// [`Self::get_inline_layout_for_node`] returns the sparse

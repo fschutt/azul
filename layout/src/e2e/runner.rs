@@ -3845,12 +3845,7 @@ impl Runner {
     /// drain owns that; 9b-ii-a-i-d-iii is the open styling/a11y half).
     fn run_keyboard_default_action_for_seat(&mut self, seat: u64) -> (ProcessEventResult, bool) {
         use azul_core::events::DefaultAction;
-        use azul_layout::{
-            default_actions::{
-                default_action_to_focus_target, determine_keyboard_default_action_with_editing,
-            },
-            managers::focus_cursor::resolve_focus_target,
-        };
+        use azul_layout::default_actions::default_action_to_focus_target;
 
         let is_primary = seat == azul_core::window::PRIMARY_POINTER_SEAT;
         let ks = if is_primary {
@@ -3865,10 +3860,11 @@ impl Runner {
         let editing_state = self
             .layout_window
             .build_editing_query_state_for_seat(seat, focused);
-        let action = determine_keyboard_default_action_with_editing(
+        // LIVE spatial navigation (scroll offsets, transforms, focus scope),
+        // the same call the dll shell makes.
+        let action = self.layout_window.keyboard_default_action(
             &ks,
             focused,
-            &self.layout_window.layout_results,
             false,
             editing_state.as_ref(),
         );
@@ -3904,12 +3900,10 @@ impl Runner {
                 let Some(target) = default_action_to_focus_target(&action.action) else {
                     return (ProcessEventResult::DoNothing, false);
                 };
-                let Ok(resolved) = resolve_focus_target(
-                    &target,
-                    &self.layout_window.layout_results,
-                    focused,
-                    &self.layout_window.focus_out_of_scope_doms(),
-                ) else {
+                let Ok(resolved) = self
+                    .layout_window
+                    .resolve_focus_target_live(&target, focused)
+                else {
                     return (ProcessEventResult::DoNothing, false);
                 };
                 // Tab with nothing tabbable is a MISS, not a clear — keep the
@@ -4020,6 +4014,36 @@ impl Runner {
                 );
                 let (r, _update, _, _) = self.dispatch_events_propagated(&[click]);
                 (r, false)
+            }
+            // An arrow key that spatial navigation turned into a SCROLL of a
+            // named container. Port of the dll arm, through the same
+            // `LayoutWindow` helper, except that the runner applies the offset
+            // at once (its `ScrollTo` arm does the same): scenario time is
+            // virtual, and an eased scroll would make the offset depend on
+            // frame pacing.
+            //
+            // `ScrollFocusedContainer` (PgUp/PgDn/Space/Home/End, and an arrow
+            // with nowhere to go) still has no arm here - a wider change to
+            // the headless corpus, left open in the spatial-navigation audit.
+            DefaultAction::ScrollContainer {
+                container,
+                direction,
+                amount,
+            } => {
+                let now = self.now();
+                let scrolled = self.layout_window.scroll_container_by_keyboard(
+                    *container,
+                    *direction,
+                    *amount,
+                    std::time::Duration::from_millis(0).into(),
+                    now,
+                );
+                if scrolled {
+                    self.layout_window.scroll_manager.calculate_scrollbar_states();
+                    (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
             }
             _ => (ProcessEventResult::DoNothing, false),
         }

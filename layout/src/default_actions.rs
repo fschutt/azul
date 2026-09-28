@@ -333,7 +333,17 @@ pub fn determine_keyboard_default_action_with_env(
                 // scrolls, and a container scrolls only while it CAN.
                 match crate::managers::focus_cursor::spatial_navigation_steps(env, *focus, dir) {
                     SpatialNavigationOutcome::Focus(_) => focus_move,
-                    SpatialNavigationOutcome::Scroll(_) => scroll,
+                    // The container the steps picked, by name: the nearest
+                    // overflowing ancestor `ScrollFocusedContainer` would
+                    // scroll can be one the steps passed (at its boundary,
+                    // or `spatial-navigation-action: focus`).
+                    SpatialNavigationOutcome::Scroll(container) => {
+                        DefaultAction::ScrollContainer {
+                            container,
+                            direction,
+                            amount: ScrollAmount::Line,
+                        }
+                    }
                     // Nothing to focus and nothing the steps could scroll.
                     // The consumer may still find an overflowing ancestor
                     // (a no-op at a boundary), so keep the ordered fallback

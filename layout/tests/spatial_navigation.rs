@@ -320,3 +320,92 @@ fn scroll_on_the_focused_scroll_container_scrolls_it() {
         "a focused `scroll` container scrolls on Down (got {action:?})",
     );
 }
+
+// ---------------------------------------------------------------------------
+// The LIVE path: painted geometry and the scroll boundary
+// ---------------------------------------------------------------------------
+
+/// The `auto_scrolls_...` layout: an 80px `overflow-y: auto` scroller(1)
+/// holding a0(2)..a3(5), 40px each, and `outside`(6) right under it.
+fn scroll_list() -> LayoutWindow {
+    lay_out(
+        Dom::create_body()
+            .with_css("margin: 0; padding: 0;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: block; margin: 0; padding: 0; width: 200px; height: 80px; \
+                         overflow-y: auto;",
+                    )
+                    .with_child(button(100, 40, "0"))
+                    .with_child(button(100, 40, "0"))
+                    .with_child(button(100, 40, "0"))
+                    .with_child(button(100, 40, "0")),
+            )
+            .with_child(button(100, 20, "0")),
+        800.0,
+        600.0,
+    )
+}
+
+fn scroll_list_to(lw: &mut LayoutWindow, y: f32) {
+    let now: azul_core::task::Instant = std::time::Instant::now().into();
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        NodeId::new(1),
+        azul_core::geom::LogicalPosition::new(0.0, y),
+        now,
+    );
+}
+
+fn live_down_from(lw: &LayoutWindow, from: usize) -> DefaultAction {
+    lw.keyboard_default_action(&arrow(VirtualKeyCode::Down), Some(dnid(from)), false, None)
+        .action
+}
+
+/// The arrow names the container it scrolls: the scroller, one line down.
+#[test]
+fn the_scroll_names_the_container_the_steps_picked() {
+    let lw = scroll_list();
+    assert_eq!(
+        live_down_from(&lw, 3),
+        DefaultAction::ScrollContainer {
+            container: dnid(1),
+            direction: azul_core::events::ScrollDirection::Down,
+            amount: azul_core::events::ScrollAmount::Line,
+        },
+    );
+}
+
+/// Scrolled down by 40px, `a2` is on screen right under `a1`, and Down
+/// focuses it. The STATIC geometry still has `a2` below the fold - the answer
+/// the old resolver's unscrolled rects gave.
+#[test]
+fn an_item_scrolled_into_view_is_focused_where_it_is_painted() {
+    let mut lw = scroll_list();
+    scroll_list_to(&mut lw, 40.0);
+    assert_eq!(live_down_from(&lw, 3), DefaultAction::FocusDown);
+    assert_eq!(
+        lw.resolve_focus_target_live(
+            &FocusTarget::Directional(FocusDirection::Down),
+            Some(dnid(3))
+        ),
+        Ok(FocusResolution::Resolved(dnid(4))),
+    );
+}
+
+/// At the bottom of the list (offset 80, its maximum) nothing below `a3` is
+/// left to scroll to: `navnotarget`, then the document, where `outside` is.
+#[test]
+fn at_the_bottom_of_a_scrolled_list_an_arrow_leaves_it() {
+    let mut lw = scroll_list();
+    scroll_list_to(&mut lw, 80.0);
+    assert_eq!(live_down_from(&lw, 5), DefaultAction::FocusDown);
+    assert_eq!(
+        lw.resolve_focus_target_live(
+            &FocusTarget::Directional(FocusDirection::Down),
+            Some(dnid(5))
+        ),
+        Ok(FocusResolution::Resolved(dnid(6))),
+    );
+}

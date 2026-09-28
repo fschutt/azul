@@ -11911,19 +11911,22 @@ pub trait PlatformWindow {
                         self.get_layout_window()
                             .and_then(|lw| lw.focus_manager.focused_node_for(key_seat))
                     };
-                    let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
+                    let layout_window = self.get_layout_window();
 
-                    if let Some(layout_results) = layout_results {
+                    if let Some(layout_window) = layout_window {
                         // Contenteditable awareness: Enter/Backspace/Delete at
                         // block boundaries become STRUCTURAL edit records instead
                         // of activation / plain text ops.
-                        let editing_state = self.get_layout_window().and_then(|lw| {
-                            lw.build_editing_query_state_for_seat(key_seat, focused_node)
-                        });
-                        let default_action_result = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
-                        keyboard_state, focused_node, layout_results, prevent_default,
-                        editing_state.as_ref(),
-                    );
+                        let editing_state = layout_window
+                            .build_editing_query_state_for_seat(key_seat, focused_node);
+                        // Spatial navigation (arrows) runs on the LIVE geometry:
+                        // scroll offsets, transforms and the focus scope.
+                        let default_action_result = layout_window.keyboard_default_action(
+                            keyboard_state,
+                            focused_node,
+                            prevent_default,
+                            editing_state.as_ref(),
+                        );
                         focus_trace!(
                             "key default action (seat {key_seat}, focused {focused_node:?}): {:?}",
                             default_action_result.action
@@ -11931,7 +11934,6 @@ pub trait PlatformWindow {
 
                         if default_action_result.has_action() {
                             use azul_core::events::DefaultAction;
-                            use azul_layout::managers::focus_cursor::resolve_focus_target;
 
                             match &default_action_result.action {
                                 DefaultAction::FocusNext
@@ -11947,16 +11949,12 @@ pub trait PlatformWindow {
                                         &default_action_result.action,
                                     );
                                     if let Some(focus_target) = focus_target {
-                                        let out_of_scope = self
-                                        .get_layout_window()
-                                        .map(LayoutWindow::focus_out_of_scope_doms)
-                                        .unwrap_or_default();
-                                        let resolve_result = resolve_focus_target(
-                                            &focus_target,
-                                            layout_results,
-                                            focused_node,
-                                            &out_of_scope,
-                                        );
+                                        // The same live env the decision used,
+                                        // so a spatial move lands where it was
+                                        // decided (and the focus scope is the
+                                        // same on both sides).
+                                        let resolve_result = layout_window
+                                            .resolve_focus_target_live(&focus_target, focused_node);
                                         // Tab with nothing tabbable (NotFound) no
                                         // longer clears focus — a miss is not a
                                         // clear (browser behavior). Only a real
@@ -12144,6 +12142,32 @@ pub trait PlatformWindow {
                                                     result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+
+                                DefaultAction::ScrollContainer {
+                                    container,
+                                    direction,
+                                    amount,
+                                } => {
+                                    // An arrow that spatial navigation (css-nav-1)
+                                    // turned into a scroll of THIS container: the
+                                    // nearest overflowing ancestor can be one the
+                                    // steps passed (at its boundary, or `focus`).
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        let now: azul_core::task::Instant =
+                                            std::time::Instant::now().into();
+                                        if lw.scroll_container_by_keyboard(
+                                            *container,
+                                            *direction,
+                                            *amount,
+                                            std::time::Duration::from_millis(150).into(),
+                                            now,
+                                        ) {
+                                            result = result.max(
+                                                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+                                            );
                                         }
                                     }
                                 }
@@ -12336,7 +12360,7 @@ pub trait PlatformWindow {
             .get_layout_window_mut()
             .map_or(0, |lw| lw.gamepad_manager.take_pending_pressed());
         if !prevent_default && gamepad_pressed != 0 {
-            use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+            use azul_layout::managers::focus_cursor::FocusResolution;
 
             let action =
                 azul_layout::default_actions::determine_gamepad_default_action(gamepad_pressed);
@@ -12344,18 +12368,11 @@ pub trait PlatformWindow {
                 azul_layout::default_actions::default_action_to_focus_target(&action)
             {
                 let focused_node = old_focus;
-                let out_of_scope = self
-                    .get_layout_window()
-                    .map(LayoutWindow::focus_out_of_scope_doms)
-                    .unwrap_or_default();
-                if let Some(layout_results) = self.get_layout_window().map(|lw| &lw.layout_results)
-                {
-                    let resolve_result = resolve_focus_target(
-                        &focus_target,
-                        layout_results,
-                        focused_node,
-                        &out_of_scope,
-                    );
+                if let Some(layout_window) = self.get_layout_window() {
+                    // The live env (scroll offsets, transforms, focus scope),
+                    // the same one the arrow keys use.
+                    let resolve_result =
+                        layout_window.resolve_focus_target_live(&focus_target, focused_node);
                     // As with Tab: nothing in that direction is a MISS, not a
                     // clear. Walking into a wall must not drop focus.
                     if let Ok(FocusResolution::Resolved(new_focus_node)) = resolve_result {

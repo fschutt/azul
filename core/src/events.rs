@@ -1533,6 +1533,20 @@ pub enum DefaultAction {
     ResetForm {
         form_node: DomNodeId,
     },
+    /// Directionally scroll `container`, leaving the focus where it is: an
+    /// arrow key for which css-nav-1's spatial navigation steps picked THIS
+    /// container to scroll (no visible candidate in it that way, and it can
+    /// still scroll that way). APPENDED at the enum tail for ABI stability.
+    ///
+    /// Unlike [`Self::ScrollFocusedContainer`], which scrolls the nearest
+    /// overflowing ancestor of the focus, this names the container: the steps
+    /// may have passed an inner one that is at its boundary or says
+    /// `spatial-navigation-action: focus`.
+    ScrollContainer {
+        container: DomNodeId,
+        direction: ScrollDirection,
+        amount: ScrollAmount,
+    },
 }
 
 /// Amount to scroll for keyboard-based scrolling
