@@ -438,6 +438,10 @@ pub mod callbacks;
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
+/// Which context menu a secondary click opens - the one pick every shell
+/// presents.
+#[cfg(feature = "text_layout")]
+pub mod context_menu;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;

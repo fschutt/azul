@@ -275,9 +275,15 @@ mod view_handlers {
             // view without a `menuForEvent:` menu as a LEFT mouseDown with the
             // Control flag. Route it to the right-button handlers (a context
             // menu, not a paint stroke) and latch so the release follows,
-            // whether or not Control is still held by then.
-            let ctrl_click = unsafe { event.modifierFlags() }
+            // whether or not Control is still held by then. The rule itself
+            // is the engine's (`azul_layout::context_menu::is_secondary_press`).
+            let control_held = unsafe { event.modifierFlags() }
                 .contains(objc2_app_kit::NSEventModifierFlags::Control);
+            let ctrl_click = azul_layout::context_menu::is_secondary_press(
+                &azul_css::system::Platform::MacOs,
+                azul_core::events::MouseButton::Left,
+                control_held,
+            );
             if ctrl_click {
                 unsafe {
                     (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right = true;

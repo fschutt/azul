@@ -277,27 +277,12 @@ impl MacOSWindow {
         // had just recorded (`right_down = false`), so MouseUp(Right) callbacks
         // never fired on a node that carried a context menu.
         if button == MouseButton::Right {
-            // The DEEPEST hovered node (not the shallowest — `get_first_hovered_node`
-            // returns the smallest NodeId, ~the body), so the ancestor walk in
-            // `resolve_context_menu` starts BELOW the node carrying the menu and
-            // can reach it. A right-click on a label inside a box opens the box's
-            // menu; picking the body found nothing (no "[Context Menu] Queuing").
-            let deepest = self
-                .common
-                .layout_window
-                .as_ref()
-                .and_then(|lw| lw.hover_manager.current_hover_node_full());
-            if let Some(dn) = deepest {
-                if let Some(nid) = dn.node.into_crate_internal() {
-                    self.resolve_context_menu(
-                        HitTestNode {
-                            dom_id: dn.dom.inner as u64,
-                            node_id: nid.index() as u64,
-                        },
-                        position,
-                    );
-                }
-            }
+            // WHICH menu is the engine's one answer
+            // (`LayoutWindow::context_menu_under_pointer`, shared with every
+            // other shell): the front-most node under the release, walking up
+            // to the nearest node that carries a menu. A right-click on a label
+            // inside a box opens the box's menu.
+            self.resolve_context_menu(position);
         }
 
         // Use V2 cross-platform event system - automatically detects MouseUp
@@ -1357,54 +1342,26 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Resolve a context menu for the given node at position and QUEUE it.
+    /// Resolve the context menu under the pointer and QUEUE it.
     /// Returns Some if a menu was queued, None otherwise.
     ///
-    /// Presentation is deliberately not done here — see `pending_context_menu`
-    /// and `take_pending_context_menu` in `macos/mod.rs`.
-    fn resolve_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> Option<()> {
-        use azul_core::dom::DomId;
-
-        let layout_window = self.common.layout_window.as_ref()?;
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-
-        // Get layout result for this DOM
-        let layout_result = layout_window.layout_results.get(&dom_id)?;
-
-        // Check if this node has a context menu
-        let node_id = azul_core::id::NodeId::from_usize(node.node_id as usize)?;
-        let binding = layout_result.styled_dom.node_data.as_container();
-        let node_data = binding.get(node_id)?;
-
-        // Context menus are stored directly on NodeData. A right-click on a
-        // CHILD of the node that carries the menu opens it too (every OS does
-        // this) - walk up from the hit node to the first ancestor with one,
-        // the same walk the keyboard-accelerator lookup already does.
-        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let mut current = Some(node_id);
-        let mut context_menu = None;
-        for _ in 0..256 {
-            let Some(n) = current else { break };
-            if let Some(menu) = binding
-                .get(n)
-                .and_then(azul_core::dom::NodeData::get_context_menu)
-            {
-                context_menu = Some(menu.clone());
-                break;
-            }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
-        }
-        let context_menu = context_menu?;
-        let _ = node_data;
+    /// Which node's menu opens is the engine's answer
+    /// (`LayoutWindow::context_menu_under_pointer`); this adds only the
+    /// platform half. Presentation is deliberately not done here — see
+    /// `pending_context_menu` and `take_pending_context_menu` in `macos/mod.rs`.
+    fn resolve_context_menu(&mut self, position: LogicalPosition) -> Option<()> {
+        let (owner, context_menu) = self
+            .common
+            .layout_window
+            .as_ref()?
+            .context_menu_under_pointer()?;
 
         log_debug!(
             LogCategory::Input,
             "[Context Menu] Queuing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
-            node,
+            owner,
             context_menu.items.as_slice().len()
         );
 
