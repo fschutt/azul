@@ -26,11 +26,11 @@ use azul_css::{
     },
     impl_option_inner,
     props::{
-        basic::{color::ColorU, StyleFontSize},
+        basic::{color::ColorU, FloatValue, StyleFontSize},
         layout::{
             LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutJustifyContent, LayoutMarginBottom, LayoutMarginLeft,
-            LayoutMarginRight, LayoutWidth,
+            LayoutFlexShrink, LayoutHeight, LayoutJustifyContent, LayoutMarginBottom,
+            LayoutMarginLeft, LayoutMarginRight, LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
@@ -164,6 +164,19 @@ const DOT_COLOR: ColorU = ColorU {
 const DOT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DOT_COLOR)];
 const DOT_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(DOT_BG_ITEMS);
 
+/// Never shrink: the indicator is a fixed-size shape, not a share of its row.
+///
+/// A flex item shrinks by default, down to its content's minimum - for the
+/// ring that is the 8 px dot plus its borders - so a row handed less width
+/// than ring + label (a narrow column, a relayout pass that measured the
+/// group short) squeezed the 18 x 18 ring into a 10 x 18 pill with the dot
+/// off its centre. The label wraps or overflows instead, as next to a native
+/// radio button.
+const NO_SHRINK: CssPropertyWithConditions =
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    }));
+
 /// Outer ring of one option's indicator (parameter-independent → const slice).
 /// A flex box that centres its inner dot.
 static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
@@ -174,6 +187,7 @@ static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     )),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         CIRCLE_SIZE,
@@ -241,6 +255,7 @@ static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
     // The checked dot is the desktop's accent in the dark theme.
     crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
@@ -264,6 +279,7 @@ static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
     // The checked dot is the desktop's accent in the dark theme.
     crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
