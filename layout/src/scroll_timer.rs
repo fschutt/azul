@@ -427,6 +427,14 @@ pub extern "C" fn scroll_physics_timer_callback(
         let key = (input.dom_id, input.node_id);
         match input.source {
             ScrollInputSource::TrackpadContinuous | ScrollInputSource::TrackpadMomentum => {
+                // THE USER'S HAND TAKES THE VIEW: an engine glide in flight on
+                // this node (the caret reveal's `AnimateTo`) dies here. Only
+                // dropping the node's velocity left the seek target armed -
+                // the seek loop skips a node without a velocity entry, so the
+                // glide went dormant, and woke with the next velocity entry
+                // (a momentum edge hand-off, a `TrackpadEnd` over an edge)
+                // to glide back to a caret the user had scrolled away from.
+                retire_engine_seek(&mut physics.animate_targets, key);
                 let is_momentum = input.source == ScrollInputSource::TrackpadMomentum;
                 // Once the rubber-band spring owns an axis, the OS momentum tail
                 // for THAT axis is dropped: it knows nothing about our edge, and
@@ -578,9 +586,14 @@ pub extern "C" fn scroll_physics_timer_callback(
                 ) {
                     if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id)
                     {
+                        // Consecutive clicks extend the WHEEL's own target; an
+                        // engine glide's target (the caret reveal) is not the
+                        // user's, so a click during one moves from the view the
+                        // user is looking at - and the insert below retires it.
                         let base = physics
                             .animate_targets
                             .get(&key)
+                            .filter(|(_, device)| !is_engine_seek(*device))
                             .map_or(info.current_offset, |(t, _)| *t);
                         // Clamp into the scrollable range: a wheel click at
                         // the boundary must not build up an off-range target
@@ -1197,6 +1210,39 @@ pub extern "C" fn scroll_physics_timer_callback(
         // nothing.
         timer_info.callback_info.settle_scroll_gesture();
         TimerCallbackReturn::terminate_unchanged()
+    }
+}
+
+// ============================================================================
+// Who owns a seek target
+// ============================================================================
+
+/// Is a seek (an `animate_targets` entry) armed by `device` the ENGINE
+/// moving the view on somebody's behalf - the caret reveal's glide
+/// (`Keyboard`), an app's `scroll_to_animated` (`Programmatic`), an
+/// assistive technology, a test driver - rather than the user's own wheel
+/// glide? A user gesture on the node retires an engine seek; it extends or
+/// replaces a wheel glide by the ordinary rules.
+const fn is_engine_seek(device: ScrollInputDevice) -> bool {
+    !matches!(
+        device,
+        ScrollInputDevice::MouseWheel
+            | ScrollInputDevice::Unknown
+            | ScrollInputDevice::Touchpad
+            | ScrollInputDevice::Touchscreen
+    )
+}
+
+/// Drop `key`'s seek target if the engine armed it ([`is_engine_seek`]).
+fn retire_engine_seek(
+    animate_targets: &mut BTreeMap<(DomId, NodeId), (LogicalPosition, ScrollInputDevice)>,
+    key: (DomId, NodeId),
+) {
+    if animate_targets
+        .get(&key)
+        .is_some_and(|(_, device)| is_engine_seek(*device))
+    {
+        animate_targets.remove(&key);
     }
 }
 
