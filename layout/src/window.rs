@@ -20896,6 +20896,18 @@ impl LayoutWindow {
     ) -> Option<Vec<DomNodeId>> {
         use azul_core::selection::{Selection, SelectionRange};
 
+        // THE DRAG OWNS THE VIEW. A selection drag - and the drag-autoscroll
+        // it drives, whose timer frames extend the selection through this
+        // same call after scrolling - is the one writer of its field's
+        // offset while it lasts: it is the user's hand, like the wheel. A
+        // reveal still pending from before it (the press's own, a keystroke's
+        // kept for a relayout) must not be performed against it: the end
+        // resolved under the pointer here would be painted against an offset
+        // a reveal moved afterwards, and near an edge the next event resolves
+        // a glyph further along and the reveal scrolls again - a
+        // micro-autoscroll paced by the mouse event rate.
+        self.scroll_manager.note_user_scroll();
+
         // Get the anchor cursor and editing node from MultiCursorState.
         // The anchor was set by process_mouse_click_for_selection.
         // IMPORTANT: For Range selections, the anchor is .start (fixed),
