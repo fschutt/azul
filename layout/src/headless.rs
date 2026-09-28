@@ -836,6 +836,9 @@ impl CpuHitTester {
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
         gpu: Option<&crate::managers::gpu_state::GpuStateManager>,
     ) {
+        // Once per layout on the CPU backend (the finalize tail of every
+        // relayout, animation frames included).
+        let _p = crate::probe::Probe::span("cpu_hit_tester_rebuild");
         self.node_rects.clear();
         self.chains.clear();
         self.chains.push(Vec::new()); // chain 0 = empty
@@ -1028,6 +1031,7 @@ impl CpuHitTester {
             // follow it in the tree (CSS 2.2 Appendix E), so a fixed header
             // lost the pointer to the page content scrolled under it. The
             // sort is stable: ties keep tree order.
+            let sort_span = crate::probe::Probe::span("hit_test_paint_order_sort");
             let ranks = paint_ranks(&layout_result.display_list, nodes);
             let mut ranked: Vec<(usize, HitTestEntry)> = entry_layout_idx
                 .into_iter()
@@ -1036,6 +1040,7 @@ impl CpuHitTester {
                 .collect();
             ranked.sort_by_key(|(rank, _)| *rank);
             let entries: Vec<HitTestEntry> = ranked.into_iter().map(|(_, e)| e).collect();
+            drop(sort_span);
 
             self.node_rects.insert(*dom_id, entries);
         }

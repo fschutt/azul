@@ -141,6 +141,7 @@ impl ScrollChains {
         scroll_ids: &HashMap<LayoutNodeId, u64>,
     ) -> Self {
         const UNSET: u32 = u32::MAX;
+        let _p = crate::probe::Probe::span("scroll_chains_compute");
         let n = tree.nodes.len();
         let anchors: Vec<Option<(LayoutNodeId, bool)>> = (0..n)
             .map(|i| box_anchor(tree, styled_dom, LayoutNodeId::new(i)))

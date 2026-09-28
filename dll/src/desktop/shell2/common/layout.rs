@@ -1811,6 +1811,9 @@ pub(super) fn incremental_relayout(
     // StyledDom — is the number the <8ms interactivity target is measured
     // against. Without this span the fast path was invisible in the log.
     let _span = crate::log_span!(LogCategory::Window, "incremental_relayout",);
+    // The same pass as `app_phase_seconds{phase}` - one per frame of a
+    // layout-property tween (the Switch knob's margin-left).
+    let _probe = azul_layout::probe::Probe::span("shell_incremental_relayout");
 
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
 

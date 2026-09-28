@@ -34,6 +34,9 @@ use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
 pub const CARET_SCROLL_GUTTER_PX: f32 = 6.0;
 
 pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
+    // Runs after every layout - every frame of a layout-property tween - and
+    // the desktop shell's incremental relayout runs it a second time.
+    let _p = crate::probe::Probe::span("register_scroll_nodes");
     // Which node owns the active caret. Snapshotted BEFORE the loop below takes
     // `layout_results` mutably.
     let caret_node: Option<DomNodeId> = layout_window

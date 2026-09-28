@@ -12493,6 +12493,7 @@ impl LayoutWindow {
         // does anyway; layout-affecting scopes raise `transition_relayout`
         // so the driver escalates to an incremental relayout.
         if !self.css_transitions.is_empty() {
+            let _tick_span = crate::probe::Probe::span("css_transition_tick");
             let rects = transition_rects;
             let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
             let mut needs_relayout = false;
@@ -13119,6 +13120,8 @@ impl LayoutWindow {
     /// focus information.
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
+        // After EVERY layout, animation frames included - the whole tree.
+        let _p = crate::probe::Probe::span("a11y_update_tree");
         let cursor_a11y_info = self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
             let node_id = mc.block.container();
             let primary = mc.get_primary()?;
