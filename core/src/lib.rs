@@ -435,6 +435,12 @@ pub mod transient;
 /// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
 /// lives in `azul-dll` (`desktop/tray`).
 pub mod tray;
+/// Native desktop notification POD types.
+///
+/// The notification, its buttons and sound, and the events it reports back.
+/// The queues live in `azul-layout` (`managers::notification`), the OS
+/// plumbing in `azul-dll` (`desktop/notifications`) - the tray's split.
+pub mod notification;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.

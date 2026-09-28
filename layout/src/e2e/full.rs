@@ -4473,6 +4473,7 @@ impl AssertionResult {
 /// | `assert_only_managers_changed` | `vs`, `changed`, `min_populated?`  |
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
+/// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `withdrawn?`, `count?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -4517,6 +4518,8 @@ pub fn evaluate_assertion(
         "assert_saved_file" => eval_assert_saved_file(params),
         "assert_no_unmocked_requests" => eval_assert_no_unmocked_requests(params),
         "assert_unmocked_request" => eval_assert_unmocked_request(params),
+        // Native notifications, as the headless backend recorded them
+        "assert_notification" => eval_assert_notification(params),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -6208,6 +6211,114 @@ fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
     ))
 }
 
+/// `assert_notification`: a native notification the app posted, as the
+/// HEADLESS backend recorded it (`AZ_BACKEND=headless`; a real backend shows
+/// the notification instead of recording it, and this then fails with an
+/// empty recording rather than passing on nothing).
+///
+/// Params, all optional: `id`, `title`, `body` (exact) pick the most recent
+/// matching post; `action` requires a button with that id on it; `withdrawn`
+/// (bool) requires it to have been withdrawn or not; `count` is the exact
+/// number of recorded posts matching `id` (all posts without one).
+///
+/// ```json
+/// { "op": "assert_notification", "id": "demo", "action": "open", "withdrawn": false }
+/// ```
+fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
+    const CONSTRAINTS: &[&str] = &["id", "title", "body", "action", "withdrawn", "count"];
+    if let Some(bad) = reject_unknown_params("assert_notification", params, CONSTRAINTS) {
+        return bad;
+    }
+    let id = params.get("id").and_then(serde_json::Value::as_str);
+    let title = params.get("title").and_then(serde_json::Value::as_str);
+    let body = params.get("body").and_then(serde_json::Value::as_str);
+    let action = params.get("action").and_then(serde_json::Value::as_str);
+    let withdrawn = params.get("withdrawn").and_then(serde_json::Value::as_bool);
+    let count = params.get("count").and_then(serde_json::Value::as_u64);
+
+    let recorded = azul_layout::managers::notification::recorded_notifications();
+    let summary: Vec<String> = recorded
+        .iter()
+        .map(|r| {
+            format!(
+                "{:?} {:?}{}",
+                r.notification.id.as_str(),
+                r.notification.title.as_str(),
+                if r.withdrawn { " (withdrawn)" } else { "" }
+            )
+        })
+        .collect();
+
+    if let Some(expected) = count {
+        let n = recorded
+            .iter()
+            .filter(|r| id.is_none_or(|i| r.notification.id.as_str() == i))
+            .count() as u64;
+        if n != expected {
+            return AssertionResult::fail_with(
+                "recorded notification count differs",
+                format!("{expected} post(s) with id {id:?}"),
+                format!("{n}: {summary:?}"),
+            );
+        }
+        if id.is_none() && title.is_none() && body.is_none() && action.is_none() && withdrawn.is_none()
+        {
+            return AssertionResult::pass(format!("{n} notification(s) recorded, as expected"));
+        }
+    }
+
+    let found = recorded.iter().rev().find(|r| {
+        let n = &r.notification;
+        id.is_none_or(|v| n.id.as_str() == v)
+            && title.is_none_or(|v| n.title.as_str() == v)
+            && body.is_none_or(|v| n.body.as_str() == v)
+    });
+    let Some(entry) = found else {
+        return AssertionResult::fail_with(
+            "no recorded notification matches (is the app running with AZ_BACKEND=headless, and \
+             did the post reach the backend - the pump drains requests once per event pass?)",
+            format!("id={id:?} title={title:?} body={body:?}"),
+            format!("{} recorded: {summary:?}", recorded.len()),
+        );
+    };
+    if let Some(want) = action {
+        let has = entry
+            .notification
+            .actions
+            .as_ref()
+            .iter()
+            .any(|a| a.id.as_str() == want);
+        if !has {
+            let ids: Vec<&str> = entry
+                .notification
+                .actions
+                .as_ref()
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect();
+            return AssertionResult::fail_with(
+                "the recorded notification has no button with that id",
+                want,
+                format!("{ids:?}"),
+            );
+        }
+    }
+    if let Some(want) = withdrawn {
+        if entry.withdrawn != want {
+            return AssertionResult::fail_with(
+                "the recorded notification's withdrawn state differs",
+                format!("withdrawn={want}"),
+                format!("withdrawn={}", entry.withdrawn),
+            );
+        }
+    }
+    AssertionResult::pass(format!(
+        "notification {:?} ({:?}) recorded",
+        entry.notification.id.as_str(),
+        entry.notification.title.as_str()
+    ))
+}
+
 /// `assert_no_unmocked_requests`: every request function that ran since the
 /// last `mock` reset had a canned answer.
 fn eval_assert_no_unmocked_requests(params: &serde_json::Value) -> AssertionResult {
@@ -7577,6 +7688,15 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          registry id at all — `0` means \"no native handle\" and the module refuses to queue it",
     ),
     (
+        "notification",
+        "owns no window state: two PROCESS-GLOBAL mutex queues (requests a callback parks for the \
+         dll's backend, events a platform callback parks for the run loop) and the headless \
+         recorder. The registry that routes an event to its callback belongs to the dll's \
+         notification service, keyed by the APP's notification id - a string the app picked, \
+         not a DOM node - so X10 has no key to judge. What the headless backend recorded is \
+         asserted by `assert_notification`",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -8682,6 +8802,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              queue is a process-global, and its only reader `take_raise_request` removes the \
              entry it reports, so measuring it would swallow a sibling window's raise. \
              `manager_fingerprints` takes a `&LayoutWindow` and this module has no field on one",
+        ),
+        (
+            "notification",
+            "nothing on the WINDOW to hash: its queues and recorder are process-globals, and the \
+             queues' only readers (`drain_notification_requests`, `drain_notification_events`) \
+             consume what they return, so measuring them would swallow the post or the click the \
+             app was about to see. The recording is read by `assert_notification` instead",
         ),
     ];
     #[cfg(not(feature = "a11y"))]

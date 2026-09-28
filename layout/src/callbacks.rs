@@ -5214,6 +5214,37 @@ impl CallbackInfo {
             .cloned()
     }
 
+    /// Show a native desktop notification: a banner in macOS's Notification
+    /// Center, a freedesktop notification on Linux, a balloon/toast from the
+    /// notification area on Windows.
+    ///
+    /// Returns immediately. Posting a notification whose id is still showing
+    /// replaces it. What the user then does with it - a click, a button, a
+    /// dismissal - or why it could not be shown arrives at the notification's
+    /// own callback (`Notification::with_callback`), which reads it with
+    /// [`CallbackInfo::get_notification_event`]. Whether this platform can
+    /// show one at all: `PlatformCapability::notifications()`.
+    pub fn post_notification(&mut self, notification: azul_core::notification::Notification) {
+        crate::managers::notification::push_notification_request(
+            crate::managers::notification::NotificationRequest::Post(notification),
+        );
+    }
+
+    /// Take the notification posted under `id` off the screen. Its callback
+    /// is forgotten: a withdrawn notification reports nothing more.
+    pub fn withdraw_notification(&mut self, id: AzString) {
+        crate::managers::notification::push_notification_request(
+            crate::managers::notification::NotificationRequest::Withdraw(id),
+        );
+    }
+
+    /// Inside a notification's callback: what happened to it (clicked, a
+    /// button, dismissed, failed to show). `None` in any other callback.
+    #[must_use]
+    pub fn get_notification_event(&self) -> Option<azul_core::notification::NotificationEvent> {
+        crate::managers::notification::current_notification_event()
+    }
+
     /// Read the most recently observed permission state for `capability`
     /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) - e.g.
     /// so a callback can check a capability is `Granted` before using it (show

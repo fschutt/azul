@@ -48,6 +48,9 @@ pub mod keyring;
 pub mod media_keys;
 /// Media playback state machine (11c): the transport + the six media events.
 pub mod media_player;
+/// Native notifications: the request queue, the event mailbox, the routing
+/// of an event to its notification's callback, and the headless recorder.
+pub mod notification;
 pub mod permission;
 pub mod scroll_into_view;
 pub mod scroll_registration;

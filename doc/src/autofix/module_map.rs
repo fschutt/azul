@@ -44,6 +44,7 @@ pub const MODULES: &[&str] = &[
     "gamepad",
     "gesture",
     "tray",
+    "notification",
     "webtransport",
     "db",
     "file",
@@ -893,6 +894,11 @@ fn module_from_external_path(path: &str) -> Option<String> {
     // exact path is both safer and self-documenting.
     if path.starts_with("azul_core::tray::") {
         return Some("tray".to_string());
+    }
+    // Native notifications: the tray's sibling, routed the same way - by path,
+    // so no name keyword of another module claims one of its types.
+    if path.starts_with("azul_core::notification::") {
+        return Some("notification".to_string());
     }
     if path.starts_with("azul_core::url::") {
         return Some("url".to_string());
