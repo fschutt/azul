@@ -136,6 +136,8 @@ mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
 mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "a_press_on_an_overflowing_field_selects.rs"]
 mod a_press_on_an_overflowing_field_selects;
+#[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
+mod a_scroll_box_scrolls_to_its_end_padding;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
