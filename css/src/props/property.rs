@@ -3234,6 +3234,78 @@ impl CssParsingErrorOwned {
     }
 }
 
+/// Whether a bare `auto` belongs to `key`'s grammar and is read as the generic
+/// [`CssProperty::auto`].
+///
+/// `auto` is NOT a CSS-wide keyword (those are `initial`, `inherit`, `unset`
+/// and `revert`), so it must not be accepted on every property: where the
+/// grammar lacks it, `parse_css_property` hands the bare `auto` to the
+/// property's own parser, which rejects it, and the declaration is dropped
+/// instead of overriding an earlier valid one.
+///
+/// Listed: every property whose grammar has `auto` and that is not already
+/// in `parse_css_property`'s `has_typed_auto` list (those parse `auto`
+/// through their own typed parser). A missing entry here silently drops a
+/// valid `auto`, so add new properties with care.
+#[cfg(feature = "parser")]
+const fn grammar_accepts_bare_auto(key: CssPropertyType) -> bool {
+    use self::CssPropertyType as T;
+    matches!(
+        key,
+        // Box sizes and insets: `auto` is the initial value.
+        T::Width
+            | T::Height
+            | T::MinWidth
+            | T::MinHeight
+            | T::Top
+            | T::Right
+            | T::Bottom
+            | T::Left
+            | T::MarginTop
+            | T::MarginRight
+            | T::MarginBottom
+            | T::MarginLeft
+            | T::ZIndex
+            // Flex / grid / box alignment.
+            | T::FlexBasis
+            | T::AlignSelf
+            | T::JustifySelf
+            | T::GridTemplateColumns // `auto` is a one-track <track-list>
+            | T::GridTemplateRows
+            | T::GridAutoColumns
+            | T::GridAutoRows
+            | T::GridColumn
+            | T::GridRow
+            // Multi-column, fragmentation, tables.
+            | T::ColumnCount
+            | T::ColumnWidth
+            | T::ColumnFill
+            | T::BreakBefore
+            | T::BreakAfter
+            | T::BreakInside
+            | T::TableLayout
+            // Text and inline layout.
+            | T::TextJustify
+            | T::TextBoxEdge
+            | T::TextDecoration // the shorthand's `text-decoration-thickness: auto`
+            | T::DominantBaseline
+            | T::BaselineSource
+            | T::InitialLetterAlign
+            | T::CaretColor
+            // UI, scrolling, clipping, shapes.
+            | T::Cursor
+            | T::BackgroundSize
+            | T::ScrollbarGutter
+            | T::ScrollbarWidth
+            | T::ScrollbarColor
+            | T::ScrollbarVisibility
+            | T::Clip
+            | T::ShapeInside
+            | T::SpatialNavigationAction
+            | T::SpatialNavigationContain
+    )
+}
+
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_lines)]
 // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
@@ -3285,7 +3357,9 @@ pub fn parse_css_property(
     );
 
     Ok(match value {
-        "auto" if !has_typed_auto => CssProperty::auto(key),
+        // Only where the grammar has `auto`; elsewhere the property's own
+        // parser sees it (and rejects it) - see `grammar_accepts_bare_auto`.
+        "auto" if !has_typed_auto && grammar_accepts_bare_auto(key) => CssProperty::auto(key),
         "none" if !has_typed_none => CssProperty::none(key),
         "initial" => CssProperty::initial(key),
         "inherit" => CssProperty::inherit(key),

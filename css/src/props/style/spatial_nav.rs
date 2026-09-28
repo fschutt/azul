@@ -438,9 +438,7 @@ mod tests {
     /// only, so it says the same thing before and after the type exists.
     #[test]
     fn the_function_property_parses_from_its_css_name_and_prints_back() {
-        use crate::props::property::{
-            get_css_key_map, parse_css_property, CssProperty, CssPropertyType,
-        };
+        use crate::props::property::{get_css_key_map, parse_css_property, CssPropertyType};
 
         let map = get_css_key_map();
         let ty = CssPropertyType::from_str("spatial-navigation-function", &map)
@@ -451,11 +449,11 @@ mod tests {
             assert_eq!(parsed.get_type(), ty);
             assert_eq!(parsed.value(), keyword, "`{keyword}` must print back as itself");
         }
-        // `auto` is a keyword of the two sibling properties, not of this one:
-        // like every property without a typed `auto`, it parses as the
-        // CSS-wide `auto` (which resolves to the initial `normal`), never as a
-        // value of this property.
-        assert_eq!(parse_css_property(ty, "auto").ok(), Some(CssProperty::auto(ty)));
+        // `auto` is a keyword of the two sibling properties, not of this one,
+        // and it is not a CSS-wide keyword: a bare `auto` here is an invalid
+        // value, so the declaration is dropped rather than overriding an
+        // earlier valid one.
+        assert!(parse_css_property(ty, "auto").is_err());
         assert!(!ty.can_trigger_relayout());
     }
 
