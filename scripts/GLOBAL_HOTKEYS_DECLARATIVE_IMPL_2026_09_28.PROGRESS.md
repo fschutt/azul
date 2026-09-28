@@ -104,15 +104,21 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     integration points; headless run() attaches a condvar waker. trigger_description /
     ShortcutsChanged parsing left OPEN (zvariant `a(sa{sv})` decoding too risky uncompiled).
 
+12a. `904da24a8` test(api): CallbackInfo reads hotkeys by accelerator, retries, sees the fired
+    event - RED, does not compile (`layout/src/callbacks.rs` tests: retry row in
+    `callback_info_flag_mutators_queue_exactly_one_matching_change`,
+    `callback_info_reads_the_live_global_hotkey_status_by_accelerator`,
+    `the_global_hotkey_event_is_only_readable_inside_the_fired_callback`).
+
+12b. feat(api): CallbackInfo `get_global_hotkey_status(hotkey)` (live), `get_global_hotkeys`,
+    `get_global_hotkey_event`, `retry_global_hotkey` + `CallbackChange::RetryGlobalHotkey { hotkey }`
+    (arms in dll `apply_user_change` and `layout/src/e2e/runner.rs`).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
-12. RED `callback_info_flag_mutators_queue_exactly_one_matching_change` + `retry_global_hotkey`
-    row; feat CallbackInfo: `get_global_hotkey_status(hotkey)`, `get_global_hotkeys`,
-    `get_global_hotkey_event`, `retry_global_hotkey` + `CallbackChange::RetryGlobalHotkey` (arms
-    in dll `apply_user_change` and `layout/src/e2e/runner.rs`).
 13. e2e: ops use the window's manager; `global_hotkey_answer`, `global_hotkey_settle`,
     `assert_global_hotkeys`; update gate reasons in `layout/src/e2e/full.rs` (~7727, ~8848).
 14. demo `examples/azul-widgets/src/hotkeys.rs` declares from state (layout() gets `info`).
@@ -161,6 +167,13 @@ Added (azul_core::global_hotkey):
   (+`Byref`); `OptionGlobalHotkeysCallback`; `GlobalHotkeysCallbackInfo` (opaque, Copy) with
   `add_global_hotkey`, `add_global_hotkey_with_description`, `get_global_hotkey_status`,
   `get_global_hotkeys`, `get_ctx`.
+
+- (step 12) `CallbackInfo::get_global_hotkey_status(&self, hotkey: GlobalHotkey) ->
+  GlobalHotkeyStatus` (SIGNATURE CHANGE: was `id: GlobalHotkeyId`), `CallbackInfo::
+  get_global_hotkeys(&self) -> GlobalHotkeyInfoVec`, `CallbackInfo::get_global_hotkey_event(&self)
+  -> OptionGlobalHotkeyEvent`, `CallbackInfo::retry_global_hotkey(&mut self, hotkey:
+  GlobalHotkey)`; `CallbackChange::RetryGlobalHotkey { hotkey }` (internal enum, appended).
+  `CallbackInfo::raise_window` unchanged.
 
 ## Open questions / notes
 

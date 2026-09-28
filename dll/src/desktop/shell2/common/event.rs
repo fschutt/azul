@@ -7087,6 +7087,17 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            // === Global hotkeys ===
+            // Forget the sticky failure; the loop's next hotkey pump syncs,
+            // asks the OS again, and re-runs the `layout()` passes that read
+            // the status once the answer arrives.
+            CallbackChange::RetryGlobalHotkey { hotkey } => {
+                if let Some(lw) = self.get_layout_window() {
+                    lw.global_hotkeys.shared().retry(*hotkey);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Drag & Drop ===
             CallbackChange::SetDragData { mime_type, data } => {
                 if let Some(lw) = self.get_layout_window_mut() {

@@ -863,6 +863,13 @@ pub enum CallbackChange {
     /// `desktop::extra::window_activation` in the dll).
     RaiseWindow,
 
+    // Global hotkeys
+    /// Forget the remembered failure of `hotkey` so the next sync asks the
+    /// OS again (`CallbackInfo::retry_global_hotkey`).
+    RetryGlobalHotkey {
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+    },
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -1991,6 +1998,52 @@ impl CallbackInfo {
     /// needs an input serial this request cannot have). A refusal is logged.
     pub fn raise_window(&mut self) {
         self.push_change(CallbackChange::RaiseWindow);
+    }
+
+    /// Where `hotkey` stands NOW, app-wide: `Active`, `Pending` (the desktop
+    /// has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`. Live, unlike `LayoutCallbackInfo::
+    /// get_global_hotkey_status`, which reads the snapshot its pass began
+    /// with.
+    ///
+    /// Global hotkeys are declared from state in `layout()`
+    /// (`LayoutCallbackInfo::add_global_hotkey`); an event callback changes
+    /// the state and returns `Update::RefreshDom`.
+    #[must_use]
+    pub fn get_global_hotkey_status(
+        &self,
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+    ) -> azul_core::global_hotkey::GlobalHotkeyStatus {
+        self.get_layout_window()
+            .global_hotkeys
+            .shared()
+            .status(&hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get,
+    /// with its status, the trigger the desktop shows, and its owner
+    /// relative to this callback's window. Live.
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> azul_core::global_hotkey::GlobalHotkeyInfoVec {
+        let window = &self.get_layout_window().global_hotkeys;
+        window.shared().snapshot_for(window.source())
+    }
+
+    /// The press being delivered - which accelerator, pressed or released,
+    /// when - while a global hotkey's own callback runs, so one callback can
+    /// serve several accelerators. `None` in every other callback.
+    #[must_use]
+    pub fn get_global_hotkey_event(&self) -> azul_core::global_hotkey::OptionGlobalHotkeyEvent {
+        crate::managers::global_hotkey::delivered_event().into()
+    }
+
+    /// Ask the OS for `hotkey` again although it failed (another app held
+    /// it, the Wayland dialog was declined): failures are sticky - never
+    /// re-asked by an ordinary relayout - until this. Applied after the
+    /// callback returns; a `layout()` that reads the status runs again when
+    /// the answer arrives.
+    pub fn retry_global_hotkey(&mut self, hotkey: azul_core::global_hotkey::GlobalHotkey) {
+        self.push_change(CallbackChange::RetryGlobalHotkey { hotkey });
     }
 
     /// Queue multiple window state changes to be applied in sequence.
