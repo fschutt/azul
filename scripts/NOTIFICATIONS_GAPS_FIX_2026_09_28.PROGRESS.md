@@ -35,7 +35,12 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
   Failed + WM_AZ_TOAST_WAKE), balloon fallback, `probe()` 3-tuple, `permission_state()`, Cargo
   features. NEXT step 3 below is DONE.
 
+* `2c0ee12f8` feat(notifications): Linux desktop-entry hint + ActivationToken; Wayland
+  xdg_activation_v1 bind + `activate_with_token`. NEXT step 4 is DONE.
+
 ## IN PROGRESS (written in the worktree, not yet committed)
+
+* Self-review pass over the dll code, then the final report (NEXT step 5).
 
 * (committed in 274fc0f60, kept for reference:) dll service `dll/src/desktop/notifications/mod.rs` rewritten: backends `apple` (macOS+iOS),
   `android` (android+jni), `linux`, `windows`; `set_app_handler`, `install_launch_hooks`,
@@ -79,7 +84,7 @@ Final report goes to `scripts/NOTIFICATIONS_GAPS_FIX_2026_09_28.md`.
    RegCloseKey), `windows::probe() -> (bool, String backend, String reason)`,
    `windows::permission_state() -> PermissionState` (ToastNotifier::Setting), Activated/Dismissed/
    Failed handlers -> mailbox + PostMessageW wake to the hidden window.
-4. Linux: `desktop-entry` hint (`wire::desktop_entry(current_exe)`), `ActivationToken` signal in
+4. DONE in 2c0ee12f8 - Linux: `desktop-entry` hint (`wire::desktop_entry(current_exe)`), `ActivationToken` signal in
    the filter -> `take_activation_token()`; Wayland `xdg_activation_v1` interface in
    `wayland/defines.rs`, bind in `wayland/events.rs` registry handler, field + init + destroy +
    `pub(crate) fn activate_with_token(&mut self, token: &str) -> bool` (opcode 2 "so") in
