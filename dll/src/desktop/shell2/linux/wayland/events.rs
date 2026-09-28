@@ -961,6 +961,28 @@ pub(super) extern "C" fn registry_global_handler(
                 );
             }
         }
+        "xdg_activation_v1" => {
+            // xdg-activation-v1 (staging): lets the app raise its window with
+            // a token another party minted - the one a notification server
+            // sends with a click (`WaylandWindow::activate_with_token`). A
+            // click on a notification carries no input serial, so this is the
+            // ONLY legitimate way to take focus for it.
+            let activation = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    super::defines::get_xdg_activation_v1_interface(),
+                    version.min(1),
+                ) as *mut super::defines::xdg_activation_v1
+            };
+            if !activation.is_null() {
+                window.xdg_activation = Some(activation);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound xdg_activation_v1 - notification clicks can raise the window"
+                );
+            }
+        }
         "zxdg_decoration_manager_v1" => {
             // xdg-decoration-unstable-v1: lets the client request server-side
             // decorations (compositor-drawn titlebar). Unstable protocol, not

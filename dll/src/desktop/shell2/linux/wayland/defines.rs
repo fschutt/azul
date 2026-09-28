@@ -93,6 +93,13 @@ pub struct wp_viewporter {
 pub struct wp_viewport {
     _private: [u8; 0],
 }
+
+// xdg-activation-v1 (staging): hand focus to a surface with a token another
+// party minted - here the one a notification server sends with a click.
+#[repr(C)]
+pub struct xdg_activation_v1 {
+    _private: [u8; 0],
+}
 #[repr(C)]
 pub struct wl_surface {
     _private: [u8; 0],
@@ -1140,6 +1147,55 @@ pub fn get_wp_viewporter_interface() -> &'static wl_interface {
                     name: b"wp_viewporter\0".as_ptr() as _,
                     version: 1,
                     method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
+}
+
+/// Minimal `xdg_activation_v1` interface (xdg-activation-v1, staging - not
+/// exported by libwayland, so hand-built like the viewporter). v1 requests, in
+/// opcode order: destroy() = "", get_activation_token(new_id
+/// <xdg_activation_token_v1>, object<wl_surface>) = "no", activate(string
+/// token, object<wl_surface>) = "so". No events. Only `activate` is ever
+/// sent: azul does not mint tokens, it spends one a notification click
+/// brought.
+pub fn get_xdg_activation_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_activation_token\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"activate\0".as_ptr() as _,
+                        signature: b"so\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_activation_v1\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 3,
                     methods: requests.as_ptr(),
                     event_count: 0,
                     events: std::ptr::null(),

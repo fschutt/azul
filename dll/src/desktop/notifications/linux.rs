@@ -18,6 +18,17 @@
 //! * `NotificationClosed(u, u)`: expired / dismissed / closed. A server sends it AFTER
 //!   `ActionInvoked` for the same click; the registry delivers only the first (every event ends
 //!   its notification).
+//! * `ActivationToken(u, s)` (spec 1.2, GNOME and KDE send it) arrives just BEFORE the
+//!   `ActionInvoked` of a click. On Wayland it is the only thing that lets the app raise its
+//!   window - a click on a notification carries no input serial - so it is kept for the run loop
+//!   ([`take_activation_token`]), which hands it to `xdg_activation_v1.activate`.
+//!
+//! # Identity
+//!
+//! Every `Notify` carries the `desktop-entry` hint: the executable's name, the same default the
+//! Wayland `app_id` and the X11 `WM_CLASS` use (`wire::desktop_entry`). GNOME matches a sender by
+//! its window's PID first; a windowless or tray-only process is matched by this hint, and without
+//! a match its notifications get a generic source with no per-app settings.
 //!
 //! # Receiving the signals
 //!
@@ -70,6 +81,18 @@ const PROBE_TIMEOUT_MS: c_int = 1000;
 /// Server id -> the app's id. Written by `post`, read by the filter (which
 /// runs inside a dispatch and has no other state), cleared on close.
 static SERVER_IDS: Mutex<BTreeMap<u32, String>> = Mutex::new(BTreeMap::new());
+
+/// The `ActivationToken` of the last click on one of this app's
+/// notifications, until the run loop takes it.
+static ACTIVATION_TOKEN: Mutex<Option<String>> = Mutex::new(None);
+
+/// Take the activation token a click brought (see the module docs).
+pub(super) fn take_activation_token() -> Option<String> {
+    ACTIVATION_TOKEN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
+}
 
 fn fresh_error() -> DBusError {
     DBusError {
@@ -362,6 +385,15 @@ unsafe extern "C" fn notification_filter(
                     }
                 }
             }
+            b"ActivationToken" => {
+                if let Some((server_id, SecondArg::Str(token))) = read_u32_then(&dbus, msg) {
+                    if app_id_of(server_id, false).is_some() && !token.is_empty() {
+                        *ACTIVATION_TOKEN
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner) = Some(token);
+                    }
+                }
+            }
             b"NotificationClosed" => {
                 if let Some((server_id, SecondArg::U32(reason))) = read_u32_then(&dbus, msg) {
                     if let Some(app_id) = app_id_of(server_id, true) {
@@ -480,6 +512,8 @@ pub(super) struct PlatformNotifier {
     dbus: Arc<DBusLib>,
     conn: *mut DBusConnection,
     app_name: String,
+    /// The `desktop-entry` hint (module docs).
+    desktop_entry: String,
 }
 
 impl PlatformNotifier {
@@ -528,10 +562,15 @@ impl PlatformNotifier {
             // in the run loops' wait set (the tray's, when both exist - it is
             // the same shared connection).
             crate::desktop::loop_waker::watch_dbus_connection(&dbus, conn);
+            let exe = std::env::current_exe()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
             Ok(Self {
                 dbus,
                 conn,
                 app_name: app_name(),
+                desktop_entry: wire::desktop_entry(&exe),
             })
         }
     }
@@ -577,6 +616,12 @@ impl PlatformNotifier {
                 DBUS_TYPE_ARRAY,
                 dict_sig.as_ptr(),
                 &mut hints,
+            );
+            append_hint(
+                &dbus,
+                &mut hints,
+                "desktop-entry",
+                Hint::Str(&self.desktop_entry),
             );
             match &notification.sound {
                 NotificationSound::Default => {}

@@ -787,6 +787,10 @@ pub struct WaylandWindow {
     decoration_manager: Option<*mut defines::zxdg_decoration_manager_v1>,
     toplevel_decoration: Option<*mut defines::zxdg_toplevel_decoration_v1>,
 
+    // xdg-activation-v1: raise this window with a token another party minted
+    // (a notification click's `ActivationToken`). Bound from the registry.
+    xdg_activation: Option<*mut defines::xdg_activation_v1>,
+
     // wp-fractional-scale-v1 + wp-viewporter (fractional HiDPI). When the
     // compositor advertises both, `preferred_scale` (scale×120) drives
     // size.dpi, buffers are allocated at physical size WITHOUT
@@ -2143,6 +2147,7 @@ impl WaylandWindow {
             current_blur: None,
             decoration_manager: None,
             toplevel_decoration: None,
+            xdg_activation: None,
             fractional_scale_manager: None,
             viewporter: None,
             fractional_scale: None,
@@ -8799,6 +8804,9 @@ impl Drop for WaylandWindow {
             if let Some(deco_manager) = self.decoration_manager.take() {
                 (self.wayland.wl_proxy_destroy)(deco_manager as _);
             }
+            if let Some(activation) = self.xdg_activation.take() {
+                (self.wayland.wl_proxy_destroy)(activation as _);
+            }
 
             // Clean up cursor resources
             if !self.pointer_state.cursor_surface.is_null() {
@@ -10553,6 +10561,42 @@ extern "C" fn popup_xdg_surface_configure(
 // IME Position Management
 
 impl WaylandWindow {
+    /// Raise and focus this window with an xdg-activation token another party
+    /// minted - the `ActivationToken` a notification server sends with a
+    /// click. Without one a Wayland app cannot take focus for a notification
+    /// click at all (it carries no input serial). `false` when the
+    /// compositor has no `xdg_activation_v1` or the token is unusable; the
+    /// compositor may still decline, which it does not report.
+    pub(crate) fn activate_with_token(&mut self, token: &str) -> bool {
+        let Some(activation) = self.xdg_activation else {
+            return false;
+        };
+        if self.surface.is_null() {
+            return false;
+        }
+        let Ok(token) = std::ffi::CString::new(token) else {
+            return false;
+        };
+        // activate: opcode 2, "so" (string token, object<wl_surface>).
+        type ActivateFn = unsafe extern "C" fn(
+            *mut defines::wl_proxy,
+            u32,
+            *const std::ffi::c_char,
+            *mut defines::wl_surface,
+        );
+        unsafe {
+            let marshal: ActivateFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            marshal(
+                activation as *mut defines::wl_proxy,
+                2,
+                token.as_ptr(),
+                self.surface,
+            );
+            (self.wayland.wl_display_flush)(self.display);
+        }
+        true
+    }
+
     /// Sync ime_position from window state to OS
     /// Sync IME position to OS (Wayland with text-input-v3 or GTK fallback)
     pub fn sync_ime_position_to_os(&self) {
