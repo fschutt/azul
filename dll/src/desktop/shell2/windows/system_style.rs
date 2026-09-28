@@ -1,6 +1,7 @@
 //! Native Windows system style discovery via LoadLibrary + GetProcAddress.
 //!
-//! This module loads `User32.dll`, `Dwmapi.dll`, and `UxTheme.dll` at runtime,
+//! This module loads `User32.dll` at runtime (the accent comes from the
+//! registry via `reg`, see `discover_windows_cli_extras`),
 //! queries system metrics, colours, and input timing, then immediately frees
 //! the library handles.
 //!
@@ -18,7 +19,9 @@ use azul_css::{
     dynamic_selector::{BoolCondition, OsVersion},
     parser2::new_from_str,
     props::basic::color::{ColorU, OptionColorU},
-    system::{defaults, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme},
+    system::{
+        defaults, windows_accent, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme,
+    },
 };
 
 // ── kernel32 functions (always linked on Windows) ────────────────────────
@@ -55,7 +58,6 @@ type FnGetDoubleClickTime = unsafe extern "system" fn() -> u32;
 type FnGetCaretBlinkTime = unsafe extern "system" fn() -> u32;
 type FnSystemParametersInfoW = unsafe extern "system" fn(u32, u32, *mut c_void, u32) -> i32;
 type FnGetSysColor = unsafe extern "system" fn(i32) -> u32;
-type FnDwmGetColorizationColor = unsafe extern "system" fn(*mut u32, *mut i32) -> i32;
 
 // ── Library wrapper ──────────────────────────────────────────────────────
 
@@ -100,39 +102,6 @@ impl User32 {
 }
 
 impl Drop for User32 {
-    fn drop(&mut self) {
-        unsafe {
-            FreeLibrary(self._handle);
-        }
-    }
-}
-
-struct Dwmapi {
-    DwmGetColorizationColor: FnDwmGetColorizationColor,
-    _handle: *mut c_void,
-}
-
-impl Dwmapi {
-    fn load() -> Option<Self> {
-        unsafe {
-            let h = LoadLibraryA(b"Dwmapi.dll\0".as_ptr());
-            if h.is_null() {
-                return None;
-            }
-            let p = GetProcAddress(h, b"DwmGetColorizationColor\0".as_ptr());
-            if p.is_null() {
-                FreeLibrary(h);
-                return None;
-            }
-            Some(Dwmapi {
-                DwmGetColorizationColor: core::mem::transmute(p),
-                _handle: h,
-            })
-        }
-    }
-}
-
-impl Drop for Dwmapi {
     fn drop(&mut self) {
         unsafe {
             FreeLibrary(self._handle);
@@ -261,20 +230,9 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
             };
         }
 
-        // ── DWM accent colour ────────────────────────────────────────
-        if let Some(dwm) = Dwmapi::load() {
-            let mut colorization: u32 = 0;
-            let mut opaque_blend: i32 = 0;
-            let hr = (dwm.DwmGetColorizationColor)(&mut colorization, &mut opaque_blend);
-            if hr >= 0 {
-                // DwmGetColorizationColor returns 0xAARRGGBB
-                let a = ((colorization >> 24) & 0xFF) as u8;
-                let r = ((colorization >> 16) & 0xFF) as u8;
-                let g = ((colorization >> 8) & 0xFF) as u8;
-                let b = (colorization & 0xFF) as u8;
-                style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, a));
-            }
-        }
+        // The accent is NOT read here: `DwmGetColorizationColor` is the
+        // window-FRAME colourisation (0xAARRGGBB with a translucent alpha),
+        // not the UI accent. `discover_windows_cli_extras` reads the real one.
 
         // ── Dark mode detection (registry-based, same as old `io` path)
         // We keep this simple: check HKCU\...\Personalize\AppsUseLightTheme
@@ -448,38 +406,32 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
         }
     }
 
-    // ── Accent colour from DWM registry key ─────────────────────────
-    if let Ok(output) = run_command_with_timeout(
+    // ── UI accent colour ────────────────────────────────────────────
+    // The accent Windows draws its UI with (what
+    // `UISettings.GetColorValue(UIColorType::Accent)` returns) is
+    // `AccentColorMenu` under Explorer\Accent, next to the `AccentPalette`
+    // shades; DWM's `AccentColor` mirrors it. The parsing lives in
+    // `azul_css::system::windows_accent` so it is tested on every platform.
+    // The selection colours keep their own values: the accent is NOT
+    // copied into `selection_background` any more.
+    let accent = run_command_with_timeout(
         "reg",
-        &[
-            "query",
-            r"HKCU\Software\Microsoft\Windows\DWM",
-            "/v",
-            "AccentColor",
-        ],
+        &["query", windows_accent::EXPLORER_ACCENT_KEY],
         2000,
-    ) {
-        // Output line looks like: "    AccentColor    REG_DWORD    0xffb16300"
-        // The value is in ABGR format.
-        if let Some(hex_start) = output.find("0x") {
-            let hex_str = &output[hex_start + 2..];
-            let hex_str = hex_str.trim();
-            // Take only the hex digits (up to 8 characters)
-            let hex_digits: String = hex_str
-                .chars()
-                .take(8)
-                .filter(|c| c.is_ascii_hexdigit())
-                .collect();
-            if let Ok(val) = u32::from_str_radix(&hex_digits, 16) {
-                let a = ((val >> 24) & 0xFF) as u8;
-                let b = ((val >> 16) & 0xFF) as u8;
-                let g = ((val >> 8) & 0xFF) as u8;
-                let r = (val & 0xFF) as u8;
-                let accent = ColorU::new(r, g, b, a);
-                style.colors.accent = OptionColorU::Some(accent);
-                style.colors.selection_background = OptionColorU::Some(accent);
-            }
-        }
+    )
+    .ok()
+    .and_then(|output| windows_accent::accent_from_reg_query(&output))
+    .or_else(|| {
+        run_command_with_timeout(
+            "reg",
+            &["query", windows_accent::DWM_KEY, "/v", "AccentColor"],
+            2000,
+        )
+        .ok()
+        .and_then(|output| windows_accent::accent_from_reg_query(&output))
+    });
+    if let Some(accent) = accent {
+        windows_accent::apply_accent(style, accent);
     }
 }
 

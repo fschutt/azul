@@ -1464,8 +1464,6 @@ pub mod windows_fonts {
 /// Windows discovery (`dll/src/desktop/shell2/windows/system_style.rs`) runs
 /// the queries and hands the output here.
 pub mod windows_accent {
-    use alloc::string::String;
-
     use super::SystemStyle;
     use crate::props::basic::color::{ColorU, OptionColorU};
 
@@ -1492,35 +1490,102 @@ pub mod windows_accent {
 
     /// The UI accent from `reg query` output (of [`EXPLORER_ACCENT_KEY`] or
     /// [`DWM_KEY`]).
+    ///
+    /// Reads the NAMED value, never the first number in the output:
+    /// `AccentColorMenu` (Explorer) or `AccentColor` (DWM), both `REG_DWORD`
+    /// in 0xAABBGGRR order, else the base entry of `AccentPalette`. The DWM
+    /// key also lists `ColorizationColor` (the window-frame tint, 0xAARRGGBB
+    /// with a translucent alpha), which is NOT the accent. The accent is an
+    /// opaque colour, so the stored alpha byte is ignored.
     #[must_use]
     pub fn accent_from_reg_query(output: &str) -> Option<ColorU> {
-        // TODAY'S PARSE (moved here unchanged from the Windows discovery):
-        // the first `0x` in the output, whatever value it belongs to, read as
-        // 0xAABBGGRR including its alpha.
-        let hex_start = output.find("0x")?;
-        let hex_digits: String = output[hex_start + 2..]
-            .trim()
-            .chars()
-            .take(8)
-            .filter(char::is_ascii_hexdigit)
-            .collect();
-        let val = u32::from_str_radix(&hex_digits, 16).ok()?;
-        let [r, g, b, a] = val.to_le_bytes();
-        Some(ColorU::new(r, g, b, a))
+        reg_dword(output, "AccentColorMenu")
+            .or_else(|| reg_dword(output, "AccentColor"))
+            .map(|abgr| {
+                let [r, g, b, _alpha] = abgr.to_le_bytes();
+                ColorU::new_rgb(r, g, b)
+            })
+            .or_else(|| accent_palette_from_reg_query(output).map(|p| p.accent))
     }
 
-    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`].
+    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`]:
+    /// `AccentPalette` is a `REG_BINARY` of eight RGBA entries, Light3 first,
+    /// the base accent fourth, Dark3 seventh (the eighth is unused).
     #[must_use]
-    pub fn accent_palette_from_reg_query(_output: &str) -> Option<AccentPalette> {
-        // TODAY: azul reads no palette.
-        None
+    pub fn accent_palette_from_reg_query(output: &str) -> Option<AccentPalette> {
+        let (ty, data) = reg_value(output, "AccentPalette")?;
+        if ty != "REG_BINARY" {
+            return None;
+        }
+        let bytes = palette_bytes(data)?;
+        let shade = |i: usize| ColorU::new_rgb(bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2]);
+        Some(AccentPalette {
+            light_3: shade(0),
+            light_2: shade(1),
+            light_1: shade(2),
+            accent: shade(3),
+            dark_1: shade(4),
+            dark_2: shade(5),
+            dark_3: shade(6),
+        })
     }
 
-    /// Writes the discovered accent into `style`.
+    /// Writes the discovered accent into `style`. Only the ACCENT: the
+    /// selection colours are their own slots (Windows' highlight colour),
+    /// and copying the accent over them made every selection accent-blue.
     pub const fn apply_accent(style: &mut SystemStyle, accent: ColorU) {
-        // TODAY'S BEHAVIOUR: the accent is also copied into the selection.
         style.colors.accent = OptionColorU::Some(accent);
-        style.colors.selection_background = OptionColorU::Some(accent);
+    }
+
+    /// `(type, data)` of the value called `name` in `reg query` output,
+    /// whose value lines read `    <name>    <REG_TYPE>    <data>`.
+    fn reg_value<'a>(output: &'a str, name: &str) -> Option<(&'a str, &'a str)> {
+        output.lines().find_map(|line| {
+            let mut tokens = line.split_whitespace();
+            if tokens.next()? != name {
+                return None;
+            }
+            let ty = tokens.next()?;
+            let data = tokens.next()?;
+            Some((ty, data))
+        })
+    }
+
+    /// A `REG_DWORD` value, printed by `reg` as `0x` + hex.
+    fn reg_dword(output: &str, name: &str) -> Option<u32> {
+        let (ty, data) = reg_value(output, name)?;
+        if ty != "REG_DWORD" {
+            return None;
+        }
+        let hex = data
+            .strip_prefix("0x")
+            .or_else(|| data.strip_prefix("0X"))
+            .unwrap_or(data);
+        u32::from_str_radix(hex, 16).ok()
+    }
+
+    /// The first seven RGBA entries (28 bytes) of the `AccentPalette` hex.
+    fn palette_bytes(hex: &str) -> Option<[u8; 28]> {
+        let hex = hex.as_bytes();
+        if hex.len() < 56 {
+            return None;
+        }
+        let mut out = [0_u8; 28];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let hi = hex_digit(hex[i * 2])?;
+            let lo = hex_digit(hex[i * 2 + 1])?;
+            *slot = (hi << 4) | lo;
+        }
+        Some(out)
+    }
+
+    const fn hex_digit(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
     }
 
     #[cfg(test)]
