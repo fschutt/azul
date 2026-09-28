@@ -74,11 +74,13 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use azul_core::{
     global_hotkey::{
-        GlobalHotkey, GlobalHotkeyCallbackData, GlobalHotkeyError, GlobalHotkeyEvent,
-        GlobalHotkeyId, GlobalHotkeyInfo, GlobalHotkeyInfoVec, GlobalHotkeyOwner,
-        GlobalHotkeyState, GlobalHotkeyStatus,
+        take_recorded_global_hotkeys, GlobalHotkey, GlobalHotkeyCallbackData, GlobalHotkeyError,
+        GlobalHotkeyEvent, GlobalHotkeyId, GlobalHotkeyInfo, GlobalHotkeyInfoVec,
+        GlobalHotkeyOwner, GlobalHotkeyState, GlobalHotkeyStatus, GlobalHotkeysCallback,
+        GlobalHotkeysCallbackInfo,
     },
     menu::CoreMenuCallback,
+    refany::RefAny,
 };
 use azul_css::AzString;
 
@@ -328,6 +330,26 @@ struct Held {
     trigger: AzString,
 }
 
+/// The `AppConfig`'s declarations: a static list, and optionally a callback
+/// deriving more from the app's state.
+#[derive(Debug, Clone)]
+struct AppSource {
+    static_items: Vec<GlobalHotkeyCallbackData>,
+    callback: Option<GlobalHotkeysCallback>,
+    data: RefAny,
+    /// The callback must run before the next sync.
+    dirty: bool,
+}
+
+/// One run of the app's hotkeys callback, cloned out of the manager so the
+/// callback (app code) runs without the manager's lock.
+struct AppJob {
+    callback: GlobalHotkeysCallback,
+    data: RefAny,
+    static_items: Vec<GlobalHotkeyCallbackData>,
+    snapshot: GlobalHotkeyInfoVec,
+}
+
 /// What one [`GlobalHotkeyManager::sync`] did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncOutcome {
@@ -443,6 +465,7 @@ pub struct GlobalHotkeyManager {
     status_changed: bool,
     generation: u64,
     pending_relayout: BTreeSet<HotkeySource>,
+    app: Option<AppSource>,
 }
 
 impl core::fmt::Debug for GlobalHotkeyManager {
@@ -484,7 +507,59 @@ impl GlobalHotkeyManager {
             status_changed: false,
             generation: 0,
             pending_relayout: BTreeSet::new(),
+            app: None,
         }
+    }
+
+    /// The `AppConfig`'s declarations (`global_hotkeys`, and the derived
+    /// `global_hotkeys_callback` over the app's `data`). A static list alone
+    /// is declared right away; a callback runs at the next
+    /// [`SharedGlobalHotkeys::refresh_app_declarations`].
+    pub fn set_app_declarations(
+        &mut self,
+        static_items: Vec<GlobalHotkeyCallbackData>,
+        callback: Option<GlobalHotkeysCallback>,
+        data: RefAny,
+    ) {
+        let has_callback = callback.is_some();
+        if !has_callback {
+            self.declare(HotkeySource::App, static_items.clone(), false);
+        }
+        self.app = Some(AppSource {
+            static_items,
+            callback,
+            data,
+            dirty: has_callback,
+        });
+    }
+
+    /// The app state may have changed (a callback returned `RefreshDom`):
+    /// the app's hotkeys callback runs again before the next sync.
+    pub fn mark_app_dirty(&mut self) {
+        if let Some(app) = self.app.as_mut() {
+            if app.callback.is_some() {
+                app.dirty = true;
+            }
+        }
+    }
+
+    fn take_app_job(&mut self) -> Option<AppJob> {
+        let due = self
+            .app
+            .as_ref()
+            .is_some_and(|app| app.dirty && app.callback.is_some());
+        if !due {
+            return None;
+        }
+        let snapshot = self.snapshot_for(HotkeySource::App);
+        let app = self.app.as_mut()?;
+        app.dirty = false;
+        Some(AppJob {
+            callback: app.callback.clone()?,
+            data: app.data.clone(),
+            static_items: app.static_items.clone(),
+            snapshot,
+        })
     }
 
     /// The mailbox this manager's backends report through.
@@ -648,7 +723,15 @@ impl GlobalHotkeyManager {
             .filter(|(_, declared)| declared.read_status)
             .map(|(source, _)| *source)
             .collect();
-        self.pending_relayout.extend(relayout.iter().copied());
+        for source in &relayout {
+            match source {
+                // The app's callback re-runs at the next refresh.
+                HotkeySource::App => self.mark_app_dirty(),
+                HotkeySource::Window(_) => {
+                    self.pending_relayout.insert(*source);
+                }
+            }
+        }
         SyncOutcome {
             changed: true,
             relayout,
@@ -1314,6 +1397,60 @@ impl SharedGlobalHotkeys {
     /// See [`GlobalHotkeyManager::take_relayout`].
     pub fn take_relayout(&self, source: HotkeySource) -> bool {
         self.lock().take_relayout(source)
+    }
+
+    /// See [`GlobalHotkeyManager::set_app_declarations`].
+    pub fn set_app_declarations(
+        &self,
+        static_items: Vec<GlobalHotkeyCallbackData>,
+        callback: Option<GlobalHotkeysCallback>,
+        data: RefAny,
+    ) {
+        self.lock()
+            .set_app_declarations(static_items, callback, data);
+    }
+
+    /// See [`GlobalHotkeyManager::mark_app_dirty`].
+    pub fn mark_app_dirty(&self) {
+        self.lock().mark_app_dirty();
+    }
+
+    /// Run the `AppConfig`'s hotkeys callback if it is due (at start, after
+    /// the app state may have changed, or after a status it read moved) and
+    /// declare the static list plus what it declared as the App's set.
+    /// Returns whether it ran.
+    ///
+    /// Event-loop thread only, and never from inside a `layout()` call: the
+    /// callback is app code and runs WITHOUT the manager's lock, recording
+    /// into the same thread-local recorder `layout()` uses.
+    pub fn refresh_app_declarations(&self) -> bool {
+        let Some(job) = self.lock().take_app_job() else {
+            return false;
+        };
+        let AppJob {
+            callback,
+            data,
+            static_items,
+            snapshot,
+        } = job;
+        let _ = take_recorded_global_hotkeys();
+        callback.invoke(data, GlobalHotkeysCallbackInfo::new(&snapshot));
+        let recorded = take_recorded_global_hotkeys();
+        if recorded.overflowed {
+            azul_core::diagnostics::emit(alloc::format!(
+                "[azul][warn] [global-hotkey] the AppConfig hotkeys callback declared more than \
+                 {} global hotkeys; the rest were dropped",
+                azul_core::global_hotkey::GLOBAL_HOTKEY_DECLARATION_CAP
+            ));
+        }
+        let mut items = static_items;
+        for item in recorded.declared {
+            items.retain(|existing| existing.hotkey != item.hotkey);
+            items.push(item);
+        }
+        self.lock()
+            .declare(HotkeySource::App, items, recorded.read_status);
+        true
     }
 }
 

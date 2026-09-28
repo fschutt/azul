@@ -75,17 +75,21 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
    -> bool, mark_app_dirty()}`) + `dll/tests/headless_global_hotkeys.rs::an_app_config_hotkey_is_
    grabbed_and_pressed_without_any_layout` (pump_headless must refresh the app source).
 
+8. feat(app): `AppConfig.global_hotkeys` / `global_hotkeys_callback` (+ `add_global_hotkey`,
+   `with_global_hotkeys_callback`, `set_global_hotkeys_callback`), `GlobalHotkeysCallback(Type)`
+   + `impl_managed_callback!` exports, `OptionGlobalHotkeysCallback`, `GlobalHotkeysCallbackInfo`;
+   manager `AppSource` + `set_app_declarations` / `mark_app_dirty` / `refresh_app_declarations`
+   (callback runs without the lock); App::run declares the config set in `enter_global_hotkeys`;
+   pumps refresh before sync; `deliver(window, &shared, delivery)` marks the app dirty and
+   regenerates all windows for an App-level press that asked for a rebuild; regenerate_layout
+   marks the app dirty on `RelayoutReason::RefreshDom`. `deliver_fired` removed (unused).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-(step 6 left out on purpose: "mark app dirty on RefreshDom" moves to step 8)
-
-8. feat app: `AppConfig.global_hotkeys` / `global_hotkeys_callback`, `GlobalHotkeysCallback(Type)`,
-   `OptionGlobalHotkeysCallback`, `GlobalHotkeysCallbackInfo` (with `impl_managed_callback!`),
-   manager app source + `refresh_app_declarations`, pumps run it.
 9. RED: presses run against their owner (layout-level `begin_turn` routing tests).
 10. feat: pumps deliver to the owner window (no more "first window").
 11. RED pure portal planner test + refactor portal: one session per batch, stable ids =
@@ -131,6 +135,18 @@ Added (azul_core::global_hotkey):
   `add_global_hotkey_with_description(&self, hotkey, description: String, data, callback)`,
   `get_global_hotkey_status(&self, hotkey) -> GlobalHotkeyStatus`, `get_global_hotkeys(&self) ->
   GlobalHotkeyInfoVec`. `LayoutCallbackInfoRefData.global_hotkeys` is an internal field.
+- (step 8) `AppConfig` fields `global_hotkeys: GlobalHotkeyCallbackDataVec`,
+  `global_hotkeys_callback: OptionGlobalHotkeysCallback`; methods `AppConfig::add_global_hotkey(
+  &mut self, hotkey, data: RefAny, callback: CallbackType)` (body wraps with
+  `azul_layout::callbacks::Callback::create(callback).to_core()`),
+  `AppConfig::with_global_hotkeys_callback(self, cb: GlobalHotkeysCallbackType) -> AppConfig`,
+  `AppConfig::set_global_hotkeys_callback(&mut self, cb)`.
+- (step 8) callback typedef `GlobalHotkeysCallbackType = extern "C" fn(RefAny,
+  GlobalHotkeysCallbackInfo)`; `GlobalHotkeysCallback { cb, ctx }` (+ `create`), managed-FFI
+  exports `AzApp_setGlobalHotkeysCallbackInvoker`, `AzGlobalHotkeysCallback_createFromHostHandle`
+  (+`Byref`); `OptionGlobalHotkeysCallback`; `GlobalHotkeysCallbackInfo` (opaque, Copy) with
+  `add_global_hotkey`, `add_global_hotkey_with_description`, `get_global_hotkey_status`,
+  `get_global_hotkeys`, `get_ctx`.
 
 ## Open questions / notes
 

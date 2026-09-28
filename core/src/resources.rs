@@ -1058,9 +1058,64 @@ pub struct AppConfig {
     pub report_problem: OptionEmailAddress,
     /// Configuration for localization, tracking known languages.
     pub localization: LocalizationConfig,
+    /// App-level global hotkeys held whatever the state - a tray utility's
+    /// summon key. Grabbed when `run()` starts, owned by no window: a press
+    /// runs against the most recently focused window (the tray-only stub in
+    /// a windowless app). A window's `layout()` declaring the same
+    /// accelerator takes precedence. See [`Self::add_global_hotkey`].
+    pub global_hotkeys: crate::global_hotkey::GlobalHotkeyCallbackDataVec,
+    /// App-level global hotkeys DERIVED from the app's state, for an app
+    /// with no `layout()` (tray-only, background) or hotkeys that belong to
+    /// no window. Declared on top of [`Self::global_hotkeys`]; see
+    /// [`crate::global_hotkey::GlobalHotkeysCallbackType`] for when it runs.
+    pub global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback,
 }
 
 impl AppConfig {
+    /// Hold `hotkey` for the whole run, app-wide, running `callback` with
+    /// `data` when it is pressed - even while another app has the keyboard
+    /// focus. Replaces an earlier entry for the same accelerator.
+    ///
+    /// For hotkeys that depend on app state, derive them instead: in
+    /// `layout()` (`LayoutCallbackInfo::add_global_hotkey`), or, without a
+    /// window, in [`Self::with_global_hotkeys_callback`].
+    pub fn add_global_hotkey<C: Into<crate::callbacks::CoreCallback>>(
+        &mut self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        let mut list = self.global_hotkeys.clone().into_library_owned_vec();
+        list.retain(|declared| declared.hotkey != hotkey);
+        list.push(crate::global_hotkey::GlobalHotkeyCallbackData::create(
+            hotkey,
+            data,
+            callback.into(),
+        ));
+        self.global_hotkeys = crate::global_hotkey::GlobalHotkeyCallbackDataVec::from_vec(list);
+    }
+
+    /// Derive the app-level global hotkeys from the app's state with `cb`
+    /// (see [`crate::global_hotkey::GlobalHotkeysCallbackType`]).
+    #[must_use]
+    pub fn with_global_hotkeys_callback(
+        mut self,
+        cb: crate::global_hotkey::GlobalHotkeysCallbackType,
+    ) -> Self {
+        self.set_global_hotkeys_callback(cb);
+        self
+    }
+
+    /// In-place [`Self::with_global_hotkeys_callback`].
+    pub fn set_global_hotkeys_callback(
+        &mut self,
+        cb: crate::global_hotkey::GlobalHotkeysCallbackType,
+    ) {
+        self.global_hotkeys_callback = crate::global_hotkey::OptionGlobalHotkeysCallback::Some(
+            crate::global_hotkey::GlobalHotkeysCallback::create(cb),
+        );
+    }
+
     #[must_use]
     pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
@@ -1094,6 +1149,11 @@ impl AppConfig {
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
             localization: LocalizationConfig::default(),
+            // None: an app declares its global hotkeys (here, or from state).
+            global_hotkeys: crate::global_hotkey::GlobalHotkeyCallbackDataVec::from_const_slice(
+                &[],
+            ),
+            global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

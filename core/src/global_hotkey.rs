@@ -48,7 +48,7 @@ use azul_css::AzString;
 
 use crate::{
     callbacks::CoreCallback,
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     window::{VirtualKeyCode, VirtualKeyCode as K, VirtualKeyCodeCombo},
 };
 
@@ -502,6 +502,186 @@ pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
 #[must_use]
 pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
     RecordedGlobalHotkeys::default()
+}
+
+// ---------------------------------------------------------------------------
+// The AppConfig's derived set (apps with no window)
+// ---------------------------------------------------------------------------
+
+/// Derives the app-level global hotkeys from the app's state (the `RefAny`
+/// the `App` was created with), for an app with no `layout()` - a tray-only
+/// or background utility - or hotkeys that belong to no window. Declares
+/// through [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like
+/// `layout()` does through `LayoutCallbackInfo`.
+///
+/// Runs once when the app starts, again after any callback returns
+/// `Update::RefreshDom` / `RefreshDomAllWindows` (the only "the app state
+/// may have changed" signal there is), and when a status it read changes.
+/// Not on resize or theme changes: app-level hotkeys depend on no window.
+pub type GlobalHotkeysCallbackType = extern "C" fn(RefAny, GlobalHotkeysCallbackInfo);
+
+/// Wrapper around [`GlobalHotkeysCallbackType`] (see `AppConfig::
+/// with_global_hotkeys_callback`).
+#[repr(C)]
+pub struct GlobalHotkeysCallback {
+    pub cb: GlobalHotkeysCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl_callback!(GlobalHotkeysCallback, GlobalHotkeysCallbackType);
+
+impl GlobalHotkeysCallback {
+    #[must_use]
+    pub fn create(cb: GlobalHotkeysCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+// Host-invoker plumbing for managed-FFI bindings (see core/src/host_invoker.rs).
+crate::impl_managed_callback! {
+    wrapper:        GlobalHotkeysCallback,
+    info_ty:        GlobalHotkeysCallbackInfo,
+    return_ty:      (),
+    // unit default-return, spelled so clippy's unused_unit stays quiet.
+    default_ret:    Default::default(),
+    invoker_static: GLOBAL_HOTKEYS_CALLBACK_INVOKER,
+    invoker_ty:     AzGlobalHotkeysCallbackInvoker,
+    thunk_fn:       az_global_hotkeys_callback_thunk,
+    setter_fn:      AzApp_setGlobalHotkeysCallbackInvoker,
+    from_handle_fn: AzGlobalHotkeysCallback_createFromHostHandle,
+    from_handle_byref_fn: AzGlobalHotkeysCallback_createFromHostHandleByref,
+}
+
+impl_option!(
+    GlobalHotkeysCallback,
+    OptionGlobalHotkeysCallback,
+    copy = false,
+    [Debug, Clone]
+);
+
+/// What the `AppConfig`'s hotkeys callback is handed: the same declaring
+/// vocabulary as `LayoutCallbackInfo`, without a window.
+///
+/// `Copy` and pointer-sized like the other callback infos: it points at a
+/// snapshot the engine owns for the duration of the call.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct GlobalHotkeysCallbackInfo {
+    /// The app's global hotkeys when the call began (owner relative to the
+    /// app).
+    ref_data: *const GlobalHotkeyInfoVec,
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings.
+    callable_ptr: *const OptionRefAny,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut core::ffi::c_void,
+}
+
+impl fmt::Debug for GlobalHotkeysCallbackInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalHotkeysCallbackInfo")
+            .finish_non_exhaustive()
+    }
+}
+
+impl GlobalHotkeysCallbackInfo {
+    /// An info reading `snapshot`, which must outlive every use of it (the
+    /// engine builds it on the stack around one call).
+    #[must_use]
+    pub fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
+        Self {
+            ref_data: core::ptr::from_ref::<GlobalHotkeyInfoVec>(snapshot),
+            callable_ptr: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
+        }
+    }
+
+    /// Set the callable pointer for FFI language bindings.
+    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    #[must_use]
+    pub fn get_ctx(&self) -> OptionRefAny {
+        if self.callable_ptr.is_null() {
+            OptionRefAny::None
+        } else {
+            // SAFETY: set by `invoke` for the duration of the call.
+            unsafe { (*self.callable_ptr).clone() }
+        }
+    }
+
+    /// Declare that, in the current app state, `hotkey` is a system-wide
+    /// hotkey running `callback` with `data` - app-level, owned by no window.
+    /// Same rules as `LayoutCallbackInfo::add_global_hotkey`: the WHOLE
+    /// wanted set, the last duplicate wins, an unchanged accelerator is not
+    /// touched at the OS.
+    pub fn add_global_hotkey<C: Into<CoreCallback>>(
+        &self,
+        hotkey: GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        record_declaration(GlobalHotkeyCallbackData::create(
+            hotkey,
+            data,
+            callback.into(),
+        ));
+    }
+
+    /// [`Self::add_global_hotkey`] with the text the desktop shows for it.
+    pub fn add_global_hotkey_with_description<C: Into<CoreCallback>>(
+        &self,
+        hotkey: GlobalHotkey,
+        description: AzString,
+        data: RefAny,
+        callback: C,
+    ) {
+        record_declaration(GlobalHotkeyCallbackData {
+            hotkey,
+            description,
+            callback: callback.into(),
+            refany: data,
+        });
+    }
+
+    /// Where `hotkey` stood when this call began. RECORDED: a later status
+    /// change runs the callback once more.
+    #[must_use]
+    pub fn get_global_hotkey_status(&self, hotkey: GlobalHotkey) -> GlobalHotkeyStatus {
+        record_status_read();
+        if self.ref_data.is_null() {
+            return GlobalHotkeyStatus::NotRegistered;
+        }
+        // SAFETY: `ref_data` points at the engine's snapshot for this call.
+        let snapshot = unsafe { &*self.ref_data };
+        status_in(snapshot.as_ref(), &hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get.
+    /// RECORDED like [`Self::get_global_hotkey_status`].
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> GlobalHotkeyInfoVec {
+        record_status_read();
+        if self.ref_data.is_null() {
+            return GlobalHotkeyInfoVec::from_const_slice(&[]);
+        }
+        // SAFETY: as above.
+        unsafe { (*self.ref_data).clone() }
+    }
+}
+
+impl crate::host_invoker::HostCtxCarrier for GlobalHotkeysCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // Points at the wrapper's own `ctx`, which `invoke` borrows for the
+        // whole call.
+        self.set_callable_ptr(ctx);
+    }
 }
 
 impl_result!(

@@ -179,8 +179,11 @@ fn platform_probe() -> GlobalHotkeyProbe {
     }
 }
 
-/// Poll the backend, sync the manager and take every press waiting to run.
+/// One turn of the manager: re-derive the `AppConfig`'s set if it is due
+/// (its callback runs here, without the lock), poll the backend, sync, and
+/// take every press waiting to run.
 fn take_deliveries(app: &SharedGlobalHotkeys) -> Vec<HotkeyDelivery> {
+    let _ = app.refresh_app_declarations();
     let mut manager = app.lock();
     manager.poll_backend();
     let _ = manager.sync();
@@ -189,35 +192,38 @@ fn take_deliveries(app: &SharedGlobalHotkeys) -> Vec<HotkeyDelivery> {
 
 /// Run one press against `window`, with the press readable through
 /// `CallbackInfo::get_global_hotkey_event` while its callback runs.
+///
+/// An APP-level press that asks for a rebuild changed app state no single
+/// window owns: every window rebuilds, and the `AppConfig`'s hotkeys
+/// callback re-derives its set.
 pub(crate) fn deliver<W: PlatformWindow>(
     window: &mut W,
+    app: &SharedGlobalHotkeys,
     delivery: HotkeyDelivery,
 ) -> ProcessEventResult {
     crate::plog_debug!(
         "[global-hotkey] {} pressed",
         delivery.event.hotkey.to_display_string().as_str()
     );
+    let app_level = delivery.target == manager::HotkeySource::App;
     let callback = delivery.callback;
-    manager::with_delivered_event(delivery.event, move || {
+    let result = manager::with_delivered_event(delivery.event, || {
         window.invoke_menu_callback(
             callback,
             MenuInvocation::Native {
                 site: "global_hotkey",
             },
         )
-    })
-}
-
-/// Run the backend's per-iteration work, then every press waiting to run,
-/// against `window`. Returns the strongest result the callbacks asked for;
-/// `DoNothing` when nothing was pressed.
-pub fn deliver_fired<W: PlatformWindow>(window: &mut W) -> ProcessEventResult {
-    let Some(app) = app() else {
-        return ProcessEventResult::DoNothing;
-    };
-    let mut result = ProcessEventResult::DoNothing;
-    for delivery in take_deliveries(&app) {
-        result = result.max(deliver(window, delivery));
+    });
+    if app_level && !matches!(result, ProcessEventResult::DoNothing) {
+        app.mark_app_dirty();
+        if matches!(
+            result,
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                | ProcessEventResult::ShouldRegenerateDomAllWindows
+        ) {
+            window.request_regeneration_all_windows();
+        }
     }
     result
 }
@@ -239,7 +245,7 @@ pub fn pump_headless(
     };
     let mut result = ProcessEventResult::DoNothing;
     for delivery in take_deliveries(&shared) {
-        result = result.max(deliver(window, delivery));
+        result = result.max(deliver(window, &shared, delivery));
     }
     if shared.take_relayout(source) {
         window.request_regeneration(azul_core::callbacks::RelayoutReason::Other);
@@ -268,7 +274,7 @@ pub(crate) fn pump_into_first_macos_window() {
     let window = unsafe { &mut *wptr };
     let mut result = ProcessEventResult::DoNothing;
     for delivery in deliveries {
-        result = result.max(deliver(window, delivery));
+        result = result.max(deliver(window, &app, delivery));
     }
     if !matches!(result, ProcessEventResult::DoNothing) {
         window.request_redraw();
@@ -297,7 +303,7 @@ pub(crate) fn pump_into_first_win32_window() {
     };
     let window = unsafe { &mut *wptr };
     for delivery in deliveries {
-        let _ = deliver(window, delivery);
+        let _ = deliver(window, &app, delivery);
     }
 }
 
@@ -323,7 +329,7 @@ pub(crate) fn pump_into_first_linux_window() {
         LinuxWindow::X11(w) => {
             let mut result = ProcessEventResult::DoNothing;
             for delivery in deliveries {
-                result = result.max(deliver(w, delivery));
+                result = result.max(deliver(w, &app, delivery));
             }
             if !matches!(result, ProcessEventResult::DoNothing) {
                 w.request_redraw();
@@ -333,7 +339,7 @@ pub(crate) fn pump_into_first_linux_window() {
         LinuxWindow::Wayland(w) => {
             let mut result = ProcessEventResult::DoNothing;
             for delivery in deliveries {
-                result = result.max(deliver(w, delivery));
+                result = result.max(deliver(w, &app, delivery));
             }
             if !matches!(result, ProcessEventResult::DoNothing) {
                 w.request_redraw();

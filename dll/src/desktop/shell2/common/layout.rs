@@ -553,6 +553,11 @@ pub fn regenerate_layout(
     let _ = layout_window
         .global_hotkeys
         .declare_recorded(recorded_hotkeys);
+    // A `RefreshDom` is the one "the app state may have changed" signal:
+    // the `AppConfig`'s hotkeys callback re-derives its set at the next pump.
+    if relayout_reason == azul_core::callbacks::RelayoutReason::RefreshDom {
+        layout_window.global_hotkeys.shared().mark_app_dirty();
+    }
     layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
     layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
     azul_layout::probe::emit_phase_heap("after_callback");

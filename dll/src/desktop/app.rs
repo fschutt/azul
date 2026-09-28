@@ -268,6 +268,15 @@ impl App {
     fn enter_global_hotkeys(&self) -> azul_layout::managers::global_hotkey::AppHotkeysScope {
         let scope = self.ptr.global_hotkeys.enter();
         crate::desktop::global_hotkey::choose_platform_backend();
+        // The AppConfig's own set: the static list is declared now, the
+        // derived callback runs at the loop's first hotkey pump - after the
+        // run chose its backend, before anything waits for a press.
+        let config = &self.ptr.config;
+        self.ptr.global_hotkeys.set_app_declarations(
+            config.global_hotkeys.clone().into_library_owned_vec(),
+            config.global_hotkeys_callback.into_option(),
+            self.ptr.data.clone(),
+        );
         scope
     }
 
