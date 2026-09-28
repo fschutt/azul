@@ -27,19 +27,15 @@ file is deleted in that last commit.
 - Task 2 (Shift+Arrow):
   - 0c088f5b2 test: `layout/tests/shift_arrows_extend_a_document_selection.rs`
     (registered) - 4 REDs + 1 guard.
+  - dc1265537 fix: `extend_document_selection` + `step_document_focus` in
+    window.rs, hooked in `apply_selection_op_for_seat` (primary, Extend).
 
 ## IN PROGRESS
 
-Task 2 fix: `extend_document_selection` in window.rs, hooked at the top of
-`apply_selection_op_for_seat` (primary seat, Extend).
+(nothing uncommitted)
 
 ## NEXT (in order)
 
-2. Task 2 fix: RED done; Shift+Arrow over a document selection (extend the focus
-   of `cross_block`; at a block edge cross into the adjacent block of
-   `selection_extent(anchor)`; collapse back to a single-block range when the
-   focus returns to the anchor block). Hook in `apply_selection_op_for_seat`
-   for primary + `SelectionMode::Extend`.
 3. Task 3: RED (tween.focus_scope after the collapse) + fix:
    `collapse_document_selection_for_move` -> `open_session`.
 4. Task 4: RED (synthetic hover hit on the text leaf "Item" beside a block,
