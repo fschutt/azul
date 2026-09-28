@@ -4,7 +4,7 @@ title: Hello World [Haskell]
 language: en
 canonical_slug: hello-world/haskell
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 27
 topic_only: false
 prerequisites: [hello-world]
@@ -12,8 +12,8 @@ tracked_files:
   - api.json
   - examples/haskell/HelloWorld.hs
   - examples/haskell/azul-example.cabal
-last_generated_rev: 88ad8e70f5de6612d619f7e59ea5f9fe04ae4a8e
-generated_at: 2026-09-08T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -28,194 +28,154 @@ default-search-keys:
 
 ## Introduction
 
-The Haskell binding drives the prebuilt `libazul` native library through
-GHC's FFI. You write ordinary Haskell: a model type, a layout function
-that builds the DOM from it, and a click handler that updates the model
-with a pure function. The generated `azul` package does the rest — it
-wraps your model in a libazul `RefAny`, turns your functions into
-callbacks libazul can invoke, and marshals every struct through the C ABI
-with sizes and offsets the C compiler computed.
-
-`import Azul` is the whole surface. It exports one managed wrapper type per
-resource-owning class (`Dom`, `Button`, `App`, ...), one function per
-api.json constructor and method, and every enum of `Azul.Types`, so
-`ButtonType_Primary` and `Update_RefreshDom` are in scope.
+To use `libazul` from Haskell, you need the native prebuilt library and the generated `azul`
+cabal package, which calls the C API through GHC's foreign function interface. The bindings 
+convert between your data model and the `RefAny` which the framework stores, and passes structs 
+through small C shims that cabal compiles with it. The package is tested with GHC 9.6 and 9.14.
 
 ## Installation
 
-You need **GHC 9.6+** and **cabal 3.10+** (via [GHCup](https://www.haskell.org/ghcup/);
-on Windows use GHCup under MSYS2). Two packages sit side by side: the
-generated `azul` library and your executable. Keep them in *separate*
-directories — cabal refuses two `.cabal` files in one directory.
+You need GHC and cabal, for example from [GHCup](https://www.haskell.org/ghcup/) or with
+`brew install ghc cabal-install`. On Windows, use the MSYS2 shell that GHCup installs.
+The release bundle contains the example (`HelloWorld.hs`, `azul-example.cabal`,
+`cabal.project`) and the generated `azul` package in `azul-haskell/`.
 
 ```sh
-# 1. the generated azul library package (-> ./azul-haskell/) and the example
-#    executable package (-> ./): one bundle, unpacked in place
+mkdir hello-world && cd hello-world
+
+# macOS
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+# Windows 
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll
+
 curl -LO https://azul.rs/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz
 tar xzf azul-haskell-$VERSION.tar.gz
-
-# 2. the native library: pick your platform
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so     # linux
-curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib  # macOS
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll       # windows
+cabal run --extra-lib-dirs=$PWD hello-world
 ```
 
-The bundle contains `azul-haskell/azul.cabal`, `azul-haskell/src/Azul.hs`,
-`Azul/Types.hs`, `Azul/Internal/FFI.hs`, the C shim layer the cabal file
-compiles (`cbits/azul_shims.c` + `cbits/azul.h`), and `azul-example.cabal` +
-`HelloWorld.hs` for the executable.
+`--extra-lib-dirs` tells the linker where the native library is. 
+It must be an absolute path, and it must stay the same between runs: cabal
+treats it as part of the build configuration and rebuilds the whole package 
+when it changes.
 
-Add a two-line `cabal.project` next to `azul-example.cabal` so cabal
-finds the in-tree `azul` package (it is not on Hackage):
+The first run compiles the generated package (about a thousand small modules 
+and the C shims) in parallel, which takes about 2-3 minutes on an 8-core machine. 
+Later runs only compile your own code.
 
-```
-packages: .
-          ./azul-haskell
-```
+### Building from source
 
-Then build and run (`--extra-lib-dirs` must be an *absolute* path —
-ghc-pkg rejects relative ones during registration):
+Only needed if you want to track `master` or patch the library locally:
 
 ```sh
-cabal build --extra-lib-dirs=$PWD
-
-# linux
-LD_LIBRARY_PATH=. cabal run hello-world
-# macOS
-DYLD_LIBRARY_PATH=. cabal run hello-world
-# windows (azul.dll must be on PATH)
-set PATH=%CD%;%PATH%
-cabal run hello-world
+# git clone https://github.com/fschutt/azul
+# cd myfolder/azul
+# generate the bindings from api.json (required)
+cargo run -p azul-doc --release -- codegen all
+# build the actual DLL with the now-generated .rs C-API bindings
+cargo build -p azul-dll --release --features build-dll
 ```
 
-The first `cabal build` compiles the whole generated binding (three
-multi-megabyte modules plus the C shim) and takes a few minutes;
-subsequent builds come from the cache.
+Notice the required `--features build-dll`. The DLL lands in
+`target/release/libazul.{so,dylib}` (or `azul.dll`), the cabal package 
+in `target/codegen/haskell/`. The package also needs the C header in 
+its `cbits/` directory:
+
+```sh
+cp -R target/codegen/haskell my_app/azul-haskell
+cp target/codegen/azul.h my_app/azul-haskell/cbits/
+cp examples/haskell/{HelloWorld.hs,azul-example.cabal,cabal.project} my_app/
+cp target/release/libazul.dylib my_app/
+```
 
 ## Simple "Counter" Example
-
-This is the complete `HelloWorld.hs` (the same file the install step
-downloads):
 
 ```haskell
 module Main where
 
 import Azul
+import qualified Azul.App as App
+import qualified Azul.AppConfig as AppConfig
+import qualified Azul.Button as Button
+import qualified Azul.Dom as Dom
+import qualified Azul.WindowCreateOptions as WindowCreateOptions
 
 newtype DataModel = DataModel { counter :: Int }
 
-layout :: RefAny -> DataModel -> LayoutCallbackInfo -> IO Dom
-layout dat model _ = do
-  label <- domCreatePWithText (show (counter model)) >>= domWithCss "font-size: 32px;"
-  button <- buttonCreate "Increase counter"
-    >>= buttonWithButtonType ButtonType_Primary
-    >>= buttonWithOnClick dat onClick
-    >>= buttonDom
-  domCreateBody >>= domWithChild label >>= domWithChild button
+onClick :: DataModel -> CallbackInfo -> (DataModel, Update)
+onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
 
-onClick :: RefAny -> CallbackInfo -> IO Update
-onClick dat _ = refAnyUpdate dat (\m -> m { counter = counter m + 1 }) Update_RefreshDom
+layout :: DataModel -> LayoutCallbackInfo -> IO Dom
+layout model _ = do
+  label <- Dom.createPWithText (show (counter model)) 
+    >>= Dom.withCss "font-size: 32px; margin: 0;"
+
+  button <- Button.create "Increase counter"
+    >>= Button.withButtonType ButtonType_Primary
+    >>= Button.onClick onClick
+    >>= Button.dom
+
+  Dom.createBody 
+    >>= Dom.withChild label 
+    >>= Dom.withChild button
 
 main :: IO ()
 main = do
-  dat <- refAnyCreate (DataModel 5)
-  window <- windowCreateOptionsCreate layout
-  appConfigCreate >>= appCreate dat >>= appRun window
+  window <- WindowCreateOptions.create layout
+  AppConfig.create 
+    >>= App.create (DataModel 5) 
+    >>= App.run window
 ```
 
-### The model and `RefAny`
+## Notes
 
-`refAnyCreate` stores any `Typeable` Haskell value in a table inside the
-binding and hands libazul a `RefAny` that refers to it. Every clone
-libazul makes of that `RefAny` — the one it passes to the layout callback,
-the one the button keeps — refers to the same entry; the entry is
-released when the last clone is dropped.
+Here, `import Azul` brings the types into scope. Each class's constructors and methods 
+live in its own module, imported qualified: `Button.create`, `Dom.withChild`, like 
+`Map.insert` from `Data.Map`.
 
-### The layout callback
+`onClick` is a pure function: it gets the current model and returns the new model together
+with an `Update`. The package stores the new model; `Update_RefreshDom` runs `layout` again.
+A handler that needs `IO` has the type `DataModel -> CallbackInfo -> IO (DataModel, Update)`.
 
-`windowCreateOptionsCreate` accepts either the raw closure
-`RefAny -> LayoutCallbackInfo -> IO Dom` or, as here, the model-typed
-`RefAny -> DataModel -> LayoutCallbackInfo -> IO Dom`: the binding reads
-the model out of the `RefAny` for you. The `RefAny` stays in scope because
-attaching a child's callback needs it — `buttonWithOnClick dat onClick`
-gives the button a clone of the app data.
+`Button.onClick` attaches the handler to the model of the running callback, here the model
+`layout` was called with. `App.create` takes the initial model, any Haskell value.
 
-Every generated method takes its receiver LAST, so the builder chains of
-the other languages become `>>=` pipelines:
-`domCreatePWithText "5" >>= domWithCss "font-size: 32px;"`. A method that
-takes `self` by value (`with_child`, `dom`) *moves* its argument into
-libazul; the wrapper you passed in is marked consumed and must not be
-used again, which is exactly what a pipeline never does.
+If a handler expects another model type, the package logs
+`azul: ButtonOnClickCallback expected a model of type OtherModel, got DataModel` and doesn't
+call it. An exception inside a callback is caught and logged the same way and the app keeps
+running.
 
-These functions live in `IO` because each one is a call into libazul on a
-heap-owning value: a `Dom` is a tree of Rust vectors, and `with_child`
-consumes both operands and returns the merged tree.
-
-### The click handler
-
-`onClick` has the same shape as in every other language — it receives the
-`RefAny` and answers with an `Update` — and its body is one expression:
-`refAnyUpdate dat f verdict` reads the model out of the `RefAny`, stores
-`f model` back, and returns the verdict; `Update_RefreshDom` re-runs
-`layout`. The downcast, the update and the upcast are the combinator's
-business; a `RefAny` that holds another type is left untouched. When a
-handler needs the model in `IO` — to do more than a pure update —
-`refAnyGet :: RefAny -> IO (Maybe a)` and `refAnyModify :: RefAny -> (a -> a) -> IO ()`
-are the fallback.
-
-`buttonWithOnClick` also accepts a pure state transition
-`DataModel -> CallbackInfo -> (DataModel, Update)` instead of the raw
-closure: the binding applies it to the current model and stores the new
-one. Both shapes are instances of the generated `ButtonOnClickCallbackHandler`
-class, and every callback kind in api.json has the same pair. If the
-`RefAny` does not hold a value of the handler's model type, the call is
-logged on stderr and libazul's default (`Update_DoNothing`, an empty body)
-applies.
-
-### `main`
-
-`appCreate` takes the app data and an `AppConfig`; `appRun` takes the
-window options and the app. Both by-value arguments are moved into
-libazul. `appRun` blocks until the window closes.
+Every function takes its receiver last, so builder calls chain with `>>=`. Arguments passed
+by value are moved into the library: after `Dom.withChild label`, `label` cannot be used again.
+Using it anyway raises an `AzulError` instead of crashing.
 
 ## Build and run
 
+From the directory containing `cabal.project` and the native library:
+
 ```sh
-cabal build --extra-lib-dirs=$PWD
-DYLD_LIBRARY_PATH=. cabal run hello-world
+export LD_LIBRARY_PATH=. # Linux only
+
+cabal run --extra-lib-dirs=$PWD hello-world
 ```
 
-You should see the window pictured on the
-[hello-world landing page](..md): the label renders "5"; each click runs
-`onClick`, the binding stores the new model, and the framework re-runs
-`layout` with it.
+You should see the window pictured on the [hello-world landing page](../hello-world.md).
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
-## Common errors
+1. `App.run` opens a native window and runs `layout` once with your model.
+2. The returned DOM is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up
+   in the DOM. On click, the framework runs `onClick` with the current model, stores the model
+   it returns, observes the refresh return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one,
+   and only re-updates and re-paints the counter, not the entire window.
 
-- **`cabal: Multiple cabal files found`** — `azul.cabal` and
-  `azul-example.cabal` ended up in the same directory. Keep the
-  generated library in its own subdirectory and point `cabal.project`
-  at it.
-- **C shim fails with `azul.h: No such file or directory`** — the
-  header must sit *inside* `azul-haskell/cbits/` (the package compiles
-  `cbits/azul_shims.c` with `include-dirs: cbits`).
-- **Link error `cannot find -lazul`** — `--extra-lib-dirs` missing or
-  relative. Pass an absolute path.
-- **Runtime: `error while loading shared libraries` / `dyld: Library
-  not loaded`** — set `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH`
-  (macOS) to the directory containing the native library; on Windows
-  put `azul.dll` on `PATH`.
-- **`Ambiguous type variable` at a `refAnyUpdate` or `buttonWithOnClick`
-  call** — a lambda gives the binding no model type to look up. Name the
-  model type, as `onClick`'s record update and `layout`'s signature do.
-- **`[azul] LayoutCallback callback raised: user error (... does not hold
-  the model type ...)` on stderr and an empty window** — the `RefAny`
-  given to `appCreate` was created from a value of another type than the
-  layout's model.
-- **A handler throws and the app keeps running** — exceptions never
-  cross into libazul: the binding catches them, prints them to stderr
-  and returns libazul's default for that callback kind.
-- **The runtime aborts when a callback fires from another thread** —
-  build executables with `-threaded` (the downloaded `azul-example.cabal`
-  does); `ThreadCallback` and the `RefAny` releaser can run on threads
-  libazul owns.
+Congratulations! Once you've got the hello-world example running, you've already mastered 80%
+of the framework. As you might have guessed, more complex UI and styling are only composing
+more Dom objects together and working with the various event filters.
+
+You can now start reading about the [architecture patterns](../architecture.md) or
+explore what [methods the `Dom` has to offer](../dom.md).
+
+See you in the next tutorial!

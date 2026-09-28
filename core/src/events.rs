@@ -4212,7 +4212,7 @@ impl Default for PostFilterCallback {
 /// Spelled out rather than left to prose, because this is read by machines:
 /// an agent choosing arguments and a UI validating a macro form both need the
 /// type, not a sentence describing it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde-json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde-json", serde(rename_all = "lowercase"))]
 pub enum E2eOpArgType {
@@ -4222,6 +4222,7 @@ pub enum E2eOpArgType {
     Object,
     Array,
     /// Any JSON value is acceptable.
+    #[default]
     Any,
 }
 
@@ -4234,12 +4235,6 @@ pub struct E2eOpArg {
     pub arg_type: E2eOpArgType,
     pub required: bool,
     pub description: String,
-}
-
-impl Default for E2eOpArgType {
-    fn default() -> Self {
-        Self::Any
-    }
 }
 
 /// A worked example: what to send, and what comes back.
@@ -4547,13 +4542,29 @@ impl Default for CustomE2eOpCallback {
             // be able to tell "this app advertises no ops" from "this app
             // returned nothing parseable"; those mean different things to a
             // plugin deciding whether the host is usable at all.
-            // An empty LIST, not an empty string or a null. A consumer must
-            // be able to tell "this app advertises no ops" from "this app
-            // returned nothing parseable"; those mean different things to a
-            // plugin deciding whether the host is usable at all.
             op_schema: E2eOpSchema::default().to_json(),
         }
     }
+}
+
+// Host-invoker plumbing (see core/src/host_invoker.rs): the op name and its
+// JSON arguments carry no context, so the thunk reads it from the invocation
+// slot. A wrapper built from a host handle advertises no ops until the
+// binding sets `op_schema`, like one built from a bare function pointer.
+crate::impl_managed_callback! {
+    wrapper:        CustomE2eOpCallback,
+    ctx_field:      ctx,
+    data:           data: crate::refany::RefAny,
+    args:           [op: AzString, args_json: AzString],
+    return_ty:      CustomE2eOpResult,
+    default_ret:    CustomE2eOpResult::default(),
+    invoker_static: CUSTOM_E2E_OP_INVOKER,
+    invoker_ty:     AzCustomE2eOpCallbackInvoker,
+    thunk_fn:       az_custom_e2e_op_callback_thunk,
+    setter_fn:      AzApp_setCustomE2eOpCallbackInvoker,
+    from_handle_fn: AzCustomE2eOpCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCustomE2eOpCallback_createFromHostHandleByref,
+    rest:           CustomE2eOpCallback::default(),
 }
 
 /// Default handler: recognises NOTHING.

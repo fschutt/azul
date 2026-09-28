@@ -1026,9 +1026,9 @@ pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
 
     unsafe {
         let mut counters: ProcessMemoryCountersEx = core::mem::zeroed();
-        let cb = u32::try_from(core::mem::size_of::<ProcessMemoryCountersEx>()).ok()?;
+        let cb = u32::try_from(size_of::<ProcessMemoryCountersEx>()).ok()?;
         counters.cb = cb;
-        if K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, cb) == 0 {
+        if K32GetProcessMemoryInfo(GetCurrentProcess(), &raw mut counters, cb) == 0 {
             return None;
         }
         Some(WindowsMemoryCounters {
@@ -1065,6 +1065,7 @@ pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
 /// the leak was never macOS-specific, the *instrument* was.
 #[cfg(feature = "probe")]
 #[must_use]
+#[allow(clippy::missing_const_for_fn)] // only the fallback target's body is const
 pub fn malloc_heap_bytes() -> u64 {
     #[cfg(target_os = "macos")]
     {

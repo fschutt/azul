@@ -56,6 +56,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_number_input_on_value_change_callback_thunk,
     setter_fn:      AzApp_setNumberInputOnValueChangeCallbackInvoker,
     from_handle_fn: AzNumberInputOnValueChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzNumberInputOnValueChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: NumberInputState ],
 }
 
@@ -79,6 +80,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_number_input_on_focus_lost_callback_thunk,
     setter_fn:      AzApp_setNumberInputOnFocusLostCallbackInvoker,
     from_handle_fn: AzNumberInputOnFocusLostCallback_createFromHostHandle,
+    from_handle_byref_fn: AzNumberInputOnFocusLostCallback_createFromHostHandleByref,
     extra_args:     [ state: NumberInputState ],
 }
 
@@ -322,7 +324,7 @@ extern "C" fn on_focus_lost(
 
     match onfocuslost.as_mut() {
         Some(NumberInputOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -439,7 +441,7 @@ extern "C" fn validate_text_input(
 
     let update = match onvaluechange.as_mut() {
         Some(NumberInputOnValueChange { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner_clone)
+            callback.invoke(refany.clone(), info, inner_clone)
         }
         None => Update::DoNothing,
     };
@@ -805,7 +807,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
@@ -920,7 +922,7 @@ mod autotest_generated {
             .as_ref()
             .expect("NumberInput::dom must install a text-input hook")
             .clone();
-        with_info(|info| (hook.callback.cb)(hook.refany.clone(), info, text_state(text)))
+        with_info(|info| hook.callback.invoke(hook.refany.clone(), info, text_state(text)))
     }
 
     /// Delivers a key-down to whichever virtual-key hook survived rendering, if any.
@@ -933,7 +935,7 @@ mod autotest_generated {
             .as_ref()
             .cloned()?;
         Some(with_info(|info| {
-            (hook.callback.cb)(hook.refany.clone(), info, text_state(""))
+            hook.callback.invoke(hook.refany.clone(), info, text_state(""))
         }))
     }
 

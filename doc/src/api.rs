@@ -1427,6 +1427,11 @@ pub struct CallbackDefinition {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CallbackArgData {
+    /// The parameter name from the Rust typedef (`extern "C" fn(node_id: NodeGraphNodeId, ..)`).
+    /// Bindings use it for their generated parameter / local names; absent for
+    /// unnamed parameters (bindings then fall back to a type-derived name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(rename = "type")]
     pub r#type: String,
     /// Reference kind for callback argument - supports full range including pointers

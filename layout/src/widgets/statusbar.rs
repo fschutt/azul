@@ -85,6 +85,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_status_bar_on_view_select_callback_thunk,
     setter_fn:      AzApp_setStatusBarOnViewSelectCallbackInvoker,
     from_handle_fn: AzStatusBarOnViewSelectCallback_createFromHostHandle,
+    from_handle_byref_fn: AzStatusBarOnViewSelectCallback_createFromHostHandleByref,
     extra_args:     [ view_index: usize ],
 }
 

@@ -169,6 +169,9 @@ use unicode_normalization as _;
 use webpki_roots as _;
 #[cfg(feature = "xml")]
 use xmlwriter as _;
+// `libc`: the probe feature's rusage/dladdr calls exist on unix only.
+#[cfg(all(feature = "probe", not(unix)))]
+use libc as _;
 
 /// Web-lift diagnostic marker: a volatile store of `val` to the absolute wasm
 /// linear-memory address `addr` (the 0x40000–0xF0000 free band the e2e harness

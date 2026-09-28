@@ -15,8 +15,9 @@
 //! configurable knobs — every Azul C# user starts from the same shape.
 //! Pure stdlib, no external NuGet dependencies.
 
-/// Single public function returning the full `Azul.csproj` body.
-pub fn generate_csproj() -> String {
+/// Single public function returning the full `Azul.csproj` body, for the
+/// binding of api.json `version`.
+pub fn generate_csproj(version: &str) -> String {
     // Note: tabs/spaces inside the literal are intentional and match the
     // canonical MSBuild output. Indentation is two spaces.
     let s = r#"<Project Sdk="Microsoft.NET.Sdk">
@@ -33,6 +34,10 @@ pub fn generate_csproj() -> String {
          and net10.0 projects alike, while a net10.0-only package fails
          `dotnet add package` with NU1202 for every .NET 8 project. -->
     <TargetFramework>net8.0</TargetFramework>
+    <!-- Let the net8.0 build load on hosts that only have a newer runtime
+         (e.g. a machine with .NET 10 only) instead of failing with
+         "framework 'Microsoft.NETCore.App' 8.0.0 not found". -->
+    <RollForward>Major</RollForward>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>
@@ -43,12 +48,15 @@ pub fn generate_csproj() -> String {
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>Azul</AssemblyName>
     <RootNamespace>Azul</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>{VERSION}</Version>
     <Description>C# bindings for the Azul GUI framework.</Description>
     <PackageId>Azul.Net</PackageId>
     <Authors>Azul Contributors</Authors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- CS1591: not every generated member carries XML docs. CA2255: the
+         [ModuleInitializer] in Azul.cs is intentional — it installs the
+         DllImportResolver that locates libazul next to the app. -->
+    <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
 
   <!-- The generated bindings file. -->
@@ -83,5 +91,5 @@ pub fn generate_csproj() -> String {
 
 </Project>
 "#;
-    s.to_string()
+    s.replace("{VERSION}", version)
 }

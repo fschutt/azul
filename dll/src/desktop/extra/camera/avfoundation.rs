@@ -56,28 +56,30 @@ define_class!(
             sample_buffer: &CMSampleBuffer,
             _connection: &AVCaptureConnection,
         ) {
-            let image = match sample_buffer.image_buffer() {
-                Some(i) => i,
-                None => return,
-            };
-            let pb = &*image;
-            CVPixelBufferLockBaseAddress(pb, CVPixelBufferLockFlags(0));
-            let w = CVPixelBufferGetWidth(pb) as usize;
-            let h = CVPixelBufferGetHeight(pb) as usize;
-            let stride = CVPixelBufferGetBytesPerRow(pb);
-            let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
-            // Swizzle into the slot's REUSED buffer and wake the reader; the
-            // slot validates the plane (see `CaptureSlot::publish_bgra`).
-            if self.ivars().slot.publish_bgra(base, w, h, stride) {
-                // Log the very first frame only (the callback is hot).
-                crate::plog_info!(
-                    "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
-                    w,
-                    h,
-                    stride
-                );
+            unsafe {
+                let image = match sample_buffer.image_buffer() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let pb = &*image;
+                CVPixelBufferLockBaseAddress(pb, CVPixelBufferLockFlags(0));
+                let w = CVPixelBufferGetWidth(pb) as usize;
+                let h = CVPixelBufferGetHeight(pb) as usize;
+                let stride = CVPixelBufferGetBytesPerRow(pb);
+                let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
+                // Swizzle into the slot's REUSED buffer and wake the reader; the
+                // slot validates the plane (see `CaptureSlot::publish_bgra`).
+                if self.ivars().slot.publish_bgra(base, w, h, stride) {
+                    // Log the very first frame only (the callback is hot).
+                    crate::plog_info!(
+                        "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
+                        w,
+                        h,
+                        stride
+                    );
+                }
+                CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
             }
-            CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
         }
     }
 );

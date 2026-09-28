@@ -32,11 +32,9 @@ impl CppDialect for Cpp14Generator {
         code.push_str(&format!("// {}\r\n\r\n", "=".repeat(77)));
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros (shims over the RefAny template
+        // members on C++11+).
+        code.push_str(&generate_reflect_macro(std));
         code.push_str("namespace azul {\r\n\r\n");
 
         let synthesized = synthesize_option_result_structs(ir);
@@ -106,6 +104,8 @@ impl CppDialect for Cpp14Generator {
 
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");

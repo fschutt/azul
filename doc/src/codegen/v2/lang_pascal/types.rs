@@ -17,8 +17,9 @@
 //!   section for unit variants).
 //! - **Callback typedefs** -> `type TAzFooCallbackType = function(...): ...; cdecl;` declarations.
 //!   Pascal's procedural-type support is exactly what we need here.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** are skipped with `{ SKIPPED:
-//!   <reason> }` block comments.
+//! - **Generic templates** (`CssPropertyValue<T>`, `PhysicalSize<T>`) have no C ABI of their own;
+//!   a `{ ... }` note stands in their place and their api.json INSTANTIATIONS are emitted as real
+//!   records further down (see `emit_monomorphized_alias`).
 
 use anyhow::Result;
 
@@ -32,7 +33,8 @@ use super::{
             TypeAliasDef, TypeCategory,
         },
     },
-    map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier,
+    map_type_to_pascal, pointer_type_name, record_type_name, sanitize_bare_identifier,
+    sanitize_identifier,
 };
 
 // ============================================================================
@@ -49,6 +51,21 @@ pub fn generate_types(
     builder.line("{ -------------------------------------------------------------------- }");
     builder.blank();
 
+    // Every enum below is declared with SCOPED members, i.e. `TAzUpdate =
+    // (DoNothing, RefreshDom, ...)` read as `TAzUpdate.RefreshDom`, which is
+    // what a Pascal programmer expects an enum to look like. The directive is
+    // what makes that safe: with it OFF (the default) the members are ALSO
+    // injected into the unit's own scope, and 600+ api.json enums share names
+    // like `None`, `Auto` and `Left`, so they would all collide - which is
+    // why they used to be spelled `TAzUpdate_RefreshDom`. Those spellings are
+    // still there: `emit_unscoped_enum_aliases` re-exports every member under
+    // its old name right after the block, so this is purely additive.
+    //
+    // `{$SCOPEDENUMS}` is documented for FPC since 3.0 (Programmer's Guide
+    // 1.2.70) and exists in Delphi, so it costs no compatibility. Records and
+    // variant records are unaffected by it; only enum declarations are, hence
+    // one region around the whole block instead of a pair per enum.
+    builder.line("{$SCOPEDENUMS ON}");
     builder.line("type");
     builder.indent();
 
@@ -119,16 +136,85 @@ pub fn generate_types(
     }
 
     builder.dedent();
+    // Back to the unit's default; nothing after this block declares an enum.
+    builder.line("{$SCOPEDENUMS OFF}");
     builder.blank();
 
+    emit_unscoped_enum_aliases(builder, ir, config);
+
     Ok(())
+}
+
+/// Re-export every enum member under the name it had before the members
+/// became scoped (`TAzUpdate_RefreshDom = TAzUpdate.RefreshDom;`).
+///
+/// With `{$SCOPEDENUMS ON}` the members live only inside their type, so
+/// without this block every existing spelling would break at once: the
+/// `az<Variant>` short aliases the managed tail emits, the enum constants
+/// named in the guide and the examples, and any user code. A `const` of
+/// enumerated type IS that enum - it passes where the type is expected and
+/// works as a `case` label - so the two spellings are interchangeable.
+///
+/// This has to be a separate `const` section: a `const` inside the type
+/// block would close it, and FPC needs every forward-declared pointer in
+/// that block resolved before it ends.
+fn emit_unscoped_enum_aliases(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    // (type name, scoped member, unscoped spelling), in declaration order.
+    let mut rows: Vec<(String, String, String)> = Vec::new();
+    let push = |ty: &str, variant: &str, rows: &mut Vec<(String, String, String)>| {
+        rows.push((
+            ty.to_string(),
+            sanitize_bare_identifier(variant),
+            format!("{}_{}", ty, sanitize_identifier(variant)),
+        ));
+    };
+    for e in &ir.enums {
+        if !should_include_enum(e, config) || e.is_union || e.variants.is_empty() {
+            continue;
+        }
+        let t = record_type_name(&e.name);
+        for v in &e.variants {
+            push(&t, &v.name, &mut rows);
+        }
+    }
+    for ta in &ir.type_aliases {
+        let Some(mono) = &ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let MonomorphizedKind::SimpleEnum { variants, .. } = &mono.kind else {
+            continue;
+        };
+        let tag = format!("{}Tag", record_type_name(&ta.name));
+        for v in variants {
+            push(&tag, v, &mut rows);
+        }
+    }
+    if rows.is_empty() {
+        return;
+    }
+
+    builder.line("{ -------------------------------------------------------------------- }");
+    builder.line("{ Every enum member under its unscoped name as well:                   }");
+    builder.line("{ TAzUpdate_RefreshDom IS TAzUpdate.RefreshDom. Both spellings work.    }");
+    builder.line("{ -------------------------------------------------------------------- }");
+    builder.blank();
+    builder.line("const");
+    builder.indent();
+    for (ty, member, unscoped) in &rows {
+        builder.line(&format!("{} = {}.{};", unscoped, ty, member));
+    }
+    builder.dedent();
+    builder.blank();
 }
 
 // ============================================================================
 // Inclusion filters
 // ============================================================================
 
-fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
+pub(super) fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
@@ -146,7 +232,7 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     )
 }
 
-fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
+pub(super) fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&e.name) {
         return false;
     }
@@ -159,20 +245,41 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
+/// Note why a type has no record of its own.
+///
+/// The only types that reach this today are the generic TEMPLATES
+/// (`CssPropertyValue<T>`, `PhysicalSize<T>`, ...). A template has no C ABI
+/// and therefore nothing to lay out: what crosses the wire is each
+/// INSTANTIATION, and api.json spells those out as `type_alias` entries
+/// (`LayoutClearValue = CssPropertyValue<LayoutClear>`) which
+/// `emit_monomorphized_alias` emits below as real records / variant records
+/// in dependency order. So nothing is missing here, and the note must not
+/// read as if something were.
+fn emit_template_note(builder: &mut CodeBuilder, kind: &str, name: &str, is_template: bool) {
+    if is_template {
+        builder.line(&format!(
+            "{{ {} {} is a generic template: it has no layout of its own, its \
+             instantiations are emitted below as records. }}",
+            kind, name
+        ));
+    } else {
+        builder.line(&format!(
+            "{{ {} {} is not part of this binding's configured type set. }}",
+            kind, name
+        ));
+    }
+}
+
 fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
-    builder.line(&format!(
-        "{{ SKIPPED: struct {} ({}) }}",
-        s.name,
-        s.category.description()
-    ));
+    let is_template =
+        !s.generic_params.is_empty() || s.category == TypeCategory::GenericTemplate;
+    emit_template_note(builder, "struct", &s.name, is_template);
 }
 
 fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
-    builder.line(&format!(
-        "{{ SKIPPED: enum {} ({}) }}",
-        e.name,
-        e.category.description()
-    ));
+    let is_template =
+        !e.generic_params.is_empty() || e.category == TypeCategory::GenericTemplate;
+    emit_template_note(builder, "enum", &e.name, is_template);
 }
 
 // ============================================================================
@@ -266,10 +373,15 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         return;
     }
 
+    // Scoped members: the type block is declared under `{$SCOPEDENUMS ON}`,
+    // so the member is written `TAzUpdate.RefreshDom` and carries no prefix.
+    // `sanitize_bare_identifier`, not `sanitize_identifier`: a bare `End` or
+    // `Div` IS the keyword (29 api.json variants are), while the prefixed
+    // spelling the alias block re-exports never was.
     let names: Vec<String> = e
         .variants
         .iter()
-        .map(|v| format!("{}_{}", t, sanitize_identifier(&v.name)))
+        .map(|v| sanitize_bare_identifier(&v.name))
         .collect();
 
     builder.line(&format!("{} = (", t));
@@ -492,12 +604,8 @@ fn emit_monomorphized_alias(
             builder.indent();
             for (i, v) in variants.iter().enumerate() {
                 let suffix = if i + 1 < variants.len() { "," } else { "" };
-                builder.line(&format!(
-                    "{}_{}{}",
-                    tag_name,
-                    sanitize_identifier(v),
-                    suffix
-                ));
+                // Scoped, like every other enum here (see emit_unit_enum).
+                builder.line(&format!("{}{}", sanitize_bare_identifier(v), suffix));
             }
             builder.dedent();
             builder.line(");");

@@ -10,17 +10,27 @@
 //!    prefix so the linker can match symbol names.
 //! 4. Wraps every type that owns heap memory (i.e. has a matching `<TypeName>_delete` C function)
 //!    in an idiomatic Pascal `class` whose `destructor Destroy; override;` calls the matching
-//!    `_delete`. The user calls `obj.Free;` and the destructor fires automatically.
+//!    `_delete` (see `wrappers.rs` for the fluent / consume rules and the string overloads).
+//! 5. Emits the host-invoker callback surface, the generic `TAz<App><T>` helper and the
+//!    `az<Variant>` enum aliases (see `managed.rs`).
+//!
+//! # Unit directives
+//!
+//! The unit is compiled in `{$mode delphi}{$H+}` (it uses Delphi-syntax generics; the user's
+//! program picks its own mode — an objfpc program writes `specialize TAzApp<TMyModel>`), with
+//! `{$PACKRECORDS C}` for C struct layout AND `{$PACKENUM 4}` because Delphi mode defaults enums to
+//! ONE byte while every `#[repr(C)]` enum in libazul is a C `int` (4 bytes). Without `PACKENUM 4`
+//! every enum-bearing record is mis-laid-out and the first layout callback dies with an EBusError.
+//! The `initialization` block re-checks the sizes at load time.
 //!
 //! # Output structure (high-level)
 //!
 //! ```pascal
 //! unit Azul;
-//! {$mode objfpc}{$H+}
-//! {$PACKRECORDS C}
+//! (mode delphi, H+, PACKRECORDS C, PACKENUM 4, linklib azul)
 //!
 //! interface
-//! uses ctypes;
+//! uses ctypes, Math, SysUtils;
 //!
 //! const
 //!   AzulLib = 'azul';
@@ -28,55 +38,33 @@
 //! type
 //!   { Forward pointer declarations }
 //!   PAzApp = ^TAzApp;
-//!   PAzDom = ^TAzDom;
-//!   { ... }
-//!
-//!   { POD records }
-//!   TAzAppConfig = record ... end;
-//!
-//!   { Unit enums }
-//!   TAzButtonType = (TAzButtonType_Primary, TAzButtonType_Secondary, ...);
-//!
-//!   { Variant records (tagged unions) }
-//!   TAzOptionI64 = record case Tag: TAzOptionI64Tag of ... end;
+//!   { POD records }        TAzAppConfig = record ... end;
+//!   { Unit enums }         TAzButtonType = (TAzButtonType_Primary, ...);
+//!   { Variant records }    TAzOptionI64 = record case Tag: cuint8 of ... end;
 //!
 //! { External declarations }
 //! function AzApp_create(data: TAzRefAny; config: TAzAppConfig): TAzApp; cdecl; external AzulLib;
-//! procedure AzApp_run(app: PAzApp; window: TAzWindowCreateOptions); cdecl; external AzulLib;
-//! procedure AzApp_delete(app: PAzApp); cdecl; external AzulLib;
 //!
-//! { Idiomatic wrapper classes }
-//! type
-//!   TApp = class
-//!   private
-//!     FRaw: TAzApp;
-//!   public
-//!     constructor Create(data: TAzRefAny; config: TAzAppConfig);
-//!     destructor Destroy; override;
-//!     procedure Run(window: TAzWindowCreateOptions);
-//!   end;
+//! { Host-invoker plumbing, then ONE type block with: wrapper forward decls, the callback
+//!   types (TAz<K>Event / Proc / Func<T> / ModelFunc<T> ...), the wrapper classes
+//!   (TDom, TButton, ...), the options view and TAzApp<T>. Then azul_register_*,
+//!   string helpers and the az<Variant> constants. }
 //!
 //! implementation
-//! { ... method bodies ... }
+//! { handle table, releaser, invoker stubs, method bodies, initialization self-check }
 //! end.
 //! ```
-//!
-//! # Wiring
-//!
-//! This module is intentionally *not* wired from `v2/mod.rs` yet. The
-//! orchestrator is responsible for adding `pub mod lang_pascal;` and a
-//! `pub fn generate_pascal(api_data) -> Result<String>` helper that
-//! mirrors `generate_python` and is invoked from
-//! `GenerationTargets::generate_all`.
 
 use anyhow::Result;
 
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
+pub mod constants;
 pub mod functions;
 pub mod lpi;
 pub mod managed;
 pub mod types;
+pub mod values;
 pub mod wrappers;
 
 /// Library name used in `external 'azul';`.
@@ -100,9 +88,21 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Unit declaration + compiler directives
     builder.line("unit Azul;");
     builder.blank();
-    builder.line("{$mode objfpc}{$H+}");
+    builder.line("{$mode delphi}{$H+}");
+    // C struct layout for every record ...
     builder.line("{$PACKRECORDS C}");
+    // ... and 4-byte enums: Delphi mode defaults to {$Z1} (1-byte enums),
+    // libazul's repr(C) enums are C ints. Both directives are unconditional
+    // and re-verified at unit load (see managed::emit_managed_initialization).
+    builder.line("{$PACKENUM 4}");
     builder.line("{$MACRO ON}");
+    // Function references / anonymous methods exist on FPC 3.3.1+ (and
+    // Delphi) only; the `reference to` callback overloads are guarded by the
+    // same test everywhere in the unit.
+    builder.line(managed::FUNCREF_GUARD);
+    builder.line("{$modeswitch functionreferences}");
+    builder.line("{$modeswitch anonymousfunctions}");
+    builder.line(managed::FUNCREF_GUARD_END);
     // Auto-link the native library so users don't need `-k-lazul` on the fpc
     // command line — only the library search path (`-Fl.` / `-k-L.`) or a
     // system-installed libazul is still required. `azul` resolves to
@@ -114,8 +114,9 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("interface");
     builder.blank();
     // `Math` for SetExceptionMask in the initialization block (see
-    // managed::emit_managed_initialization for why the unit must mask the FPU).
-    builder.line("uses ctypes, Math;");
+    // managed::emit_managed_initialization for why the unit must mask the
+    // FPU); `SysUtils` for EAzulError.
+    builder.line("uses ctypes, Math, SysUtils;");
     builder.blank();
 
     // Library name constant
@@ -125,19 +126,32 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.dedent();
     builder.blank();
 
+    let targets = wrappers::wrapper_target_names(ir, config);
+
     // 1. Type forward declarations + record/enum/variant-record definitions
     types::generate_types(&mut builder, ir, config)?;
 
     // 2. External cdecl function declarations
     functions::generate_externals(&mut builder, ir, config)?;
 
-    // 2b. Managed-FFI runtime helpers (host-invoker pattern) — interface
-    //     side. Public azul_refany_create / azul_refany_get + the FFI
-    //     setter/getter declarations.
-    managed::emit_managed_interface(&mut builder, ir);
+    // 3. Host-invoker plumbing (invoker types, externals, base classes,
+    //    azul_refany_create / get).
+    managed::emit_managed_interface(&mut builder, ir, &targets);
 
-    // 3. Idiomatic class wrappers (interface side)
+    // 4. One type block: wrapper forward decls, callback surface, wrapper
+    //    classes, options view + TAz<App><T>.
     wrappers::generate_wrapper_interface(&mut builder, ir, config)?;
+
+    // 5. azul_register_<kind>, string helpers, az<Variant> aliases.
+    managed::emit_managed_interface_tail(&mut builder, ir, config);
+
+    // 6. api.json's constant table (the OpenGL enum values).
+    constants::generate_constants(&mut builder, ir);
+
+    // 7. The value layer: one idiomatic Pascal routine per export, so
+    //    every C function is reachable without spelling the raw symbol
+    //    (the class wrappers above cover only the types that own memory).
+    values::generate_value_interface(&mut builder, ir, config);
 
     // === implementation section ===
     builder.blank();
@@ -145,15 +159,18 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.blank();
 
     // Managed-FFI bodies (handle table, releaser, per-kind invoker
-    // stubs, azul_refany_create / get implementations).
-    managed::emit_managed_implementation(&mut builder, ir);
+    // stubs, dispatcher classes, app helper).
+    managed::emit_managed_implementation(&mut builder, ir, config, &targets);
 
     // Wrapper method bodies
     wrappers::generate_wrapper_implementation(&mut builder, ir, config)?;
 
-    // Unit initialisation block — registers the releaser + invoker
-    // stubs with libazul once at unit load.
-    managed::emit_managed_initialization(&mut builder);
+    // Value-layer bodies (one forwarding call each).
+    values::generate_value_implementation(&mut builder, ir, config);
+
+    // Unit initialisation block — FPU mask, ABI self-check, releaser +
+    // invoker stub registration.
+    managed::emit_managed_initialization(&mut builder, ir);
 
     builder.line("end.");
 
@@ -166,9 +183,15 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("  Generated by azul-doc codegen v2 (lang_pascal).");
     builder.line("  DO NOT EDIT MANUALLY.");
     builder.line("");
-    builder.line("  Compatible with Free Pascal Compiler 3.2+ in {$mode objfpc}.");
-    builder.line("  The {$PACKRECORDS C} directive is critical: it forces C-ABI struct");
-    builder.line("  layout so values passed by value match the Rust extern \"C\" ABI.");
+    builder.line("  Compatible with Free Pascal Compiler 3.0.4+ (unit in Delphi mode; user");
+    builder.line("  programs may use mode objfpc or delphi). Typed On<Event><T> setters");
+    builder.line("  need FPC 3.2.0+ (generic methods); on 3.0.x pass a dispatcher instead:");
+    builder.line("  .OnClick(TAzButtonOnClickCallbackTypedWrapper<TMyModel>.Create(Fn)).");
+    builder.line("  Anonymous-function overloads need FPC 3.3.1+.");
+    builder.line("  PACKRECORDS C and PACKENUM 4 are critical: they force C-ABI struct");
+    builder.line("  layout and 4-byte enums so values passed by value match the Rust");
+    builder.line("  extern \"C\" ABI. Consumed wrapper objects (by-value self / args) free");
+    builder.line("  themselves; see the wrapper class comments.");
     builder
         .line("  ============================================================================ }");
     builder.blank();
@@ -234,7 +257,12 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
         }
     }
 
-    match trimmed {
+    // The C-type -> ctypes table. The GL spellings are api.json type
+    // ALIASES of C primitives, i.e. part of the primitive table itself -
+    // the same role `u32` and `f32` play in it. An alias carries no width
+    // in the IR, so the table is the only place this can live, and it keys
+    // on the spelling of a PRIMITIVE, never on an API item.
+    match trimmed { // allow-api-name: the primitive table, see above.
         // Void / unit
         "void" | "c_void" | "()" => "Pointer".to_string(),
 
@@ -278,6 +306,14 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
     }
 }
 
+/// Is `type_name` the API's own string type (the one `azul_string_from` /
+/// `azul_string_to` convert)? Derived from the IR's type CATEGORY, so no
+/// emitter has to compare against the literal spelling.
+pub(super) fn is_string_type(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(type_name.trim())
+        .is_some_and(|s| s.category == super::ir::TypeCategory::String)
+}
+
 /// Helper: turn `<inner>` (the part after `*const`/`*mut`/`&`/`&mut`) into a
 /// Pascal pointer expression. Tries the typed `PAzFoo` when the inner is a
 /// known IR type; falls back to `PChar` for `c_char`/`char` and to plain
@@ -300,6 +336,29 @@ fn ptr_to_pascal(inner: &str, ir: &CodegenIR) -> String {
     }
 }
 
+/// `base`, or the first free `base<separator><n>` (n from 2), recording the
+/// result in `taken`.
+///
+/// Pascal identifiers are case-insensitive, so `taken` holds lowercased
+/// names and two spellings that differ only in case count as one. This is
+/// the ONE place the binding resolves such a clash: the alternative -
+/// dropping the later item - is silent data loss, and an ordinal derived
+/// from the IR's own order is stable across regenerations, which a
+/// hand-written rename table would not be.
+pub(super) fn unique_identifier(
+    base: &str,
+    separator: &str,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> String {
+    let mut name = base.to_string();
+    let mut n = 2;
+    while !taken.insert(name.to_ascii_lowercase()) {
+        name = format!("{}{}{}", base, separator, n);
+        n += 1;
+    }
+    name
+}
+
 /// Sanitize a name for use as a Pascal identifier. Pascal reserved words
 /// get a trailing underscore; this keeps the symbol unambiguous without
 /// shadowing FPC keywords.
@@ -310,15 +369,37 @@ pub fn sanitize_identifier(name: &str) -> String {
     name.to_string()
 }
 
+/// Sanitize a name that will stand ALONE as a Pascal identifier — a
+/// constructor name, a scoped enum member — where the keyword test has to
+/// be case-insensitive, because Pascal is.
+///
+/// [`sanitize_identifier`] compares the keyword list verbatim, which is
+/// right for the names it is fed (api.json's lowercase field and argument
+/// names) and for everything that carries a prefix: the UNSCOPED enum
+/// member `TAzLayoutAlignContent_End` is not the keyword `end`, it already
+/// compiles, and user code already spells it that way. Widening that
+/// function would rename it. A bare `End` or `Div` is the keyword, whatever
+/// the casing, so those get the same trailing underscore the rest of the
+/// binding uses.
+pub(super) fn sanitize_bare_identifier(name: &str) -> String {
+    if is_pascal_reserved(&name.to_ascii_lowercase()) {
+        return format!("{}_", name);
+    }
+    sanitize_identifier(name)
+}
+
 /// Names that — although not Pascal keywords — collide with common
-/// methods we emit on wrapper classes (`Len`, `Capacity`, `Clone`).
-/// Pascal is case-insensitive, so a parameter named `len` clashes
-/// with the `Len` method on the enclosing class even though the
-/// casing differs. Suffix with `_` to disambiguate.
+/// methods we emit on wrapper classes (`Len`, `Capacity`, `Clone`) or
+/// with the implicit function result variable (`Result`: every wrapper
+/// method is a function since the fluent rules, so an api.json argument
+/// named `result` would shadow it). Pascal is case-insensitive, so a
+/// parameter named `len` clashes with the `Len` method on the enclosing
+/// class even though the casing differs. Suffix with `_` to disambiguate.
 fn is_pascal_method_shadow(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "len"
+        "result"
+            | "len"
             | "cap"
             | "clone"
             | "create"
@@ -340,8 +421,12 @@ fn is_pascal_method_shadow(name: &str) -> bool {
 
 /// Pascal reserved words (FPC + Object Pascal). Subset that's likely to
 /// collide with field/argument names in api.json.
+///
+/// This is the LANGUAGE's keyword list, not a list of API items: that
+/// `array`, `div`, `end` and `label` also happen to be api.json method
+/// names is why the list has to be consulted, not what it is derived from.
 pub(super) fn is_pascal_reserved(name: &str) -> bool {
-    matches!(
+    matches!( // allow-api-name: FPC's keyword list, see above.
         name,
         "absolute"
             | "and"

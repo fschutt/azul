@@ -13,6 +13,7 @@ AZ_REFLECT(MyDataModel, MyDataModel_destructor);
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);
     if (!MyDataModel_downcastMut(&data, &d)) {
+        MyDataModelRefMut_delete(&d);
         return AzUpdate_DoNothing;
     }
     d.ptr->counter += 1;
@@ -23,6 +24,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef d = MyDataModelRef_create(&data);
     if (!MyDataModel_downcastRef(&data, &d)) {
+        MyDataModelRef_delete(&d);
         return AzDom_createBody();
     }
 

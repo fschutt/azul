@@ -1372,6 +1372,7 @@ fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
     ClassPatch {
         callback_typedef: Some(CallbackDefinition {
             fn_args: vec![CallbackArgData {
+                name: None,
                 r#type: vec_type_name.to_string(),
                 ref_kind: RefKind::MutPtr, // *mut VecType
                 doc: None,
@@ -1877,6 +1878,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 .iter()
                 .map(|arg| {
                     CallbackArgData {
+                        name: arg.name.clone(),
                         r#type: arg.ty.clone(),
                         ref_kind: arg.ref_kind, // BorrowMode is Copy
                         doc: None,

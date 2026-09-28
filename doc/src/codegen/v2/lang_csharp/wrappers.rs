@@ -1,22 +1,37 @@
 //! Idiomatic C# wrapper-class emission for the C# generator.
 //!
-//! For every IR struct that has a matching `<TypeName>_delete` C function,
-//! we emit a `public class TypeName : IDisposable` that:
+//! For every IR struct that gets a wrapper class (the shared
+//! `managed_lang_helpers::has_wrapper_class` rule: a `_delete` OR at least
+//! one method in the C API) we emit a `public sealed class TypeName` that:
 //!
 //! - Holds the raw FFI struct (`AzTypeName`) by value in a private field
-//! - Exposes `Dispose()` / a finalizer / `Dispose(bool)` calling
-//!   `NativeMethods.AzTypeName_delete(...)`
 //! - Surfaces every non-trait method on `TypeName` as an idiomatic instance or static method that
 //!   delegates to the underlying P/Invoke import
+//! - When (and only when) the C API has `Az<TypeName>_delete`, implements `IDisposable` with a
+//!   finalizer that calls it. Methods-only types (`CallbackInfo`, POD value types) own nothing
+//!   and get neither.
 //!
-//! Plain POD structs without a `_delete` and unit enums get *no* wrapper —
-//! the user manipulates them through the FFI struct/enum directly.
+//! Ownership at method boundaries is keyed on `_delete` (see
+//! [`is_owning_wrapper`]): owning types cross by-value call sites as
+//! wrapper classes (consumed on transfer), value types as their raw
+//! `Az*` structs. Callback arguments handed in by the engine are wrapped
+//! as *borrowed* (`__Borrow`) so their methods work but nothing frees the
+//! engine's bytes.
+//!
+//! Callback registration is typed end to end: `Button.OnClick<T>(T, HostInvoker.ButtonOnClickCallbackWithData<T>)`,
+//! `WindowCreateOptions.Create<T>(HostInvoker.LayoutCallbackWithData<T>)`, `App.Create<T>(T, AppConfig)`
+//! are emitted for every method matching the shared IR detectors
+//! (`smart_callback_setter_info`, `layout_callback_factory_info`,
+//! `app_factory_info`) whenever `managed::typed_delegate_info` can plumb
+//! the callback kind.
 //!
 //! Tagged-union enums get a separate, very minimal "discriminator hierarchy"
 //! emitted by [`generate_union_hierarchies`]; for now this is intentionally
 //! narrow (we expose the tag enum and a static factory per unit variant).
 //! Full pattern-matching support can be expanded later without breaking
 //! the surface area.
+
+use std::collections::BTreeSet;
 
 use anyhow::Result;
 
@@ -26,11 +41,16 @@ use super::{
         generator::CodeBuilder,
         ir::{
             ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg,
-            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
+            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeCategory, TypeTraits,
         },
+        managed_host_invoker::{
+            app_factory_info, layout_callback_factory_info, managed_c_symbol,
+            smart_callback_setter_info,
+        },
+        managed_lang_helpers::{has_delete_function, has_wrapper_class},
     },
-    ffi_type_name, map_type_to_csharp, sanitize_identifier, snake_to_pascal,
-    types::ref_kind_field_type,
+    derives, ffi_type_name, managed::typed_delegate_info_for_kind, map_type_to_csharp,
+    sanitize_identifier, snake_to_pascal, types::ref_kind_field_type,
 };
 
 /// Phase I.5.2 (C#): how the wrapper method should idiomise an
@@ -113,29 +133,14 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
     ReturnIdiom::Plain
 }
 
-/// True iff `type_name` has a corresponding wrapper class emitted by
-/// `emit_wrapper_class`. Mirrors the Java/Kotlin gate: the struct
-/// exists, isn't an excluded category, and a `_delete` C function
-/// is exported.
-fn has_cs_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
-    let Some(s) = ir.find_struct(type_name) else {
-        return false;
-    };
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    if matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    ) {
-        return false;
-    }
-    ir.functions
-        .iter()
-        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+/// A wrapper class that OWNS native resources: it exists (shared
+/// `has_wrapper_class`) and the C API has `Az<T>_delete`. This is the
+/// predicate for ownership transfer at method boundaries — owning types
+/// are passed/returned as wrapper classes (consumed on by-value
+/// transfer), while methods-only value types (`ColorU`, `NodeId`, …)
+/// cross as their raw `Az*` structs, exactly like in C.
+fn is_owning_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
+    has_wrapper_class(type_name, ir) && has_delete_function(type_name, ir)
 }
 
 /// Map a payload's raw C# field type to the user-visible display type.
@@ -147,7 +152,7 @@ fn payload_display_cs(raw: &str, ir: &CodegenIR) -> String {
                 return "string".to_string();
             }
         }
-        if has_cs_wrapper_class(unprefixed, ir) {
+        if is_owning_wrapper(unprefixed, ir) {
             return unprefixed.to_string();
         }
     }
@@ -184,10 +189,10 @@ fn format_option_delete_block_cs(option_type_name: &str, ir: &CodegenIR) -> Opti
     // copy IntPtr, calls _delete, frees the heap copy.
     Some(format!(
         "{{ var __del_ptr = \
-         System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
-         Marshal.SizeOf<{ffi}>()); System.Runtime.InteropServices.Marshal.StructureToPtr(__ret, \
+         global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
+         Marshal.SizeOf<{ffi}>()); global::System.Runtime.InteropServices.Marshal.StructureToPtr(__ret, \
          __del_ptr, false); NativeMethods.{ffi}_delete(__del_ptr); \
-         System.Runtime.InteropServices.Marshal.FreeHGlobal(__del_ptr); }}",
+         global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__del_ptr); }}",
         ffi = ffi_name,
     ))
 }
@@ -233,15 +238,15 @@ fn emit_cs_option_body(
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
         builder.line("string __out;");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.line("if (__vp == global::System.IntPtr.Zero || __vl <= 0) {");
         builder.indent();
         builder.line("__out = \"\";");
         builder.dedent();
         builder.line("} else {");
         builder.indent();
         builder.line("var __bytes = new byte[__vl];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("__out = global::System.Text.Encoding.UTF8.GetString(__bytes);");
         builder.dedent();
         builder.line("}");
         emit_delete(builder);
@@ -249,7 +254,7 @@ fn emit_cs_option_body(
         return;
     }
     if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
-        if has_cs_wrapper_class(unprefixed, ir) {
+        if is_owning_wrapper(unprefixed, ir) {
             let clone_call = format_clone_call_cs(unprefixed, ir);
             builder.line("var __nv = __ret.AsNullable();");
             builder.line("if (__nv == null) {");
@@ -263,14 +268,14 @@ fn emit_cs_option_body(
                 // C ABI, wrap the clone, then drop the Option.
                 builder.line(&format!(
                     "var __nv_ptr = \
-                     System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
+                     global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
                      InteropServices.Marshal.SizeOf<{}>());",
                     raw_payload_cs
                 ));
-                builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
+                builder.line(&"global::System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
                      false);".to_string());
                 builder.line(&format!("var __cloned = {}(__nv_ptr);", clone));
-                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -301,15 +306,15 @@ fn emit_cs_result_body(
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
         builder.line("string __out;");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.line("if (__vp == global::System.IntPtr.Zero || __vl <= 0) {");
         builder.indent();
         builder.line("__out = \"\";");
         builder.dedent();
         builder.line("} else {");
         builder.indent();
         builder.line("var __bytes = new byte[__vl];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("__out = global::System.Text.Encoding.UTF8.GetString(__bytes);");
         builder.dedent();
         builder.line("}");
         emit_delete(builder);
@@ -317,21 +322,21 @@ fn emit_cs_result_body(
         return;
     }
     if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
-        if has_cs_wrapper_class(unprefixed, ir) {
+        if is_owning_wrapper(unprefixed, ir) {
             let clone_call = format_clone_call_cs(unprefixed, ir);
             builder.line("var __u = __ret.Unwrap();");
             if let Some(ref clone) = clone_call {
                 builder.line(&format!(
                     "var __u_ptr = \
-                     System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
+                     global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
                      InteropServices.Marshal.SizeOf<{}>());",
                     raw_payload_cs
                 ));
                 builder.line(
-                    "System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
+                    "global::System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
                 );
                 builder.line(&format!("var __cloned = {}(__u_ptr);", clone));
-                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);");
+                builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -381,11 +386,34 @@ pub fn generate_wrappers(
     builder.line("}");
     builder.blank();
 
+    // `App.run(window)` blocks inside the native event loop for the app's
+    // lifetime, which `Dispose(false)` has to know about (see
+    // `__AzAppLoopState`). Which methods those are comes from the shared
+    // app-factory shape — the app class' methods that hand it a
+    // window-options struct — so nothing here keys on a symbol name. That
+    // set is wider than the blocking method alone (`add_window` is in it
+    // too), which is why the emitted guard saves and restores the flag
+    // instead of clearing it: marking a short call is at worst a leaked
+    // finalization, clearing the flag under a running loop would not be.
+    let event_loop_methods: BTreeSet<String> = app_factory_info(ir)
+        .map(|a| a.window_methods.iter().map(|(c, _, _)| c.clone()).collect())
+        .unwrap_or_default();
+
     for s in &ir.structs {
         if !should_emit_wrapper(s, ir, config) {
             continue;
         }
-        emit_wrapper_class(builder, s, ir);
+        emit_wrapper_class(builder, s, ir, config, &event_loop_methods);
+    }
+
+    // Tagged unions with methods of their own. A union crosses the C ABI
+    // as a value, so the shared struct rule gives it no class and nothing
+    // ever reached `AzInstant_now` or `AzSvgPathElement_getBounds`.
+    for e in &ir.enums {
+        if !should_emit_enum_wrapper(e, ir, config) {
+            continue;
+        }
+        emit_enum_wrapper_class(builder, e, ir, config, &event_loop_methods);
     }
 
     Ok(())
@@ -411,11 +439,21 @@ pub fn generate_union_hierarchies(
             builder.line(
                 "// --------------------------------------------------------------------------",
             );
+            // A variant literally named `Main` yields a static factory
+            // `Main()`, which the C# compiler reports as a non-entry-point
+            // (CS0028) in every executable project. It is an ordinary
+            // factory; scope the suppression to this section.
+            builder.line("#pragma warning disable CS0028");
             builder.blank();
             emitted_header = true;
         }
 
-        emit_union_helper(builder, e);
+        emit_union_helper(builder, e, ir);
+    }
+
+    if emitted_header {
+        builder.line("#pragma warning restore CS0028");
+        builder.blank();
     }
 
     Ok(())
@@ -425,21 +463,57 @@ pub fn generate_union_hierarchies(
 // Wrapper inclusion filter
 // ============================================================================
 
+/// Per-target inclusion on top of the shared wrapper-class rule. Every
+/// other "does a wrapper class exist" question in this file and in
+/// managed.rs goes through the same `has_wrapper_class`.
 fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
-    if !s.generic_params.is_empty() {
+    if has_wrapper_class(&s.name, ir) {
+        return true;
+    }
+    // A type whose whole API is constructors and static factories
+    // (`LayoutSize::zero`, `MsgBox::ok`) has neither a `_delete` nor an
+    // instance method, so the shared rule gives it no class — and then
+    // nothing reaches those exports. It still has no `_delete`, so
+    // `is_owning_wrapper` stays false and no call site changes shape: the
+    // class is pure added surface for its statics.
+    if !can_host_wrapper(s.category, &s.generic_params) {
         return false;
     }
-    match s.category {
-        TypeCategory::Recursive
-        | TypeCategory::VecRef
-        | TypeCategory::DestructorOrClone
-        | TypeCategory::GenericTemplate => return false,
-        _ => {}
+    ir.functions_for_class(&s.name)
+        .any(|f| f.kind.is_api_function())
+}
+
+/// A tagged union with api.json methods of its own. The class hosts those
+/// (and the type's derives); the per-variant factories stay in the
+/// `<Name>Helpers` class they have always lived in.
+fn should_emit_enum_wrapper(e: &EnumDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    if !config.should_include_type(&e.name) || !e.is_union {
+        return false;
     }
-    has_delete_function(&s.name, ir)
+    if !can_host_wrapper(e.category, &e.generic_params) {
+        return false;
+    }
+    ir.functions_for_class(&e.name)
+        .any(|f| f.kind.is_api_function())
+}
+
+/// Categories that never get a wrapper class: the same set the shared
+/// `has_wrapper_class` excludes. A recursive type has no by-value C#
+/// shape, a borrowed slice must not be handed an owner, a
+/// destructor/clone type is memory-management plumbing, and a generic
+/// template only exists monomorphized.
+fn can_host_wrapper(category: TypeCategory, generic_params: &[String]) -> bool {
+    generic_params.is_empty()
+        && !matches!(
+            category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        )
 }
 
 fn should_emit_union_hierarchy(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -456,12 +530,6 @@ fn should_emit_union_hierarchy(e: &EnumDef, config: &CodegenConfig) -> bool {
         return false;
     }
     e.is_union
-}
-
-fn has_delete_function(type_name: &str, ir: &CodegenIR) -> bool {
-    ir.functions
-        .iter()
-        .any(|f| f.class_name == type_name && f.kind == FunctionKind::Delete)
 }
 
 // ============================================================================
@@ -492,47 +560,22 @@ fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
     Some(elem.to_string())
 }
 
-fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    let class_name = sanitize_class_name(&s.name);
-    let ffi_name = ffi_type_name(&s.name);
-
-    if !s.doc.is_empty() {
-        for d in &s.doc {
-            builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
-        }
-    }
-
-    // Phase I.1.5 (C#): when the struct is a Vec with a wrapper-class
-    // element, declare `IEnumerable<T>` so `foreach (var x in vec)`
-    // works.
-    let vec_elem_type = detect_vec_elem_type_cs(s);
-    let vec_elem_has_wrapper = |elem: &str| -> bool {
-        ir.find_struct(elem).is_some()
-            && ir
-                .functions
-                .iter()
-                .any(|f| f.class_name == elem && f.kind == FunctionKind::Delete)
-    };
-    let extra_iface = match &vec_elem_type {
-        Some(elem) if vec_elem_has_wrapper(elem) => {
-            format!(
-                ", System.Collections.Generic.IEnumerable<{}>",
-                sanitize_class_name(elem)
-            )
-        }
-        _ => String::new(),
-    };
-
-    builder.line(&format!(
-        "public sealed class {} : IDisposable{}",
-        class_name, extra_iface
-    ));
-    builder.line("{");
-    builder.indent();
-
-    // Storage and disposal flag.
+/// Storage common to every wrapper class: the FFI value it holds, the
+/// disposal flags, the `Raw` accessor and the internal wrapping
+/// constructor.
+fn emit_wrapper_storage(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    ffi_name: &str,
+    has_delete: bool,
+) {
+    // Storage, disposal flag and (owning types only) the borrowed flag
+    // set by `__Borrow` for engine-owned bytes.
     builder.line(&format!("private {} _inner;", ffi_name));
     builder.line("private bool _disposed;");
+    if has_delete {
+        builder.line("private bool _borrowed;");
+    }
     builder.blank();
 
     // `Raw` accessor: returns the underlying FFI struct by value.
@@ -573,47 +616,90 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         class_name, ffi_name
     ));
     builder.blank();
+}
 
-    // AzString gets a `ToString()` override that decodes the wrapped
-    // UTF-8 bytes into a managed `string`. AzString's C-side layout
-    // is `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
-    // so we read `_inner.vec.ptr` and `_inner.vec.len` and copy out.
-    // (`len` is `UIntPtr`; route through ToUInt64 for portability.)
-    // Button.OnClick(object, Delegate) — smart builder. Accepts the
-    // user's preferred delegate shape (`Func<IntPtr, IntPtr, int>` or
-    // the raw 4-arg `CallbackInvokerDelegate`); both flow through
-    // `RegisterCallback(Delegate)`.
-    // Phase J.1 (C#): same shared detector. Emit `<Event>(object data,
-    // Delegate fn)` for every method matching with_on_*(self, RefAny,
-    // <CallbackWrapperStruct>).
+fn emit_wrapper_class(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    event_loop_methods: &BTreeSet<String>,
+) {
+    let has_delete = has_delete_function(&s.name, ir);
+    let class_name = sanitize_class_name(&s.name);
+    let ffi_name = ffi_type_name(&s.name);
+
+    if !s.doc.is_empty() {
+        for d in &s.doc {
+            builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
+        }
+    }
+
+    // Phase I.1.5 (C#): when the struct is a Vec with a wrapper-class
+    // element, declare `IEnumerable<T>` so `foreach (var x in vec)`
+    // works.
+    let vec_elem_type = detect_vec_elem_type_cs(s);
+    let vec_elem_has_wrapper = |elem: &str| -> bool { is_owning_wrapper(elem, ir) };
+    let mut extra_iface = match &vec_elem_type {
+        Some(elem) if vec_elem_has_wrapper(elem) => {
+            format!(
+                ", global::System.Collections.Generic.IEnumerable<{}>",
+                sanitize_class_name(elem)
+            )
+        }
+        _ => String::new(),
+    };
+    if derives::ordering_fn(ir, config, &s.name).is_some() {
+        extra_iface.push_str(&format!(", global::System.IComparable<{}>", class_name));
+    }
+
+    builder.line(&format!(
+        "{}",
+        if has_delete { format!("public sealed class {} : global::System.IDisposable{}", class_name, extra_iface) } else { format!("public sealed class {}{}", class_name, if extra_iface.is_empty() { "".to_string() } else { format!(" : {}", &extra_iface[2..]) }) }
+    ));
+    builder.line("{");
+    builder.indent();
+
+    emit_wrapper_storage(builder, &class_name, &ffi_name, has_delete);
+
+    // Typed smart builders: `<Event><T>(T data, HostInvoker.<Kind>WithData<T> fn)`
+    // for every `with_on_*(self, RefAny, <CallbackWrapperStruct>)` method
+    // (shared detector), provided managed.rs emits the typed delegate for
+    // that kind. There is deliberately NO `(object, Delegate)` overload:
+    // since C# 10 any method group converts to `System.Delegate`, so such
+    // an overload would silently accept a wrong signature and fail at
+    // event time. With only the typed overload a mismatch is a compile
+    // error. Kinds without a typed delegate keep the literal
+    // `With<Event>(RefAny, <Kind>Callback)` method only.
     for func in ir.functions_for_class(&s.name) {
-        let Some((smart_snake, wrapper_kind)) =
-            super::super::managed_host_invoker::smart_callback_setter_info(func)
-        else {
+        let Some((smart_snake, wrapper_kind)) = smart_callback_setter_info(func) else {
+            continue;
+        };
+        let Some(typed) = typed_delegate_info_for_kind(&wrapper_kind, ir) else {
             continue;
         };
         let smart_pascal = super::snake_to_pascal(&smart_snake);
         let with_pascal = super::snake_to_pascal(&func.method_name);
-        let register_method = if wrapper_kind == "Callback" {
-            "RegisterCallback".to_string()
-        } else {
-            format!("Register{}", wrapper_kind)
-        };
         builder.line("/// <summary>");
         builder.line(&format!(
-            "/// Smart builder for {}: object payload + delegate; host-",
+            "/// Strongly-typed builder for {}: `data` is handed to `fn` as `T` on every event;",
             with_pascal
         ));
-        builder.line("/// invoker registration of both is hidden.");
+        builder.line("/// RefAny wrapping and host-invoker registration happen internally.");
         builder.line("/// </summary>");
         builder.line(&format!(
-            "public {} {}(object data, Delegate fn)",
-            class_name, smart_pascal
+            "public {} {}<T>(T data, HostInvoker.{} fn) where T : class",
+            class_name,
+            smart_pascal,
+            typed.delegate_name()
         ));
         builder.line("{");
         builder.indent();
         builder.line("var __data = HostInvoker.RefanyCreate(data);");
-        builder.line(&format!("var __cb = HostInvoker.{}(fn);", register_method));
+        builder.line(&format!(
+            "var __cb = HostInvoker.Register{}<T>(fn);",
+            wrapper_kind
+        ));
         builder.line(&format!(
             "return {}(new RefAny(__data), new {}(__cb));",
             with_pascal, wrapper_kind
@@ -623,6 +709,11 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
+    // AzString gets a `ToString()` override that decodes the wrapped
+    // UTF-8 bytes into a managed `string`. AzString's C-side layout
+    // is `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
+    // so we read `_inner.vec.ptr` and `_inner.vec.len` and copy out.
+    // (`len` is `UIntPtr`; route through ToUInt64 for portability.)
     if matches!(s.category, TypeCategory::String) {
         builder
             .line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
@@ -632,99 +723,60 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.line("if (_disposed) return \"\";");
         builder.line("var ptr = _inner.vec.ptr;");
         builder.line("var len = (long)_inner.vec.len.ToUInt64();");
-        builder.line("if (ptr == System.IntPtr.Zero || len <= 0) return \"\";");
+        builder.line("if (ptr == global::System.IntPtr.Zero || len <= 0) return \"\";");
         builder.line("var bytes = new byte[len];");
-        builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, bytes, 0, (int)len);");
-        builder.line("return System.Text.Encoding.UTF8.GetString(bytes);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.Copy(ptr, bytes, 0, (int)len);");
+        builder.line("return global::System.Text.Encoding.UTF8.GetString(bytes);");
         builder.dedent();
         builder.line("}");
         builder.blank();
     }
 
-    // WindowCreateOptions.Create(Delegate) — smart factory. C#
-    // struct-field assignment IS a byte copy (unlike JNA's reference-
-    // swap), so we splice the resulting AzLayoutCallback straight into
-    // wco.window_state.layout_callback. `Delegate` is the parameter
-    // type so users can pass `Func<IntPtr, IntPtr, AzDom>` (the
-    // shape the C# hello-world uses) OR the more literal
-    // `HostInvoker.LayoutCallbackInvokerDelegate` — both flow through
-    // `RegisterLayoutCallback(Delegate)`'s reflection-based dispatch.
-    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
-        // Class name (e.g. "WindowCreateOptions") and Az-prefixed FFI
-        // names come from the factory-info IR scan; the field path
-        // (`["window_state", "layout_callback"]`) drives the splice.
-        // C# struct-field assignment IS a byte copy (unlike JNA's
-        // reference-swap), so we re-assign nested-struct values up
-        // the chain to write back into the parent.
-        let wrapper_class = info.class_name.clone();
-        let register_fn = format!("Register{}", info.callback_wrapper);
-        builder.line("/// <summary>");
-        builder.line("/// Smart factory: pass a layout-callback delegate; the host-invoker");
-        builder.line("/// registration and field-copy plumbing happen internally.");
-        builder.line("/// </summary>");
-        builder.line(&format!(
-            "public static {} Create(Delegate fn)",
-            wrapper_class
-        ));
-        builder.line("{");
-        builder.indent();
-        builder.line(&format!("var __cb = HostInvoker.{}(fn);", register_fn));
-        builder.line(&format!(
-            "var __wco = NativeMethods.{}();",
-            info.default_c_name
-        ));
-        // Walk the path: capture intermediate copies, splice cb into
-        // the leaf, then re-assign back up. Path length 1 collapses
-        // to a single assignment.
-        let depth = info.field_path.len();
-        for (i, seg) in info
-            .field_path
-            .iter()
-            .enumerate()
-            .take(depth.saturating_sub(1))
-        {
-            let parent_var = if i == 0 {
-                "__wco".to_string()
-            } else {
-                format!("__lvl{}", i - 1)
-            };
+    // Typed smart factory `<Class>.Create<T>(HostInvoker.<Kind>WithData<T> fn)`
+    // for every struct matching the shared layout-callback-factory shape
+    // (a `_default` factory plus a `create(<Kind>Type)` constructor,
+    // today `WindowCreateOptions`). The registered callback struct is
+    // spliced into the `_default` value at the IR-discovered field path:
+    // C# struct-field assignment is a byte copy, so intermediate structs
+    // along the path are copied out, patched and re-assigned upwards.
+    // Untyped `Create(Delegate)` is intentionally not emitted (see the
+    // smart-builder note above); the literal `Create(Az<Kind>Type)` from
+    // api.json remains for raw function-pointer users.
+    if let Some(info) = layout_callback_factory_info(s, ir) {
+        if let Some(typed) = typed_delegate_info_for_kind(&info.callback_wrapper, ir) {
+            let wrapper_class = info.class_name.clone();
+            builder.line("/// <summary>");
             builder.line(&format!(
-                "var __lvl{i} = {parent}.{seg};",
-                i = i,
-                parent = parent_var,
-                seg = seg
+                "/// Strongly-typed factory: registers `fn` as the {} and returns a default",
+                info.callback_wrapper
             ));
-        }
-        let leaf_parent = if depth <= 1 {
-            "__wco".to_string()
-        } else {
-            format!("__lvl{}", depth - 2)
-        };
-        let leaf_field = info
-            .field_path
-            .last()
-            .cloned()
-            .unwrap_or_else(|| "callback".to_string());
-        builder.line(&format!("{}.{} = __cb;", leaf_parent, leaf_field));
-        // Re-assign intermediates back up the chain.
-        for i in (0..depth.saturating_sub(1)).rev() {
-            let parent_var = if i == 0 {
-                "__wco".to_string()
-            } else {
-                format!("__lvl{}", i - 1)
-            };
-            let seg = &info.field_path[i];
             builder.line(&format!(
-                "{parent}.{seg} = __lvl{i};",
-                parent = parent_var,
-                seg = seg,
-                i = i
+                "/// {} carrying it. `T` is the model type registered with the application \
+                 factory (`App.Create&lt;T&gt;`).",
+                wrapper_class
             ));
+            builder.line("/// </summary>");
+            builder.line(&format!(
+                "public static {} Create<T>(HostInvoker.{} fn) where T : class",
+                wrapper_class,
+                typed.delegate_name()
+            ));
+            builder.line("{");
+            builder.indent();
+            builder.line(&format!(
+                "var __cb = HostInvoker.Register{}<T>(fn);",
+                info.callback_wrapper
+            ));
+            builder.line(&format!(
+                "var __wco = NativeMethods.{}();",
+                info.default_c_name
+            ));
+            emit_cs_field_path_splice(builder, "__wco", "__cb", &info.field_path);
+            builder.line(&format!("return new {}(__wco);", wrapper_class));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
         }
-        builder.line(&format!("return new {}(__wco);", wrapper_class));
-        builder.dedent();
-        builder.line("}");
-        builder.blank();
     }
 
     // Emit methods for each non-trait function on this class.
@@ -733,16 +785,25 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
             // Skip Delete/PartialEq/Cmp/Hash/Debug — Dispose() and overrides cover these.
             continue;
         }
-        emit_wrapper_method(builder, &class_name, func, ir);
+        emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
     }
 
     // Phase I.2 (C#): override Equals(object) + GetHashCode() routed
     // through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
     // exports when TypeTraits says they're supported.
-    emit_cs_equals_hashcode_if_supported(builder, s, &class_name, ir);
+    emit_cs_equals_hashcode_if_supported(builder, &s.name, &s.traits, &class_name, ir);
 
     // Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
-    emit_cs_to_string_if_supported(builder, s, ir);
+    emit_cs_to_string_if_supported(
+        builder,
+        &s.name,
+        &s.traits,
+        matches!(s.category, TypeCategory::String),
+        ir,
+    );
+
+    // `IComparable<T>` through `Az<X>_cmp` / `_partialCmp`.
+    emit_cs_comparable_if_supported(builder, &s.name, &class_name, ir, config);
 
     // Phase I.1.5 (C#): GetEnumerator() body for Vec wrappers.
     // Wrapper-element Vecs get IEnumerable<T>; primitive-element
@@ -755,12 +816,158 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         }
     }
 
-    // IDisposable boilerplate.
-    emit_dispose_methods(builder, &class_name, &s.name);
+    // IDisposable boilerplate (only for owning types) + __Consume/__Borrow.
+    emit_dispose_methods(builder, &class_name, &s.name, ir);
+
+    // Typed application factory `Create<T>(T data, <Config> config)` for
+    // the class matching the shared app-factory shape: a constructor
+    // taking exactly (owned RefAny, owned struct-with-`_default`) plus a
+    // window-taking method (`App.create(RefAny, AppConfig)` + `App.run`).
+    // The model is wrapped into a host-handle RefAny and forwarded to the
+    // literal constructor wrapper emitted above.
+    if let Some(app) = app_factory_info(ir).filter(|a| a.class_name == s.name) {
+        let config_class = sanitize_class_name(&app.config_type);
+        let mut params = vec![String::new(); 2];
+        params[app.data_arg_index] = "T data".to_string();
+        params[app.config_arg_index] = format!("{} config", config_class);
+        let mut args = vec![String::new(); 2];
+        args[app.data_arg_index] = "new RefAny(HostInvoker.RefanyCreate(data))".to_string();
+        args[app.config_arg_index] = "config".to_string();
+        let ctor = ir
+            .functions
+            .iter()
+            .find(|f| f.c_name == app.create_c_name)
+            .map(|f| idiomatic_method_name(&f.method_name))
+            .unwrap_or_else(|| "Create".to_string());
+        builder.line("/// <summary>");
+        builder.line(
+            "/// Strongly-typed factory: wraps `data` into the RefAny that every callback \
+             registered",
+        );
+        // `window_methods` is non-empty by construction, so the example
+        // names the real window-options class rather than a guess.
+        match app.window_methods.first() {
+            Some((_, _, w)) => builder.line(&format!(
+                "/// with the same model (e.g. through `{}.Create&lt;T&gt;`) receives as `T`.",
+                w.class_name
+            )),
+            None => builder.line("/// with the same model receives as `T`."),
+        }
+        builder.line("/// </summary>");
+        builder.line(&format!(
+            "public static {} {}<T>({}) where T : class",
+            class_name,
+            ctor,
+            params.join(", ")
+        ));
+        builder.line("{");
+        builder.indent();
+        builder.line(&format!("return {}({});", ctor, args.join(", ")));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+/// Wrapper class for a tagged union that carries api.json methods.
+///
+/// A union crosses the C ABI as a value, so the shared (struct-only)
+/// `has_wrapper_class` rule gives it no class — and `AzInstant_now`,
+/// `AzSvgPathElement_getBounds` and the other ~140 union methods had no
+/// idiomatic caller at all. The class has the same shape as the struct
+/// wrapper (private `_inner`, `Raw`, `__Consume` / `__Borrow`, `Dispose`
+/// when the type has a `_delete`) and reuses the same emitters, but
+/// `is_owning_wrapper` stays struct-only, so no generated signature
+/// changes: this is added surface, not a moved one. Per-variant factories
+/// stay in the `<Name>Helpers` class.
+fn emit_enum_wrapper_class(
+    builder: &mut CodeBuilder,
+    e: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    event_loop_methods: &BTreeSet<String>,
+) {
+    let has_delete = has_delete_function(&e.name, ir);
+    let class_name = sanitize_class_name(&e.name);
+    let ffi_name = ffi_type_name(&e.name);
+
+    for d in &e.doc {
+        builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
+    }
+
+    let mut ifaces: Vec<String> = Vec::new();
+    if has_delete {
+        ifaces.push("global::System.IDisposable".to_string());
+    }
+    if derives::ordering_fn(ir, config, &e.name).is_some() {
+        ifaces.push(format!("global::System.IComparable<{}>", class_name));
+    }
+    builder.line(&format!(
+        "public sealed class {}{}",
+        class_name,
+        if ifaces.is_empty() {
+            String::new()
+        } else {
+            format!(" : {}", ifaces.join(", "))
+        }
+    ));
+    builder.line("{");
+    builder.indent();
+
+    emit_wrapper_storage(builder, &class_name, &ffi_name, has_delete);
+
+    for func in ir.functions_for_class(&e.name) {
+        // Trait functions are the overrides below; the variant
+        // constructors are the `<Name>Helpers` factories.
+        if func.kind.is_trait_function() || func.kind == FunctionKind::EnumVariantConstructor {
+            continue;
+        }
+        emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
+    }
+
+    emit_cs_equals_hashcode_if_supported(builder, &e.name, &e.traits, &class_name, ir);
+    emit_cs_to_string_if_supported(
+        builder,
+        &e.name,
+        &e.traits,
+        matches!(e.category, TypeCategory::String),
+        ir,
+    );
+    emit_cs_comparable_if_supported(builder, &e.name, &class_name, ir, config);
+    emit_dispose_methods(builder, &class_name, &e.name, ir);
+
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Splice `value` into `root.<path>` where `path` walks nested by-value
+/// structs: copy each intermediate out, assign the leaf, re-assign the
+/// intermediates back up (a C# struct field read is a copy). Path
+/// length 1 collapses to a single assignment.
+fn emit_cs_field_path_splice(builder: &mut CodeBuilder, root: &str, value: &str, path: &[String]) {
+    let depth = path.len();
+    let var_for = |i: usize| -> String {
+        if i == 0 {
+            root.to_string()
+        } else {
+            format!("__lvl{}", i - 1)
+        }
+    };
+    for (i, seg) in path.iter().enumerate().take(depth.saturating_sub(1)) {
+        builder.line(&format!("var __lvl{} = {}.{};", i, var_for(i), seg));
+    }
+    let Some(leaf) = path.last() else {
+        return;
+    };
+    builder.line(&format!("{}.{} = {};", var_for(depth - 1), leaf, value));
+    for i in (0..depth.saturating_sub(1)).rev() {
+        builder.line(&format!("{}.{} = __lvl{};", var_for(i), path[i], i));
+    }
 }
 
 /// Phase I.2 (C#): override Equals(object) + GetHashCode() to route
@@ -768,14 +975,15 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
 /// exports when TypeTraits flags them. Pure type-driven.
 fn emit_cs_equals_hashcode_if_supported(
     builder: &mut CodeBuilder,
-    s: &StructDef,
+    type_name: &str,
+    traits: &TypeTraits,
     class_name: &str,
     ir: &CodegenIR,
 ) {
-    let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
-    let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let eq_sym = format!("Az{}_partialEq", type_name);
+    let has_eq = traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", type_name);
+    let has_hash = traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
 
     if has_eq {
         builder.line(&format!(
@@ -795,25 +1003,25 @@ fn emit_cs_equals_hashcode_if_supported(
         // heap copy (matching the same pattern other instance methods
         // use), call the helper, then free.
         builder.line(&format!(
-            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
-            s.name
+            "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            type_name
         ));
-        builder.line("var aPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
-        builder.line("var bPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var aPtr = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var bPtr = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
         builder
-            .line("System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
+            .line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
         builder.line(&format!("return NativeMethods.{}(aPtr, bPtr);", eq_sym));
         builder.dedent();
         builder.line("}");
         builder.line("finally");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(aPtr);");
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(bPtr);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(aPtr);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(bPtr);");
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -831,36 +1039,47 @@ fn emit_cs_equals_hashcode_if_supported(
         builder.indent();
         builder.line("if (_disposed) return 0;");
         builder.line(&format!(
-            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
-            s.name
+            "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            type_name
         ));
-        builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
         builder.line(&format!("var h = NativeMethods.{}(p);", hash_sym));
         builder.line("return (int)(h ^ (h >> 32));");
         builder.dedent();
         builder.line("}");
-        builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+        builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
         builder.dedent();
         builder.line("}");
         builder.blank();
     } else if has_eq {
-        // equals/hashCode contract.
-        builder.line("public override int GetHashCode() => _inner.GetHashCode();");
+        // Equals compares VALUES (the C `_partialEq`) and the type has no C
+        // `_hash`: equal values must hash equal, so the only hash that keeps
+        // the contract is a constant (the struct's own hash includes its
+        // pointers, which differ between two equal values).
+        builder.line("/// <summary>Constant: equal values must hash equal, and the type has no value hash.</summary>");
+        builder.line("public override int GetHashCode() => 0;");
         builder.blank();
     }
 }
 
 /// Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
-fn emit_cs_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    if matches!(s.category, TypeCategory::String) {
+fn emit_cs_to_string_if_supported(
+    builder: &mut CodeBuilder,
+    type_name: &str,
+    traits: &TypeTraits,
+    is_string_type: bool,
+    ir: &CodegenIR,
+) {
+    if is_string_type {
+        // The string wrapper's own ToString() decodes the UTF-8 bytes.
         return;
     }
-    let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let dbg_sym = format!("Az{}_toDbgString", type_name);
+    let has_dbg = traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
@@ -870,7 +1089,7 @@ fn emit_cs_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: 
     if ir
         .functions
         .iter()
-        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "ToString")
+        .any(|f| f.class_name == type_name && idiomatic_method_name(&f.method_name) == "ToString")
     {
         return;
     }
@@ -884,42 +1103,75 @@ fn emit_cs_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: 
     builder.line("if (_disposed) return base.ToString() ?? \"\";");
     // Marshal _inner to AllocHGlobal'd pointer (same pattern as Equals).
     builder.line(&format!(
-        "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
-        s.name
+        "var sz = global::System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+        type_name
     ));
-    builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+    builder.line("var p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
     builder.line("try");
     builder.line("{");
     builder.indent();
-    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
     builder.line(&format!("var s = NativeMethods.{}(p);", dbg_sym));
     // Decode AzString via marshal to pointer, read vec.ptr/.len, free.
     builder.line(
         "var sPtr = \
-         System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
+         global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
          Marshal.SizeOf<AzString>());",
     );
     builder.line("try");
     builder.line("{");
     builder.indent();
-    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(s, sPtr, false);");
-    builder.line("var vecPtr = System.Runtime.InteropServices.Marshal.ReadIntPtr(sPtr, 0);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(s, sPtr, false);");
+    builder.line("var vecPtr = global::System.Runtime.InteropServices.Marshal.ReadIntPtr(sPtr, 0);");
     builder.line(
-        "var vecLen = (int)System.Runtime.InteropServices.Marshal.ReadInt64(sPtr, \
-         System.IntPtr.Size);",
+        "var vecLen = (int)global::System.Runtime.InteropServices.Marshal.ReadInt64(sPtr, \
+         global::System.IntPtr.Size);",
     );
-    builder.line("if (vecPtr == System.IntPtr.Zero || vecLen <= 0) return \"\";");
+    builder.line("if (vecPtr == global::System.IntPtr.Zero || vecLen <= 0) return \"\";");
     builder.line("var bytes = new byte[vecLen];");
-    builder.line("System.Runtime.InteropServices.Marshal.Copy(vecPtr, bytes, 0, vecLen);");
-    builder.line("var result = System.Text.Encoding.UTF8.GetString(bytes);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.Copy(vecPtr, bytes, 0, vecLen);");
+    builder.line("var result = global::System.Text.Encoding.UTF8.GetString(bytes);");
     builder.line("NativeMethods.AzString_delete(sPtr);");
     builder.line("return result;");
     builder.dedent();
     builder.line("}");
-    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(sPtr); }");
+    builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(sPtr); }");
     builder.dedent();
     builder.line("}");
-    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+    builder.line("finally { global::System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// `IComparable<T>` through the type's ordering export. The wrapper holds
+/// a value whose order Rust defines; re-deriving it from the C# fields
+/// would be a different order.
+fn emit_cs_comparable_if_supported(
+    builder: &mut CodeBuilder,
+    type_name: &str,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let Some(func) = derives::ordering_fn(ir, config, type_name) else {
+        return;
+    };
+    builder.line(&format!(
+        "/// <summary>Ordering routed through {}.</summary>",
+        func.c_name
+    ));
+    builder.line(&format!("public int CompareTo({} other)", class_name));
+    builder.line("{");
+    builder.indent();
+    // `CompareTo(null)` is "greater than nothing", the convention every
+    // System.Collections comparer relies on.
+    builder.line("if (other is null) return 1;");
+    builder.line("if (_disposed || other._disposed) throw new ObjectDisposedException(nameof(_inner));");
+    builder.line(&format!(
+        "return __AzDerive.Cmp(_inner, other._inner, NativeMethods.{});",
+        managed_c_symbol(func)
+    ));
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -955,17 +1207,17 @@ fn emit_cs_vec_primitive_array(builder: &mut CodeBuilder, _s: &StructDef, elem_r
     builder.line("{");
     builder.indent();
     builder.line(&format!(
-        "if (_disposed) return System.Array.Empty<{}>();",
+        "if (_disposed) return global::System.Array.Empty<{}>();",
         cs_ty
     ));
     builder.line("var __buf = _inner.ptr;");
     builder.line("var __n = (long)_inner.len;");
     builder.line(&format!(
-        "if (__buf == System.IntPtr.Zero || __n <= 0) return System.Array.Empty<{}>();",
+        "if (__buf == global::System.IntPtr.Zero || __n <= 0) return global::System.Array.Empty<{}>();",
         cs_ty
     ));
     builder.line(&format!("var __out = new {}[(int)__n];", cs_ty));
-    builder.line("System.Runtime.InteropServices.Marshal.Copy(__buf, __out, 0, (int)__n);");
+    builder.line("global::System.Runtime.InteropServices.Marshal.Copy(__buf, __out, 0, (int)__n);");
     builder.line("return __out;");
     builder.dedent();
     builder.line("}");
@@ -998,7 +1250,7 @@ fn emit_cs_vec_enumerator(
         );
     }
     builder.line(&format!(
-        "public System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
+        "public global::System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
         elem_wrapper
     ));
     builder.line("{");
@@ -1007,97 +1259,119 @@ fn emit_cs_vec_enumerator(
     builder.line("var __buf = _inner.ptr;");
     builder.line("var __n = (long)_inner.len;");
     builder.line(&format!(
-        "var __sz = System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
+        "var __sz = global::System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
         elem_ffi
     ));
     builder.line("for (long __i = 0; __i < __n; __i++)");
     builder.line("{");
     builder.indent();
-    builder.line("var __ep = System.IntPtr.Add(__buf, (int)(__i * __sz));");
+    builder.line("var __ep = global::System.IntPtr.Add(__buf, (int)(__i * __sz));");
     if let Some(ref clone) = clone_call {
         builder.line(&format!("var __cloned = {}(__ep);", clone));
         builder.line(&format!("yield return new {}(__cloned);", elem_wrapper));
     } else {
         builder.line(&format!(
-            "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+            "var __ev = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
             elem_ffi
         ));
-        builder.line(&format!("var __borrowed = new {}(__ev);", elem_wrapper));
-        builder.line("__borrowed.__Consume();");
-        builder.line("yield return __borrowed;");
+        builder.line(&format!(
+            "yield return {}.__Borrow(__ev);",
+            elem_wrapper
+        ));
     }
     builder.dedent();
     builder.line("}");
     builder.dedent();
     builder.line("}");
     builder.line(
-        "System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => \
+        "global::System.Collections.IEnumerator global::System.Collections.IEnumerable.GetEnumerator() => \
          GetEnumerator();",
     );
     builder.blank();
 }
 
-fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_name: &str) {
-    builder.line("/// <summary>Frees the underlying native resources.</summary>");
-    builder.line("public void Dispose()");
-    builder.line("{");
-    builder.indent();
-    builder.line("Dispose(true);");
-    builder.line("GC.SuppressFinalize(this);");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+/// Lifetime members of a wrapper class.
+///
+/// * Owning types (`Az<X>_delete` exists): `Dispose()`, `Dispose(bool)`
+///   with the finalizer-thread guard, `~X()`, plus a `_borrowed` flag
+///   that turns both into no-ops for engine-owned bytes.
+/// * Methods-only types: nothing to free, so no `IDisposable`, no
+///   finalizer (a finalizer on a POD value type would be pure overhead
+///   and would have to call a `_delete` that does not exist).
+/// * Every type: `__Consume()` (ownership moved to the C ABI by value)
+///   and `__Borrow(raw)` (wrap engine-owned bytes for the duration of a
+///   callback: methods work, nothing is ever freed).
+fn emit_dispose_methods(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    raw_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let has_delete = has_delete_function(raw_type_name, ir);
+    if has_delete {
+        builder.line("/// <summary>Frees the underlying native resources.</summary>");
+        builder.line("public void Dispose()");
+        builder.line("{");
+        builder.indent();
+        builder.line("Dispose(true);");
+        builder.line("global::System.GC.SuppressFinalize(this);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
 
-    builder.line("private void Dispose(bool disposing)");
-    builder.line("{");
-    builder.indent();
-    builder.line("if (_disposed) return;");
-    builder.line("// Finalizer-thread affinity guard: `disposing == false` means we're");
-    builder.line("// on the GC finalizer thread. While App.Run is pumping the native");
-    builder.line("// event loop on the main thread, Az*_delete from another thread has");
-    builder.line("// no teardown guarantee — downgrade the potential cross-thread crash");
-    builder.line("// to a leak-with-warning. Dispose() explicitly (or keep the object");
-    builder.line("// referenced) to avoid the leak. Deterministic deferred deletion");
-    builder.line("// needs a dll-side delete queue drained by the event loop (follow-up).");
-    builder.line("if (!disposing && __AzAppLoopState.Running)");
-    builder.line("{");
-    builder.indent();
-    builder.line("_disposed = true;");
-    builder.line(&format!(
-        "System.Console.Error.WriteLine(\"[azul] warning: {} finalized on the GC thread while the \
-         App event loop is running; skipping the native delete (memory leaked). Call Dispose() \
-         before App.Run or keep the object alive.\");",
-        class_name
-    ));
-    builder.line("return;");
-    builder.dedent();
-    builder.line("}");
-    builder.line("// `disposing` is false when called from the finalizer; native");
-    builder.line("// cleanup is still safe because the FFI struct is value-typed.");
-    // Use Marshal.AllocHGlobal/StructureToPtr instead of `fixed` so the
-    // emit is compatible with PowerShell's Add-Type (PS 7's Roslyn
-    // wrapper has no /unsafe option). Slight overhead — one extra alloc
-    // — but the call is at Dispose time only.
-    builder.line(&format!(
-        "var __p = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.\
-         InteropServices.Marshal.SizeOf<{}>());",
-        ffi_type_name(raw_type_name)
-    ));
-    builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);".to_string());
-    builder.line(&format!("NativeMethods.Az{}_delete(__p);", raw_type_name));
-    builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
-    builder.line("_disposed = true;");
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+        builder.line("private void Dispose(bool disposing)");
+        builder.line("{");
+        builder.indent();
+        builder.line("if (_disposed) return;");
+        builder.line("// Borrowed from the engine (callback argument): never free.");
+        builder.line("if (_borrowed) { _disposed = true; return; }");
+        builder.line("// Finalizer-thread affinity guard: `disposing == false` means we're");
+        builder.line("// on the GC finalizer thread. While App.Run is pumping the native");
+        builder.line("// event loop on the main thread, Az*_delete from another thread has");
+        builder.line("// no teardown guarantee — downgrade the potential cross-thread crash");
+        builder.line("// to a leak-with-warning. Dispose() explicitly (or keep the object");
+        builder.line("// referenced) to avoid the leak. Deterministic deferred deletion");
+        builder.line("// needs a dll-side delete queue drained by the event loop (follow-up).");
+        builder.line("if (!disposing && __AzAppLoopState.Running)");
+        builder.line("{");
+        builder.indent();
+        builder.line("_disposed = true;");
+        builder.line(&format!(
+            "global::System.Console.Error.WriteLine(\"[azul] warning: {} finalized on the GC thread while \
+             the App event loop is running; skipping the native delete (memory leaked). Call \
+             Dispose() before App.Run or keep the object alive.\");",
+            class_name
+        ));
+        builder.line("return;");
+        builder.dedent();
+        builder.line("}");
+        builder.line("// `disposing` is false when called from the finalizer; native");
+        builder.line("// cleanup is still safe because the FFI struct is value-typed.");
+        // Use Marshal.AllocHGlobal/StructureToPtr instead of `fixed` so the
+        // emit is compatible with PowerShell's Add-Type (PS 7's Roslyn
+        // wrapper has no /unsafe option). Slight overhead — one extra alloc
+        // — but the call is at Dispose time only.
+        builder.line(&format!(
+            "var __p = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.\
+             InteropServices.Marshal.SizeOf<{}>());",
+            ffi_type_name(raw_type_name)
+        ));
+        builder.line("global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);");
+        builder.line(&format!("NativeMethods.Az{}_delete(__p);", raw_type_name));
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
+        builder.line("_disposed = true;");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
 
-    builder.line(&format!("~{}() {{ Dispose(false); }}", class_name));
-    builder.blank();
+        builder.line(&format!("~{}() {{ Dispose(false); }}", class_name));
+        builder.blank();
+    }
 
     // Mark this wrapper as consumed without calling Az<X>_delete.
     // Used by codegen-emitted call sites where the C ABI takes
     // ownership of the underlying bytes by-value (DeepCopy `with_*`
-    // methods, owned-by-value wrapper args, CC-2 typed-SAM byte
+    // methods, owned-by-value wrapper args, typed-delegate return
     // splice). Sets `_disposed = true` and suppresses the finalizer
     // so the deferred ~ClassName() doesn't double-drop.
     builder.line(
@@ -1108,7 +1382,31 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
     builder.line("{");
     builder.indent();
     builder.line("_disposed = true;");
-    builder.line("System.GC.SuppressFinalize(this);");
+    builder.line("global::System.GC.SuppressFinalize(this);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // Borrow: wrap bytes the engine still owns (callback arguments,
+    // Vec elements without `_clone`). Unlike __Consume the methods stay
+    // usable; unlike the plain constructor nothing is ever freed.
+    builder.line(
+        "/// <summary>Internal: wrap engine-owned bytes without taking ownership (callback \
+         arguments). Methods work; Dispose() and the finalizer never free them.</summary>",
+    );
+    builder.line(&format!(
+        "internal static {} __Borrow({} inner)",
+        class_name,
+        ffi_type_name(raw_type_name)
+    ));
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!("var __w = new {}(inner);", class_name));
+    if has_delete {
+        builder.line("__w._borrowed = true;");
+        builder.line("global::System.GC.SuppressFinalize(__w);");
+    }
+    builder.line("return __w;");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -1123,6 +1421,7 @@ fn emit_wrapper_method(
     class_name: &str,
     func: &FunctionDef,
     ir: &CodegenIR,
+    event_loop_methods: &BTreeSet<String>,
 ) {
     let method_name = idiomatic_method_name(&func.method_name);
     let ffi_class_name = ffi_type_name(&func.class_name);
@@ -1164,38 +1463,30 @@ fn emit_wrapper_method(
     // 2. Owned wrapper-class arg → param takes the wrapper class (e.g. `Dom child` rather than
     //    `AzDom child`); the call site reaches into `child.Raw` (every emitted wrapper class
     //    exposes `Raw => _inner`).
-    let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
-        a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+    // "Is this the API's string type?" is a CATEGORY question — the IR
+    // marks exactly one type `TypeCategory::String` — not a name one.
+    let is_string_type = |t: &str| {
+        ir.find_struct(t.trim())
+            .is_some_and(|s| matches!(s.category, TypeCategory::String))
     };
+    let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
+        is_string_type(&a.type_name) && matches!(a.ref_kind, ArgRefKind::Owned)
+    };
+    // Owned arg of an OWNING wrapper type: the C ABI takes the bytes by
+    // value, so the wrapper is consumed after the call. (The string type
+    // has an owning wrapper too but is handled by rule 1 above.)
     let is_wrapper_class_owned_arg = |a: &&FunctionArg| -> bool {
-        if !matches!(a.ref_kind, ArgRefKind::Owned) {
-            return false;
-        }
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            && !is_string_type(&a.type_name)
+            && is_owning_wrapper(a.type_name.trim(), ir)
+    };
+    // Raw callback-typedef arg (`AzLayoutCallbackType cb`): P/Invoke
+    // marshals the delegate to a function pointer but does not root it,
+    // and libazul keeps the pointer — pin the delegate for the process
+    // lifetime before the call.
+    let is_raw_callback_arg = |a: &&FunctionArg| -> bool {
         let tn = a.type_name.trim();
-        if tn == "String" {
-            return false;
-        }
-        let Some(s) = ir.find_struct(tn) else {
-            return false;
-        };
-        if !s.generic_params.is_empty() {
-            return false;
-        }
-        if matches!(
-            s.category,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        // Strict: only convert when the codegen actually emits a
-        // wrapper class for the named type. C# wrapper emission is
-        // gated on having a delete fn (same rule as Java/Kotlin).
-        ir.functions
-            .iter()
-            .any(|f| f.class_name == tn && matches!(f.kind, FunctionKind::Delete))
+        ir.callback_typedefs.iter().any(|c| c.name == tn)
     };
 
     // Build argument signature.
@@ -1242,33 +1533,12 @@ fn emit_wrapper_method(
             call_args.push("(IntPtr)__self".to_string());
         }
     }
-    // Special-case: a static constructor whose only callback-typed arg's
-    // wrapper name matches the wrapping class — `Callback.Create`,
-    // `LayoutCallback.Create`, etc. The C-ABI `_create` takes the raw
-    // `<Wrapper>Type` fn pointer and re-wraps it via `From` with
-    // `ctx: None`, throwing away any host-handle ctx. Bypass: the
-    // `HostInvoker.Register<Wrapper>` result is already the right
-    // wrapper struct, so return it directly without going through the
-    // native call. Mirrors the lang_lua `emit_static_method` shortcut.
-    let static_callback_ctor = matches!(
-        func.kind,
-        FunctionKind::Constructor | FunctionKind::StaticMethod
-    ) && user_args.len() == 1
-        && user_args[0]
-            .callback_info
-            .as_ref()
-            .map(|c| {
-                let w = c.callback_wrapper_name.as_str();
-                super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&w)
-                    && w == func.class_name
-            })
-            .unwrap_or(false);
-
     // Callback args: no auto-substitution at the wrapper-method
     // boundary. The wrapper's parameter type matches the C ABI
     // (`AzCallback` struct or `AzCallbackType` typedef) and is passed
-    // through unchanged. Users construct the wrapper struct themselves
-    // via `HostInvoker.RegisterCallback(delegate)` and pass that.
+    // through unchanged; the typed smart builders/factories emitted in
+    // `emit_wrapper_class` are the idiomatic entry points. A raw
+    // typedef delegate is pinned (see `is_raw_callback_arg`).
     //
     // Auto-string-conversion: see rule predicate above. Owned `String`
     // args get a UTF-8-bytes → AzString_fromUtf8 conversion emitted at
@@ -1277,7 +1547,10 @@ fn emit_wrapper_method(
     let mut pre_call_lines: Vec<String> = Vec::new();
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
-        if is_az_string_owned_arg(a) {
+        if is_raw_callback_arg(a) {
+            pre_call_lines.push(format!("HostInvoker.__Pin({});", raw_name));
+            call_args.push(raw_name);
+        } else if is_az_string_owned_arg(a) {
             // C# keyword-escapes with `@` prefix; strip it so local var
             // names like `__@class_bytes` (invalid) become
             // `__class_bytes` (valid).
@@ -1286,17 +1559,17 @@ fn emit_wrapper_method(
             let bytes_name = format!("__{}_bytes", stem);
             let ptr_name = format!("__{}_ptr", stem);
             pre_call_lines.push(format!(
-                "var {bytes} = System.Text.Encoding.UTF8.GetBytes({raw});",
+                "var {bytes} = global::System.Text.Encoding.UTF8.GetBytes({raw});",
                 bytes = bytes_name,
                 raw = raw_name,
             ));
             pre_call_lines.push(format!(
-                "var {ptr} = System.Runtime.InteropServices.Marshal.AllocHGlobal({bytes}.Length);",
+                "var {ptr} = global::System.Runtime.InteropServices.Marshal.AllocHGlobal({bytes}.Length);",
                 ptr = ptr_name,
                 bytes = bytes_name,
             ));
             pre_call_lines.push(format!(
-                "System.Runtime.InteropServices.Marshal.Copy({bytes}, 0, {ptr}, {bytes}.Length);",
+                "global::System.Runtime.InteropServices.Marshal.Copy({bytes}, 0, {ptr}, {bytes}.Length);",
                 bytes = bytes_name,
                 ptr = ptr_name,
             ));
@@ -1309,7 +1582,7 @@ fn emit_wrapper_method(
             // Free the temp buffer once AzString_fromUtf8 has owned the
             // bytes (the AzString takes a copy internally).
             pre_call_lines.push(format!(
-                "System.Runtime.InteropServices.Marshal.FreeHGlobal({ptr});",
+                "global::System.Runtime.InteropServices.Marshal.FreeHGlobal({ptr});",
                 ptr = ptr_name,
             ));
             call_args.push(az_name);
@@ -1375,15 +1648,16 @@ fn emit_wrapper_method(
 
     let idiom = classify_return(func, ir);
 
-    // Auto-wrap non-self wrapper-class returns (same predicate as
-    // Java/Kotlin's `returns_wrapper_other`).
+    // Auto-wrap non-self OWNING wrapper-class returns (the caller now
+    // owns the bytes and must be able to Dispose them); value types are
+    // returned as raw structs.
     let returns_wrapper_other: Option<String> = if returns_self {
         None
     } else if matches!(idiom, ReturnIdiom::Plain) {
         func.return_type
             .as_deref()
             .map(|r| r.trim())
-            .filter(|r| has_cs_wrapper_class(r, ir))
+            .filter(|r| is_owning_wrapper(r, ir))
             .map(|r| r.to_string())
     } else {
         None
@@ -1411,18 +1685,12 @@ fn emit_wrapper_method(
             } => {
                 let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                 let display = payload_display_cs(&raw, ir);
-                // For value-type payloads (primitives + structs), use
-                // `Nullable<T>` syntax. For the wrapper-class display
-                // (e.g. `Dom`) C# reference-type nullability syntax
-                // (`Dom?`) is equivalent; we keep `T?` uniformly.
+                // Value-type payloads (primitives + structs) become
+                // `Nullable<T>`; wrapper-class payloads (`Dom?`) use the
+                // same `T?` spelling as a nullable-reference annotation.
+                // `string` is already a reference type.
                 if display == "string" {
                     "string".to_string()
-                } else if has_cs_wrapper_class(display.as_str(), ir) {
-                    // Wrapper classes are reference types; use `?` for
-                    // C# 8+ nullable-reference annotation. The runtime
-                    // type is the same; the annotation is purely an
-                    // analyzer hint.
-                    format!("{}?", display)
                 } else {
                     format!("{}?", display)
                 }
@@ -1458,26 +1726,6 @@ fn emit_wrapper_method(
         builder.line(stmt);
     }
 
-    // Special-case shortcut (see `static_callback_ctor` definition above).
-    if static_callback_ctor {
-        let user_arg = sanitize_identifier(&user_args[0].name);
-        let wrapper = user_args[0]
-            .callback_info
-            .as_ref()
-            .unwrap()
-            .callback_wrapper_name
-            .as_str();
-        builder.line(&format!(
-            "var __raw = HostInvoker.Register{}({});",
-            wrapper, user_arg
-        ));
-        builder.line(&format!("return new {}(__raw);", class_name));
-        builder.dedent();
-        builder.line("}");
-        builder.blank();
-        return;
-    }
-
     // Use `managed_c_symbol(func)` (the C ABI symbol NativeMethods
     // declares — the `<c_name>Struct` triple-variant for functions
     // with callback-wrapper args). `func.method_name` is snake-case
@@ -1485,7 +1733,7 @@ fn emit_wrapper_method(
     // of the declared `AzFoo_withResolver`.
     let call = format!(
         "NativeMethods.{}({})",
-        super::super::managed_host_invoker::managed_c_symbol(func),
+        managed_c_symbol(func),
         call_args.join(", ")
     );
 
@@ -1496,21 +1744,26 @@ fn emit_wrapper_method(
     // mutation through `out` semantics.
     // Only emit the marshal path when self is taken by POINTER; for
     // by-value self we already pass `_inner` directly above.
-    // App.Run blocks inside the native event loop for the app's lifetime;
-    // flag that window so `Dispose(false)` (GC finalizer thread) can skip
-    // cross-thread native deletes while it is open (see __AzAppLoopState).
-    let is_app_run = func.c_name == "AzApp_run";
+    // The app's event-loop method blocks inside the native loop for the
+    // app's lifetime; flag that window so `Dispose(false)` (GC finalizer
+    // thread) can skip cross-thread native deletes while it is open (see
+    // __AzAppLoopState). The caller derived the set from the shared
+    // app-factory shape.
+    let is_app_run = event_loop_methods.contains(&func.c_name);
     if takes_self && !self_by_value {
         builder.line(&format!(
             "var __self = \
-             System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.\
+             global::System.Runtime.InteropServices.Marshal.AllocHGlobal(global::System.Runtime.InteropServices.\
              Marshal.SizeOf<{}>());",
             ffi_class_name
         ));
+        if is_app_run {
+            builder.line("var __prevLoop = __AzAppLoopState.Running;");
+        }
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);".to_string());
+        builder.line(&"global::System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);".to_string());
         if is_app_run {
             builder.line("__AzAppLoopState.Running = true;");
         }
@@ -1522,14 +1775,14 @@ fn emit_wrapper_method(
         if return_cs == "void" {
             builder.line(&format!("{};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1537,7 +1790,7 @@ fn emit_wrapper_method(
         } else if let Some(ref wrapper) = returns_wrapper_other {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1545,7 +1798,7 @@ fn emit_wrapper_method(
         } else {
             builder.line(&format!("var __ret = {};", call));
             builder.line(&format!(
-                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                "_inner = global::System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
             emit_cs_consume(builder, &consume_after_call);
@@ -1573,9 +1826,11 @@ fn emit_wrapper_method(
         builder.line("{");
         builder.indent();
         if is_app_run {
-            builder.line("__AzAppLoopState.Running = false;");
+            // Restore, never clear: a nested call must not tell the
+            // finalizer thread the outer loop has stopped.
+            builder.line("__AzAppLoopState.Running = __prevLoop;");
         }
-        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
+        builder.line("global::System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
         builder.dedent();
         builder.line("}");
     } else if takes_self && self_by_value {
@@ -1686,7 +1941,7 @@ fn emit_wrapper_method(
 // Tagged-union helper class
 // ============================================================================
 
-fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
+fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let class_name = sanitize_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
     let tag_name = format!("{}_Tag", ffi_name);
@@ -1709,6 +1964,22 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                     "/// <summary>Construct the {}.{} variant.</summary>",
                     e.name, v.name
                 ));
+                // libazul exports a constructor for the unit variants too
+                // (`AzAccessibilityAction_blur`). Calling it keeps the C
+                // ABI the single author of the union's layout — writing
+                // the tag from C# assumes the discriminant is where the
+                // emitted struct says it is, and re-implements a function
+                // that already exists.
+                if let Some(ctor) = ir.variant_constructor(&e.name, &v.name) {
+                    builder.line(&format!(
+                        "public static {} {}() => NativeMethods.{}();",
+                        ffi_name,
+                        pascal,
+                        managed_c_symbol(ctor)
+                    ));
+                    builder.blank();
+                    continue;
+                }
                 builder.line(&format!("public static {} {}()", ffi_name, pascal));
                 builder.line("{");
                 builder.indent();
@@ -1727,14 +1998,28 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 builder.blank();
             }
             EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
-                // SKIPPED: payload-bearing variants need per-payload
-                // overloads which depend on the FFI struct layout. The
-                // user can construct these via the public FFI struct
-                // fields directly.
+                // A payload variant: the C constructor libazul exports for it
+                // (`Az{Enum}_{variant}(payload)`) builds the tagged union.
+                let Some(ctor) = ir.variant_constructor(&e.name, &v.name) else {
+                    continue;
+                };
+                let params: Vec<String> = ctor
+                    .args
+                    .iter()
+                    .map(|a| format!("{} {}", map_type_to_csharp(&a.type_name, ir), sanitize_identifier(&a.name)))
+                    .collect();
+                let names: Vec<String> = ctor.args.iter().map(|a| sanitize_identifier(&a.name)).collect();
                 builder.line(&format!(
-                    "// SKIPPED: variant {}.{} has payload — set fields directly on the FFI \
-                     struct.",
+                    "/// <summary>Construct the {}.{} variant.</summary>",
                     e.name, v.name
+                ));
+                builder.line(&format!(
+                    "public static {} {}({}) => NativeMethods.{}({});",
+                    ffi_name,
+                    snake_to_pascal(&v.name),
+                    params.join(", "),
+                    super::super::managed_host_invoker::managed_c_symbol(ctor),
+                    names.join(", ")
                 ));
                 builder.blank();
             }
@@ -1758,7 +2043,10 @@ fn sanitize_class_name(raw: &str) -> String {
 
 /// Convert an api.json method name (typically already camelCase) to a
 /// PascalCase C# method name, with a few special-casings.
-fn idiomatic_method_name(method_name: &str) -> String {
+///
+/// `pub(super)` so managed.rs can name a method this file emitted (the
+/// callback log sink) without re-deriving the spelling and drifting from it.
+pub(super) fn idiomatic_method_name(method_name: &str) -> String {
     // Treat `new` specially — C# `new` is a keyword, surface it as
     // `Create` on the wrapper class.
     if method_name == "new" {

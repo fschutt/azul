@@ -13,23 +13,19 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
+        private static Update OnClick(MyDataModel m, CallbackInfo info)
         {
-            var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return (int)Update.DoNothing;
             m.Counter += 1;
-            return (int)Update.RefreshDom;
+            return Update.RefreshDom;
         }
 
-        private static Dom Layout(IntPtr dataPtr, IntPtr infoPtr)
+        private static Dom Layout(MyDataModel m, LayoutCallbackInfo info)
         {
-            var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return Dom.CreateBody();
             var label = Dom.CreatePWithText(m.Counter.ToString())
                 .WithCss("font-size: 32px; margin: 0;");
             var buttonDom = Button.Create("Increase counter")
                 .WithButtonType(ButtonType.Primary)
-                .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
+                .OnClick(m, OnClick)
                 .Dom();
             return Dom.CreateBody()
                 .WithChild(label)
@@ -38,8 +34,8 @@ namespace HelloWorld
 
         public static int Main(string[] args)
         {
-            using var app = App.Create(HostInvoker.RefanyWrap(_model), AppConfig.Create());
-            app.Run(WindowCreateOptions.Create(new Func<IntPtr, IntPtr, Dom>(Layout)));
+            using var app = App.Create(_model, AppConfig.Create());
+            app.Run(WindowCreateOptions.Create<MyDataModel>(Layout));
             return 0;
         }
     }

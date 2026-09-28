@@ -325,9 +325,6 @@ fn substitute_callback_args(
             continue;
         };
         let wrapper = cb.callback_wrapper_name.as_str();
-        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-            continue;
-        }
         // call_args holds the raw param names already; wrap them.
         let original = call_args[i].clone();
         call_args[i] = format!("(azul:register-callback \"{}\" {})", wrapper, original);

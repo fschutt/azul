@@ -13,8 +13,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - Dom
@@ -35,30 +35,14 @@ to see the first step being "please download a precompiled `.dll` / `.so` file".
 practice there are very significant benefits once you get over this initial hurdle, that massively 
 outweigh the small disadvantage of having to download one `.dll` file:
 
-- Fast recompilation times: only one depdency (the API) instead of hundreds from crates.io
-- Library can be optimized layout code (hot path) while your UI binary can be unoptimized callback code (slow path)
+- Fast recompilation times: only one dependency (the API) instead of hundreds from crates.io
+- The library can be compiled as optimized layout code (hot path) while your UI binary can be unoptimized callback code (slow path)
 - `/target` directory now only uses a couple MiB instead of GiB of space
 - DLLs can integrate with the OS-native package managers such as `apt`, `yum` or `brew` for self-updates
 - Multiple Azul applications don't duplicate the library code: one update and all applications are patched
 - Faster CI builds: no more recompilation of hundreds of crates
 
-Additionally, it makes binding to other non-Rust languages also very easy, as Rust isn't the only language on the 
-planet (yet). The `azul-doc` codegen system generates the necessary bindings for various languages from the 
-"single source of truth" in the `api.json`. It adapts to each languages conventions and generates "wrapepr extras" 
-such as integrations with the languages generic, string, vector, optional and error types - so you will, in 
-practice, not notice any difference to a regular "crates.io" Rust library. You will only notice that your 
-Rust code will recompile much faster and your binary size is now in the kilobyte range.
-
-## Installation
-
-You need a Rust toolchain (1.91+) and the prebuilt `libazul` for your
-platform. The Rust API is a *pre-rendered crate* named `azul`: its generated
-sources live inside the crate (`src/generated/`), so rust-analyzer resolves
-every type and nothing is generated on your machine. The crate links the
-prebuilt library — none of azul is compiled in your build — so a hello world
-compiles in seconds and only your own code recompiles afterwards.
-
-### 1. The native library
+### As a native library
 
 Install it with your package manager (every channel is self-hosted on azul.rs):
 
@@ -68,42 +52,68 @@ brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
 
 # Debian / Ubuntu
+# (This adds the azul.rs apt repository to your sources.list, so you can receive updates via apt update)
 echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
 sudo apt update && sudo apt install azul
 
 # Fedora / RHEL / openSUSE
 sudo dnf config-manager --add-repo https://azul.rs/ui/rpm/azul.repo && sudo dnf install azul
 
-# Arch: the [azul] repository at https://azul.rs/ui/arch  -  Alpine: https://azul.rs/ui/alpine
-# Windows: choco install libazul --source https://azul.rs/ui/nuget/index.json
-#      or: scoop bucket add azul https://azul.rs/ui/scoop.git && scoop install azul
+# Arch Linux
+echo '
+[azul]
+SigLevel = Optional TrustAll
+Server = https://azul.rs/ui/arch/$arch' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy azul
+
+# Alpine Linux
+echo "https://azul.rs/ui/alpine" | sudo tee -a /etc/apk/repositories
+sudo apk add --allow-untrusted azul
+
+# Windows
+choco install libazul --source https://azul.rs/ui/nuget/index.json
+# or
+scoop bucket add azul https://azul.rs/ui/scoop.git && scoop install azul
 ```
 
 …or download it next to your project from the
 [release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so       # linux
-curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib    # macOS (Apple Silicon; Intel: libazul.x86_64.dylib)
-curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll      # windows - plus azul.dll.lib, the import library
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+
+# macOS M1+
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+# macOS Intel
+curl -O https://azul.rs/ui/release/$VERSION/libazul.x86_64.dylib
+
+# Windows
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll
 curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
 ```
 
-The crate's `build.rs` looks for the library in, in this order: `AZ_LINK_PATH`
-(or `AZ_DLL_PATH`; comma-separated directories or library files), the crate
-directory and its parent (your project), then the system library directories
-(`/opt/homebrew/lib`, `/usr/local/lib`, `/usr/lib`). Chocolatey and Scoop set
-`AZ_LINK_PATH` for you. Only an unusual location needs it spelled out:
+In order for Rust to know where the downloaded dll lives, you need to set the `AZ_LINK_PATH`
+variable to the path of the dll. Azul's `build.rs` system is relatively smart and will figure 
+out where the other files are that it needs. 
+
+If you want to end up with a "single-binary" build, download the `.a` file and set that as 
+your `AZ_LINK_PATH`. 
 
 ```sh
-export AZ_LINK_PATH=/my/path/to/libazul.so   # a directory works too
+export AZ_LINK_PATH=/my/path/to/libazul.so
 ```
 
-### 2. The crate, from the azul.rs cargo registry
+If `AZ_LINK_PATH` is not set, it will try to find the system-installed 
+library (i.e. the one installed by apt or brew above) and link against it. So if you installed 
+`libazul` via brew or similar, then you don't need to set the environment variable at all - 
+only if you used the curl method.
 
-azul is not on crates.io; azul.rs serves a static
-[sparse registry](https://azul.rs/ui/cargo) instead. Register it once (per
-project, or in `~/.cargo/config.toml` for every project):
+### Installing the API bindings
+
+Now that you have prepared the precompiled library, you still need the generated API bindings. 
+Currently, Azul is not on crates.io, but the bindings are available from azul.rs, so you can 
+register azul.rs as a "registry" in cargo in your project like this:
 
 ```toml
 # .cargo/config.toml
@@ -116,82 +126,59 @@ cargo new hello-azul && cd hello-azul
 cargo add azul --registry azul
 ```
 
-which adds to `Cargo.toml`:
+Alternatively, add this to your dependencies manually:
 
 ```toml
 [dependencies]
 azul = { version = "$VERSION", registry = "azul" }
 ```
 
-Save the counter example below as `src/main.rs` and `cargo run --release`.
-`cargo tree` shows exactly one dependency: the code in the DLL is already
-compiled.
+### Building from source
 
-### 2b. …or the same crate as a download
+If you want to build the Azul DLL from source or link it as a "Rust crate" instead 
+of using the precompiled .a library, you need to build the azul-dll project (under /dll), 
+with `--features build-dll`. 
 
-The crate is also a tarball on the release page. Unpack it into (or next to)
-your project and depend on it by path — identical crate, no registry
-configuration:
-
-```sh
-curl -LO https://azul.rs/ui/release/$VERSION/azul-rust-$VERSION.tar.gz
-tar xzf azul-rust-$VERSION.tar.gz
-cargo add azul --path ./azul-rust-$VERSION
-```
-
-`cargo run --example hello-world` inside `azul-rust-$VERSION/` runs the
-counter example from the crate itself.
-
-### Building from source (`link-static`)
-
-The crate in the repository is `azul-dll`. Its default feature set,
-`link-static`, compiles all of azul into your binary from source; it needs a
-checkout plus the code generator, because that crate's Rust API is generated
-rather than committed:
+In order to do this however, you first need to actually generate the bindings again, 
+so that the crate even compiles. The bindings are generated from the `api.json` in 
+the root folder using the `azul-doc` binary.
 
 ```sh
 git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul
-cargo run --release --manifest-path azul/Cargo.toml -p azul-doc codegen all
-cargo add azul-dll --rename azul --path azul/dll       # link-static is the default
+cargo run --release --manifest-path azul/Cargo.toml -p azul-doc -- codegen all
+cargo build --release -p azul-dll --rename azul --path azul/dll --features build-dll
 ```
-
-`--no-default-features --features link-dynamic` on that crate links the
-prebuilt library exactly like the pre-rendered crate does (they share the
-same `build.rs` logic).
 
 ## Simple "Counter" Example
 
-The simplest example to showcase Azuls model is only about ~30 lines long:
+The simplest example to showcase Azul's model is only about ~30 lines long:
 
 ```rust
-use azul::prelude::*;
-use azul::widgets::Button;
+use azul::{prelude::*, widgets::Button};
 
 struct DataModel {
     counter: usize,
 }
 
-extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
+extern "C" 
+fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let counter = match data.downcast_ref::<DataModel>() {
         Some(d) => format!("{}", d.counter),
         None => return Dom::create_body(),
     };
 
-    let label = Dom::create_div()
-        .with_css("font-size: 32px")
-        // A counter display is a LABEL, not prose: a <span> carries no UA
-        // paragraph margin (a <p> here grew the line by two font-sizes).
-        .with_child(Dom::create_span_with_text(counter.as_str()));
+    let label = Dom::create_p_with_text(counter.as_str())
+        .with_css("font-size: 32px; margin: 0;");
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);
-    let mut button = button.dom();
-    button.set_css("flex-grow: 1");
+    let button = button.dom().with_css("flex-grow: 1;");
 
     Dom::create_body().with_child(label).with_child(button)
 }
 
-extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" 
+fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -211,19 +198,13 @@ fn main() {
 }
 ```
 
-Five things to notice.
+Notice that `extern "C"` is used because every callback crosses the FFI boundary. 
+You use `downcast_ref` (or `downcast_mut`) to recover your concrete struct from 
+the type-erased `RefAny`. 
 
-- **`extern "C"`** — every callback crosses the FFI boundary, even in the "Rust-native" case. The signature must be `extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom`, as Azul uses the `C` calling convention instead of the unstable `Rust` calling convention.
-- **`downcast_ref::<DataModel>()`** — the runtime cast that recovers your concrete struct from the type-erased `RefAny`. It returns `Option<Ref<DataModel>>` (the `_mut` variant returns `Option<RefMut<DataModel>>`) because at the FFI boundary, the framework cannot statically know the type. The borrow is checked at runtime; if another part of the program already holds a borrow, the cast fails and you must return `Update::DoNothing`.
-- **`Dom::create_p_with_text`, `Dom::create_div`, `Dom::create_body`** — primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
-- **`with_css("...") / set_css("...")`** — both accept a CSS string. `with_css` is the builder form (consumes `self`, returns a new `Dom`), `set_css` mutates in place. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also directly configure `:hover { }`, `:focus { }` and `@media ... { }`, `@os(macos >= sonoma) { }` dynamic queries directly inline — in difference to regular CSS.
-- **`data.clone()`** — `RefAny::clone` bumps the reference count, does not deep-copy your struct. The clone is handed to the button so the click handler can downcast it later.
-
-There are some parts we didn't use such as, which might be interesting to explore next.
-
-- `_: LayoutCallbackInfo`: carries read-only access to the system font cache, image cache, GL context, window size, routing and localization dictionaries
-- `WindowCreateOptions` configure window title, size, and decorations (covered in [windowing](../system/windowing.md)).
-- `CallbackInfo` has lots of functions with which to navigate, query the DOM, change CSS styles (without needing to rebuild the DOM), query computed layout and styles, etc.
+Building the UI is done using primitive node constructors like `Dom::create_p_with_text` 
+and `Dom::create_body`, and styled with `with_css("...")`. Finally, `data.clone()` 
+just bumps the reference count instead of doing a deep copy.
 
 ## Build and run
 
@@ -231,15 +212,24 @@ There are some parts we didn't use such as, which might be interesting to explor
 cargo run --release
 ```
 
-You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). 
+Click the button: the counter should increment, the layout callback then re-runs, and the 
+new value renders.
 
-1. `App::run` opened a native window and ran the layout callback once with your `RefAny`.
-2. The returned `Dom` was styled, laid out, and rendered (default: CPU-rendered, because of bad driver issues: usually this is fast enough, can be GPU-rendered if necessary).
-3. On click, the button's event filter matched a `MouseUp` inside its hit-test bounds. The framework borrowed your `RefAny` mutably, ran `my_on_click`, observed the `Update::RefreshDom` return, and re-invoked the layout callback.
-4. The new `Dom` was diffed against the previous one; only the changed text node was repainted.
+1. `App::run` opens a native window and runs the layout callback once with your `RefAny`.
+2. The returned `Dom` is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event 
+   filter set up in the `Dom`. On click, the framework borrows your `RefAny` mutably, 
+   runs `my_on_click`, observes the `Update::RefreshDom` return, and re-invokes the 
+   layout callback.
+4. The framework determines the diff between the previous frame's `Dom` and the 
+   current one, and only re-updates and re-paints the counter, not the entire window.
 
-## Common errors
+Congratulations - once you've got the hello-world example running, you've already 
+mastered 80% of the framework. As you might have guessed, more complex UI and styling 
+are only composing more Dom objects together and working with the various event filters. 
 
-- **`downcast_ref` returns `None`** — the `RefAny` is already mutably borrowed elsewhere, or it holds a different type. Return `Dom::create_body()` (or `Update::DoNothing`) and investigate.
-- **The window opens blank** — verify your layout callback actually returns a `Dom::create_body()` with children. An empty `Dom` renders to a blank window.
-- **The counter does not update** — your click callback returned `Update::DoNothing`. Change to `Update::RefreshDom`.
+You can now start reading about the [architecture patterns](../architecture.md) or 
+explore what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!

@@ -4,7 +4,7 @@ title: Hello World [C++]
 language: en
 canonical_slug: hello-world/cpp
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 13
 topic_only: false
 prerequisites: [hello-world]
@@ -13,8 +13,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -31,382 +31,84 @@ default-search-keys:
 
 ## Introduction
 
-The C++ binding is a thin, header-only wrapper over the [C ABI](c.md): same DLL, same `azul.h` underneath,
-but on top you get RAII types, builder methods, integration with `std::string` / `std::optional` /
-`std::expected` / `std::span`, and template-based reflection. The wrapper is generated separately for
-each C++ standard, so it scales from `-std=c++03` (Colvin-Gibbons move emulation) all the way to
-`-std=c++23` (deducing `this`, `std::expected`).
+In order to use Azul from C++, you first need to install the native compiled `libazul` library
+as well as the C bindings. The C++ bindings are then "extensions" of the C API, which add 
+RAII types, builder methods and integration with the C++ standard container types on top.
 
-There is one wrapper header per standard rather than a single "C++ header", because C++ has shifted
-significantly between standards (move semantics, `auto`, structured bindings, concepts, modules, …).
-Pick the one that matches the standard you compile with. This guide is written for C++17, which is
-representative of what most projects use today; C++20/23 add the same features as C++17 plus the ones
-called out below.
+Since C++ has shifted significantly between standards, there is one wrapper header per 
+standard rather than a single "C++ header". Pick the one that matches what you compile with,
+see below for the C++ features each header supports.
 
-## Installation
+### Installation
 
-### Pre-built DLL (recommended)
-
-Same as the [C installation](c.md#installation): on Debian/Ubuntu and
-Fedora/RHEL, install the prebuilt package from the GitHub release
-(it installs `libazul.so` and `azul.h` into standard system locations):
+Same as the [C installation](c.md#installation): Ideally, install the precompiled dynamic C 
+library using your package manager (the C++ headers `azul03.hpp` … `azul23.hpp` are installed 
+next to `azul.h`):
 
 ```sh
-# linux - Debian / Ubuntu
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_${VERSION}_amd64.deb
-sudo apt install ./azul_${VERSION}_amd64.deb
-
-# linux - Fedora / RHEL
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
-sudo dnf install ./azul-$VERSION-1.x86_64.rpm
-```
-
-Instead of downloading the `.deb` manually, Debian/Ubuntu users can also
-subscribe to the self-hosted apt repository served from azul.rs (it is
-unsigned, hence the explicit `[trusted=yes]`):
-
-```sh
-echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
-sudo apt update
-sudo apt install azul
-```
-
-The `.deb` / `.rpm` (and the Arch / Alpine packages, see the
-[C installation](c.md#installation)) install the six C++ headers
-`azul03.hpp` … `azul23.hpp` next to `azul.h`, so `g++ -std=c++17
-hello-world.cpp -lazul` needs no `-I`.
-
-On macOS, a self-hosted Homebrew tap (a real git repository served from
-azul.rs) installs `libazul.dylib`, `azul.h`, all six C++ headers and a
-pkg-config file:
-
-```sh
+# macOS
 brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
-c++ -std=c++17 $(pkg-config --cflags --libs azul) hello-world.cpp -o hello-world
+
+# Debian / Ubuntu
+# (This adds the azul.rs apt repository to your sources.list, so you can receive updates via apt update)
+echo "deb [trusted=yes] https://azul.rs/ui/apt stable main" | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update && sudo apt install azul
+
+# Fedora / RHEL / openSUSE
+sudo dnf config-manager --add-repo https://azul.rs/ui/rpm/azul.repo && sudo dnf install azul
+
+# Arch Linux
+echo '
+[azul]
+SigLevel = Optional TrustAll
+Server = https://azul.rs/ui/arch/$arch' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy azul
+
+# Alpine Linux
+echo "https://azul.rs/ui/alpine" | sudo tee -a /etc/apk/repositories
+sudo apk add --allow-untrusted azul
+
+# Windows
+choco install libazul --source https://azul.rs/ui/nuget/index.json
+# or
+scoop bucket add azul https://azul.rs/ui/scoop.git && scoop install azul
 ```
 
-On Windows, Chocolatey (`choco install libazul --source
-https://azul.rs/ui/nuget/index.json`) or Scoop (`scoop bucket add azul
-https://azul.rs/ui/scoop.git && scoop install azul`) install `azul.dll`,
-`azul.dll.lib` and `azul.h`; the C++ headers come with the bundle below.
+Alternatively, download it next to your project from the [release page](https://azul.rs/ui/release/$VERSION). 
+Every `azul<NN>.hpp` does `#include "azul.h"`, so you always need the C header as well:
 
-The C++ bundle holds everything the compiler needs except the library
-itself — `azul.h`, all six `azul<NN>.hpp` and `hello-world.cpp` — in one
-download:
+```sh
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
+curl -O https://azul.rs/ui/release/$VERSION/azul17.hpp   # or azul03/11/14/20/23.hpp
+
+# macOS M1+
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
+curl -O https://azul.rs/ui/release/$VERSION/azul17.hpp
+
+# macOS Intel (saved as libazul.dylib, the name -lazul and the loader look for)
+curl -o libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.x86_64.dylib
+curl -O https://azul.rs/ui/release/$VERSION/azul.h
+curl -O https://azul.rs/ui/release/$VERSION/azul17.hpp
+
+# Windows
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul.h
+curl.exe -O https://azul.rs/ui/release/$VERSION/azul17.hpp
+```
+
+The C++ bundle holds everything the compiler needs except the library itself - `azul.h`, 
+all six `azul<NN>.hpp`, the `azul.cppm` module and one `hello-world-cpp<NN>.cpp` per standard - 
+in one download:
 
 ```sh
 curl -LO https://azul.rs/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz
 tar xzf azul-cpp-$VERSION.tar.gz
 ```
-
-Or download the C++ wrapper header and the library directly from the
-[release page](https://azul.rs/ui/release/$VERSION):
-
-```sh
-# wrapper for the C++ standard you target
-curl -L -O https://azul.rs/ui/release/$VERSION/azul17.hpp
-# also: azul03.hpp, azul11.hpp, azul14.hpp, azul20.hpp, azul23.hpp
-
-# the C header - every azul<NN>.hpp does #include "azul.h"
-curl -L -O https://azul.rs/ui/release/$VERSION/azul.h
-
-# windows: the DLL, and azul.dll.lib, the import library you link against
-curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl.exe -L -O https://azul.rs/ui/release/$VERSION/azul.dll.lib
-# linux
-curl -L -O https://azul.rs/ui/release/$VERSION/libazul.so
-# macos (Apple Silicon; Intel: libazul.x86_64.dylib)
-curl -L -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-```
-
-You then either install both into a system path or pass `-I` and `-L` to the compiler.
-
-### Pick a language standard
-
-Each header wraps the same C ABI; the deltas are real, not cosmetic.
-What you actually get per standard, in code:
-
-- **`azul03.hpp`** — no `noexcept`, no move semantics. Uses the
-  Colvin-Gibbons trick to return non-copyable RAII objects. Reflection
-  goes through the `AZ_REFLECT(StructName)` macro, which emits
-  `StructName_upcast` / `_downcast_ref` / `_downcast_mut`. No template
-  metaprogramming on the user side.
-- **`azul11.hpp`** — `noexcept` everywhere, real move semantics, lambdas.
-  `AZ_REFLECT` is replaced by template members on `RefAny` itself:
-  `RefAny::create<T>(model)` (factory; T is deduced from the argument),
-  `refany.downcast_ref<T>()`, `refany.downcast_mut<T>()`,
-  `RefAny::type_id<T>()`. No per-type macro line — any `T` you hand to
-  `RefAny::create` registers itself the first time it is instantiated.
-- **`azul14.hpp`** — same as C++11 plus `RefAny::type_id_v<T>` (variable-
-  template shorthand for `RefAny::type_id<T>()`) and `auto`-return
-  functions.
-- **`azul17.hpp`** — adds:
-  - `std::string_view` sibling overloads on every `String`-taking method,
-    so `"foo"sv` flows in without a `String(...)` wrapping step;
-  - `[[nodiscard]]` on factory and constructor methods;
-  - `Option<T>::toStdOptional() -> std::optional<Inner>` plus the matching
-    implicit conversion. When the payload has a wrapper class, `Inner` IS
-    that wrapper (`std::optional<String>`, not `std::optional<AzString>`);
-    for non-copy payloads the conversion is `&&`-qualified (consuming) so
-    ownership moves into the `std::optional` exactly once;
-  - structured bindings on every `ResultXxx` wrapper:
-    `auto [ok, err] = std::move(result);` works without per-class hooks.
-- **`azul20.hpp`** — adds:
-  - the `azul::ReflectableModel` concept; the `RefAny::create` /
-    `downcast_ref` / `downcast_mut` / `type_id` template members are
-    constrained by it, so feeding a non-reflectable type produces a
-    readable requires-clause error rather than a wall of template-
-    instantiation noise;
-  - `Vec<T>::toSpan() -> std::span<T>` for zero-copy access;
-  - a sibling `azul.cppm` module partition file (generated by
-    `azul-doc codegen all`, not part of the release downloads). With a modules-aware
-    toolchain you can `import azul;` instead of `#include "azul20.hpp"`.
-- **`azul23.hpp`** — adds:
-  - `Result<Ok, Err>::toStdExpected() && -> std::expected<Ok, Err>` and the
-    matching implicit conversion. Methods returning a `ResultXxx` wrapper
-    can be assigned straight into a `std::expected<Ok, Err>`, then chained
-    monadically with `.and_then` / `.or_else`. `Ok` / `Err` are the wrapper
-    classes when one exists (`std::expected<Url, UrlParseError>`, not
-    `std::expected<AzUrl, AzUrlParseError>`) — the expected owns them.
-  - Deducing-`this` builder methods: every `with_*` is emitted as a
-    `template<class Self> auto with_xxx(this Self&& self, …)` so the
-    same method body works on l-values and r-values without separate
-    `const&` / `&&` overloads.
-
-The example below is C++17 — representative of what most projects write.
-The full set of C++ examples lives under `examples/cpp/cpp<NN>/` in the
-repository; each standard's `hello-world.cpp` exercises that standard's
-own features.
-
-## Simple "Counter" Example
-
-The C++17 version of the counter is about ~50 lines (without comments).
-The wrapper types own their `Az*` handle and free it on destruction, so
-unlike C you do *not* have to pair every `_create` with a `_delete` — RAII
-does that for you:
-
-```cpp
-#include "azul17.hpp"
-#include <optional>
-#include <string>
-#include <string_view>
-
-// Brings in RefAny, Dom, App, String, Css, Button, WindowCreateOptions, ...
-// Raw C types remain Az*-prefixed; wrapper types have no prefix.
-using namespace azul;
-using namespace std::string_view_literals;
-
-// Data model: a plain struct - the "single source of truth" for app state.
-// No AZ_REFLECT macro line in C++11+: reflection is template-based.
-struct MyDataModel {
-    uint32_t counter;
-    // OptionXxx wrappers convert implicitly to std::optional<Inner>, so a
-    // model field that nullably caches a parsed URL keeps its source-of-
-    // truth shape while the rest of the app reads it as std::optional.
-    std::optional<Url> last_url;
-};
-
-// Callback signatures take the raw C types because the framework
-// dispatches through C function pointers. The framework hands every
-// callback an OWNED AzRefAny (a refcount+1 clone), so the first thing
-// the body does is adopt it into the RAII `RefAny` wrapper - the
-// wrapper's destructor releases that reference when the callback
-// returns. (Calling the free `azul::downcast_ref<T>(data)` on the raw
-// parameter without adopting it would leak one strong reference per
-// invocation.)
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
-
-// f(DataModel) -> Dom. Runs once on startup and again after every
-// callback that returns Update::RefreshDom.
-AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-
-    // Adopt the owned reference; ~RefAny drops it on return.
-    RefAny data_wrapper(data);
-
-    // Member downcast: returns const T* (or nullptr on type mismatch).
-    // Per-type identity is derived from the address of a template-
-    // instantiated static, so the compiler stamps a unique tag per T at
-    // link time. No AZ_REFLECT macro, no per-type registration.
-    auto* d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return Dom::create_body();
-
-    // To pass the data to the button's click handler we clone the
-    // wrapper. clone() bumps the refcount; the clone is owned by the
-    // button and released when the button's DOM node is destroyed.
-    //
-    // String-taking methods gained std::string_view overloads in C++17,
-    // so "..."sv literals flow straight in. .with_* methods consume
-    // *this and return a new value, so chain them inline. The Dom's
-    // r-value `operator AzDom()` does the C-ABI conversion implicitly
-    // on return, so no `.release()` is needed.
-    return Dom::create_body()
-        .with_child(Dom::create_div()
-            .with_css("font-size: 32px;"sv)
-            .with_child(Dom::create_span_with_text(String(std::to_string(d->counter).c_str()))))
-        .with_child(Button::create("Increase counter"sv)
-            .with_button_type(ButtonType::Primary)   // scoped enum constants
-            .with_on_click(data_wrapper.clone(), on_click)
-            .dom());
-}
-
-// Definition of the click callback forward-declared above. The framework
-// invokes this through a C function pointer when the button's hit-test
-// matches a MouseUp event.
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-    // Adopt the owned reference here too, then use downcast_mut - the
-    // mutable counterpart. nullptr means the type tag doesn't match.
-    RefAny data_wrapper(data);
-    auto* d = data_wrapper.downcast_mut<MyDataModel>();
-    if (!d) return Update::DoNothing;
-
-    d->counter += 1;
-
-    // Update::RefreshDom queues a new layout() invocation:
-    // dom build -> cascade -> relayout -> display list -> render
-    // (the constant's type is the raw AzUpdate, so it flows straight
-    // through the C fn-ptr return; AzUpdate_RefreshDom works too)
-    return Update::RefreshDom;
-}
-
-// Every ResultXxx wrapper destructures into (std::optional<Ok>, std::optional<Err>)
-// via the codegen's tuple_size / tuple_element specializations. No per-class
-// helper - just structured bindings.
-static void demo_structured_bindings() {
-    auto [ok, err] = std::move(Url::parse("https://example.com/"sv));
-    if (ok) {
-        // *ok is an AzUrl; the Url wrapper would adopt it via Url(*ok).
-    } else if (err) {
-        // *err is an AzUrlParseError.
-    }
-}
-
-int main() {
-
-    // Initialize the data model. std::nullopt as a model field is fine -
-    // it'll convert to AzOptionUrl when the codegen needs it.
-    MyDataModel model = { 5, std::nullopt };
-    (void)demo_structured_bindings;
-
-    // Move ownership of the model into a RefAny via RefAny::create<T>(model).
-    // T is deduced from the argument; the spelling
-    //     RefAny::create<MyDataModel>(std::move(model))
-    // also works if you want it explicit. No AZ_REFLECT line was needed -
-    // RefAny::create registers T's identity the first time it's instantiated.
-    RefAny data = RefAny::create(std::move(model));
-
-    // Configure the window(s) to spawn on startup. layout() is the
-    // "/" default route; SPA-style routing is done later by swapping
-    // the layout callback on a window.
-    WindowCreateOptions window = WindowCreateOptions::create(layout);
-
-    // 'default' is a C++ keyword - the wrapper exposes it as
-    // default_() with a trailing underscore.
-    //
-    // AppConfig discovers system-native styling, monitor layout, etc.
-    App app = App::create(std::move(data), AppConfig::default_());
-
-    // Blocks until the last window closes; the destructor cleans
-    // up the framework instance on scope exit.
-    app.run(std::move(window));
-    return 0;
-}
-```
-
-Seven things to notice.
-
-- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework (a function pointer must match the C signature *exactly*), so the callback definition has to spell out `AzRefAny`, `AzCallbackInfo` and the `AzUpdate` return type. Inside the body you can use the C++ surface freely. For every simple enum the header emits a namespace of *value constants* with the Rust spelling — `Update::RefreshDom`, `ButtonType::Primary` — whose type is the raw C enum, so they flow through method arguments and C fn-ptr returns without casts. The C enumerator spellings (`AzUpdate_RefreshDom`, `AzButtonType_Primary`) keep working; in *signatures* the enum type is spelled `AzUpdate` (the non-prefixed name is the constants namespace). The callback fn-ptr typedefs also get non-prefixed aliases (`azul::CallbackType`, `azul::LayoutCallbackType`, …) for storing callbacks in your own code.
-- **Adopt the callback's `AzRefAny` parameter into `RefAny`** — the framework hands every callback an *owned* reference (a refcount+1 clone), and the wrapper's destructor is what releases it when the callback returns. The free `azul::downcast_ref<T>` / `azul::downcast_mut<T>` function templates also work directly on the C struct (same generic identity scheme as `RefAny::create<T>`, nullptr on type mismatch), but they only *read* — using them on the raw parameter without adopting it (or manually calling `AzRefAny_delete(&data)` before returning) leaks one strong reference per invocation. Reserve them for `AzRefAny` values that something else owns.
-- **The `RefAny` wrapper class is the ownership tool** — RAII auto-cleanup (the framework hands the callback an owned reference; the destructor decrements the refcount), the chainable `RefAny::create<T>(model)` factory, and the `data_wrapper.clone()` builder for handing a new strong reference to a widget. Construct it from a raw `AzRefAny` only when you actually want to take ownership.
-- **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny`. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
-- **RAII over manual `_delete`** — there's no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
-- **C-ABI return is implicit** — every wrapper class has an r-value `operator AzInner()` that yields the underlying C struct and zeros the wrapper. So `return Dom::create_body();` from a callback whose signature is `AzDom layout(...)` works without an explicit `.release()`. The conversion only fires on r-values (return values, `std::move`'d locals); l-values still need an explicit `.release()` if you want to hand the C struct to a function pointer outside the return statement. Inside C++, transfer ownership with `std::move` as usual: `App::create(std::move(data), ...)`, `app.run(std::move(window))`.
-- **`.with_*` builder methods consume `*this`** — they return a new value rather than mutating in place. Chain them inline; they do not allocate beyond what the underlying `Az*_set*` would. The corresponding `set_*` methods (e.g. `Button::set_on_click`) mutate in place if you prefer that style.
-- **`std::move` for ownership transfer** — `App::run(std::move(window))`, `App::create(std::move(data), ...)`. A copy would leave you with two handles competing to free the same memory; if there's a debug build you'll get a double-free at exit. Modern compilers warn when a value is implicitly copied where a move was wanted.
-- **`std::string_view` flows in** — `Button::create("Increase counter"sv)` and `with_css("font-size: 32px;"sv)` use the C++17 sv-literal directly. The codegen emits sibling `(std::string_view)` overloads on every method whose original signature took a `String`, so there is no `String("...")` wrapping step.
-
-Things we did not use that you may want to explore next.
-
-- `AzLayoutCallbackInfo` — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries.
-- `AzCallbackInfo` — many functions for navigating the DOM, mutating CSS without rebuilding the tree, querying computed layout / styles, etc.
-- `WindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Same fields as in C; covered in [windowing](../system/windowing.md).
-
-### What changes for older / newer standards
-
-- `examples/cpp/cpp03/hello-world.cpp` keeps the explicit `AZ_REFLECT(MyDataModel)` line and uses `MyDataModel_upcast` / `MyDataModel_downcast_ref` / `MyDataModel_downcast_mut` directly. No move semantics, no string-view, no `std::optional`.
-- `examples/cpp/cpp14/hello-world.cpp` adds `auto`-return on `layout` and a runtime sanity check on `RefAny::type_id_v<MyDataModel>` (the address-of-static trick that backs it isn't a constant expression, so it can't be `static_assert`-ed).
-- `examples/cpp/cpp20/hello-world.cpp` `static_assert`s on `azul::ReflectableModel<MyDataModel>` (the concept itself is `constexpr`-friendly, the *value* of `type_id_v` isn't), and feeds a `U8Vec` straight into a function taking `std::span<const uint8_t>` via the implicit `toSpan()` conversion.
-- `examples/cpp/cpp23/hello-world.cpp` returns a `std::expected<Url, UrlParseError>` (the RAII wrapper classes, which the expected then owns) directly from a function whose body just does `return Url::parse("…"sv);`. The implicit `operator std::expected<Ok, Err>() &&` on the `Result` wrapper does the conversion. The example also exercises the deducing-`this` builders by chaining `.with_*` on a mix of l-value and r-value `Dom`s in the same expression.
-
-## Build and run
-
-If you installed `libazul` through the `.deb` / `.rpm` package, the
-header and the shared library live in standard locations and the
-compiler will find them on its own — one line is enough:
-
-```sh
-g++ -std=c++17 hello-world.cpp -lazul -o hello-world
-./hello-world
-```
-
-(On Windows the equivalent is
-`cl /std:c++17 /EHsc hello-world.cpp azul.dll.lib` once the downloaded
-MSVC import library `azul.dll.lib` is on the linker search path, with
-`azul.dll` next to the resulting `.exe` at run time.)
-
-If you downloaded the wrappers and DLL manually (or built from source),
-you have to point the compiler at them explicitly. `-I` / `-L` add
-include and link search paths; `-Wl,-rpath` tells the dynamic loader
-where to find `libazul.{so,dylib}` at runtime so you do not have to
-set `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) every
-time you run the binary.
-
-```sh
-# Linux
-g++ -std=c++17 hello-world.cpp \
-    -I/path/to/azul-headers \
-    -L/path/to/azul-lib -lazul \
-    -Wl,-rpath,/path/to/azul-lib \
-    -o hello-world
-
-# macOS — @executable_path resolves relative to the binary, so you can
-# ship the .dylib next to the .bin and the loader will pick it up
-g++ -std=c++17 hello-world.cpp \
-    -I/path/to/azul-headers \
-    -L/path/to/azul-lib -lazul \
-    -Wl,-rpath,@executable_path/. \
-    -o hello-world
-
-# Windows (MSVC) — drop azul.dll next to the .exe at run time
-cl /std:c++17 /EHsc hello-world.cpp /I path\to\azul-headers ^
-   /link /LIBPATH:path\to\azul-lib azul.dll.lib
-
-# C++03 - same DLL, different wrapper
-g++ -std=c++03 hello-world.cpp -I/path/to/azul-headers \
-    -L/path/to/azul-lib -lazul -o hello-world
-
-# C++20+ with modules: precompile the sibling azul.cppm once, then
-# replace the #include with import azul; in your source files.
-clang++ -std=c++20 -fmodules -c azul.cppm
-clang++ -std=c++20 -fmodules hello-world.cpp -lazul -o hello-world
-```
-
-You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
-
-1. `app.run(std::move(window))` opened a native window and ran `layout()` once with your `RefAny` on startup.
-2. The returned `AzDom` was styled, laid out, and rendered (default: CPU-rendered; can be GPU-rendered if needed).
-3. On click, the button's event filter matched a `MouseUp` inside its hit-test bounds. The framework borrowed the `RefAny` mutably, ran `on_click`, observed the `Update::RefreshDom` return, and re-invoked `layout()`.
-4. The new `AzDom` was diffed against the previous one; only the changed text node was repainted.
-
-## Common errors
-
-- **Double-free at exit** — you copied a wrapper that should have been moved. Inside C++, use `std::move` for every `RefAny` / `WindowCreateOptions` / `Button` / `Dom` you hand off. The layout callback's return is handled implicitly by the wrapper's r-value `operator AzInner()`, so there's nothing manual there.
-- **Linker error: `undefined reference to AzApp_create`** — the dynamic library is not linked. Add `-lazul` and confirm the rpath (`-Wl,-rpath,/path/to/azul-lib` on Linux, `@executable_path/.` on macOS, place `azul.dll` next to the `.exe` on Windows).
-- **Counter does not update on click** — the click callback returned `Update::DoNothing`, or the downcast silently returned `nullptr`. Verify with an `assert(d != nullptr)` or a print before the increment.
-- **The window opens blank** — the layout callback returned an empty body, or you forgot a `.with_child(...)` somewhere in the chain.
-- **`error: 'auto' not allowed`** — you are compiling with `-std=c++03`. Either upgrade to `c++11`, or use the `azul03.hpp` example template: the same wrapper classes (`Dom`, `Button`, `App`, …) work there too — only the template-based reflection is missing, so reflection goes through the `AZ_REFLECT(StructName)` macro instead.
-- **`no member named 'create_p_with_text' in 'azul::Dom'`** — you copied an old example that used `Dom::p` or `Dom::body`, or a pre-rename one that used `Dom::create_p_with_text`. The actual codegen surface uses the api.json names verbatim: `Dom::create_body()` / `Dom::create_p_with_text(...)` / `Dom::create_h1_with_text(...)` / `Dom::with_css(...)`.
-
 
 ### Building from source
 
@@ -415,12 +117,314 @@ Only needed if you want to track `master` or patch the library locally:
 ```sh
 # git clone https://github.com/fschutt/azul
 # cd myfolder/azul
-# generate the bindings from api.json (required - emits azul.h plus
-# every azul<NN>.hpp wrapper and the azul.cppm module partition under
-# target/codegen/)
+# generate the bindings from api.json (required)
 cargo run -p azul-doc --release -- codegen all
-# build the actual DLL
+# build the actual DLL with the now-generated C-API bindings
 cargo build -p azul-dll --release --features build-dll
 ```
 
-The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The wrappers live at `target/codegen/azul<NN>.hpp`, plus `target/codegen/azul.cppm` for the C++20+ module partition. Copy the wrapper for your standard plus the DLL somewhere your C++ compiler can find them.
+Notice the required `--features build-dll`. The DLL gets built in `target/release/libazul.{so,dylib}` 
+(or `azul.dll`). The headers are generated by `azul-doc codegen all` (alongside all other language bindings) 
+and end up at `target/codegen/`: `azul.h`, the six `azul<NN>.hpp` wrappers and `azul.cppm`, the C++20+ 
+module interface unit. Copy the wrapper for your standard plus the DLL somewhere your compiler can find.
+
+## Simple "Counter" Example
+
+The simplest example to showcase Azul's model is only about ~45 lines long in C++17:
+
+```cpp
+#include "azul17.hpp"
+#include <string>
+#include <string_view>
+
+using namespace azul;
+using namespace std::string_view_literals;
+
+struct MyDataModel {
+    uint32_t counter;
+};
+
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info);
+
+ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
+    if (!d) return Dom::create_body();
+
+    Dom label = Dom::create_p_with_text(String(std::to_string(d->counter)))
+        .with_css("font-size: 32px; margin: 0;"sv);
+
+    Dom button = Button::create("Increase counter"sv)
+        .with_button_type(ButtonType::Primary)
+        .with_on_click(data_wrapper.clone(), on_click)
+        .dom();
+
+    return Dom::create_body()
+        .with_child(std::move(label))
+        .with_child(std::move(button));
+}
+
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
+    if (!d) return Update::DoNothing;
+    d->counter += 1;
+    return Update::RefreshDom;
+}
+
+int main() {
+    MyDataModel model = { 5 };
+    RefAny data = RefAny::create(std::move(model));
+
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
+    App app = App::create(std::move(data), AppConfig::create());
+    app.run(std::move(window));
+    return 0;
+}
+```
+
+## Reflection
+
+Your data model is stored type-erased in a `RefAny`, which you can instantiate with: 
+`RefAny::create<T>(model)` and downcast with `refany.downcast_ref<T>()` and `refany.downcast_mut<T>()`. 
+The compiler creates a unique runtime type ID per `T` - the destructor is generated along with it, 
+so `~T()` runs when the last `RefAny` referencing your struct drops.
+
+In `azul03.hpp` the same three functions come from a macro instead: `AZ_REFLECT(MyDataModel)` emits `MyDataModel_upcast` / `_downcast_ref` / `_downcast_mut`. 
+
+To additionally make the `RefAny` serializable to JSON, the `AZ_REFLECT_JSON` macro additionally 
+takes two serialization hooks - useful for introspection during debugging:
+
+```cpp
+ffi::Json MyDataModel_toJson(ffi::RefAny refany) {
+    // Adopt the raw ffi::RefAny into the C++ wrapper
+    RefAny data(refany);
+    
+    auto* d = data.downcast_ref<MyDataModel>();
+    if (!d) return Json::null().release();
+    // Use C++ azul::Json and azul::JsonKeyValue constructors
+    auto kv = JsonKeyValue::create("counter"sv, Json::int_(d->counter));
+    
+    // .release() transfers ownership of the C++ wrapper back to the C ABI
+    return Json::object(JsonKeyValueVec::from_item(std::move(kv))).release();
+}
+
+ffi::ResultRefAnyString MyDataModel_fromJson(ffi::Json ffi_json) {
+    // Adopt the raw ffi::Json into the C++ wrapper
+    Json json(ffi_json);
+
+    // azul::Json uses std::optional-like wrappers for returns
+    auto field = json.get_key("counter"sv);
+    if (!field.has_value()) {
+        return ResultRefAnyString::err("Expected object with 'counter'"sv).release();
+    }
+
+    auto counter_opt = field.value().as_int();
+    if (!counter_opt.has_value()) {
+        return ResultRefAnyString::err("'counter' is not an integer"sv).release();
+    }
+
+    // Wrap our model in a RefAny, and pack it into a success Result
+    MyDataModel model;
+    model.counter = static_cast<uint32_t>(counter_opt.value());
+    return ResultRefAnyString::ok(RefAny::create(model)).release();
+}
+
+// NOTE: no destructor like in the C macro here, 
+// because C++ calls ~MyDataModel() automatically
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_toJson, MyDataModel_fromJson);
+```
+
+`AZ_REFLECT_JSON(StructName, toJson, fromJson)` works with every header from `azul03.hpp` to 
+`azul23.hpp`. `RefAny::create<T>(model)` on its own creates a `RefAny` without JSON hooks, so use 
+the macro whenever the model should be serializable.
+
+## Per-standard notes
+
+### C++03
+
+`azul03.hpp` has no support for move semantics and no `noexcept`. Returning non-copyable RAII objects 
+by value works through the Colvin-Gibbons trick: each non-copyable class has a nested `Proxy` struct, 
+the object converts to it when returned (releasing ownership) and the receiver constructs from it 
+(acquiring ownership) - direct copy construction transfers ownership, like `std::auto_ptr`. 
+
+The consequence is that these objects can **not** be stored safely in C++03 STL containers. 
+Reflection goes through the `AZ_REFLECT(StructName)` / `AZ_REFLECT_JSON(StructName, toJson, fromJson)` 
+macros shown above, and the header pulls in the C headers (`string.h`, `stdint.h`) rather than 
+their `<c*>` variants.
+
+### C++11
+
+`azul11.hpp` adds real move semantics, `noexcept` everywhere, `enum class` and `std::function`. 
+The `AZ_REFLECT` macro is replaced by the template members on `RefAny`: `RefAny::create<T>(model)` 
+(with `T` deduced from the argument), `refany.downcast_ref<T>()`, `refany.downcast_mut<T>()` and 
+`RefAny::type_id<T>()`.
+
+### C++14
+
+Same as C++11, plus the variable-template shorthand `RefAny::type_id_v<T>` for `RefAny::type_id<T>()` 
+and `auto`-return functions. `RefAny::type_id_v` can be checked at runtime but not `static_assert`-ed.
+
+### C++17
+
+The standard this guide is written against. `azul17.hpp` adds:
+
+- `std::string_view` sibling overloads on every method that takes a `String`, so `"foo"sv` 
+  flows in without a `String(...)` wrapping step;
+- `[[nodiscard]]` on factory and constructor methods;
+- `Option<T>::toStdOptional() -> std::optional<Inner>` plus the matching implicit conversion.
+  - If the payload has a wrapper class, `Inner` *is* that wrapper (`std::optional<String>`, not `std::optional<AzString>`)
+  - For non-copy payloads the conversion is `&&`-qualified (consuming), so ownership moves into the `std::optional` exactly once;
+- Structured bindings on every `ResultXxx` wrapper: `auto [ok, err] = std::move(result);` works 
+  without per-class hooks.
+
+### C++20
+
+Everything from C++17, plus:
+
+- `azul::ReflectableModel` concept, which constrains the `RefAny::create` / `downcast_ref` / 
+  `downcast_mut` / `type_id` template members, so feeding a non-reflectable type produces a 
+  readable requires-clause error instead of a wall of template-instantiation noise;
+- `Vec<T>::toSpan() -> std::span<T>` for zero-copy access;
+- A sibling `azul.cppm` module interface unit for C++20+ `import azul;` support: with a 
+  modules-aware toolchain you can `import azul;` instead of `#include "azul20.hpp"` (build 
+  commands below).
+
+### C++23
+
+Everything from C++20, plus:
+
+- `Result<Ok, Err>::toStdExpected() && -> std::expected<Ok, Err>` and the matching implicit 
+  conversion, so a method returning a `ResultXxx` wrapper can be assigned straight into a 
+  `std::expected<Ok, Err>` and chained monadically with `.and_then` / `.or_else`. `Ok` / `Err` 
+  are the wrapper classes where one exists (`std::expected<Url, UrlParseError>`, not 
+  `std::expected<AzUrl, AzUrlParseError>`), and the expected owns them;
+- deducing-`this` builder methods: every `with_*` is emitted as 
+  `template<class Self> auto with_xxx(this Self&& self, …)`, so the same body works 
+  on l-values and r-values without separate `const&` / `&&` overloads. This needs a compiler 
+  that supports it (e.g. Clang 18+, GCC 14+); older compilers get the classic overloads 
+  with the same behaviour.
+
+The full set of examples lives under `examples/cpp/cpp<NN>/` in the repository; each standard's 
+`hello-world.cpp` exercises that standard's own features.
+
+### Further Notes
+
+Callback signatures use the raw C types (`ffi::RefAny` aka `AzRefAny`, 
+`ffi::CallbackInfo` aka `AzCallbackInfo`, `ffi::Update` aka `AzUpdate`), 
+because a function pointer has to match the C signature exactly. 
+
+In the function body itself you can use the C++ types, but you **have to** convert
+the raw `ffi::` type into the C++ type first, so that C++ can automatically 
+call destructors:
+
+```cpp
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info) {
+    azul::RefAny data_wrapper(data); // Adopt into C++ RAII!
+    // ... now use data_wrapper
+}
+```
+
+This guarantees that the destructor calls `AzRefAny_delete` on drop, so that
+the reference count is properly decreased again. If you skip this, you may leak memory.
+
+When returning from the callback, the opposite conversion (from the wrapper C++ 
+type back to the raw C type) happens via a `move`. For temporary values (r-values), 
+this is automatic:
+
+```cpp
+return Dom::create_body()
+```
+
+However, for named local variables (l-values), you must explicitly tell C++ 
+to give up ownership: 
+
+```cpp
+return std::move(my_dom_node);
+```
+
+The `.with_*` builders consume `*this` and return a new value, so chain them inline; the sibling 
+`set_*` methods (e.g. `Button::set_on_click`) mutate in place instead. This is effectively the same 
+behaviour as in Rust.
+
+Simple enums are emitted as namespaces of value constants with the Rust spelling 
+(`Update::RefreshDom`, `ButtonType::Primary`) whose type is the raw C enum, so they 
+pass through arguments and C function-pointer returns without casts. The callback 
+typedefs get non-prefixed aliases (`azul::CallbackType`, `azul::LayoutCallbackType`, …) 
+for storing callbacks in your own code.
+
+The rest behaves as in every binding: the UI is built from `Dom` constructors like 
+`Dom::create_p_with_text`, `with_css` parses the string once and caches it - and in difference to the 
+web you can pass a full stylesheet, including `:hover { }`, `:focus { }` and `@media ... { }` rules - 
+and `RefAny::clone` just bumps the (atomic, thread-safe) reference count instead of deep-copying.
+
+## Build and run
+
+If you installed `libazul` via a Linux package manager (`apt`, `rpm`, `pacman`, `apk`), the 
+header and shared library live in standard system locations, so the compiler finds them automatically:
+
+```sh
+# Linux (apt / rpm / pacman / apk)
+g++ -std=c++17 hello-world.cpp -lazul -o hello-world
+```
+
+If you used Homebrew on macOS, or a package manager on Windows, you need to point 
+the compiler to the installation directory:
+
+```sh
+# macOS (Homebrew)
+c++ -std=c++17 $(pkg-config --cflags --libs azul) hello-world.cpp -o hello-world
+
+# Windows (Chocolatey) - in Developer Command Prompt
+cl /std:c++17 /EHsc /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\azul.dll.lib /Fe:hello-world.exe
+
+# Windows (Scoop) - in Developer Command Prompt
+cl /std:c++17 /EHsc /I%USERPROFILE%\scoop\apps\azul\current hello-world.cpp %USERPROFILE%\scoop\apps\azul\current\azul.dll.lib /Fe:hello-world.exe
+```
+
+Note the `%AZ_LINK_PATH%`, which is set by the Chocolatey installation script automatically. 
+If you downloaded the headers and DLL manually (or built from source), you must point the compiler 
+at them explicitly. 
+
+`-I` / `-L` add include and link search paths; `-Wl,-rpath` tells the dynamic 
+loader where to find `libazul.{so,dylib}` at runtime, so that you do not have to set 
+`LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) on every run. On Windows, `azul.dll` 
+has to sit next to the resulting `.exe` at run time.
+
+```sh
+# Linux (manual download)
+g++ -std=c++17 hello-world.cpp -I. -L. -lazul -ldl -lpthread -lm -Wl,-rpath,'$ORIGIN' -o hello-world
+
+# macOS (manual download)
+c++ -std=c++17 hello-world.cpp -I. -L. -lazul -Wl,-rpath,@executable_path -o hello-world
+
+# Windows (manual download) - in Developer Command Prompt
+cl /std:c++17 /EHsc /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe
+
+# C++03 (Linux) - same DLL, different wrapper header (azul03.hpp)
+g++ -std=c++03 hello-world.cpp -I. -L. -lazul -ldl -lpthread -lm -Wl,-rpath,'$ORIGIN' -o hello-world
+
+# C++20+ with modules (Clang 16+): build the module from the sibling azul.cppm once,
+# then replace the #include with `import azul;` in your source files
+clang++ -std=c++20 --precompile azul.cppm -o azul.pcm
+clang++ -std=c++20 -fmodule-file=azul=azul.pcm hello-world.cpp azul.pcm -L. -lazul -o hello-world
+# (the header comment of azul.cppm lists the GCC and MSVC equivalents)
+```
+
+After running the `hello-world` binary, you should see the window pictured on the 
+[hello-world landing page](../hello-world.md). Click the button: the counter should increment, 
+the layout callback then re-runs, and the new value renders.
+
+1. `app.run(std::move(window))` opens a native window and runs the layout callback once with your `RefAny`.
+2. The returned `Dom` is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up in the `Dom`. On click, the framework borrows your `RefAny` mutably, runs `on_click`, observes the `Update::RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's `Dom` and the current one, and only re-updates and re-paints the counter, not the entire window.
+
+Congratulations if you made it this far - now you've already mastered 80% of the framework. 
+As you might have guessed, more complex UI and styling are only composing more Dom objects 
+together and working with the various event filters. 
+
+You can now start reading about the [architecture patterns](../architecture.md) or 
+explore what [methods the `Dom` has to offer](../dom.md). 
+
+See you in the next tutorial!

@@ -101,6 +101,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_ribbon_on_tab_click_callback_thunk,
     setter_fn:      AzApp_setRibbonOnTabClickCallbackInvoker,
     from_handle_fn: AzRibbonOnTabClickCallback_createFromHostHandle,
+    from_handle_byref_fn: AzRibbonOnTabClickCallback_createFromHostHandleByref,
     extra_args:     [ tab_index: usize ],
 }
 
@@ -123,6 +124,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_ribbon_gallery_on_select_callback_thunk,
     setter_fn:      AzApp_setRibbonGalleryOnSelectCallbackInvoker,
     from_handle_fn: AzRibbonGalleryOnSelectCallback_createFromHostHandle,
+    from_handle_byref_fn: AzRibbonGalleryOnSelectCallback_createFromHostHandleByref,
     extra_args:     [ cell_index: usize ],
 }
 
@@ -4029,7 +4031,7 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
     };
     let idx = data.tab_idx;
     match data.on_tab_click.as_mut() {
-        Some(RibbonOnTabClick { refany, callback }) => (callback.cb)(refany.clone(), info, idx),
+        Some(RibbonOnTabClick { refany, callback }) => callback.invoke(refany.clone(), info, idx),
         None => Update::DoNothing,
     }
 }
@@ -4293,7 +4295,7 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     }
 
     match user.into_option() {
-        Some(RibbonGalleryOnSelect { refany, callback }) => (callback.cb)(refany, info, idx),
+        Some(RibbonGalleryOnSelect { refany, callback }) => callback.invoke(refany, info, idx),
         None => Update::DoNothing,
     }
 }
@@ -4544,7 +4546,7 @@ mod tests {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

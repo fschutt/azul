@@ -57,7 +57,7 @@ ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
     if (!m) return Dom::create_body();
     ffi::MapViewport viewport = m->viewport;
 
-    MapTileLayer layer = MapTileLayer::default_();
+    MapTileLayer layer = MapTileLayer::createDefault();
     String credit(AzString_clone(&layer.inner().attribution));
 
     Dom map = MapWidget::create(std::move(layer))
@@ -100,7 +100,7 @@ ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
 }
 
 int main() {
-    ffi::MapViewport viewport = MapViewport::default_().release();
+    ffi::MapViewport viewport = MapViewport::createDefault().release();
     viewport.centre_lat_deg = 48.2082;
     viewport.centre_lon_deg = 16.3738;
     viewport.zoom = 6.0f;
@@ -119,7 +119,7 @@ int main() {
     window.inner().window_state.size.dimensions.width = 900.0f;
     window.inner().window_state.size.dimensions.height = 620.0f;
 
-    App app = App::create(std::move(data), AppConfig::default_());
+    App app = App::create(std::move(data), AppConfig::create());
     app.run(std::move(window));
     return 0;
 }

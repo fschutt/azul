@@ -121,7 +121,7 @@ fn reorder_callback_typedefs(input: &str) -> String {
 }
 
 /// Detect `typedef X (*AzYType)(args);` and extract the typedef's name.
-fn parse_callback_typedef_name(t: &str) -> Option<String> {
+pub(super) fn parse_callback_typedef_name(t: &str) -> Option<String> {
     if !t.starts_with("typedef ") {
         return None;
     }

@@ -1873,9 +1873,12 @@ impl fmt::Display for CssPath {
     }
 }
 
+/// `CssPath(div > p)`: the type name around the selector text, so an empty
+/// path is `CssPath()`, never an empty string (the bindings' conformance
+/// programs check that no value formats to nothing).
 impl fmt::Debug for CssPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self}")
+        f.debug_tuple("CssPath").field(&format_args!("{self}")).finish()
     }
 }
 

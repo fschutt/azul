@@ -268,7 +268,7 @@ unsafe fn make_config(
     fps: u32,
 ) -> Option<Retained<AnyObject>> {
     let config: *mut AnyObject = msg_send![sc_config, new];
-    let config = Retained::from_raw(config)?;
+    let config = unsafe { Retained::from_raw(config)? };
     let _: () = msg_send![&*config, setWidth: width];
     let _: () = msg_send![&*config, setHeight: height];
     let _: () = msg_send![&*config, setPixelFormat: PIXEL_FORMAT_32BGRA];

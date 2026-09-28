@@ -9,7 +9,6 @@ use azul::{
     dom::RenderImageCallback,
     gl::Texture,
     image::{ImageRef, RawImageFormat},
-    option::OptionRefAny,
     prelude::*,
     svg::*,
     task::TerminateTimer,
@@ -159,10 +158,7 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         timer_id,
         Timer::create(
             data.clone(),
-            TimerCallback {
-                cb: animate,
-                ctx: OptionRefAny::None,
-            },
+            animate,
             info.get_system_time_fn(),
         ),
     );

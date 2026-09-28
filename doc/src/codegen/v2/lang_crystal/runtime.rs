@@ -235,15 +235,36 @@ module Azul
       Handles.refany(Handles.hold(x), nil)
     end
 
-    # Runs a callback body. A Crystal exception must never unwind into
-    # libazul's frames, so an escaping one is reported and ends the process.
-    def self.guard(kind : ::String, &) : ::Nil
-      yield
-    rescue ex
-      ::STDERR.puts "azul: unhandled exception in a #{kind}:"
+    # Reports an exception that tried to escape a callback into libazul.
+    #
+    # Unwinding across the C ABI is undefined behaviour, so every trampoline
+    # rescues everything and comes here; the callback then returns its kind's
+    # fallback value and the program keeps running instead of dying on a bug
+    # in one handler.
+    #
+    # The block is that kind's log sink: a callback whose arguments offer
+    # `log(level, message)` sends the report into the host's log pipeline (and
+    # from there to wherever logs are collected) and returns true. A kind
+    # without such an argument returns false, and a sink that raises counts as
+    # a failure too - both fall back to STDERR, so a failing callback is never
+    # silent.
+    def self.callback_raised(kind : ::String, ex : ::Exception, &) : ::Nil
+      # Building the report must not fail a second time, whatever the
+      # exception's own #message does.
+      message = begin
+        "azul: #{kind} raised #{ex.class}: #{ex.message}"
+      rescue
+        "azul: #{kind} raised an exception"
+      end
+      logged = begin
+        yield message
+      rescue
+        false
+      end
+      return if logged
+      ::STDERR.puts message
       ex.inspect_with_backtrace(::STDERR)
       ::STDERR.flush
-      ::exit(1)
     end
   end
 end

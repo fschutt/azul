@@ -124,7 +124,7 @@ int main() {
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = az_string_from_literal("Calculator");
 
-    App app = App::create(data, AppConfig::default_());
+    App app = App::create(data, AppConfig::create());
     app.run(window);
     return 0;
 }

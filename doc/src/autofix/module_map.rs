@@ -46,6 +46,7 @@ pub const MODULES: &[&str] = &[
     "tray",
     "notification",
     "webtransport",
+    "iroh",
     "db",
     "file",
     "fmt",
@@ -620,6 +621,9 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // where `PenState`, `PenTilt` and `InputSample` above already live.
     ("ValidityState", "callbacks"),
     ("ValidityReason", "callbacks"),
+    // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
+    ("Wt", "webtransport"),
+    ("Iroh", "iroh"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -961,6 +965,9 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_dll::unified::webtransport::") {
         return Some("webtransport".to_string());
+    }
+    if path.starts_with("azul_dll::unified::iroh::") {
+        return Some("iroh".to_string());
     }
 
     None
@@ -1413,6 +1420,32 @@ mod tests {
         assert_eq!(difficult_type_module("TabletPadState"), Some("gesture"));
         assert_eq!(difficult_type_module("TableLayout"), None);
         assert_eq!(difficult_type_module("StyleTableLayout"), None);
+    }
+
+    #[test]
+    fn transport_events_stay_with_their_transport() {
+        for (name, module) in [
+            ("WtEvent", "webtransport"),
+            ("WtEventKind", "webtransport"),
+            ("IrohEvent", "iroh"),
+            ("IrohEventKind", "iroh"),
+            ("IrohEndpoint", "iroh"),
+            ("IrohLoadBalancer", "iroh"),
+            ("IrohPeerCapacity", "iroh"),
+            ("IrohTileRole", "iroh"),
+        ] {
+            assert_eq!(determine_module(name).0, module, "{name}");
+            assert_eq!(get_correct_module(name, module), None, "{name}");
+        }
+        assert_eq!(determine_module("OptionIrohEvent").0, "option");
+        assert_eq!(
+            get_correct_module_with_path(
+                "IrohPeerStats",
+                "misc",
+                Some("azul_dll::unified::iroh::IrohPeerStats")
+            ),
+            Some("iroh".to_string())
+        );
     }
 
     /// Structural types are resolved BEFORE the override table, so an entry

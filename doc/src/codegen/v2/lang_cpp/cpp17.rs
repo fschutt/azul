@@ -42,12 +42,9 @@ impl CppDialect for Cpp17Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro - C++11+ uses template-reflection helpers instead.
-        if !std.has_move_semantics() {
-            code.push_str(&generate_reflect_macro(std));
-        } else {
-            code.push_str(&generate_az_string_from_literal_helper(std));
-        }
+        // AZ_REFLECT / AZ_REFLECT_JSON macros: on C++11+ they are shims over
+        // the RefAny template members (create<T> / downcast_ref<T> / ...).
+        code.push_str(&generate_reflect_macro(std));
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
@@ -125,6 +122,8 @@ impl CppDialect for Cpp17Generator {
         // Close namespace
         // Trait entry points for the classes that got no wrapper class
         // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        // `Owned<T>` first: it is the destructor those same classes lack.
+        code.push_str(&generate_owned_guards(ir, config, std));
         code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
@@ -269,6 +268,8 @@ impl CppDialect for Cpp17Generator {
         if matches!(struct_def.category, TypeCategory::RefAny) {
             code.push_str(&generate_refany_template_members(self.standard()));
         }
+        // api.json constants as `GlContextPtr::ACCUM_ALPHA_BITS`.
+        code.push_str(&generate_class_constants(struct_def, ir, self.standard()));
 
         code.push_str("};\r\n\r\n");
     }
@@ -311,7 +312,7 @@ impl CppDialect for Cpp17Generator {
             ));
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -360,7 +361,7 @@ impl CppDialect for Cpp17Generator {
             }
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -383,7 +384,7 @@ impl CppDialect for Cpp17Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == *class_name)
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -451,7 +452,7 @@ impl CppDialect for Cpp17Generator {
             }
             code.push_str("}\r\n\r\n");
 
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, true, class_name, substitute,
                 );
@@ -695,6 +696,7 @@ impl CppDialect for Cpp17Generator {
         // C++17: std::optional — yields std::optional<Wrapper> when the
         // payload has a wrapper class (consuming && form for non-copy ones).
         emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
+        emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
     }
 
     fn generate_result_methods(
@@ -757,7 +759,7 @@ impl Cpp17Generator {
                     "    [[nodiscard]] static {} {}({});\r\n",
                     class_name, cpp_fn_name, cpp_args
                 ));
-                if func_takes_string_arg(func) {
+                if func_takes_string_arg(func, ir) {
                     let sv_args = generate_args_signature_sv_overload(
                         &func.args, ir, config, false, class_name, substitute,
                     );
@@ -787,7 +789,7 @@ impl Cpp17Generator {
                 "    [[nodiscard]] static {} {}({});\r\n",
                 cpp_return_type, cpp_fn_name, cpp_args
             ));
-            if func_takes_string_arg(func) {
+            if func_takes_string_arg(func, ir) {
                 let sv_args = generate_args_signature_sv_overload(
                     &func.args, ir, config, false, class_name, substitute,
                 );
@@ -810,7 +812,7 @@ impl Cpp17Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !is_constructor_or_default(f))
+            .filter(|f| is_wrapper_method(f))
             .collect();
 
         if !methods.is_empty() {
@@ -840,7 +842,7 @@ impl Cpp17Generator {
                     "    {}{} {}({}){};\r\n",
                     static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
                 ));
-                if func_takes_string_arg(func) {
+                if func_takes_string_arg(func, ir) {
                     let sv_args = generate_args_signature_sv_overload(
                         &func.args, ir, config, true, class_name, substitute,
                     );

@@ -197,6 +197,7 @@ impl ThreadSender {
         let Some(ts) = self.ptr.lock().ok() else {
             return false;
         };
+        // direct-cb-call: the thread channel's send function, not a callback wrapper.
         (ts.send_fn.cb)(
             std::ptr::from_ref(ts.ptr.as_ref()).cast::<core::ffi::c_void>(),
             msg,
@@ -313,17 +314,23 @@ impl WriteBackCallback {
             ctx: OptionRefAny::None,
         }
     }
+}
 
-    /// Invoke the callback
-    #[must_use]
-    pub fn invoke(
-        &self,
-        thread_data: RefAny,
-        writeback_data: RefAny,
-        callback_info: CallbackInfo,
-    ) -> Update {
-        (self.cb)(thread_data, writeback_data, callback_info)
-    }
+// Host-invoker plumbing (see azul_core::host_invoker): the data written back
+// comes BEFORE the `CallbackInfo`, whose context the thunk reads.
+azul_core::impl_managed_callback! {
+    wrapper:        WriteBackCallback,
+    pre_args:       [writeback_data: RefAny],
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: WRITE_BACK_INVOKER,
+    invoker_ty:     AzWriteBackCallbackInvoker,
+    thunk_fn:       az_write_back_callback_thunk,
+    setter_fn:      AzApp_setWriteBackCallbackInvoker,
+    from_handle_fn: AzWriteBackCallback_createFromHostHandle,
+    from_handle_byref_fn: AzWriteBackCallback_createFromHostHandleByref,
+    extra_args:     [],
 }
 
 impl core::fmt::Debug for WriteBackCallback {
@@ -473,6 +480,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_thread_callback_thunk,
     setter_fn:      AzApp_setThreadCallbackInvoker,
     from_handle_fn: AzThreadCallback_createFromHostHandle,
+    from_handle_byref_fn: AzThreadCallback_createFromHostHandleByref,
     extra_args:     [receiver: ThreadReceiver],
 }
 
@@ -636,6 +644,7 @@ impl ThreadInner {
     /// Returns true if the Thread has been finished, false otherwise
     #[must_use]
     pub fn is_finished(&self) -> bool {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.check_thread_finished_fn.cb)(
             std::ptr::from_ref(self.dropcheck.as_ref()).cast::<core::ffi::c_void>(),
         )
@@ -643,6 +652,7 @@ impl ThreadInner {
 
     /// Send a message to the thread
     pub fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.send_thread_msg_fn.cb)(
             std::ptr::from_ref(self.sender.as_ref()).cast::<core::ffi::c_void>(),
             msg,
@@ -651,6 +661,7 @@ impl ThreadInner {
 
     /// Try to receive a message from the thread (non-blocking)
     pub fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
+        // direct-cb-call: the thread's own bookkeeping function, not a callback wrapper.
         (self.receive_thread_msg_fn.cb)(
             std::ptr::from_ref(self.receiver.as_ref()).cast::<core::ffi::c_void>(),
         )
@@ -677,6 +688,7 @@ impl ThreadInner {
 
 impl Drop for ThreadInner {
     fn drop(&mut self) {
+        // direct-cb-call: the thread's destructor, not a callback wrapper.
         (self.thread_destructor_fn.cb)(self);
     }
 }
@@ -921,7 +933,7 @@ fn build_thread(
         // `thread_check` is captured BY MOVE, so it stays alive for the whole
         // body; dropping it here is what makes `dropcheck.upgrade()` start
         // returning `None`, i.e. signals that the thread has finished.
-        (callback.cb)(thread_initialize_data, sender_receiver, receiver_sender);
+        callback.invoke(thread_initialize_data, sender_receiver, receiver_sender);
         drop(thread_check);
     }));
 
@@ -1290,7 +1302,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -2111,5 +2123,11 @@ mod thread_pool_tests {
         assert_eq!(pool.clone(), pool);
         assert_ne!(ThreadPool::create(3), pool);
         assert_eq!(ThreadPool::create(0).thread_count(), 1, "at least one worker");
+    }
+}
+
+impl azul_core::host_invoker::HostCtxCarrier for ThreadSender {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.ctx = ctx.clone();
     }
 }

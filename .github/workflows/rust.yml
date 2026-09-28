@@ -177,7 +177,7 @@ jobs:
           echo "docproof pinned at $got"
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
@@ -586,12 +586,6 @@ jobs:
         with:
           toolchain: 1.91.0
 
-      - name: Run azul-doc tests
-        run: |
-          set -o pipefail
-          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
-          ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
-
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -606,11 +600,19 @@ jobs:
       - name: Download generated bindings (built once by codegen_linux)
         # The examples lint checks every example and guide call site against
         # the symbols the generator emitted. Without this tree it used to skip
-        # itself and still print [ok]; it now fails instead.
+        # itself and still print [ok]; it now fails instead. The bug-class
+        # tests (codegen::v2::bug_classes) read it too, so it comes BEFORE the
+        # test step: they fail on a missing tree rather than skip.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
+
+      - name: Run azul-doc tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Double-drop invariant + guide links (azul-doc)
         run: azul-doc check
@@ -769,6 +771,9 @@ jobs:
       - name: Check azul-dll with svg and xml
         run: cargo check -p azul-dll --no-default-features --features "link-static,svg,xml"
 
+      - name: Check azul-dll with the iroh transport
+        run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y,iroh"
+
       - name: Check azul-dll with link-dynamic (no internal crates)
         run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
 
@@ -821,6 +826,13 @@ jobs:
           ./scripts/zero_test_guard.sh --strict dll-lib.txt
           if ! grep -qE '^test desktop::shell2::windows::' dll-lib.txt; then
             echo "::error::no desktop::shell2::windows::* test ran - the Win32 backend is still untested."
+            exit 1
+          fi
+          # The iroh engine is `cfg(az_iroh_engine)`: a target or feature slip compiles it out
+          # silently, and its loopback test (a real QUIC connection between two endpoints) is the
+          # only thing that exercises the transport at all.
+          if ! grep -qE '^test desktop::extra::iroh::engine::' dll-lib.txt; then
+            echo "::error::no desktop::extra::iroh::engine::* test ran - the iroh transport is compiled out."
             exit 1
           fi
 
@@ -896,6 +908,29 @@ jobs:
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
+
+      # `cargo check` runs build scripts, and ring - the crypto provider under the iroh transport -
+      # compiles C for the TARGET, so these targets need a cross C compiler even though this job
+      # links nothing. The Cross-Build jobs get one from their `cross` container; this one is plain
+      # cargo, and without this every target with a C-compiling dependency fails in cc-rs with
+      # "failed to find tool <triple>-gcc".
+      - name: Install cross C toolchains
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          # The gcc-<triple> packages carry no libc headers: without the matching
+          # libc6-dev-*-cross the compiler falls back to the host /usr/include and
+          # dies on `bits/libc-header-start.h`.
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            gcc-i686-linux-gnu libc6-dev-i386-cross \
+            musl-tools || true
+          # musl-tools ships musl-gcc for x86_64 only; aarch64-musl borrows the gnu cross compiler,
+          # which is enough for a check (nothing is linked).
+          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Check sub-crates (azul-css, azul-core, azul-layout)
         env:
@@ -1294,6 +1329,39 @@ jobs:
             | tee e2e-json.txt
           ./scripts/zero_test_guard.sh --strict e2e-json.txt
 
+  # Miri lives ALONE, with no cache and no secrets, on purpose.
+  #
+  # `cargo miri` writes the environment it was invoked with into target/ so it
+  # survives between the several rustc invocations one invocation makes
+  # (rust-lang security advisory, 2026-09-21). A job that does that, holds a
+  # secret, and saves target/ to a cache publishes the secret to an artifact
+  # pull requests can read. Keeping Miri in a job with neither half means the
+  # combination cannot arise here, whatever is added later.
+  #
+  # scripts/preflight_contracts.py enforces this.
+  miri:
+    name: Run Miri
+    needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux]
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly-2026-09-03 --component miri
+          cargo +nightly-2026-09-03 miri setup
+
+      - name: Run Miri tests
+        run: |
+          cargo +nightly-2026-09-03 miri test --lib -p azul-core -- refany::
+
   test_heavy:
     # Runs Miri and Reftests.
     name: Run Heavy Tests (Miri + Reftests)
@@ -1308,15 +1376,6 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
-      - name: Install Miri
-        run: |
-          rustup toolchain install nightly-2026-09-03 --component miri
-          cargo +nightly-2026-09-03 miri setup
-
-      - name: Run Miri tests
-        run: |
-          cargo +nightly-2026-09-03 miri test --lib -p azul-core -- refany::
-
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1516,6 +1575,21 @@ jobs:
           AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
           AZ_BACKEND: headless
         run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan
+
+      - name: Compile and run the routing/components doc-drift guard (C)
+        run: |
+          cp target/codegen/azul.h examples/c/
+          cd examples/c
+          clang -g -O0 -I. routing-components.c -L../../target/debug -lazul -o routing-components
+
+      - name: Run the routing/components doc-drift guard (C)
+        working-directory: examples/c
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          AZ_BACKEND: headless
+          AZ_E2E: ${{ github.workspace }}/tests/e2e/routing_components.json
+        run: ${{ matrix.timeout_cmd }} 60 ./routing-components
 
       - name: Run Miri on azul-dll
         env:
@@ -2325,7 +2399,12 @@ jobs:
           # SQLite aggregates that `turso_macros`' agg_derive emits
           # (`Median_step`, `PercentileCont_finalize`, `StandardDeviation_*`),
           # which are always `<CamelName>_(init|step|finalize|value)`.
-          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char|turso_.*|regexp|[A-Z][A-Za-z0-9]*_(init|step|finalize|value))$'
+          #
+          # The iroh transport adds one more: blake3 builds its compression
+          # routines with cc, and a C object's symbols are not subject to the
+          # cdylib export restriction at all (`blake3_compress_in_place_portable`,
+          # plus the SIMD variants the other runners select).
+          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char|turso_.*|regexp|blake3_.*|[A-Z][A-Za-z0-9]*_(init|step|finalize|value))$'
           if [ "${{ runner.os }}" = "macOS" ]; then
             LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
             MACOS_ALLOW="$RESIDUAL_ALLOW"
@@ -2463,8 +2542,6 @@ jobs:
 
       - name: Build demos (best-effort)
         env:
-          AZ_LINK_PATH: ${{ github.workspace }}/libazul-prebuilt
-          AZ_LINK_STATIC: "1"
           CARGO_PROFILE_RELEASE_LTO: "off"
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -2477,6 +2554,16 @@ jobs:
                 libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
                 libazul-prebuilt/azul.pyd 2>/dev/null
           echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
+          # Name the archive FILE, not the directory: build_link.rs links a named
+          # file as-is, while a directory search would also find the stub libazul
+          # cdylib this job builds into target/ (a shared library wins over a .a).
+          for f in libazul.a azul.lib; do
+            if [ -f "libazul-prebuilt/$f" ]; then
+              export AZ_LINK_PATH="$GITHUB_WORKSPACE/libazul-prebuilt/$f"
+              break
+            fi
+          done
+          echo "AZ_LINK_PATH=${AZ_LINK_PATH:-<unset: no static archive in the artifact>}"
           ENGINE_PATHS="core layout css dll api.json Cargo.toml Cargo.lock"
           prev_manifest=""
           if gh release download "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
@@ -2493,7 +2580,7 @@ jobs:
           failed=()
           reused=()
           built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             demo_dir=""
             for cand in "examples/$demo" "demos/$demo" "$demo"; do
               [ -d "$cand" ] && { demo_dir="$cand"; break; }
@@ -2561,7 +2648,7 @@ jobs:
         run: |
           mkdir -p demos-staging
           staged=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             src="$(sed -n "s|^${demo}=||p" demo-exe-paths.txt 2>/dev/null | tail -1 || true)"
             if [ -n "$src" ] && [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
@@ -2671,7 +2758,7 @@ jobs:
 
       - name: Build azul-dll (release, dynamic, debug-server)
         if: steps.cache-valid.outputs.skip != 'true'
-        run: cargo build --release -p azul-dll --features build-dll,debug-server
+        run: cargo build --release -p azul-dll --features build-dll,debug-server,alloc-stats
 
       # Same Python as the e2e leg's `Set up Python` (the extension is built
       # against this interpreter; the image default moves between image releases).
@@ -2844,8 +2931,11 @@ jobs:
           - key: scripting-x1
             langs: "php lisp cobol ada algol68"
             experimental: true
+          - key: scripting-c
+            langs: "d crystal swift"
+            experimental: false
           - key: scripting-x2
-            langs: "racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift"
+            langs: "racket odin powershell red freebasic smalltalk vb6 v julia"
             experimental: true
     runs-on: ${{ matrix.os }}
     env:
@@ -2937,41 +3027,48 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        # v1.x builds the OS-first tarball name (zig-linux-x86_64-<ver>); Zig renamed its
+        # releases arch-first at 0.14.1, so every mirror AND ziglang.org 404d and only the
+        # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -2987,7 +3084,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]
@@ -3056,14 +3153,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3082,22 +3179,44 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
+      # vlang/setup-v does not install V, it BUILDS it: clone vlang/v, clone the
+      # vlang/vc bootstrap (the V compiler transpiled to C), compile that with cc,
+      # then have the result recompile the compiler. One run stalled in the
+      # self-compile stage for 58 of the job's 60 minutes, and a job CANCELLED on
+      # timeout skips every dependent no matter what continue-on-error says - that
+      # is how an experimental language shard came to block deploy_pages. V ships
+      # prebuilt binaries for every platform we run on, so just take those.
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
-        with:
-          version: 0.5.2
-          check-latest: false
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=0.5.2
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)   asset=v_linux.zip ;;
+            Linux-ARM64) asset=v_linux_arm64.zip ;;
+            macOS-ARM64) asset=v_macos_arm64.zip ;;
+            macOS-X64)   asset=v_macos_x86_64.zip ;;
+            Windows-X64) asset=v_windows.zip ;;
+            *) echo "::warning::no prebuilt V for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 0 ;;
+          esac
+          curl -fsSL --retry 3 --retry-delay 5             -o "$RUNNER_TEMP/v.zip"             "https://github.com/vlang/v/releases/download/${ver}/${asset}"
+          unzip -q "$RUNNER_TEMP/v.zip" -d "$RUNNER_TEMP/vdist"
+          vbin="$RUNNER_TEMP/vdist/v/v"
+          [ "$RUNNER_OS" = "Windows" ] && vbin="$vbin.exe" || chmod +x "$vbin"
+          "$vbin" version
+          echo "$RUNNER_TEMP/vdist/v" >> "$GITHUB_PATH"
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3149,6 +3268,26 @@ jobs:
           bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
             | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
 
+      # The generated conformance programs (azul-doc codegen renders ONE plan -
+      # every constant, derive round-trip, variant constructor, Vec and
+      # callback kind - into every binding): each shipped binding in this
+      # family must pass its whole plan.
+      - name: Conformance programs (generated, gates the shipped tier)
+        shell: bash
+        run: bash scripts/conformance.sh ${{ matrix.family.langs }}
+
+      # The same programs as memtests: a debugger run (crashes, double frees)
+      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
+      # which the Windows runner lacks.
+      - name: Conformance memtest (crash + leak)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && ! command -v gdb >/dev/null; then
+            sudo apt-get install -y -qq gdb
+          fi
+          bash scripts/conformance.sh --memtest ${{ matrix.family.langs }}
+
       - name: Upload language binding board
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -3175,7 +3314,7 @@ jobs:
             (github.ref == 'refs/heads/master'
               || startsWith(github.ref, 'refs/tags/')
               || github.event_name == 'workflow_dispatch')
-            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 d crystal v julia swift","experimental":true}]'
+            && '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false},{"key":"scripting-a","langs":"haskell kotlin java scala csharp ocaml","experimental":false},{"key":"scripting-b","langs":"python lua ruby node go zig nim fortran pascal perl","experimental":false},{"key":"scripting-x1","langs":"php lisp cobol ada algol68","experimental":true},{"key":"scripting-c","langs":"d crystal swift","experimental":false},{"key":"scripting-x2","langs":"racket odin powershell red freebasic smalltalk vb6 v julia","experimental":true}]'
             || '[{"key":"rust","langs":"rust","experimental":false},{"key":"c-cpp","langs":"c cpp","experimental":false}]') }}
     runs-on: ${{ matrix.os }}
     env:
@@ -3271,41 +3410,48 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up D (dmd)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
+      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # which is built on the same dmd 2.113 front end.
+      - name: Set up D (dmd, LDC on macOS)
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-2.113.0
+          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
       - name: Set up Swift (Linux)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
+      # Swift 6.x: 5.10's ucrt modulemap is cyclic against the MSVC 14.44
+      # headers on windows-2022 ("cyclic dependency in module 'ucrt'").
       - name: Set up Swift (Windows)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-5.10-release
-          tag: 5.10-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
 
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        # v1.x builds the OS-first tarball name (zig-linux-x86_64-<ver>); Zig renamed its
+        # releases arch-first at 0.14.1, so every mirror AND ziglang.org 404d and only the
+        # hand-rolled fallback below kept the zig binding tested. v2 knows both spellings.
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: "0.14.1"
+          version: "0.16.0"
 
       - name: Ensure zig is actually on PATH
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
@@ -3321,7 +3467,7 @@ jobs:
           cat > "$RUNNER_TEMP/get_zig.py" <<'PYEOF'
           import json, sys, tarfile, urllib.request, zipfile, platform, os, pathlib
           tmp = pathlib.Path(sys.argv[1])
-          ver = "0.14.1"
+          ver = "0.16.0"
           osname = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
           arch = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64",
                   "aarch64": "aarch64"}[platform.machine()]
@@ -3390,14 +3536,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3416,22 +3562,44 @@ jobs:
           cabal-version: '3.10'
 
       - name: Set up Crystal
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
+      # vlang/setup-v does not install V, it BUILDS it: clone vlang/v, clone the
+      # vlang/vc bootstrap (the V compiler transpiled to C), compile that with cc,
+      # then have the result recompile the compiler. One run stalled in the
+      # self-compile stage for 58 of the job's 60 minutes, and a job CANCELLED on
+      # timeout skips every dependent no matter what continue-on-error says - that
+      # is how an experimental language shard came to block deploy_pages. V ships
+      # prebuilt binaries for every platform we run on, so just take those.
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
-        with:
-          version: 0.5.2
-          check-latest: false
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=0.5.2
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            Linux-X64)   asset=v_linux.zip ;;
+            Linux-ARM64) asset=v_linux_arm64.zip ;;
+            macOS-ARM64) asset=v_macos_arm64.zip ;;
+            macOS-X64)   asset=v_macos_x86_64.zip ;;
+            Windows-X64) asset=v_windows.zip ;;
+            *) echo "::warning::no prebuilt V for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 0 ;;
+          esac
+          curl -fsSL --retry 3 --retry-delay 5             -o "$RUNNER_TEMP/v.zip"             "https://github.com/vlang/v/releases/download/${ver}/${asset}"
+          unzip -q "$RUNNER_TEMP/v.zip" -d "$RUNNER_TEMP/vdist"
+          vbin="$RUNNER_TEMP/vdist/v/v"
+          [ "$RUNNER_OS" = "Windows" ] && vbin="$vbin.exe" || chmod +x "$vbin"
+          "$vbin" version
+          echo "$RUNNER_TEMP/vdist/v" >> "$GITHUB_PATH"
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3482,6 +3650,26 @@ jobs:
           E2E_LANG_TIMEOUT=600 RUST_BACKTRACE=full \
           bash scripts/e2e_language_matrix.sh --gate-shipped ${{ matrix.family.langs }} \
             | tee "stats/language-bindings-${os_slug}-${{ matrix.family.key }}.txt"
+
+      # The generated conformance programs (azul-doc codegen renders ONE plan -
+      # every constant, derive round-trip, variant constructor, Vec and
+      # callback kind - into every binding): each shipped binding in this
+      # family must pass its whole plan.
+      - name: Conformance programs (generated, gates the shipped tier)
+        shell: bash
+        run: bash scripts/conformance.sh ${{ matrix.family.langs }}
+
+      # The same programs as memtests: a debugger run (crashes, double frees)
+      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
+      # which the Windows runner lacks.
+      - name: Conformance memtest (crash + leak)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && ! command -v gdb >/dev/null; then
+            sudo apt-get install -y -qq gdb
+          fi
+          bash scripts/conformance.sh --memtest ${{ matrix.family.langs }}
 
       - name: Upload language binding board
         if: always()
@@ -3739,7 +3927,7 @@ jobs:
           mkdir -p mobile-apps
           ios_failed=()
           ios_built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -3812,7 +4000,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           cmdline-tools-version: 12266719
           # The action's default is `tools platform-tools`. The legacy `tools`
@@ -3845,7 +4033,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
-          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter; do
+          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter AzBuilder; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"
@@ -4086,16 +4274,24 @@ jobs:
             mkdir -p "$outdir"
             cp "$so" "$outdir/libazul.so"
             find nfpm-config -name 'azul.h' -exec cp {} "$outdir/" \; 2>/dev/null || true
+            # nfpm.yaml also lists azul03/11/14/17/20/23.hpp. Copying only azul.h
+            # here (the amd64 path above copies both) meant EVERY per-arch package
+            # died on `Matching "./azul03.hpp": file does not exist` - swallowed by
+            # a warning, so the deb/rpm for arm64/ppc64/s390x/riscv64 never existed.
+            find nfpm-config -name 'azul*.hpp' -exec cp {} "$outdir/" \; 2>/dev/null || true
             cp LICENSE "$outdir/" 2>/dev/null || true
             sed "s/^arch:.*/arch: ${nfpm_arch}/" "$BASE_YAML" > "$outdir/nfpm.yaml"
             ( cd "$outdir" && \
               nfpm pkg --config nfpm.yaml --packager deb --target . && \
               nfpm pkg --config nfpm.yaml --packager rpm --target . ) \
-              || echo "::warning::nfpm packaging failed for $dir"
+              || { echo "::error::nfpm packaging failed for $dir"; pkg_failed=1; }
             ls -la "$outdir"/*.deb "$outdir"/*.rpm 2>/dev/null || true
           done
           echo "=== per-arch packages ==="
           find target/packages-arch -name '*.deb' -o -name '*.rpm' 2>/dev/null || true
+          # The step stays continue-on-error, so this only turns a silent warning
+          # into a red step - it cannot block the deploy.
+          exit "${pkg_failed:-0}"
 
       - name: Upload per-arch aarch64 packages
         if: always()
@@ -4284,7 +4480,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -4866,13 +5062,30 @@ jobs:
           AZUL_RPM_GPG_KEY: ${{ secrets.AZUL_RPM_GPG_KEY }}
           AZUL_PACMAN_GPG_KEY: ${{ secrets.AZUL_PACMAN_GPG_KEY }}
           AZUL_APK_SIGN_KEY: ${{ secrets.AZUL_APK_SIGN_KEY }}
+          # The npm tarball and the wheels are uploaded to the Release below,
+          # before the install self-checks exercise the URLs the indexes carry.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -u
           if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
-            mkdir -p website/apt website/ui/apt
-            cp -r artifacts-apt/. website/apt/
+            mkdir -p website/ui/apt
             cp -r artifacts-apt/. website/ui/apt/
-            echo "[live] apt mirror -> /ui/apt (and legacy /apt)"
+            # The legacy /apt was a byte-for-byte second copy of the repository,
+            # pool included, so every .deb sat in the Pages artifact twice. Once
+            # the per-arch packages started building that became 135MB of pure
+            # duplication against GitHub's 1 GB cap. Nothing documents or verifies
+            # /apt - the guides, the landing page and verify_install_commands.sh
+            # all say /ui/apt - so it keeps a pointer instead of a copy.
+            mkdir -p website/apt
+            {
+              echo '<!DOCTYPE html><html><head><meta charset="utf-8">'
+              echo '<title>azul apt repository</title>'
+              echo '<meta http-equiv="refresh" content="0; url=/ui/apt/"></head><body>'
+              echo '<p>The azul apt repository is served from <a href="/ui/apt/">/ui/apt/</a>:</p>'
+              echo "<pre>echo 'deb [trusted=yes] https://azul.rs/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list</pre>"
+              echo '</body></html>'
+            } > website/apt/index.html
+            echo "[live] apt mirror -> /ui/apt (legacy /apt points at it)"
           else
             echo "[skip] apt mirror (no apt-repo artifact in this run)"
           fi
@@ -4938,6 +5151,9 @@ jobs:
             need_glob pypi wheel 'website/ui/azul/*.whl'
             if [ -s website/ui/azul/index.html ]; then
               for d in $(sed -n 's/.*<a href="\([^"#]*\)[^"]*".*/\1/p' website/ui/azul/index.html); do
+                # A wheel offloaded to the GitHub Release is an absolute URL, not
+                # a file next to the index; only relative hrefs must exist here.
+                case "$d" in http://*|https://*) continue;; esac
                 need_file pypi "website/ui/azul/$d"
               done
             fi
@@ -5032,6 +5248,29 @@ jobs:
             fi
             kill "$gem_srv" 2>/dev/null
             rm -rf "$gem_root"
+          fi
+
+          # --- offload the wheels to the GitHub Release ---
+          # The documented command is `pip install azul --index-url .../ui`, so the
+          # wheel URL is data inside the PEP 503 index and pip follows it anywhere;
+          # build_registry_mirrors.sh points it at the Release. Upload BEFORE the
+          # install self-check below, so it exercises the very URL the published
+          # index carries, then drop the wheels from the Pages tree. npm keeps its
+          # payload here (its documented command is a direct azul.rs URL), and the
+          # path-addressed mirrors (apt, maven, nuget, gems, alpine, arch) must.
+          OFFLOAD=()
+          while IFS= read -r w; do
+            [ -n "$w" ] && OFFLOAD+=("$w")
+          done < <(find website/ui/azul -maxdepth 1 -name '*.whl' 2>/dev/null | sort)
+          if [ "${#OFFLOAD[@]}" -gt 0 ]; then
+            gh release create "${AZUL_VERSION}"               --title "Azul ${AZUL_VERSION}"               --notes "Azul ${AZUL_VERSION} release. Binaries attached; docs + small assets at https://azul.rs/ui/release/${AZUL_VERSION}/."               2>/dev/null || true
+            echo "=== offloading ${#OFFLOAD[@]} payload(s) to the Release ==="
+            if gh release upload "${AZUL_VERSION}" "${OFFLOAD[@]}" --clobber; then
+              for f in "${OFFLOAD[@]}"; do rm -f "$f" && echo "offloaded $(basename "$f")"; done
+            else
+              echo "::error::could not upload the wheels to the ${AZUL_VERSION} Release - the pypi index points at URLs that would 404"
+              exit 1
+            fi
           fi
 
           if [ -d website/ui/azul ]; then
@@ -5286,12 +5525,17 @@ jobs:
           echo "hard-linked remaining: $(find website -type f -links +1 2>/dev/null | wc -l | tr -d ' ')"
           echo "artifact size:"; du -sh website 2>/dev/null || true
 
-      # Fails the build if the compressed artifact exceeds 900MB (GitHub Pages limit is 1GB).
-      # Over-estimates size by using gzip -1.
+      # Fails the build if the compressed artifact exceeds the gate (GitHub Pages
+      # limit is 1GB). Over-estimates size by using gzip -1, so the gate sits close
+      # to the hard cap deliberately: the estimate is already pessimistic, and the
+      # bulk of the artifact is the registry mirrors (maven/npm/nuget/gems/whl/apt/
+      # rpm/apk/arch), which CANNOT move to the Release - package managers fetch
+      # them from these exact URLs and the install-verification step above proves
+      # that against the tree being published.
       - name: Assert the Pages artifact fits under the 1 GB upload limit
         run: |
           set -euo pipefail
-          LIMIT=$((900 * 1000 * 1000))
+          LIMIT=$((980 * 1000 * 1000))
           uncompressed="$(du -sb website | cut -f1)"
           compressed="$(tar -C website -cf - . | gzip -1 -c | wc -c)"
           echo "Pages artifact: $(numfmt --to=iec "$uncompressed") on disk, ~$(numfmt --to=iec "$compressed") uploaded (gate: $(numfmt --to=iec "$LIMIT"), GitHub's hard limit: 1 GB)"
@@ -6314,6 +6558,38 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+
+  go:
+    name: Publish Go bindings
+    needs: build_dll_linux
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download shared libazul + codegen
+        uses: actions/download-artifact@v4
+        with:
+          name: azul-dll-linux
+          path: dll-share
+
+      - name: Publish to azul-go
+        run: |
+          cd dll-share/codegen/go
+          git init
+          git checkout -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update Go bindings for $GITHUB_REF_NAME (v$AZUL_VERSION)"
+          # `go get azul.rs/ui/go` resolves through the go-import page on the
+          # site (scripts/build_registry_mirrors.sh build_go) to this repo; the
+          # v<version> tag is what `@latest` and `@v$AZUL_VERSION` select.
+          git tag -f "v$AZUL_VERSION"
+          # Push to the azul-go repo (assumes AZUL_GO_PAT is a repository secret)
+          git push --force "https://${{ secrets.AZUL_GO_PAT }}@github.com/fschutt/azul-go.git" main "v$AZUL_VERSION"
+
   npm:
     # Builds and publishes the Node binding (FFI loader via koffi).
     name: npm (node binding)
@@ -6680,7 +6956,7 @@ jobs:
       # App, AzulHostInvoker, ...): the two jars can never share a classpath,
       # so the Kotlin jar carries its own natives.
       - name: Kotlin compiler (rs.azul:azul-kotlin)
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: "${{ env.KOTLIN_VERSION }}"
       - name: Build the Kotlin binding jar + its consumer pom

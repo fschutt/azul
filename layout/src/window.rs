@@ -24,6 +24,9 @@ use std::{
     },
 };
 
+#[cfg(feature = "fluent")]
+use crate::fluent::{translate_texts_in_dom, FluentLocalizerHandle};
+
 use azul_core::{
     callbacks::{FocusTarget, HidpiAdjustedBounds, Update, VirtualViewCallbackReason},
     dom::{
@@ -922,6 +925,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
         recorded_style_dependencies: _,
+            depends_on_locale: _,
+            depends_on_text_direction: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -1026,6 +1031,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // shares. Its bytes belong to the app's report, once, not to each
         // window that can reach it.
         icon_provider: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
         last_laid_out_frame: _,
         system_animations_override: _,
         monitors: _,
@@ -1279,6 +1286,8 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    pub depends_on_locale: bool,
+    pub depends_on_text_direction: bool,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -1710,6 +1719,8 @@ pub struct LayoutWindow {
     /// `None` in a window whose app registered no icons at all, and in the
     /// headless windows the tests build directly; both then cascade unchanged.
     pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
+    #[cfg(feature = "fluent")]
+    pub fluent_localizer: Option<FluentLocalizerHandle>,
     /// The window frame the last layout pass ran under.
     ///
     /// A `VirtualView` callback can READ the live frame
@@ -1994,6 +2005,13 @@ impl LayoutWindow {
         if old.theme != new.theme {
             return true;
         }
+        
+        let locale_changed = old.language.id != new.language.id;
+        let rtl_changed = old.language.is_rtl != new.language.is_rtl;
+        if (locale_changed && self.depends_on_locale) || (rtl_changed && self.depends_on_text_direction) {
+            return true;
+        }
+
         self.recorded_style_dependencies
             .dom_depends_on_change(old, new)
     }
@@ -2058,6 +2076,8 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
+            depends_on_locale: false,
+            depends_on_text_direction: false,
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -2181,6 +2201,8 @@ impl LayoutWindow {
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             icon_provider: None,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: None,
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -8052,7 +8074,7 @@ impl LayoutWindow {
                     let cb =
                         crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
                     let refany = core_callback.refany.clone();
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (cb.cb)(refany, info)))
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
                         .ok()
                 }
                 _ => None,
@@ -8455,7 +8477,7 @@ impl LayoutWindow {
         let callback_data = virtual_view_node.refany.clone();
 
         // Invoke the user's VirtualView callback
-        let callback_return = (virtual_view_node.callback.cb)(callback_data, callback_info);
+        let callback_return = virtual_view_node.callback.invoke(callback_data, callback_info);
 
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
@@ -9490,7 +9512,7 @@ impl LayoutWindow {
                                 t,
                             };
                             let rendered =
-                                (cfg.caret_tween.cb)(cfg.caret_tween_data.clone(), info);
+                                cfg.caret_tween.invoke(cfg.caret_tween_data.clone(), info);
                             if trk.reveal {
                                 caret_reveal = Some((trk.from, current, rendered));
                             }
@@ -9560,7 +9582,7 @@ impl LayoutWindow {
                                 t,
                             };
                             let out =
-                                (cfg.selection_tween.cb)(cfg.selection_tween_data.clone(), info);
+                                cfg.selection_tween.invoke(cfg.selection_tween_data.clone(), info);
                             let out: Vec<LogicalRect> = out.into_library_owned_vec();
                             // Contract: the interpolator must return exactly
                             // one rect per current rect; anything else falls
@@ -9626,7 +9648,7 @@ impl LayoutWindow {
                                 current,
                                 t,
                             };
-                            (cfg.caret_tween.cb)(cfg.caret_tween_data, info)
+                            cfg.caret_tween.invoke(cfg.caret_tween_data, info)
                         }
                     }
                     None => current,
@@ -14770,7 +14792,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: OptionRefAny::None,
+                ctx: core::cell::RefCell::new(OptionRefAny::None),
             };
             let base_info = CallbackInfo::new(
                 &ref_data,
@@ -15123,7 +15145,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: timer_ctx,
+                ctx: core::cell::RefCell::new(timer_ctx),
             };
 
             let callback_info = CallbackInfo::new(
@@ -15269,7 +15291,7 @@ impl LayoutWindow {
                     monitors: self.monitors.clone(),
                     #[cfg(feature = "icu")]
                     icu_localizer: self.icu_localizer.clone(),
-                    ctx: callback.ctx.clone(),
+                    ctx: core::cell::RefCell::new(callback.ctx.clone()),
                 };
 
                 let callback_info = CallbackInfo::new(
@@ -15283,7 +15305,7 @@ impl LayoutWindow {
                 // "is the app's own code slow": writeback callbacks carry a
                 // cb:<name> span, same as timers and event callbacks.
                 let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-                let callback_update = (callback.cb)(
+                let callback_update = callback.invoke(
                     unsafe { (*writeback_data_ptr).clone() },
                     data_inner.clone(),
                     callback_info,
@@ -15365,7 +15387,7 @@ impl LayoutWindow {
                 monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
-                ctx: callback.ctx.clone(),
+                ctx: core::cell::RefCell::new(callback.ctx.clone()),
             };
 
             let callback_info = CallbackInfo::new(
@@ -15377,7 +15399,7 @@ impl LayoutWindow {
             );
 
             let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-            let callback_update = (callback.cb)(data, callback_info, result);
+            let callback_update = callback.invoke(data, callback_info, result);
             drop(cb_span);
             update.max_self(callback_update);
 
@@ -15525,7 +15547,7 @@ impl LayoutWindow {
             monitors: self.monitors.clone(),
             #[cfg(feature = "icu")]
             icu_localizer: self.icu_localizer.clone(),
-            ctx: callback.ctx.clone(),
+            ctx: core::cell::RefCell::new(callback.ctx.clone()),
         };
 
         let callback_info = CallbackInfo::new(
@@ -15544,7 +15566,7 @@ impl LayoutWindow {
         // attaches as "recent actions".
         crate::journal::record(hit_dom_node, callback.cb as usize);
         let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-        let update = (callback.cb)(data.clone(), callback_info);
+        let update = callback.invoke(data.clone(), callback_info);
         drop(cb_span);
 
         // Extract changes from the Arc<Mutex>
@@ -15566,7 +15588,7 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+            self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
         }
         self.system_style = Some(system_style);
     }
@@ -15574,6 +15596,10 @@ impl LayoutWindow {
     /// Hand this window the app's icon storage. Called by the shell next to
     /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
     /// needs.
+    #[cfg(feature = "fluent")]
+    pub fn set_fluent_localizer(&mut self, localizer: FluentLocalizerHandle) {
+        self.fluent_localizer = Some(localizer);
+    }
     pub fn set_icon_provider(&mut self, provider: azul_core::icon::SharedIconProvider) {
         self.icon_provider = Some(provider);
     }
@@ -15611,7 +15637,12 @@ impl LayoutWindow {
     /// its FIRST cascade — a DOM born in a dark window is dark, not light and
     /// re-cascaded a moment later (theme-chain analysis 2026-09-12, R2).
     #[must_use]
-    pub fn style_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+    pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        #[cfg(feature = "fluent")]
+        if let Some(localizer) = self.fluent_localizer.as_ref() {
+            let lang = self.system_style.as_ref().map(|s| s.language.id.as_str()).unwrap_or("en-US");
+            translate_texts_in_dom(&mut dom, localizer, lang);
+        }
         let context = Some(self.dynamic_selector_context(window_state));
         let Some(provider) = self.icon_provider.as_ref() else {
             return StyledDom::create_from_dom_with_context(dom, context);
@@ -15656,7 +15687,7 @@ impl LayoutWindow {
     ///
     /// This is a convenience method that extracts the language from the system style.
     pub fn init_icu_from_system_style(&mut self, system_style: &azul_css::system::SystemStyle) {
-        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language.id);
     }
 
     /// Get a clone of the ICU localizer handle.
@@ -21651,6 +21682,8 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            depends_on_locale: _,
+            depends_on_text_direction: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
@@ -21739,6 +21772,8 @@ impl LayoutWindow {
             system_style: _,
             // App-level icon storage keyed by NAME, not by node id.
             icon_provider: _,
+            #[cfg(feature = "fluent")]
+            fluent_localizer: _,
             last_laid_out_frame: _,
             monitors: _,
             font_stacks_hash: _,

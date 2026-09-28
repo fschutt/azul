@@ -88,6 +88,23 @@ pub struct MarginBoxCallback {
 
 azul_core::impl_callback!(MarginBoxCallback, MarginBoxCallbackType);
 
+// Host-invoker plumbing (see azul_core::host_invoker): `PageInfo` carries no
+// context, so the thunk reads it from the invocation slot.
+azul_core::impl_managed_callback! {
+    wrapper:        MarginBoxCallback,
+    ctx_field:      ctx,
+    data:           data: &mut RefAny,
+    args:           [info: PageInfo],
+    return_ty:      AzString,
+    default_ret:    AzString::default(),
+    invoker_static: MARGIN_BOX_INVOKER,
+    invoker_ty:     AzMarginBoxCallbackInvoker,
+    thunk_fn:       az_margin_box_callback_thunk,
+    setter_fn:      AzApp_setMarginBoxCallbackInvoker,
+    from_handle_fn: AzMarginBoxCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMarginBoxCallback_createFromHostHandleByref,
+}
+
 azul_css::impl_option!(
     MarginBoxContent,
     OptionMarginBoxContent,
@@ -153,9 +170,10 @@ impl std::fmt::Debug for MarginBoxContent {
 }
 
 /// Counter formatting styles (subset of CSS list-style-type).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)] // in the C API (9g-ii-f-i)
 pub enum CounterFormat {
+    #[default]
     Decimal,
     DecimalLeadingZero,
     LowerRoman,
@@ -163,12 +181,6 @@ pub enum CounterFormat {
     LowerAlpha,
     UpperAlpha,
     LowerGreek,
-}
-
-impl Default for CounterFormat {
-    fn default() -> Self {
-        Self::Decimal
-    }
 }
 
 impl CounterFormat {
@@ -366,7 +378,7 @@ impl HeaderFooterConfig {
                 // The callback gets its own handle to the shared data (a
                 // refcount bump), as every azul callback does.
                 let mut data = custom.data.clone();
-                (custom.callback.cb)(&mut data, info).as_str().to_string()
+                custom.callback.invoke(&mut data, info).as_str().to_string()
             }
         }
     }

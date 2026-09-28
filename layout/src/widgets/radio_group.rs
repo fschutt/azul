@@ -86,6 +86,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_radio_group_on_change_callback_thunk,
     setter_fn:      AzApp_setRadioGroupOnChangeCallbackInvoker,
     from_handle_fn: AzRadioGroupOnChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzRadioGroupOnChangeCallback_createFromHostHandleByref,
     extra_args:     [ state: RadioGroupState ],
 }
 
@@ -647,7 +648,7 @@ fn check_row(
         let rg = &mut *rg;
         match rg.on_change.as_mut() {
             Some(RadioGroupOnChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), *info, inner)
+                callback.invoke(refany.clone(), *info, inner)
             }
             None => Update::DoNothing,
         }
@@ -1036,7 +1037,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

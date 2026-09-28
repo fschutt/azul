@@ -115,6 +115,105 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+#[cfg(all(
+    feature = "alloc-stats",
+    any(feature = "allocator_mimalloc", feature = "allocator_jemalloc")
+))]
+compile_error!(
+    "`alloc-stats` counts through the system allocator; it cannot be combined with \
+     `allocator_mimalloc` or `allocator_jemalloc`."
+);
+
+/// Test builds only (`--features alloc-stats`): the system allocator, counting
+/// the bytes and allocations libazul currently holds. The generated
+/// conformance programs run every case twice and require the count to be the
+/// same after the second run as after the first: a type, clone, variant or Vec
+/// that leaks shows up as exactly that case, in every binding.
+#[cfg(feature = "alloc-stats")]
+mod alloc_stats {
+    use core::{
+        cell::Cell,
+        sync::atomic::{AtomicI64, Ordering::Relaxed},
+    };
+    use std::alloc::{GlobalAlloc, Layout, System};
+
+    struct Counting;
+
+    static LIVE_BYTES: AtomicI64 = AtomicI64::new(0);
+    static LIVE_ALLOCATIONS: AtomicI64 = AtomicI64::new(0);
+
+    std::thread_local! {
+        // Const-initialized, so reading it never allocates (the allocator
+        // calls this). `try_with` because a thread's TLS is gone during its
+        // own teardown.
+        static THREAD_LIVE_BYTES: Cell<i64> = const { Cell::new(0) };
+    }
+
+    fn count(delta: i64, allocations: i64) {
+        LIVE_BYTES.fetch_add(delta, Relaxed);
+        LIVE_ALLOCATIONS.fetch_add(allocations, Relaxed);
+        let _ = THREAD_LIVE_BYTES.try_with(|c| c.set(c.get() + delta));
+    }
+
+    // SAFETY: every method forwards to `System` with the caller's arguments
+    // unchanged; the counters are bookkeeping only.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc(layout) };
+            if !p.is_null() {
+                count(layout.size() as i64, 1);
+            }
+            p
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc_zeroed(layout) };
+            if !p.is_null() {
+                count(layout.size() as i64, 1);
+            }
+            p
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) };
+            count(-(layout.size() as i64), -1);
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let p = unsafe { System.realloc(ptr, layout, new_size) };
+            if !p.is_null() {
+                count(new_size as i64 - layout.size() as i64, 0);
+            }
+            p
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+
+    /// Bytes libazul currently holds (`alloc-stats` builds only).
+    #[no_mangle]
+    pub extern "C" fn AzDebug_liveBytes() -> i64 {
+        LIVE_BYTES.load(Relaxed)
+    }
+
+    /// Allocations libazul currently holds (`alloc-stats` builds only).
+    #[no_mangle]
+    pub extern "C" fn AzDebug_liveAllocations() -> i64 {
+        LIVE_ALLOCATIONS.load(Relaxed)
+    }
+
+    /// Net bytes libazul allocated ON THE CALLING THREAD (`alloc-stats`
+    /// builds only): allocations minus deallocations made on this thread.
+    /// Unlike [`AzDebug_liveBytes`] it does not move when a background
+    /// thread (a logger, a font loader) allocates, so a single-threaded
+    /// check stays exact.
+    #[no_mangle]
+    pub extern "C" fn AzDebug_threadLiveBytes() -> i64 {
+        THREAD_LIVE_BYTES.try_with(Cell::get).unwrap_or(0)
+    }
+}
+
 #[macro_use]
 extern crate alloc;
 

@@ -167,7 +167,7 @@ impl GenerationTargets {
         println!("[11/35] Generating public Rust API...");
         CodeGenerator::generate_to_file(
             ir,
-            &CodegenConfig::rust_public_api(),
+            &CodegenConfig::rust_public_api(ir),
             &codegen_dir.join("azul.rs"),
         )?;
 
@@ -201,7 +201,7 @@ impl GenerationTargets {
             &codegen_dir.join("Azul.cs"),
         )?;
         Self::write_string(
-            super::lang_csharp::csproj::generate_csproj(),
+            super::lang_csharp::csproj::generate_csproj(&ir.api_version),
             &codegen_dir.join("Azul.csproj"),
         )?;
 
@@ -218,10 +218,16 @@ impl GenerationTargets {
 
         // 16. Lua (LuaJIT FFI) bindings
         println!("[16/35] Generating Lua bindings...");
-        Self::write_string(
-            super::lang_lua::generate(ir, &CodegenConfig::c_header())?,
-            &codegen_dir.join("azul.lua"),
-        )?;
+        // ONE azul.lua runs on both LuaJIT (`ffi`) and vanilla Lua + cffi-lua
+        // (`cffi`): its prologue does `pcall(require, 'ffi')` with a
+        // `require('cffi')` fallback and never uses LuaJIT-only literals.
+        // `azul_cffi.lua` is the SAME file under the name the vanilla-Lua
+        // install guide downloads — a plain copy, no text surgery (the old
+        // `String::replace` of the prologue silently produced a no-op copy
+        // whenever the needle drifted).
+        let lua_bindings = super::lang_lua::generate(ir, &CodegenConfig::c_header())?;
+        Self::write_string(lua_bindings.clone(), &codegen_dir.join("azul_cffi.lua"))?;
+        Self::write_string(lua_bindings, &codegen_dir.join("azul.lua"))?;
         // LuaRocks rejects a filename/content version mismatch, so the
         // file name must stay `azul-<version>-<rev>.rockspec` in sync
         // with the `version = "..."` inside generate_rockspec() — both
@@ -280,12 +286,6 @@ impl GenerationTargets {
         Self::write_string(
             super::lang_zig::generate(ir, &CodegenConfig::c_header())?,
             &codegen_dir.join("azul.zig"),
-        )?;
-        // The pre-translated C ABI `azul.zig` imports: `@cImport` over the
-        // 5.6 MB azul.h cost 91 s on a cold build.
-        Self::write_string(
-            super::lang_zig::c_decls::generate_c_decls(ir, &CodegenConfig::c_header()),
-            &codegen_dir.join("azul_c.zig"),
         )?;
         Self::write_string(
             super::lang_zig::build_zig::generate_build_zig(),
@@ -442,7 +442,7 @@ impl GenerationTargets {
             &codegen_dir.join("kotlin/Azul.kt"),
         )?;
         Self::write_string(
-            super::lang_kotlin::gradle::generate_build_gradle_kts(),
+            super::lang_kotlin::gradle::generate_build_gradle_kts(&ir.api_version),
             &codegen_dir.join("kotlin/build.gradle.kts"),
         )?;
         Self::write_string(
@@ -537,6 +537,16 @@ impl GenerationTargets {
         Self::write_string(
             super::lang_node::package_json::generate_package_json(&ir.api_version),
             &codegen_dir.join("node/package.json"),
+        )?;
+
+        // Conformance programs: the same plan (every constant, derive, variant,
+        // Vec and callback kind) rendered per binding; each doubles as that
+        // binding's memtest. See `conformance`.
+        println!("[conformance] Generating conformance programs...");
+        let plan = super::conformance::ConformancePlan::build(ir);
+        Self::write_string(
+            super::conformance::c::render(&plan),
+            &codegen_dir.join("conformance/c/conformance.c"),
         )?;
 
         Ok(())

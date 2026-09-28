@@ -1,39 +1,30 @@
-//! Raw C-call layer for the Go (cgo) generator: `functions*.go`.
+//! Raw call layer for the Go (purego) generator: `functions.go`.
 //!
-//! One Go function per libazul export, named exactly like the C symbol
-//! (`AzDom_addChild`), taking and returning the Go-native types from
-//! `types.go`. This is the ONLY place (besides the callback plumbing) that
-//! imports `"C"`, and the only `C.` names it uses are the functions it
-//! calls plus the fixed-size primitive casts (`C.int32_t`, `C.bool`, ...).
-//! No C *type* is ever named: every pointer crosses the boundary as
-//! `unsafe.Pointer` / `void*`.
+//! One Go function per libazul export, named exactly like the api.json C
+//! symbol (`AzDom_addChild`), taking and returning the Go-native types from
+//! `types.go`. Nothing here is cgo: each function owns a purego function
+//! value that is bound to the dylib symbol on first use (`sync.Once` +
+//! `azRegister`, see `azul.go`). Unused exports therefore cost nothing at
+//! load time, and an export purego cannot bind at all (more than
+//! [`PUREGO_MAX_ARGS`] integer arguments) only fails when it is called.
 //!
-//! # Three call shapes
+//! # Two call shapes
 //!
-//! * **Byref** — any call with an owned aggregate argument (struct, enum,
-//!   union, or an alias like `GLuint`; the same predicate `lang_c` and
-//!   `lang_rust` use for `emit_byref_twin`) goes through the exported
-//!   `<symbol>Byref(out*, args*)` twin. The C side receives pointers to
-//!   Go-owned memory and moves out of them (the argument is CONSUMED, as
-//!   in the by-value call); the return lands in a Go-owned out variable.
-//!   A Go struct is therefore never copied by value through cgo — the
-//!   ledger's B2 Go-GC crash (`0x8` enum tags in pointer-typed cgo fields
-//!   during stack growth) cannot recur.
-//! * **Direct** — calls with only primitives / pointers / function
-//!   pointers and no aggregate return call `<symbol>` itself, declared in
-//!   the preamble with a `void*`/primitive prototype (ABI-identical to
-//!   the azul.h one, which is NOT included in these files).
-//! * **Shim** — an aggregate RETURN with no aggregate argument has no
-//!   Byref twin, and small structs return in registers whose classification
-//!   depends on the field types (SysV SSE classes, AAPCS HFAs), so a
-//!   `void*` prototype would be wrong. These get a `static inline` C shim
-//!   (`azgo_<symbol>(out*, ...)`) in a preamble that includes azul.h.
-//!
-//! # Why several files
-//!
-//! cgo's gcc probe grows super-linearly with the number of `C.` names in
-//! ONE file (6 s at 5.4k names, 356 s at 9.4k). The probe is per file, so
-//! the raw layer is chunked into files of at most [`CHUNK`] functions.
+//! * **Byref** — a function that returns a value aggregate and/or takes an
+//!   owned value aggregate calls the exported `<symbol>Byref` twin: the
+//!   return travels through a leading out-pointer, every owned aggregate
+//!   argument by pointer (CONSUMED by the callee, exactly like the by-value
+//!   call), everything else unchanged. "Value aggregate" is
+//!   [`CodegenIR::is_value_aggregate`] — the single predicate `lang_c` and
+//!   `lang_rust` use to emit the twins, so the Go signature and the DLL
+//!   export always agree. purego never sees a struct by value this way,
+//!   which is what makes the same code work on Linux and Windows (purego
+//!   passes structs by value on macOS only).
+//! * **Direct** — everything else calls `<symbol>` itself. C enums, type
+//!   aliases and primitives cross by value (purego dispatches on the Go
+//!   kind, so the named enum types from `types.go` are fine), pointers as
+//!   typed Go pointers (`*AzDom`, `unsafe.Pointer`, callback typedefs), which
+//!   purego keeps alive for the duration of the call.
 
 use std::collections::HashSet;
 
@@ -44,10 +35,13 @@ use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind};
 use super::super::managed_host_invoker::managed_c_symbol;
 use super::types::{go_pointer_to, go_value_type};
-use super::{ffi_type_name, primitive_to_cgo, primitive_to_go, sanitize_identifier};
+use super::{primitive_to_go, sanitize_identifier};
 
-/// Maximum number of C functions referenced by one generated Go file.
-pub const CHUNK: usize = 1500;
+/// purego binds at most this many integer-class arguments per call
+/// (`maxArgs` in purego's `syscall.go` on 64-bit targets). Functions above
+/// the limit are still emitted so the package compiles, but their body
+/// panics with a message naming the limit instead of registering.
+pub const PUREGO_MAX_ARGS: usize = 15;
 
 // ============================================================================
 // Call plan
@@ -55,54 +49,66 @@ pub const CHUNK: usize = 1500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
-    /// `C.<symbol>(...)` with a `void*`/primitive extern prototype.
+    /// `<symbol>(...)`: no value aggregate crosses by value.
     Direct,
-    /// `C.<symbol>Byref(&out, &aggregates..., scalars...)`.
+    /// `<symbol>Byref(&out, &aggregates..., scalars...)`.
     Byref,
-    /// `C.azgo_<symbol>(&out, ...)` — a `static inline` shim over azul.h.
-    Shim,
 }
 
-/// How one argument crosses the cgo boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// How one argument crosses the purego boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pass {
-    /// Primitive by value: `C.<cgo>(x)`; the extern prototype says `<c>`.
-    Prim { cgo: String, c: String },
-    /// A pointer (any ref_kind, `*const T`, `&T`) or a C function pointer:
-    /// `unsafe.Pointer(x)`; prototype `void*`.
+    /// By value: primitives, C enums, type aliases. The purego parameter
+    /// has the Go type of the argument.
+    Value,
+    /// Already a pointer on the Go side (`*AzT`, `unsafe.Pointer`, a
+    /// fn-pointer typedef): passed as is.
     Pointer,
-    /// An owned aggregate: `unsafe.Pointer(&x)`; prototype `void*`. In a
-    /// Byref twin the callee takes the pointer; in a shim it dereferences.
+    /// An owned value aggregate: `&x` into the Byref twin, which consumes it.
     ByAddress,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ArgPlan {
     pub go_name: String,
+    /// Type in the public Go signature (`AzDom` for a consumed aggregate).
     pub go_type: String,
     pub pass: Pass,
-    /// The C spelling of the argument (`const AzDom*`, `AzDom`, `int32_t`),
-    /// used only inside shims for the cast back to the real prototype.
-    pub c_type: String,
+}
+
+impl ArgPlan {
+    /// Type of the purego function-value parameter.
+    fn lib_type(&self) -> String {
+        match self.pass {
+            Pass::Value | Pass::Pointer => self.go_type.clone(),
+            Pass::ByAddress => format!("*{}", self.go_type),
+        }
+    }
+
+    /// Expression handed to the purego function value.
+    fn call_expr(&self) -> String {
+        match self.pass {
+            Pass::Value | Pass::Pointer => self.go_name.clone(),
+            Pass::ByAddress => format!("&{}", self.go_name),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Ret {
     Void,
-    /// `return <go>(C.f(...))` / out-variable of type `<go>`.
-    Prim { go: String, c: String },
-    /// Pointer-shaped return (`*AzT`, `unsafe.Pointer`, a callback typedef):
-    /// the extern prototype says `void*`.
-    Pointer { go: String, c: String },
-    /// Struct / union / enum by value: via `__ret` out-pointer.
-    Aggregate { go: String, c: String },
+    /// Returned by purego itself: primitive, C enum, pointer.
+    Value { go: String },
+    /// Value aggregate: written by the Byref twin through a leading
+    /// out-pointer.
+    Aggregate { go: String },
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallPlan {
     /// Go function name (the api.json C name, e.g. `AzDom_addChild`).
     pub go_name: String,
-    /// The symbol actually linked (`<c_name>` or `<c_name>Struct`), without
+    /// The symbol actually bound (`<c_name>` or `<c_name>Struct`), without
     /// the `Byref` suffix.
     pub symbol: String,
     pub target: Target,
@@ -111,29 +117,22 @@ pub(crate) struct CallPlan {
 }
 
 impl CallPlan {
-    /// The `C.` name the Go body calls.
-    pub fn c_call_name(&self) -> String {
+    /// The dylib symbol the function value is bound to.
+    pub fn bound_symbol(&self) -> String {
         match self.target {
             Target::Direct => self.symbol.clone(),
             Target::Byref => format!("{}Byref", self.symbol),
-            Target::Shim => format!("azgo_{}", self.symbol),
         }
     }
-}
 
-/// The `lang_c` / `lang_rust` `emit_byref_twin` predicate, verbatim: an
-/// owned argument whose type name starts with an uppercase letter and is
-/// not a bare function-pointer typedef.
-pub(crate) fn is_byref_aggregate(arg: &FunctionArg) -> bool {
-    matches!(arg.ref_kind, ArgRefKind::Owned)
-        && arg
-            .type_name
-            .trim()
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_uppercase())
-        && !arg.type_name.ends_with("CallbackType")
-        && !arg.type_name.ends_with("FnType")
+    fn returns_via_out_pointer(&self) -> bool {
+        matches!(self.ret, Ret::Aggregate { .. })
+    }
+
+    /// Number of purego parameters (out-pointer included).
+    fn purego_arity(&self) -> usize {
+        self.args.len() + usize::from(self.returns_via_out_pointer())
+    }
 }
 
 /// Follow simple (non-generic) aliases to their target spelling.
@@ -154,82 +153,42 @@ fn is_pointer_spelling(t: &str) -> bool {
     t.starts_with('*') || t.starts_with('&')
 }
 
+/// A C function pointer, i.e. one of the IR's callback typedefs.
+///
+/// The name-suffix fallback this replaced ("ends with CallbackType/FnType")
+/// caught two api.json classes that are NOT function pointers at all -
+/// `CoreCallbackType` and `CoreRenderImageCallbackType` are aliases of
+/// `usize`, core's type-erased storage - and no api.json function takes
+/// either, so the fallback only ever misclassified them.
 fn is_fn_pointer(t: &str, ir: &CodegenIR) -> bool {
     ir.callback_typedefs.iter().any(|c| c.name == t)
-        || t.ends_with("CallbackType")
-        || t.ends_with("FnType")
 }
 
-/// C spelling of a by-value type name (`u32` -> `uint32_t`, `Dom` -> `AzDom`).
-pub(crate) fn c_value_type(t: &str) -> String {
-    let t = t.trim();
-    for (prefix, cst) in [("*const ", "const "), ("*mut ", ""), ("&mut ", ""), ("&", "const ")] {
-        if let Some(rest) = t.strip_prefix(prefix) {
-            return format!("{}{}*", cst, c_value_type(rest));
-        }
-    }
-    match t {
-        "bool" => "bool".into(),
-        "u8" => "uint8_t".into(),
-        "i8" => "int8_t".into(),
-        "u16" => "uint16_t".into(),
-        "i16" => "int16_t".into(),
-        "u32" => "uint32_t".into(),
-        "i32" => "int32_t".into(),
-        "u64" => "uint64_t".into(),
-        "i64" => "int64_t".into(),
-        "usize" => "size_t".into(),
-        "isize" => "intptr_t".into(),
-        "f32" => "float".into(),
-        "f64" => "double".into(),
-        "c_void" | "()" | "void" => "void".into(),
-        "c_char" => "char".into(),
-        "c_uchar" => "unsigned char".into(),
-        "c_int" => "int".into(),
-        "c_uint" => "unsigned int".into(),
-        _ => ffi_type_name(t),
-    }
-}
-
-fn c_arg_type(arg: &FunctionArg) -> String {
-    let base = c_value_type(&arg.type_name);
-    match arg.ref_kind {
-        ArgRefKind::Owned => base,
-        ArgRefKind::Ref | ArgRefKind::Ptr => format!("const {}*", base),
-        ArgRefKind::RefMut | ArgRefKind::PtrMut => format!("{}*", base),
-    }
+/// The `lang_c` / `lang_rust` twin predicate for one argument: owned and a
+/// value aggregate.
+pub(crate) fn is_byref_aggregate(arg: &FunctionArg, ir: &CodegenIR) -> bool {
+    matches!(arg.ref_kind, ArgRefKind::Owned) && ir.is_value_aggregate(&arg.type_name)
 }
 
 fn plan_arg(arg: &FunctionArg, ir: &CodegenIR) -> ArgPlan {
     let t = arg.type_name.trim();
     let go_name = sanitize_identifier(&arg.name);
-    let c_type = c_arg_type(arg);
-    let go_type = match arg.ref_kind {
-        ArgRefKind::Owned => go_value_type(t, ir),
-        _ => go_pointer_to(&go_value_type(t, ir)),
-    };
-    let pass = if !matches!(arg.ref_kind, ArgRefKind::Owned) || is_pointer_spelling(t) {
-        Pass::Pointer
-    } else if is_byref_aggregate(arg) {
-        Pass::ByAddress
-    } else if is_fn_pointer(t, ir) {
-        Pass::Pointer
+    let (go_type, pass) = if !matches!(arg.ref_kind, ArgRefKind::Owned) {
+        (go_pointer_to(&go_value_type(t, ir)), Pass::Pointer)
+    } else if is_pointer_spelling(t)
+        || is_fn_pointer(t, ir)
+        || is_pointer_spelling(resolve_alias(t, ir))
+    {
+        (go_value_type(t, ir), Pass::Pointer)
+    } else if is_byref_aggregate(arg, ir) {
+        (go_value_type(t, ir), Pass::ByAddress)
     } else {
-        let resolved = resolve_alias(t, ir);
-        match primitive_to_cgo(resolved) {
-            Some(cgo) => Pass::Prim {
-                cgo: cgo.to_string(),
-                c: c_value_type(resolved),
-            },
-            // Lowercase, non-primitive, non-pointer: treat as an opaque word.
-            None => Pass::Pointer,
-        }
+        (go_value_type(t, ir), Pass::Value)
     };
     ArgPlan {
         go_name,
         go_type,
         pass,
-        c_type,
     }
 }
 
@@ -241,24 +200,14 @@ fn plan_ret(ret: Option<&str>, ir: &CodegenIR) -> Ret {
         return Ret::Void;
     }
     let go = go_value_type(t, ir);
-    let c = c_value_type(t);
-    if is_pointer_spelling(t) || is_fn_pointer(t, ir) {
-        return Ret::Pointer { go, c };
+    if primitive_to_go(resolve_alias(t, ir)).is_some_and(str::is_empty) {
+        return Ret::Void;
     }
-    let resolved = resolve_alias(t, ir);
-    if is_pointer_spelling(resolved) {
-        return Ret::Pointer { go, c };
+    if ir.is_value_aggregate(t) {
+        Ret::Aggregate { go }
+    } else {
+        Ret::Value { go }
     }
-    if let Some(p) = primitive_to_go(resolved) {
-        if p.is_empty() {
-            return Ret::Void;
-        }
-        return Ret::Prim {
-            go,
-            c: c_value_type(resolved),
-        };
-    }
-    Ret::Aggregate { go, c }
 }
 
 /// Build the call plan for one IR function, or `None` if the function is
@@ -270,11 +219,10 @@ pub(crate) fn plan(f: &FunctionDef, ir: &CodegenIR) -> Option<CallPlan> {
     }
     let args: Vec<ArgPlan> = f.args.iter().map(|a| plan_arg(a, ir)).collect();
     let ret = plan_ret(f.return_type.as_deref(), ir);
-    let any_aggregate = f.args.iter().any(is_byref_aggregate);
-    let target = if any_aggregate && f.fn_body.is_some() {
+    let target = if f.args.iter().any(|a| is_byref_aggregate(a, ir))
+        || matches!(ret, Ret::Aggregate { .. })
+    {
         Target::Byref
-    } else if any_aggregate || matches!(ret, Ret::Aggregate { .. }) {
-        Target::Shim
     } else {
         Target::Direct
     };
@@ -291,77 +239,6 @@ pub(crate) fn plan(f: &FunctionDef, ir: &CodegenIR) -> Option<CallPlan> {
 // Emission
 // ============================================================================
 
-/// C prototype line for a Direct / Byref call (no azul.h in scope).
-fn extern_prototype(p: &CallPlan) -> String {
-    let mut params: Vec<String> = Vec::with_capacity(p.args.len() + 1);
-    let ret_c = match p.target {
-        Target::Byref => {
-            if p.ret != Ret::Void {
-                params.push("void*".into());
-            }
-            "void".to_string()
-        }
-        _ => match &p.ret {
-            Ret::Void | Ret::Aggregate { .. } => "void".into(),
-            Ret::Prim { c, .. } => c.clone(),
-            Ret::Pointer { .. } => "void*".into(),
-        },
-    };
-    for a in &p.args {
-        params.push(match &a.pass {
-            Pass::Prim { c, .. } => c.clone(),
-            Pass::Pointer | Pass::ByAddress => "void*".into(),
-        });
-    }
-    if params.is_empty() {
-        params.push("void".into());
-    }
-    format!("extern {} {}({});", ret_c, p.c_call_name(), params.join(", "))
-}
-
-/// `static inline` shim over the real azul.h prototype.
-fn shim_definition(p: &CallPlan) -> String {
-    let mut params: Vec<String> = Vec::with_capacity(p.args.len() + 1);
-    let mut call_args: Vec<String> = Vec::with_capacity(p.args.len());
-    let has_ret = p.ret != Ret::Void;
-    if has_ret {
-        params.push("void* __ret".into());
-    }
-    for a in &p.args {
-        let pname = format!("a_{}", a.go_name.trim_end_matches('_'));
-        match &a.pass {
-            Pass::Prim { c, .. } => {
-                params.push(format!("{} {}", c, pname));
-                call_args.push(pname);
-            }
-            Pass::Pointer => {
-                params.push(format!("void* {}", pname));
-                call_args.push(format!("({}){}", a.c_type, pname));
-            }
-            Pass::ByAddress => {
-                params.push(format!("void* {}", pname));
-                call_args.push(format!("*({}*){}", a.c_type, pname));
-            }
-        }
-    }
-    if params.is_empty() {
-        params.push("void".into());
-    }
-    let call = format!("{}({})", p.symbol, call_args.join(", "));
-    let body = match &p.ret {
-        Ret::Void => format!("{};", call),
-        Ret::Prim { c, .. } | Ret::Pointer { c, .. } | Ret::Aggregate { c, .. } => {
-            format!("*({}*)__ret = {};", c, call)
-        }
-    };
-    format!(
-        "static inline void {}({}) {{ {} }}",
-        p.c_call_name(),
-        params.join(", "),
-        body
-    )
-}
-
 fn emit_go_function(b: &mut CodeBuilder, p: &CallPlan) {
     let params: Vec<String> = p
         .args
@@ -370,110 +247,78 @@ fn emit_go_function(b: &mut CodeBuilder, p: &CallPlan) {
         .collect();
     let ret_go = match &p.ret {
         Ret::Void => String::new(),
-        Ret::Prim { go, .. } | Ret::Pointer { go, .. } | Ret::Aggregate { go, .. } => go.clone(),
+        Ret::Value { go } | Ret::Aggregate { go } => go.clone(),
     };
     let header = if ret_go.is_empty() {
         format!("func {}({}) {{", p.go_name, params.join(", "))
     } else {
         format!("func {}({}) {} {{", p.go_name, params.join(", "), ret_go)
     };
+
+    if p.purego_arity() > PUREGO_MAX_ARGS {
+        b.line(&format!(
+            "// {} takes {} arguments; purego binds at most {}.",
+            p.go_name,
+            p.purego_arity(),
+            PUREGO_MAX_ARGS
+        ));
+        b.line(&header);
+        b.indent();
+        b.line(&format!(
+            "panic(\"azul: {} takes {} arguments, purego supports at most {}\")",
+            p.go_name,
+            p.purego_arity(),
+            PUREGO_MAX_ARGS
+        ));
+        b.dedent();
+        b.line("}");
+        return;
+    }
+
+    // The purego function value + its one-time binding.
+    let mut lib_params: Vec<String> = Vec::with_capacity(p.purego_arity());
+    if p.returns_via_out_pointer() {
+        lib_params.push(format!("*{}", ret_go));
+    }
+    lib_params.extend(p.args.iter().map(ArgPlan::lib_type));
+    let lib_ret = match &p.ret {
+        Ret::Value { go } => format!(" {}", go),
+        Ret::Void | Ret::Aggregate { .. } => String::new(),
+    };
+    b.line(&format!(
+        "var lib_{} func({}){}",
+        p.go_name,
+        lib_params.join(", "),
+        lib_ret
+    ));
+    b.line(&format!("var once_{} sync.Once", p.go_name));
+    b.blank();
+
     b.line(&header);
     b.indent();
+    b.line(&format!(
+        "once_{n}.Do(func() {{ azRegister(&lib_{n}, \"{s}\") }})",
+        n = p.go_name,
+        s = p.bound_symbol()
+    ));
 
-    let mut call_args: Vec<String> = Vec::with_capacity(p.args.len() + 1);
-    let via_out = p.target != Target::Direct && p.ret != Ret::Void;
-    if via_out {
+    let mut call_args: Vec<String> = Vec::with_capacity(p.purego_arity());
+    if p.returns_via_out_pointer() {
         b.line(&format!("var azRet {}", ret_go));
-        call_args.push("unsafe.Pointer(&azRet)".into());
+        call_args.push("&azRet".into());
     }
-    for a in &p.args {
-        call_args.push(match &a.pass {
-            Pass::Prim { cgo, .. } => format!("{}({})", cgo, a.go_name),
-            Pass::Pointer => format!("unsafe.Pointer({})", a.go_name),
-            Pass::ByAddress => format!("unsafe.Pointer(&{})", a.go_name),
-        });
-    }
-    let call = format!("C.{}({})", p.c_call_name(), call_args.join(", "));
-    if via_out {
-        b.line(&call);
-        b.line("return azRet");
-    } else {
-        match &p.ret {
-            Ret::Void => b.line(&call),
-            Ret::Prim { go, .. } => b.line(&format!("return {}({})", go, call)),
-            Ret::Pointer { go, .. } => {
-                if go == "unsafe.Pointer" {
-                    b.line(&format!("return {}", call));
-                } else {
-                    b.line(&format!("return ({})({})", go, call));
-                }
-            }
-            Ret::Aggregate { .. } => unreachable!("aggregate returns never go Direct"),
+    call_args.extend(p.args.iter().map(ArgPlan::call_expr));
+    let call = format!("lib_{}({})", p.go_name, call_args.join(", "));
+    match &p.ret {
+        Ret::Void => b.line(&call),
+        Ret::Value { .. } => b.line(&format!("return {}", call)),
+        Ret::Aggregate { .. } => {
+            b.line(&call);
+            b.line("return azRet");
         }
     }
     b.dedent();
     b.line("}");
-    b.blank();
-}
-
-fn emit_file(b: &mut CodeBuilder, plans: &[&CallPlan], shim: bool, index: usize, total: usize) {
-    b.line("// ============================================================================");
-    b.line(&format!(
-        "// {} - raw libazul calls ({}/{}). Auto-generated by azul-doc codegen v2 (lang_go).",
-        file_name(shim, index),
-        index + 1,
-        total
-    ));
-    b.line("// DO NOT EDIT MANUALLY.");
-    b.line("// ============================================================================");
-    b.line("//");
-    if shim {
-        b.line("// Functions that return an aggregate by value and have no *Byref twin: each");
-        b.line("// goes through a static inline C shim that writes the result into Go-owned");
-        b.line("// memory, so the register classification of small structs stays with the");
-        b.line("// C compiler and Go never names a C type.");
-    } else {
-        b.line("// Owned aggregates cross the boundary by pointer through the *Byref twins");
-        b.line("// (consumed by the callee, exactly like the by-value call); everything else");
-        b.line("// is a primitive or a pointer. The prototypes below are ABI-identical to the");
-        b.line("// azul.h ones, spelled with void* so no C type has to be named from Go.");
-    }
-    b.blank();
-    b.line("package azul");
-    b.blank();
-    b.line("/*");
-    if shim {
-        b.line("#include \"azul.h\"");
-        for p in plans {
-            b.line(&shim_definition(p));
-        }
-    } else {
-        b.line("#include <stdbool.h>");
-        b.line("#include <stdint.h>");
-        b.line("#include <stddef.h>");
-        for p in plans {
-            b.line(&extern_prototype(p));
-        }
-    }
-    b.line("*/");
-    b.line("import \"C\"");
-    b.blank();
-    b.line("import \"unsafe\"");
-    b.blank();
-    b.line("var _ unsafe.Pointer");
-    b.blank();
-    for p in plans {
-        emit_go_function(b, p);
-    }
-}
-
-fn file_name(shim: bool, index: usize) -> String {
-    match (shim, index) {
-        (false, 0) => "functions.go".into(),
-        (false, i) => format!("functions_{}.go", i + 1),
-        (true, 0) => "functions_shim.go".into(),
-        (true, i) => format!("functions_shim_{}.go", i + 1),
-    }
 }
 
 /// All call plans of the IR, deduplicated by Go name, in IR order.
@@ -493,26 +338,36 @@ pub(crate) fn plans(ir: &CodegenIR, config: &CodegenConfig) -> Vec<CallPlan> {
     out
 }
 
-/// Generate the raw layer as `(relative path, contents)` pairs.
-pub fn generate_files(ir: &CodegenIR, config: &CodegenConfig) -> Result<Vec<(String, String)>> {
-    let all = plans(ir, config);
-    let direct: Vec<&CallPlan> = all.iter().filter(|p| p.target != Target::Shim).collect();
-    let shims: Vec<&CallPlan> = all.iter().filter(|p| p.target == Target::Shim).collect();
-    let mut files = Vec::new();
-    for (shim, set) in [(false, direct), (true, shims)] {
-        let chunks: Vec<&[&CallPlan]> = if set.is_empty() {
-            vec![&[][..]]
-        } else {
-            set.chunks(CHUNK).collect()
-        };
-        let total = chunks.len();
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            let mut b = CodeBuilder::new(&config.indent);
-            emit_file(&mut b, chunk, shim, i, total);
-            files.push((file_name(shim, i), b.finish()));
-        }
+/// Generate the contents of `functions.go`.
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let mut b = CodeBuilder::new(&config.indent);
+    b.line("// ============================================================================");
+    b.line("// functions.go - raw calls, one Go function per libazul export (purego).");
+    b.line("// Auto-generated by azul-doc codegen v2 (lang_go). DO NOT EDIT MANUALLY.");
+    b.line("// ============================================================================");
+    b.line("//");
+    b.line("// Each function binds its libazul symbol on first use (sync.Once + azRegister,");
+    b.line("// see azul.go), so LoadLibrary stays cheap and unused exports never resolve.");
+    b.line("// Owned aggregates (structs, tagged unions) cross by pointer through the");
+    b.line("// exported *Byref twins and are CONSUMED by the callee; aggregate returns");
+    b.line("// arrive through the twin's leading out-pointer. C enums and primitives");
+    b.line("// cross by value, pointers as typed Go pointers (purego keeps them alive");
+    b.line("// for the duration of the call).");
+    b.blank();
+    b.line("package azul");
+    b.blank();
+    b.line("import (");
+    b.line("    \"sync\"");
+    b.line("    \"unsafe\"");
+    b.line(")");
+    b.blank();
+    b.line("var _ unsafe.Pointer");
+    b.blank();
+    for p in plans(ir, config) {
+        emit_go_function(&mut b, &p);
+        b.blank();
     }
-    Ok(files)
+    Ok(b.finish())
 }
 
 #[cfg(test)]
@@ -553,12 +408,7 @@ mod tests {
             vec![arg("dom", "Dom", ArgRefKind::RefMut), arg("child", "Dom", ArgRefKind::Owned)],
             None,
         ));
-        ir.functions.push(func(
-            "AzDom_createBody",
-            "Dom",
-            vec![],
-            Some("Dom"),
-        ));
+        ir.functions.push(func("AzDom_createBody", "Dom", vec![], Some("Dom")));
         ir.functions.push(func(
             "AzDom_len",
             "Dom",
@@ -577,59 +427,105 @@ mod tests {
             vec![arg("dom", "Dom", ArgRefKind::Ref)],
             Some("*const c_void"),
         ));
+        // A C enum, an alias and a fn-pointer typedef by value: no twin.
+        ir.functions.push(func(
+            "AzDom_setUpdate",
+            "Dom",
+            vec![
+                arg("dom", "Dom", ArgRefKind::RefMut),
+                arg("update", "Update", ArgRefKind::Owned),
+                arg("code", "ScanCode", ArgRefKind::Owned),
+                arg("cb", "CallbackType", ArgRefKind::Owned),
+            ],
+            Some("Update"),
+        ));
+        let many: Vec<FunctionArg> = (0..16)
+            .map(|i| arg(&format!("a{i}"), "u32", ArgRefKind::Owned))
+            .collect();
+        ir.functions.push(func("AzDom_sixteen", "Dom", many, None));
+        let mut ctor = func("AzOptionDom_Some", "OptionDom", vec![], Some("OptionDom"));
+        ctor.kind = FunctionKind::EnumVariantConstructor;
+        ir.functions.push(ctor);
         ir
     }
 
-    fn gen() -> Vec<(String, String)> {
-        generate_files(&ir_with_functions(), &CodegenConfig::c_header()).unwrap()
+    fn gen() -> String {
+        generate(&ir_with_functions(), &CodegenConfig::c_header()).unwrap()
     }
 
     #[test]
     fn owned_aggregate_goes_through_byref_twin() {
-        let files = gen();
-        let direct = &files.iter().find(|(n, _)| n == "functions.go").unwrap().1;
-        assert!(direct.contains("extern void AzDom_addChildByref(void*, void*);"), "{direct}");
-        assert!(direct.contains("func AzDom_addChild(dom *AzDom, child AzDom) {\n    C.AzDom_addChildByref(unsafe.Pointer(dom), unsafe.Pointer(&child))\n}"), "{direct}");
-        // Return through the out-pointer, argument consumed by address.
-        assert!(direct.contains("extern void AzOptionDom_takeByref(void*, void*);"));
-        assert!(direct.contains("func AzOptionDom_take(opt AzOptionDom) AzDom {\n    var azRet AzDom\n    C.AzOptionDom_takeByref(unsafe.Pointer(&azRet), unsafe.Pointer(&opt))\n    return azRet\n}"), "{direct}");
+        let src = gen();
+        assert!(src.contains("var lib_AzDom_addChild func(*AzDom, *AzDom)\n"), "{src}");
+        assert!(src.contains(
+            "func AzDom_addChild(dom *AzDom, child AzDom) {\n    once_AzDom_addChild.Do(func() { azRegister(&lib_AzDom_addChild, \"AzDom_addChildByref\") })\n    lib_AzDom_addChild(dom, &child)\n}"
+        ), "{src}");
+        // Return through the leading out-pointer, argument consumed by address.
+        assert!(src.contains("var lib_AzOptionDom_take func(*AzDom, *AzOptionDom)\n"), "{src}");
+        assert!(src.contains(
+            "func AzOptionDom_take(opt AzOptionDom) AzDom {\n    once_AzOptionDom_take.Do(func() { azRegister(&lib_AzOptionDom_take, \"AzOptionDom_takeByref\") })\n    var azRet AzDom\n    lib_AzOptionDom_take(&azRet, &opt)\n    return azRet\n}"
+        ), "{src}");
     }
 
     #[test]
-    fn scalar_only_calls_are_direct_with_primitive_prototype() {
-        let files = gen();
-        let direct = &files.iter().find(|(n, _)| n == "functions.go").unwrap().1;
-        assert!(direct.contains("extern size_t AzDom_len(void*, bool);"), "{direct}");
-        assert!(direct.contains("func AzDom_len(dom *AzDom, flag bool) uintptr {\n    return uintptr(C.AzDom_len(unsafe.Pointer(dom), C.bool(flag)))\n}"), "{direct}");
-        assert!(direct.contains("extern void* AzDom_ptr(void*);"));
-        assert!(direct.contains("func AzDom_ptr(dom *AzDom) unsafe.Pointer {\n    return C.AzDom_ptr(unsafe.Pointer(dom))\n}"), "{direct}");
+    fn aggregate_return_without_aggregate_args_uses_the_byref_twin_too() {
+        let src = gen();
+        assert!(src.contains("var lib_AzDom_createBody func(*AzDom)\n"), "{src}");
+        assert!(src.contains(
+            "func AzDom_createBody() AzDom {\n    once_AzDom_createBody.Do(func() { azRegister(&lib_AzDom_createBody, \"AzDom_createBodyByref\") })\n    var azRet AzDom\n    lib_AzDom_createBody(&azRet)\n    return azRet\n}"
+        ), "{src}");
+        assert!(!src.contains("azgo_"), "{src}");
     }
 
     #[test]
-    fn aggregate_return_without_twin_gets_a_shim_over_azul_h() {
-        let files = gen();
-        let shim = &files.iter().find(|(n, _)| n == "functions_shim.go").unwrap().1;
-        assert!(shim.contains("#include \"azul.h\""));
-        assert!(shim.contains("static inline void azgo_AzDom_createBody(void* __ret) { *(AzDom*)__ret = AzDom_createBody(); }"), "{shim}");
-        assert!(shim.contains("func AzDom_createBody() AzDom {\n    var azRet AzDom\n    C.azgo_AzDom_createBody(unsafe.Pointer(&azRet))\n    return azRet\n}"), "{shim}");
-        // The direct file never includes azul.h and never names a C type.
-        let direct = &files.iter().find(|(n, _)| n == "functions.go").unwrap().1;
-        assert!(!direct.contains("#include \"azul.h\""));
-        // Every `C.Az` there is a function call, never a type cast / value.
-        for (i, _) in direct.match_indices("C.Az") {
-            let rest = &direct[i + 4..];
-            let ident_end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
-            assert!(rest[ident_end..].starts_with('('), "C type named in direct file: {}", &rest[..ident_end]);
-        }
-        assert!(!direct.contains("*C."), "{direct}");
+    fn scalars_enums_aliases_and_pointers_are_direct() {
+        let src = gen();
+        assert!(src.contains("var lib_AzDom_len func(*AzDom, bool) uintptr\n"), "{src}");
+        assert!(src.contains(
+            "func AzDom_len(dom *AzDom, flag bool) uintptr {\n    once_AzDom_len.Do(func() { azRegister(&lib_AzDom_len, \"AzDom_len\") })\n    return lib_AzDom_len(dom, flag)\n}"
+        ), "{src}");
+        assert!(src.contains("var lib_AzDom_ptr func(*AzDom) unsafe.Pointer\n"), "{src}");
+        // A C enum, an alias and a fn-pointer typedef are not aggregates:
+        // by value, direct symbol, enum returned by value.
+        assert!(src.contains("var lib_AzDom_setUpdate func(*AzDom, AzUpdate, AzScanCode, AzCallbackType) AzUpdate\n"), "{src}");
+        assert!(src.contains("azRegister(&lib_AzDom_setUpdate, \"AzDom_setUpdate\")"), "{src}");
+        assert!(src.contains("return lib_AzDom_setUpdate(dom, update, code, cb)"), "{src}");
     }
 
     #[test]
-    fn byref_predicate_matches_lang_c() {
-        assert!(is_byref_aggregate(&arg("x", "Dom", ArgRefKind::Owned)));
-        assert!(is_byref_aggregate(&arg("x", "GLuint", ArgRefKind::Owned)));
-        assert!(!is_byref_aggregate(&arg("x", "CallbackType", ArgRefKind::Owned)));
-        assert!(!is_byref_aggregate(&arg("x", "u32", ArgRefKind::Owned)));
-        assert!(!is_byref_aggregate(&arg("x", "Dom", ArgRefKind::Ref)));
+    fn registration_is_lazy_and_pointers_are_typed() {
+        let src = gen();
+        assert!(!src.contains("initFunctions"), "{src}");
+        assert!(!src.contains("uintptr(unsafe.Pointer"), "{src}");
+        assert!(!src.contains("import \"C\""), "{src}");
+        // One `var once_<fn> sync.Once` per fixture function (the header
+        // comment mentions the type once more, so count declarations only).
+        assert_eq!(src.matches(" sync.Once\n").count(), 6, "{src}");
+    }
+
+    #[test]
+    fn beyond_purego_arity_the_body_panics_instead_of_binding() {
+        let src = gen();
+        assert!(src.contains("func AzDom_sixteen(a0 uint32, a1 uint32"), "{src}");
+        assert!(src.contains("panic(\"azul: AzDom_sixteen takes 16 arguments, purego supports at most 15\")"), "{src}");
+        assert!(!src.contains("lib_AzDom_sixteen"), "{src}");
+    }
+
+    #[test]
+    fn enum_variant_constructors_are_not_surfaced() {
+        let src = gen();
+        assert!(!src.contains("AzOptionDom_Some"), "{src}");
+    }
+
+    #[test]
+    fn byref_predicate_is_the_shared_ir_one() {
+        let ir = fixture_ir();
+        assert!(is_byref_aggregate(&arg("x", "Dom", ArgRefKind::Owned), &ir));
+        assert!(is_byref_aggregate(&arg("x", "OptionDom", ArgRefKind::Owned), &ir));
+        assert!(!is_byref_aggregate(&arg("x", "Update", ArgRefKind::Owned), &ir));
+        assert!(!is_byref_aggregate(&arg("x", "ScanCode", ArgRefKind::Owned), &ir));
+        assert!(!is_byref_aggregate(&arg("x", "CallbackType", ArgRefKind::Owned), &ir));
+        assert!(!is_byref_aggregate(&arg("x", "u32", ArgRefKind::Owned), &ir));
+        assert!(!is_byref_aggregate(&arg("x", "Dom", ArgRefKind::Ref), &ir));
     }
 }

@@ -24,7 +24,7 @@ use super::{
         generator::CodeBuilder,
         ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory},
     },
-    emit_file, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME,
+    emit_file, javadoc_escape, map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME,
 };
 
 /// Look up the api.json module that owns `class_name`. Falls back to
@@ -147,7 +147,15 @@ pub fn generate_native_module_files(
     Ok(())
 }
 
-fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+/// Is `func` declared in the per-module `AzulNative<Module>` FFI class?
+///
+/// `derives.rs` gates every idiomatic call site on the same predicate, so a
+/// symbol an emitter names is always a symbol this file declared.
+pub(super) fn should_emit_function(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
@@ -183,8 +191,9 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) {
@@ -266,17 +275,3 @@ fn map_jvm_type_for_return(type_name: &str, ir: &CodegenIR) -> String {
     map_jvm_type_for_owned_arg(type_name, ir)
 }
 
-/// Escape characters that are illegal in a Javadoc comment body.
-///
-/// Java's javadoc parser interprets `\u` / `\U` as Unicode escapes
-/// (even inside comments — see JLS §3.3). Doc strings like
-/// `C:\Users\username` contain `\U` which is parsed as the start of an
-/// invalid Unicode escape sequence and rejected. Double the
-/// backslashes so the literal text survives.
-fn javadoc_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace("*/", "*&#47;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('&', "&amp;")
-}

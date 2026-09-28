@@ -5,11 +5,11 @@
 //! makes opening the example in Lazarus a one-click affair.
 //!
 //! The generated `.lpi` is intentionally minimal — it references a single
-//! `.pas` main program (e.g. `hello-world.pas`) and configures Free
-//! Pascal Compiler in Object Pascal mode (`-Mobjfpc`). It does *not*
-//! depend on the Lazarus Component Library (LCL); azul provides its own
-//! windowing, so the example is a console program from Lazarus' point of
-//! view.
+//! `.pas` main program (e.g. `hello-world.pas`) and selects Delphi syntax
+//! mode (the example's in-file `{$mode delphi}` directive wins anyway; the
+//! generated unit is Delphi-mode too). It does *not* depend on the Lazarus
+//! Component Library (LCL); azul provides its own windowing, so the example
+//! is a console program from Lazarus' point of view.
 
 /// Emit a Lazarus `.lpi` for an example named `<name>` (without
 /// extension). Assumes there is a sibling `<name>.pas` file containing a
@@ -65,7 +65,7 @@ pub fn generate_lpi(name: &str) -> String {
     </SearchPaths>
     <Parsing>
       <SyntaxOptions>
-        <SyntaxMode Value="ObjFPC"/>
+        <SyntaxMode Value="Delphi"/>
         <CStyleOperator Value="False"/>
         <AllowLabel Value="False"/>
         <CPPInline Value="False"/>

@@ -148,6 +148,8 @@ pub enum TypeKind {
 /// Information about a callback function argument
 #[derive(Debug, Clone)]
 pub struct CallbackArgInfo {
+    /// The parameter name from the Rust typedef, when it has one
+    pub name: Option<String>,
     /// The type of the argument (e.g., "c_void", "RefAny")
     pub ty: String,
     /// How the argument is passed - uses full RefKind for pointer support
@@ -1372,7 +1374,11 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     let fn_args: Vec<CallbackArgInfo> = bare_fn
                         .inputs
                         .iter()
-                        .map(|arg| parse_callback_arg(&arg.ty))
+                        .map(|arg| {
+                            let mut info = parse_callback_arg(&arg.ty);
+                            info.name = arg.name.as_ref().map(|(ident, _)| ident.to_string());
+                            info
+                        })
                         .collect();
 
                     // Parse the return type
@@ -1494,6 +1500,16 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         doc: None,
                     },
                 );
+                fields.insert(
+                    "flags".to_string(),
+                    FieldInfo {
+                        name: "flags".to_string(),
+                        ty: "u8".to_string(),
+                        ref_kind: crate::api::RefKind::Value,
+                        doc: None,
+                    },
+                );
+
                 if let Some(destructor) = &gen_type.destructor_name {
                     fields.insert(
                         "destructor".to_string(),
@@ -1643,6 +1659,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 RefKind::ConstPtr
             };
             CallbackArgInfo {
+                name: None,
                 ty: inner_type,
                 ref_kind,
             }
@@ -1658,6 +1675,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 RefKind::Ref
             };
             CallbackArgInfo {
+                name: None,
                 ty: inner_type,
                 ref_kind,
             }
@@ -1667,6 +1685,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
             let type_str =
                 crate::autofix::utils::clean_type_string(&ty.to_token_stream().to_string());
             CallbackArgInfo {
+                name: None,
                 ty: type_str,
                 ref_kind: RefKind::Value,
             }

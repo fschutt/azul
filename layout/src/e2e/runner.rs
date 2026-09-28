@@ -238,7 +238,7 @@ impl Runner {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: crate::icu::IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let mut callback_info = CallbackInfo::new(
@@ -1921,6 +1921,9 @@ impl Runner {
     #[allow(clippy::too_many_lines)]
     fn apply_user_change(&mut self, change: &CallbackChange) -> ProcessEventResult {
         match change {
+            CallbackChange::StartHttpServer { .. } | CallbackChange::StopHttpServer => {
+                ProcessEventResult::DoNothing
+            }
             // A script asking to run a script. The headless runner is ALREADY
             // executing a scenario when it gets here, and `E2eSession` has one
             // continuation slot per window — accepting this would overwrite
@@ -3503,6 +3506,10 @@ impl Runner {
             CallbackChange::SwitchRoute { .. } => {
                 self.unsupported("SwitchRoute", "no layout callback — the runner mounts XML")
             }
+            CallbackChange::SetLocale { locale } => {
+                // Just trigger a new replacement of existing strings
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
         }
     }
 
@@ -4859,9 +4866,9 @@ mod tests {
             runner.service(&changes, false);
 
             let t = Duration::from_millis(STEP_MS * step).div(&Duration::from_millis(DURATION_MS));
-            let expected = (azul_core::resources::SystemAnimations::default()
+            let expected = azul_core::resources::SystemAnimations::default()
                 .caret_tween
-                .cb)(
+                .invoke(
                 RefAny::new(()),
                 CaretTweenInfo {
                     past: from,

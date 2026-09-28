@@ -1635,7 +1635,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 }
 
 pub const BASELINE: &[(&str, usize)] =
-    &[("python", 36), ("zig", 13), ("php-ext", 134), ("ocaml", 1)];
+    &[("python", 16), ("zig", 5), ("php-ext", 134), ("ocaml", 1)];
 
 /// Compare against [`BASELINE`] and render the verdict.
 pub fn verdict(reports: &[BindingReport]) -> (bool, String) {

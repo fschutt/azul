@@ -50,8 +50,8 @@ let bytes = Pdf::create().from_dom(doc, 794.0, 1123.0);   // -> U8Vec
 std::fs::write("out.pdf", bytes.as_slice()).unwrap();
 ```
 
-The free function `dom_to_pdf(dom, page_width_px, page_height_px) -> U8Vec` does
-the same thing without constructing a handle.
+`Pdf::from_dom(dom, page_width_px, page_height_px) -> U8Vec` does the same thing
+in one call, on a `Pdf` you already have.
 
 Content taller than one page is **paginated automatically**: the headless
 layout splits the document across as many pages as it needs, each

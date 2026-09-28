@@ -14,8 +14,8 @@ tracked_files:
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - Dom
@@ -26,16 +26,16 @@ default-search-keys:
 
 ## Introduction
 
-Welcome to the Azul framework. In this guide you will learn how to write a simple 50-line program that produces a window with a counter and a button to increase said counter - showcasing how data models, click callbacks and installation / running Azul applications works.
+Welcome to the Azul framework. In this guide you will learn how to write a simple 50-line program that produces a window with a counter and a button to increase said counter - showcasing how data models, click callbacks, and the installation and running of Azul applications work.
 
-```azul-render screenshot=hello-world width=400 height=240 subtitle="The minimum viable Azul window — counter label plus a button."
-<body style="background-color: #efefef;">
-  <p style="font-size: 50px;">5</p>
+```azul-render screenshot=hello-world width=400 height=240 subtitle="Azul Window"
+<body style="background-color: #efefef; margin: 0;">
+  <p style="font-size: 50px; margin: 0;">5</p>
   <button>Increase counter</button>
 </body>
 ```
 
-Because each programming language is different, there's no such thing as "one hello world guide" as every language has differences in setup, installation methods and code style. 
+Because each programming language is different, there's no such thing as "one hello world guide" as every language has differences in setup, installation methods, and code style. 
 
 Each guide is self-contained, you do not need to read the others. Each page walks you through the same five-step path:
 
@@ -49,7 +49,23 @@ Each guide is self-contained, you do not need to read the others. Each page walk
 
 Pick the "Hello World" / Setup guide for your language:
 
-- [Rust](hello-world/rust.md)
 - [C (99+)](hello-world/c.md)
 - [C++ (03 - 23)](hello-world/cpp.md)
+- [C#](hello-world/csharp.md)
+- [Crystal](hello-world/crystal.md)
+- [D](hello-world/d.md)
+- [Fortran](hello-world/fortran.md)
+- [Go](hello-world/go.md)
+- [Haskell](hello-world/haskell.md)
+- [Java](hello-world/java.md)
+- [Kotlin](hello-world/kotlin.md)
+- [Lua](hello-world/lua.md)
+- [Node.js](hello-world/node.md)
+- [OCaml](hello-world/ocaml.md)
+- [Pascal](hello-world/pascal.md)
 - [Python (3.10+)](hello-world/python.md)
+- [Ruby](hello-world/ruby.md)
+- [Rust](hello-world/rust.md)
+- [Scala](hello-world/scala.md)
+- [Swift](hello-world/swift.md)
+- [Zig](hello-world/zig.md)

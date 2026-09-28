@@ -293,6 +293,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_area_on_text_input_callback_thunk,
     setter_fn:      AzApp_setTextAreaOnTextInputCallbackInvoker,
     from_handle_fn: AzTextAreaOnTextInputCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextAreaOnTextInputCallback_createFromHostHandleByref,
     extra_args:     [ state: TextAreaState ],
 }
 
@@ -317,6 +318,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_area_on_virtual_key_down_callback_thunk,
     setter_fn:      AzApp_setTextAreaOnVirtualKeyDownCallbackInvoker,
     from_handle_fn: AzTextAreaOnVirtualKeyDownCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextAreaOnVirtualKeyDownCallback_createFromHostHandleByref,
     extra_args:     [ state: TextAreaState ],
 }
 
@@ -340,6 +342,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_text_area_on_focus_lost_callback_thunk,
     setter_fn:      AzApp_setTextAreaOnFocusLostCallbackInvoker,
     from_handle_fn: AzTextAreaOnFocusLostCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTextAreaOnFocusLostCallback_createFromHostHandleByref,
     extra_args:     [ state: TextAreaState ],
 }
 
@@ -695,7 +698,7 @@ pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: Callbac
 
     match onfocuslost.as_mut() {
         Some(TextAreaOnFocusLost { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -736,7 +739,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
             let inner_clone = text_area.inner.clone();
             match text_area.on_text_input.as_mut() {
                 Some(TextAreaOnTextInput { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info, inner_clone)
+                    callback.invoke(refany.clone(), info, inner_clone)
                 }
                 None => OnTextInputReturn {
                     update: Update::DoNothing,
@@ -793,7 +796,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
         match ontextinput.as_mut() {
             Some(TextAreaOnTextInput { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner_clone)
+                callback.invoke(refany.clone(), info, inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
@@ -842,7 +845,7 @@ fn default_on_virtual_key_down_inner(
         let inner_clone = text_area.inner.clone();
         match text_area.on_virtual_key_down.as_mut() {
             Some(TextAreaOnVirtualKeyDown { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner_clone)
+                callback.invoke(refany.clone(), info, inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
@@ -1306,7 +1309,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let hit = match env.hit {

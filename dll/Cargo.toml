@@ -210,6 +210,16 @@ turso = { package = "turso-azul", version = "0.7.2", optional = true, default-fe
 # directly so feature-unification enables it wherever turso is used.
 aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 
+# The iroh transport (azul.iroh), gated by `iroh`. Declared for the architectures its crypto
+# provider (ring, via `tls-ring` — aws-lc-rs would need cmake and nasm) ships assembly or portable
+# code for AND the cross-compile checks have a C toolchain for; build.rs turns the same target set
+# into `cfg(az_iroh_engine)`. Elsewhere the feature stays on, the engine is out, and
+# `IrohEndpoint::bind` reports an Error event exactly as it does without the feature.
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64", target_arch = "arm"), not(target_family = "wasm")))'.dependencies]
+iroh = { version = "1.2", default-features = false, features = ["tls-ring"], optional = true }
+iroh-tickets = { version = "1.0", optional = true }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "sync", "macros", "time", "net"], optional = true }
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
 # Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
@@ -643,6 +653,7 @@ default = [
     "link-static",
     "logging",
     "a11y",
+    "debug-server",
     "all_img_formats",
     "web-e2e-runner",
 ]
@@ -689,10 +700,12 @@ build-dll = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    "debug-server",
     # Full functional surface for a complete libazul dylib — P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
     # (db-sqlite, biometric, …) MUST be added here as they land.
     "a11y",
+    "debug-server",
     "icons",
     "svg",
     "xml",
@@ -716,10 +729,13 @@ build-dll = [
     # reporter dialog's Send when a deployment has no OTLP endpoint; armed by
     # `AppConfig.report_problem`. Pulls rustls for STARTTLS.
     "crash-mail",
+    "debug-server",
     # Probe spans feed the app_phase_seconds{phase} + RSS-checkpoint panels.
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
     "azul-layout/probe",
+    # Peer-to-peer QUIC behind the azul.iroh module (IrohEndpoint).
+    "iroh",
     # AZ_E2E SCRIPTING, in every shipped dylib. The execution engine only:
     # `debug-server` (the HTTP port + the bundled debugger JS) stays OUT, so
     # there is no listening socket and no 2-4 MB of JS in the binary. A script
@@ -743,6 +759,9 @@ db-sqlite = ["dep:turso", "dep:aegis"]
 # db-sqlite; the export API is always present (stub when off), so it flows
 # through codegen with no feature-gating.
 pdf = ["dep:printpdf", "serde_json"]
+# The iroh engine behind `IrohEndpoint`. The handle is always present; without the
+# feature `bind` reports an `Error` event instead of binding.
+iroh = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)
@@ -920,6 +939,11 @@ e2e-scripting = ["json", "azul-layout/e2e-server"]
 # These are mutually exclusive; enabling both is a compile error.
 allocator_mimalloc = ["dep:mimalloc"]
 allocator_jemalloc = ["dep:tikv-jemallocator"]
+# Test builds only: a system allocator that counts libazul's live bytes and
+# exports `AzDebug_liveBytes` / `AzDebug_liveAllocations`, so the generated
+# conformance programs (scripts/conformance.sh) can check that every case
+# frees everything it allocates. Not combinable with the two above.
+alloc-stats = []
 
 # Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
 # Phase 0: no external dependencies (uses std::net::TcpListener).

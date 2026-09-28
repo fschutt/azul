@@ -460,6 +460,14 @@ pub fn regenerate_layout(
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
+        locale: &system_style.language.id,
+        accessed_locale: core::cell::Cell::new(false),
+        accessed_text_direction: core::cell::Cell::new(false),
+        text_direction: if system_style.language.is_rtl {
+            azul_core::callbacks::TextDirection::RightToLeft
+        } else {
+            azul_core::callbacks::TextDirection::LeftToRight
+        },
         // #28 (d): monitor snapshot for content-bounding in layout() — the
         // platforms write the live list into layout_window.monitors; a
         // poisoned/contended lock degrades to "no info" rather than blocking
@@ -476,20 +484,12 @@ pub fn regenerate_layout(
         safe_area: layout_window.safe_area_insets,
     };
 
-    let mut callback_info = LayoutCallbackInfo::new_with_reason(
+    let callback_info = LayoutCallbackInfo::new_with_reason(
         &layout_ref_data,
         current_window_state.size,
         current_window_state.theme,
         relayout_reason,
     );
-
-    // Wire the callback's stored ctx (host-handle for managed FFIs,
-    // PyCallableWrapper for Python, None for native Rust) so
-    // `info.get_ctx()` reaches it. Without this, the macro-generated
-    // host-invoker thunk sees `OptionRefAny::None` and returns the
-    // kind's default (empty body) — which is exactly the "default DOM"
-    // symptom we'd otherwise observe in the rendered window.
-    callback_info.set_callable_ptr(&current_window_state.layout_callback.ctx);
 
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");
@@ -499,13 +499,20 @@ pub fn regenerate_layout(
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
     let _ = azul_core::callbacks::take_recorded_style_dependencies();
+    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
+    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
     let _cb_span =
         azul_layout::probe::Probe::span_for_fn(current_window_state.layout_callback.cb as usize);
-    let user_dom =
-        (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
+    // `invoke` hands the callback its stored ctx (host-handle for managed
+    // FFIs, PyCallableWrapper for Python, None for native Rust) through
+    // `info.get_ctx()`; calling `cb` directly, the host-invoker thunk would
+    // return the kind's default (empty body) - the "default DOM" symptom.
+    let user_dom = current_window_state
+        .layout_callback
+        .invoke((*app_data_borrowed).clone(), callback_info);
     drop(_cb_span);
 
     drop(app_data_borrowed); // Release borrow
@@ -523,6 +530,8 @@ pub fn regenerate_layout(
     // LayoutWindow::system_style_change_needs_full_regeneration.
     layout_window.recorded_style_dependencies =
         azul_core::callbacks::take_recorded_style_dependencies();
+    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
+    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
     azul_layout::probe::emit_phase_heap("after_callback");
     phases.mark("after_callback");
 
@@ -1256,7 +1265,10 @@ pub fn regenerate_layout(
         .get(&azul_core::dom::DomId::ROOT_ID)
     {
         if relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
-            && azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom)
+            && azul_core::styled_dom::is_layout_equivalent(
+                &old_layout_result.styled_dom,
+                &styled_dom,
+            )
         {
             log_debug!(
                 LogCategory::Layout,
@@ -1662,7 +1674,6 @@ pub fn regenerate_layout(
     // capability_pump::pump(), gated on the listener flags computed above —
     // no listeners, no native subscription, no polling.)
 
-
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
     phases.mark("end");
@@ -1798,10 +1809,7 @@ pub(super) fn incremental_relayout(
     // resize path's cost — solver3 re-flow + display list on the EXISTING
     // StyledDom — is the number the <8ms interactivity target is measured
     // against. Without this span the fast path was invisible in the log.
-    let _span = crate::log_span!(
-        LogCategory::Window,
-        "incremental_relayout",
-    );
+    let _span = crate::log_span!(LogCategory::Window, "incremental_relayout",);
 
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
@@ -2390,9 +2398,7 @@ pub fn layout_window_sharing_fonts(
     fc_cache: &FcFontCache,
 ) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
     match app_font_manager {
-        Some(fm) => Ok(LayoutWindow::from_font_manager(
-            fm.clone_shared(),
-        )),
+        Some(fm) => Ok(LayoutWindow::from_font_manager(fm.clone_shared())),
         None => LayoutWindow::new(fc_cache.clone()),
     }
 }

@@ -336,7 +336,7 @@ fn with_info<R>(
         monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
         #[cfg(feature = "icu")]
         icu_localizer: azul_layout::icu::IcuLocalizerHandle::default(),
-        ctx: OptionRefAny::None,
+        ctx: core::cell::RefCell::new(OptionRefAny::None),
     };
     let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
     let mut info = CallbackInfo::new(

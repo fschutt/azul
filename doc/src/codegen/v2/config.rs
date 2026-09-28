@@ -647,25 +647,21 @@ impl CodegenConfig {
     ///
     /// Note that the C SYMBOLS stay `Az`-prefixed while the Rust TYPES are not;
     /// see `lang_rust::ABI_PREFIX`.
-    pub fn rust_public_api() -> Self {
-        // Skip GL type aliases as they're already in the dll module
-        let mut type_exclude = BTreeSet::new();
-        for gl_type in &[
-            "GLuint",
-            "GLint",
-            "GLenum",
-            "GLint64",
-            "GLuint64",
-            "GLsizei",
-            "GLfloat",
-            "GLboolean",
-            "GLbitfield",
-            "GLclampf",
-            "GLsizeiptr",
-            "GLintptr",
-        ] {
-            type_exclude.insert(gl_type.to_string());
-        }
+    pub fn rust_public_api(ir: &super::ir::CodegenIR) -> Self {
+        // The GL scalar typedefs (`GLuint`, `GLfloat`, ...) are defined by
+        // `azul_core::gl`, which the dll module re-exports wholesale, so the
+        // generated Rust binding must not define them a second time. Derived
+        // from each alias's external path rather than listed by name: a GL
+        // typedef added to api.json tomorrow is excluded on its own instead of
+        // colliding at build time. (The list this replaced still carried
+        // `GLint64`, a name api.json has not had for a while.)
+        const GL_MODULE: &str = "azul_core::gl::";
+        let type_exclude: BTreeSet<String> = ir
+            .type_aliases
+            .iter()
+            .filter(|a| a.external_path.as_deref().is_some_and(|p| p.starts_with(GL_MODULE)))
+            .map(|a| a.name.clone())
+            .collect();
 
         Self {
             target_lang: TargetLang::Rust,
@@ -768,12 +764,6 @@ pub struct PythonConfig {
 
     /// Types to skip in Python (recursive types, etc.)
     pub skip_types: BTreeSet<String>,
-
-    /// Types that need callback trampolines
-    pub callback_types: BTreeSet<String>,
-
-    /// Types that need VecRef→list conversion
-    pub vecref_types: BTreeSet<String>,
 }
 
 impl Default for PythonConfig {
@@ -794,36 +784,6 @@ impl PythonConfig {
     /// - Python-specific type filtering
     pub fn python_extension() -> Self {
         let skip_types: BTreeSet<String> = BTreeSet::new();
-
-        // VecRef types that need special handling
-        let vecref_types: BTreeSet<String> = [
-            "GLuintVecRef",
-            "GLintVecRef",
-            "GLenumVecRef",
-            "U8VecRef",
-            "U16VecRef",
-            "U32VecRef",
-            "I32VecRef",
-            "F32VecRef",
-            "Refstr",
-            "RefstrVecRef",
-            "TessellatedSvgNodeVecRef",
-            "TessellatedColoredSvgNodeVecRef",
-            "OptionU8VecRef",
-            "OptionI16VecRef",
-            "OptionI32VecRef",
-            "OptionF32VecRef",
-            "OptionFloatVecRef",
-            "GLintVecRefMut",
-            "GLint64VecRefMut",
-            "GLbooleanVecRefMut",
-            "GLfloatVecRefMut",
-            "U8VecRefMut",
-            "F32VecRefMut",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
 
         Self {
             base: CodegenConfig {
@@ -852,8 +812,6 @@ impl PythonConfig {
             generate_pyclass: true,
             generate_pymethods: true,
             skip_types,
-            callback_types: BTreeSet::new(), // Populated by IR builder
-            vecref_types,
         }
     }
 }

@@ -78,6 +78,28 @@ impl From<TimerCallbackType> for TimerCallback {
     }
 }
 
+// Host-invoker plumbing (see azul_core::host_invoker). The window's timer
+// loop gives each timer its own `CallbackInfo` record, so installing the
+// timer's context there overwrites no other callback's.
+azul_core::impl_managed_callback! {
+    wrapper:        TimerCallback,
+    info_ty:        TimerCallbackInfo,
+    return_ty:      TimerCallbackReturn,
+    default_ret:    TimerCallbackReturn::terminate_unchanged(),
+    invoker_static: TIMER_INVOKER,
+    invoker_ty:     AzTimerCallbackInvoker,
+    thunk_fn:       az_timer_callback_thunk,
+    setter_fn:      AzApp_setTimerCallbackInvoker,
+    from_handle_fn: AzTimerCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTimerCallback_createFromHostHandleByref,
+}
+
+impl azul_core::host_invoker::HostCtxCarrier for TimerCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.callback_info.install_host_ctx(ctx);
+    }
+}
+
 impl PartialEq for TimerCallback {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.cb as *const (), other.cb as *const ())
@@ -286,7 +308,7 @@ impl Timer {
         // callback's cost across versions, and a slow one is named in the
         // slow-span WARN. Resolution is cached; recording-off is one atomic.
         let _cb_span = crate::probe::Probe::span_for_fn(self.callback.cb as usize);
-        let mut result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
+        let mut result = self.callback.invoke(self.refany.clone(), timer_callback_info);
 
         if is_about_to_finish {
             result.should_terminate = TerminateTimer::Terminate;
@@ -339,6 +361,26 @@ pub struct TimerCallbackInfo {
 }
 
 impl TimerCallbackInfo {
+    /// Report a diagnostic from inside this callback.
+    ///
+    /// The same sink `CallbackInfo::log` writes to, so a binding's callback
+    /// boundary can report a failure here instead of only to stderr - which
+    /// is what makes a failing timer callback visible to the app's log
+    /// pipeline rather than only to whoever is watching the terminal.
+    pub fn log(&mut self, level: azul_core::resources::AppLogLevel, message: impl Into<AzString>) {
+        let level_str = match level {
+            azul_core::resources::AppLogLevel::Off => "off",
+            azul_core::resources::AppLogLevel::Error => "error",
+            azul_core::resources::AppLogLevel::Warn => "warn",
+            azul_core::resources::AppLogLevel::Info => "info",
+            azul_core::resources::AppLogLevel::Debug => "debug",
+            azul_core::resources::AppLogLevel::Trace => "trace",
+        };
+        if level != azul_core::resources::AppLogLevel::Off {
+            azul_core::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+        }
+    }
+
     #[must_use]
     pub const fn create(
         callback_info: CallbackInfo,
@@ -948,7 +990,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx,
+            ctx: core::cell::RefCell::new(ctx),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

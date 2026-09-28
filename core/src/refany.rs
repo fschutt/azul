@@ -1311,7 +1311,12 @@ impl RefAny {
     /// Checks if the stored type matches the given type ID.
     #[must_use]
     pub fn is_type(&self, type_id: u64) -> bool {
-        self.sharing_info.downcast().type_id == type_id
+        // Routed through the null-tolerant gate: a RELEASED (or zero-filled —
+        // a managed binding marshalling a plain object as `AzRefAny`) value
+        // is "not that type" rather than an abort in `RefCount::downcast`.
+        // `refany_to_host_handle` (every host-handle lookup from every
+        // binding) is the first caller on that path.
+        self.get_type_id() == type_id
     }
 
     /// Returns the stored type ID.

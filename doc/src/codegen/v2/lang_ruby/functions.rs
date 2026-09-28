@@ -17,6 +17,15 @@
 //! Skipped functions get a `# SKIPPED:` marker line so the output
 //! self-documents what didn't translate.
 //!
+//! Every attach carries `blocking: true`: ruby-ffi keeps the GVL for the
+//! whole native call otherwise. Callbacks re-entering on the *calling*
+//! thread (layout / click) would still work, but `ThreadCallback` fires on
+//! a libazul worker thread and ruby-ffi marshals foreign-thread callbacks
+//! to a Ruby thread that needs the GVL — which the main thread would hold
+//! forever inside `AzApp_run`. Releasing it around every call is the rule
+//! that needs no function-name allowlist; the cost is one GVL
+//! release/acquire per call.
+//!
 //! References to types whose definition was skipped (generic templates,
 //! recursive types, etc.) collapse to `:pointer` — the C ABI is still
 //! pointer-sized, callers just lose the field accessors.
@@ -33,6 +42,10 @@ use super::{
 /// Emit `attach_function` lines for every IR function.
 pub fn emit_attach_functions(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- attach_function declarations -----------------------------");
+    builder.line("# Every attach is `blocking: true`: the GVL is released around the");
+    builder.line("# native call so callbacks delivered on libazul worker threads");
+    builder.line("# (ThreadCallback) can be marshalled to a Ruby thread while the main");
+    builder.line("# thread is parked inside AzApp_run.");
 
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
@@ -152,8 +165,11 @@ fn emit_attach_function(
         arg_types
     };
 
+    // `blocking: true` releases the GVL for the duration of the native
+    // call (see the module docs: required for callbacks arriving on a
+    // libazul worker thread while the main thread sits in `AzApp_run`).
     builder.line(&format!(
-        "attach_function :{}, :{}, [{}], {}",
+        "attach_function :{}, :{}, [{}], {}, blocking: true",
         ruby_name,
         c_name,
         arg_types.join(", "),
@@ -208,8 +224,15 @@ fn arg_ref_to_field_ref(k: ArgRefKind) -> FieldRefKind {
 /// the snake_case Ruby method name we attach (e.g. `az_app_create`).
 ///
 /// We preserve the existing `_` separators (so `App_create` stays as a
-/// boundary) and lowercase each CamelCase token.
-fn ruby_attach_name(c_name: &str) -> String {
+/// boundary) and lowercase each CamelCase token. Runs of capitals stay
+/// together (`AzGLintVec_delete` → `az_glint_vec_delete`), which is why
+/// this — and only this — converter may be used to spell a `Native.az_*`
+/// call: `wrappers.rs` and `managed.rs` derive every native call name
+/// from the C symbol through here, so declaration and use can never
+/// disagree. (`managed_host_invoker::to_snake_case` splits before every
+/// capital and is reserved for Ruby-side identifiers such as class-name
+/// snake forms and callback symbols.)
+pub(crate) fn ruby_attach_name(c_name: &str) -> String {
     let mut out = String::with_capacity(c_name.len() + 4);
     let mut prev_was_lower = false;
     let mut prev_was_underscore = false;

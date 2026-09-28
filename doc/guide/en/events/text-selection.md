@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 63
 topic_only: false
-short_desc: Selection ranges, cursors, and copy/paste
+short_desc: Selection ranges, multiple cursors, remote selections and the rich clipboard
 prerequisites: [events, events/text-input]
 tracked_files:
   - core/src/hit_test.rs
@@ -77,29 +77,31 @@ This matches browser behaviour.
 
 ## Reading the current selection
 
-`CallbackInfo` exposes the public selection API:
+Every read is scoped to a DOM, because a window can have several - a
+main document and an iframe each have their own selection:
 
 ```rust,ignore
-impl CallbackInfo {
-    pub fn has_selection(&self) -> bool;
-    pub fn node_has_selection(&self, node_id: DomNodeId) -> bool;
-    pub fn get_selection(&self) -> Option<SelectionState>;
-    pub fn get_selection_count(&self, node_id: DomNodeId) -> usize;
-    pub fn get_selection_ranges(&self) -> SelectionRangeVec;
-    pub fn get_node_selection_ranges(&self, node_id: DomNodeId) -> SelectionRangeVec;
-}
+let any     = info.has_any_selection();               // anywhere in the window
+let here    = info.has_selection(dom_id);
+let state   = info.get_selection(dom_id);             // OptionSelectionState
+let ranges  = info.get_selection_ranges(dom_id);
+let n       = info.get_selection_count(dom_id);
 ```
 
-`SelectionState` carries a `DomNodeId` and a `SelectionVec` of the active selections on that node. `SelectionRangeVec` is the FFI-friendly vector of `SelectionRange` values.
+`SelectionState` carries the node and the active selections on it.
+Per-node questions - `node_has_selection(node)` and
+`get_node_selection_ranges(node)` - are on
+[Node Tree & Hit Testing](node-tree.md).
 
-To respond to selection changes, register a callback on `Hover(MouseUp)` or on `FocusEventFilter::FocusReceived` and read `get_selection()` from the callback:
+To respond to selection changes, register a callback on
+`Hover(MouseUp)` or on `FocusEventFilter::FocusReceived` and read the
+selection from it:
 
 ```rust,no_run
 use azul::prelude::*;
 
 extern "C" fn on_select(_data: RefAny, info: CallbackInfo) -> Update {
-    if let Some(state) = info.get_selection() {
-        let _node = state.node_id;
+    if let Some(state) = info.get_selection(DomId::ROOT_ID).into_option() {
         let _ranges = &state.selections;
         // ... update UI ...
     }
@@ -107,45 +109,80 @@ extern "C" fn on_select(_data: RefAny, info: CallbackInfo) -> Update {
 }
 ```
 
-## Mutating selection
+## Multiple cursors
 
-`CallbackInfo` lets you add, remove, or replace selections programmatically:
+The model is multi-cursor from the ground up; a single caret is just
+the case where there is one.
 
 ```rust,ignore
-impl CallbackInfo {
-    pub fn add_selection_range(&mut self, /* ... */);
-    pub fn remove_selection_by_id(&mut self, id: SelectionId);
-}
+let id = info.add_cursor(dom_id, node_id, cursor);              // a caret
+let id = info.add_selection_range(dom_id, node_id, range);      // a range
+info.remove_selection_by_id(id);
 ```
 
-Each range carries a stable `SelectionId` so external code can refer to a specific selection across edits.
+Both return a `SelectionId` that stays stable across edits, which is
+what lets you remove or update one cursor out of many later.
+
+`get_primary_cursor(dom_id)` is the main caret - the one that scrolls
+into view and that typing follows - and `get_primary_selection(dom_id)`
+the selection belonging to it. `get_multi_cursor_selections(dom_id)`
+returns every cursor with its id, which is what a "Select all
+occurrences" command produces and what your rendering must then handle.
+
+`set_selection(dom_id, node_id, selection)` replaces the whole
+selection state at once, which is the right call when you are setting a
+selection rather than adding to one.
+
+`process_text_selection_click(position, time_ms)` feeds a click into
+the selection state machine, and the timestamp is why: it is what turns
+two clicks into a word selection and three into a line.
+
+## Other users' selections
+
+A collaborative editor shows where everyone else is. Remote selections
+are owned, coloured and drawn by the framework rather than by your DOM:
+
+```rust,ignore
+info.set_selection_owner_color(owner, ColorU::from_str("#e2725b"));
+info.set_remote_selections(owner, selections);
+// on disconnect:
+info.clear_remote_selections(owner);
+info.clear_selection_owner_color(owner);
+```
+
+Each `SelectionOwner` is one remote participant. Because the framework
+paints them, they behave like real selections - they reflow with the
+text, survive edits and do not need a parallel overlay of absolutely
+positioned rectangles.
+
+`get_document_selection()` returns the selection in document
+coordinates, as spans, which is the form to send over the wire: node
+ids mean nothing on the other machine.
 
 ## Copy, cut, paste
 
-Clipboard reads and writes go through `CallbackInfo`:
+The clipboard carries `ClipboardContent`, not a string - rich text,
+HTML and images travel alongside the plain-text fallback, in both
+directions:
 
 ```rust,ignore
-impl CallbackInfo {
-    /// Read the OS clipboard.
-    pub fn get_clipboard_content(&self) -> Option<String>;
-
-    /// Write to the OS clipboard.
-    pub fn set_clipboard_content(&mut self, text: String);
-
-    /// Set the data to be copied when the user invokes Copy.
-    pub fn set_copy_content(&mut self, text: String);
-
-    /// Set the data to be cut when the user invokes Cut.
-    pub fn set_cut_content(&mut self, text: String);
-
-    /// Inspect what would be copied without actually copying.
-    pub fn inspect_copy_changeset(&self) -> Option<String>;
-    pub fn inspect_cut_changeset(&self) -> Option<String>;
-    pub fn inspect_paste_target_range(&self) -> Option<SelectionRange>;
-}
+let content = info.get_clipboard_content();        // OptionClipboardContent
+info.set_clipboard_content(content);
 ```
 
-The default Ctrl+C / Ctrl+X / Ctrl+V keystrokes copy the current selection to the clipboard, cut it, or paste at the caret. To customise, register a callback for the keystroke and call `set_copy_content` / `set_cut_content` with your own payload before `prevent_default`.
+To customise what Copy and Cut produce, set the content for the target
+node before the default action runs:
+
+```rust,ignore
+info.set_copy_content(node, content);
+info.set_cut_content(node, content);
+```
+
+The default Ctrl+C / Ctrl+X / Ctrl+V keystrokes copy the current
+selection, cut it, or paste at the caret. `inspect_copy_changeset()`,
+`inspect_cut_changeset()` and `inspect_paste_target_range()` compute
+what each would do without doing it - see the `inspect_` family in
+[Text Input](text-input.md).
 
 ## Painting the highlight
 
@@ -167,3 +204,24 @@ CSS `selection-background-color` and `selection-color` style the highlight:
 - **No primary-selection clipboard on Linux/X11.** Middle-click paste between Azul and other apps doesn't work yet.
 - **No RTL-aware direction handling.** `direction: rtl` isn't yet considered when ordering the visual highlight rectangles for the first/last line.
 - **No vertical writing mode.** `writing-mode: vertical-*` isn't respected by the selection axis.
+
+## More methods
+
+**Reading** - `has_any_selection`, `has_selection`, `get_selection`,
+`get_selection_ranges`, `get_selection_count`,
+`get_document_selection`.
+
+**Cursors and ranges** - `add_cursor`, `add_selection_range`,
+`set_selection`, `set_select_all_range`, `remove_selection_by_id`,
+`get_primary_cursor`, `get_primary_selection`,
+`get_multi_cursor_selections`, `process_text_selection_click`.
+`set_select_all_range(target, range)` defines what Ctrl+A selects on a
+node, for a surface where "everything" is narrower than the node's
+whole content.
+
+**Remote selections** - `set_remote_selections`,
+`clear_remote_selections`, `set_selection_owner_color`,
+`clear_selection_owner_color`.
+
+**Clipboard** - `get_clipboard_content`, `set_clipboard_content`,
+`set_copy_content`, `set_cut_content`.

@@ -53,10 +53,10 @@ name:               azul
 version:            {version}
 synopsis:           Haskell bindings for the Azul GUI framework
 description:        Auto-generated Haskell bindings for Azul, a functional
-                    desktop GUI toolkit. Embraces the @UI = f(data)@ paradigm
-                    via 'MyDataModel -> Dom' layout callbacks and exposes
-                    'RefAny' as a phantom-typed newtype so downcasts are
-                    statically tracked.
+                    desktop GUI toolkit. Embraces the @UI = f(data)@ paradigm:
+                    a layout is a function @Model -> LayoutCallbackInfo -> IO Dom@
+                    of your own model type, and event handlers are state
+                    transitions @Model -> CallbackInfo -> (Model, Update)@.
 license:            MPL-2.0
 author:             azul-doc codegen
 maintainer:         hello@azul.rs

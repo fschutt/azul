@@ -2467,6 +2467,39 @@ pub struct RegisterComponentLibraryFn {
 
 impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
 
+// Host-invoker plumbing (see crate::host_invoker): the callback takes no
+// arguments at all, so the thunk reads the context from the invocation slot.
+// Without a host to ask, the library is empty.
+crate::impl_managed_callback! {
+    wrapper:        RegisterComponentLibraryFn,
+    ctx_field:      ctx,
+    args:           [],
+    return_ty:      ComponentLibrary,
+    default_ret:    <ComponentLibrary as crate::host_invoker::HostOut>::unwritten(),
+    invoker_static: REGISTER_COMPONENT_LIBRARY_FN_INVOKER,
+    invoker_ty:     AzRegisterComponentLibraryFnInvoker,
+    thunk_fn:       az_register_component_library_fn_thunk,
+    setter_fn:      AzApp_setRegisterComponentLibraryFnInvoker,
+    from_handle_fn: AzRegisterComponentLibraryFn_createFromHostHandle,
+    from_handle_byref_fn: AzRegisterComponentLibraryFn_createFromHostHandleByref,
+}
+
+impl crate::host_invoker::HostOut for ComponentLibrary {
+    /// An empty library: `const` empty strings and vectors own no memory.
+    fn unwritten() -> Self {
+        Self {
+            name: AzString::from_const_str(""),
+            version: AzString::from_const_str(""),
+            description: AzString::from_const_str(""),
+            components: ComponentDefVec::from_const_slice(&[]),
+            exportable: false,
+            modifiable: false,
+            data_models: ComponentDataModelVec::from_const_slice(&[]),
+            enum_models: ComponentEnumModelVec::from_const_slice(&[]),
+        }
+    }
+}
+
 /// A component definition — the "class" / "template" of a component.
 /// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
 #[derive(Clone)]
@@ -5816,6 +5849,26 @@ fn apply_xml_node_attributes(
         }
     }
 
+    if let Some(contenteditable) = xml_node
+        .attributes
+        .get_key("contenteditable")
+        .and_then(|f| parse_bool(f.as_str()))
+    {
+        node.set_contenteditable(contenteditable);
+    }
+
+    if xml_node.attributes.get_key("autofocus").is_some() {
+        let mut attrs = node.attributes().clone().into_library_owned_vec();
+        attrs.push(crate::dom::AttributeType::Autofocus);
+        node.set_attributes(attrs.into());
+    }
+
+    if let Some(placeholder) = xml_node.attributes.get_key("placeholder") {
+        let mut attrs = node.attributes().clone().into_library_owned_vec();
+        attrs.push(crate::dom::AttributeType::Placeholder(placeholder.as_str().into()));
+        node.set_attributes(attrs.into());
+    }
+
     // Handle tabindex attribute
     if let Some(tab_index) = xml_node
         .attributes
@@ -6229,6 +6282,47 @@ fn apply_xml_node_attributes(
 
         if let Some(mp) = clip {
             node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
+        }
+    }
+
+    // ---- Fluent / l10n: `data-l10n="key"` ----
+    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` becomes a localizable
+    // Text node. The key is stored in a flagged AzString so `translate_texts_in_dom`
+    // can identify and replace it before the first render.
+    if let Some(l10n_key) = xml_node.attributes.get_key("data-l10n") {
+        let l10n_key = l10n_key.as_str();
+        if !l10n_key.is_empty() {
+            use azul_css::css::BoxOrStatic;
+            let localizable_text = AzString::tr(l10n_key);
+            node.set_node_type(NodeType::Text(BoxOrStatic::heap(localizable_text)));
+
+            // Collect data-l10n-* arguments.
+            let mut fluent_args: Vec<crate::dom::FluentArgKV> = Vec::new();
+            for pair in xml_node.attributes.as_slice() {
+                let k = pair.key.as_str();
+                let v = pair.value.as_str();
+                if k == "data-l10n" {
+                    continue;
+                }
+                let arg_name = match k.strip_prefix("data-l10n-") {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let value = if let Ok(i) = v.parse::<i32>() {
+                    crate::dom::FluentArg::I32(i)
+                } else if let Ok(f) = v.parse::<f32>() {
+                    crate::dom::FluentArg::F32(f)
+                } else {
+                    crate::dom::FluentArg::String(v.into())
+                };
+                fluent_args.push(crate::dom::FluentArgKV {
+                    key: arg_name.into(),
+                    value,
+                });
+            }
+            if !fluent_args.is_empty() {
+                node.fluent_args = Some(Box::new(crate::dom::FluentArgKVVec::from_vec(fluent_args)));
+            }
         }
     }
 }
@@ -7038,7 +7132,7 @@ pub fn prepare_string(input: &str) -> String {
             if last_line_was_empty {
                 final_lines.push(format!("{RETURN}{line}"));
             } else {
-                final_lines.push(line.to_string());
+                final_lines.push(line);
             }
         }
 
@@ -8624,7 +8718,7 @@ pub fn str_to_cpp_code<'a>(
          {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
          RefAny::create(Data{{}});\n    WindowCreateOptions window = \
          WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
-         AppConfig::default_());\n    app.run(std::move(window));\n    return 0;\n}}\n"
+         AppConfig::create());\n    app.run(std::move(window));\n    return 0;\n}}\n"
     ))
 }
 

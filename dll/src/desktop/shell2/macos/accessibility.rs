@@ -9,7 +9,7 @@
 #[cfg(feature = "a11y")]
 use std::sync::mpsc::{channel, Receiver, Sender};
 #[cfg(feature = "a11y")]
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[cfg(feature = "a11y")]
 use accesskit::{ActionRequest, TreeUpdate};
@@ -19,9 +19,12 @@ use accesskit_macos::SubclassingAdapter;
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 
 #[cfg(feature = "a11y")]
+use crate::desktop::shell2::common::accessibility::A11yTreeFeed;
+
+#[cfg(feature = "a11y")]
 /// Activation handler that provides the initial accessibility tree on demand
 struct TreeActivationHandler {
-    tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
@@ -33,6 +36,7 @@ impl accesskit::ActivationHandler for TreeActivationHandler {
         // (AXFocusedUIElementChanged) that VoiceOver needs to navigate correctly.
         // Returning Some here would skip Placeholder and go directly Inactive → Active,
         // which does NOT generate focus events.
+        self.feed.placeholder_requested();
         None
     }
 }
@@ -58,8 +62,7 @@ pub struct MacOSAccessibilityAdapter {
     adapter: SubclassingAdapter,
     /// Channel for receiving action requests from assistive technologies
     action_receiver: Receiver<ActionRequest>,
-    /// Shared tree provider for activation
-    tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
+    feed: Arc<A11yTreeFeed>,
 }
 
 #[cfg(feature = "a11y")]
@@ -74,12 +77,10 @@ impl MacOSAccessibilityAdapter {
     /// between the app and screen readers
     pub fn new(view: *mut std::ffi::c_void) -> Self {
         let (action_sender, action_receiver) = channel();
-        let tree_provider = Arc::new(Mutex::new(None));
+        let feed = A11yTreeFeed::new();
 
         // Create handlers
-        let activation_handler = TreeActivationHandler {
-            tree_provider: tree_provider.clone(),
-        };
+        let activation_handler = TreeActivationHandler { feed: feed.clone() };
         let action_handler = ChannelActionHandler {
             sender: action_sender,
         };
@@ -90,7 +91,7 @@ impl MacOSAccessibilityAdapter {
         Self {
             adapter,
             action_receiver,
-            tree_provider,
+            feed,
         }
     }
 
@@ -113,26 +114,21 @@ impl MacOSAccessibilityAdapter {
             tree_update.tree.is_some()
         );
 
-        // Store for next activation - use try_lock to avoid blocking
-        if let Ok(mut guard) = self.tree_provider.try_lock() {
-            *guard = Some(tree_update.clone());
-        } else {
-            crate::log_trace!(
-                crate::desktop::shell2::common::debug_server::LogCategory::Platform,
-                "[a11y] update_tree: lock contention, skipping"
-            );
+        let Some(tree_update) = self.feed.next_update(tree_update) else {
             return;
-        }
+        };
+        let had_tree = tree_update.tree.is_some();
 
         // Update active tree and RAISE events.
         // QueuedEvents::raise() posts NSAccessibility notifications
         // (e.g. AXFocusedUIElementChanged) that VoiceOver listens for.
         // Without raising, VoiceOver never learns about tree changes.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = crate::desktop::recoverable_panic::catch(|| {
             self.adapter.update_if_active(|| tree_update)
-        }));
+        });
         match result {
             Ok(Some(events)) => {
+                self.feed.delivered(had_tree);
                 crate::log_trace!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Platform,
                     "[a11y] update_tree: got QueuedEvents, raising"
@@ -140,6 +136,7 @@ impl MacOSAccessibilityAdapter {
                 events.raise();
             }
             Ok(None) => {
+                self.feed.delivered(had_tree);
                 crate::log_trace!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Platform,
                     "[a11y] update_tree: adapter inactive (no events)"

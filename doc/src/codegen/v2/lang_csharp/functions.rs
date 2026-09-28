@@ -49,52 +49,52 @@ pub fn generate_native_methods(
     // load) that probes the assembly directory + the working directory for the
     // platform-specific filename, then falls back to the default search
     // (system dirs + the NuGet `runtimes/<rid>/native/` payload).
-    builder.line("[System.Runtime.CompilerServices.ModuleInitializer]");
+    builder.line("[global::System.Runtime.CompilerServices.ModuleInitializer]");
     builder.line("internal static void _RegisterAzulResolver()");
     builder.line("{");
     builder.indent();
     builder.line(
-        "System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(typeof(NativeMethods).\
+        "global::System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(typeof(NativeMethods).\
          Assembly, _ResolveAzul);",
     );
     builder.dedent();
     builder.line("}");
     builder.blank();
     builder.line(
-        "private static System.IntPtr _ResolveAzul(string name, System.Reflection.Assembly \
-         assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)",
+        "private static global::System.IntPtr _ResolveAzul(string name, global::System.Reflection.Assembly \
+         assembly, global::System.Runtime.InteropServices.DllImportSearchPath? searchPath)",
     );
     builder.line("{");
     builder.indent();
-    builder.line("if (name != DllName) return System.IntPtr.Zero;");
+    builder.line("if (name != DllName) return global::System.IntPtr.Zero;");
     builder.line(
         "string file = \
-         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.\
+         global::System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(global::System.Runtime.\
          InteropServices.OSPlatform.Windows) ? \"azul.dll\"",
     );
     builder.line(
-        "    : System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.\
+        "    : global::System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(global::System.Runtime.\
          InteropServices.OSPlatform.OSX) ? \"libazul.dylib\"",
     );
     builder.line("    : \"libazul.so\";");
     builder.line(
-        "foreach (var dir in new[] { System.AppContext.BaseDirectory, \
-         System.IO.Directory.GetCurrentDirectory() })",
+        "foreach (var dir in new[] { global::System.AppContext.BaseDirectory, \
+         global::System.IO.Directory.GetCurrentDirectory() })",
     );
     builder.line("{");
     builder.indent();
     builder.line("if (string.IsNullOrEmpty(dir)) continue;");
-    builder.line("var candidate = System.IO.Path.Combine(dir, file);");
+    builder.line("var candidate = global::System.IO.Path.Combine(dir, file);");
     builder.line(
-        "if (System.IO.File.Exists(candidate) && \
-         System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle)) return \
+        "if (global::System.IO.File.Exists(candidate) && \
+         global::System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle)) return \
          handle;",
     );
     builder.dedent();
     builder.line("}");
     builder.line(
-        "return System.Runtime.InteropServices.NativeLibrary.TryLoad(DllName, assembly, \
-         searchPath, out var def) ? def : System.IntPtr.Zero;",
+        "return global::System.Runtime.InteropServices.NativeLibrary.TryLoad(DllName, assembly, \
+         searchPath, out var def) ? def : global::System.IntPtr.Zero;",
     );
     builder.dedent();
     builder.line("}");
@@ -114,7 +114,15 @@ pub fn generate_native_methods(
     Ok(())
 }
 
-fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+/// Does this function get a `[DllImport]`? `pub(super)` because the
+/// idiomatic layers must never emit a member that names an import this
+/// filter dropped — `derives.rs` and `wrappers.rs` ask before they route a
+/// derive through one.
+pub(super) fn should_emit_function(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
@@ -151,8 +159,9 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) {

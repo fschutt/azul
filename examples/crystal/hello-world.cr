@@ -7,16 +7,18 @@ class Counter
   end
 end
 
+def on_click(counter : Counter, info : Azul::CallbackInfo) : Azul::Update
+  counter.count += 1
+  Azul::Update::RefreshDom
+end
+
 def layout(counter : Counter, info : Azul::LayoutCallbackInfo) : Azul::Dom
   label = Azul::Dom.p_with_text(counter.count.to_s)
     .with_css("font-size: 32px; margin: 0;")
 
   button = Azul::Button.new("Increase counter")
     .with_button_type(:primary)
-    .with_on_click(counter) do |counter, _info|
-      counter.count += 1
-      Azul::Update::RefreshDom
-    end
+    .with_on_click(counter, ->on_click(Counter, Azul::CallbackInfo))
 
   Azul::Dom.body
     .with_child(label)

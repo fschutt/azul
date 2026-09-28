@@ -110,6 +110,7 @@ macro_rules! impl_vec {
             len: usize,
             cap: usize,
             destructor: $destructor_name,
+            pub flags: u8,
         }
 
         #[derive(Debug, Copy, Clone)]
@@ -148,6 +149,7 @@ macro_rules! impl_vec {
                     len: input.len(),
                     cap: input.len(),
                     destructor: $destructor_name::NoDestructor, // because of &'static
+                    flags: 0,
                 }
             }
 
@@ -184,6 +186,7 @@ macro_rules! impl_vec {
                     len,
                     cap,
                     destructor: $destructor_name::DefaultRust,
+                    flags: 0,
                 }
             }
 
@@ -920,6 +923,7 @@ macro_rules! impl_vec_clone {
                         len: self.len,
                         cap: self.cap,
                         destructor: $destructor_name::NoDestructor,
+                        flags: self.flags,
                     },
                     $destructor_name::External(_) | $destructor_name::DefaultRust => {
                         Self::from_vec(self.as_ref().to_vec())

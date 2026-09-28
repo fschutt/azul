@@ -1,5 +1,13 @@
 # frozen_string_literal: true
 
+# Optional: use the locally assembled gem instead of `-I.` + a copied azul.rb.
+# The gem layout (azul.gemspec + lib/azul.rb + lib/libazul.*) is what CI's
+# "Assemble gem" step builds under target/package/ruby:
+#   mkdir -p target/package/ruby/lib
+#   cp target/codegen/azul.gemspec target/package/ruby/
+#   cp target/codegen/azul.rb      target/package/ruby/lib/
+#   cp target/release/libazul.*    target/package/ruby/lib/
+# Codegen itself writes azul.rb + azul.gemspec flat into target/codegen/.
 source 'https://rubygems.org'
 
-gem 'azul', path: ENV.fetch('AZ_GEM_PATH', '../../target/codegen/v2/ruby')
+gem 'azul', path: ENV.fetch('AZ_GEM_PATH', '../../target/package/ruby')

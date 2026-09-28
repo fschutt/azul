@@ -49,7 +49,7 @@ int main() {
     window.inner().window_state.size.dimensions.width = 800.0;
     window.inner().window_state.size.dimensions.height = 600.0;
 
-    App app = App::create(data, AppConfig::default_());
+    App app = App::create(data, AppConfig::create());
     app.run(window);
     return 0;
 }

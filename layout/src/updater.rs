@@ -2277,6 +2277,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_update_check_callback_thunk,
     setter_fn:      AzApp_setUpdateCheckCallbackInvoker,
     from_handle_fn: AzUpdateCheckCallback_createFromHostHandle,
+    from_handle_byref_fn: AzUpdateCheckCallback_createFromHostHandleByref,
     extra_args:     [check: UpdateCheckInfo],
 }
 
@@ -2435,7 +2436,7 @@ extern "C" fn update_check_writeback(
     let callback = o.callback.clone();
     let check = o.info.clone();
     drop(o);
-    (callback.cb)(user_data, info, check)
+    callback.invoke(user_data, info, check)
 }
 
 #[cfg(test)]

@@ -180,7 +180,7 @@ static void install_playback_timer(AzRefAny data, AzCallbackInfo* info) {
     AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(info);
     AzTimer timer = AzTimer_create(
         AzRefAny_clone(&data),
-        (AzTimerCallback){ .cb = advance_frame, .ctx = AzOptionRefAny_none() },
+        advance_frame,
         time_fn);
 
     AzSystemTimeDiff diff = AzSystemTimeDiff_fromMillis(interval_ms);

@@ -33,6 +33,13 @@ impl PlatformCapability {
             reason: AzString::from_const_str("WebTransport has no in-process wasm engine"),
         }
     }
+    pub fn iroh() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str("iroh has no browser transport yet"),
+        }
+    }
     pub fn thread() -> PlatformCapability {
         PlatformCapability {
             available: false,

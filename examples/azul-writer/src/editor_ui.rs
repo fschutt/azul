@@ -1,11 +1,11 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, RefAny, SliderOnValueChangeCallbackType,
-        StatusBarOnViewSelectCallbackType, VirtualViewCallbackInfo, VirtualViewReturn,
+        VirtualViewCallbackInfo, VirtualViewReturn,
     },
     component::ComponentEventFilter,
     css::{EventFilter, FocusEventFilter, LayoutSize, LogicalPosition, LogicalSize, SystemStyle},
-    dom::{Dom, IdOrClass, SliderOnValueChangeCallback, StatusBarOnViewSelectCallback},
+    dom::{Dom, IdOrClass, SliderOnValueChangeCallback},
     option::{OptionDom, OptionRefAny},
     str::String as AzString,
     svg::LogicalRect,
@@ -262,10 +262,7 @@ pub fn status_bar(
         .with_active_view(state.view_mode)
         .with_on_select(
             data.clone(),
-            StatusBarOnViewSelectCallback {
-                cb: crate::on_view_select as StatusBarOnViewSelectCallbackType,
-                callable: OptionRefAny::None,
-            },
+            crate::on_view_select,
         );
 
     let mut zoom = StatusBarZoom::office_2013().with_percent(state.zoom_percent);

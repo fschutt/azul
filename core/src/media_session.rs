@@ -37,23 +37,18 @@ use azul_css::AzString;
 /// macOS's `MPNowPlayingPlaybackState` adds `unknown` and `interrupted` which
 /// no app can meaningfully assert about itself - `interrupted` is something the
 /// SYSTEM does to you (a phone call), not something you declare.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum MediaPlaybackState {
     /// Nothing is loaded, or playback finished. The desktop widget shows no
     /// track.
+    #[default]
     Stopped = 0,
     /// Advancing. A desktop extrapolates the position from here, which is why
     /// this must be honest even when the position is not being republished.
     Playing = 1,
     /// Loaded and holding position.
     Paused = 2,
-}
-
-impl Default for MediaPlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 /// What the app is playing, as the system media widget should show it.

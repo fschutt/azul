@@ -1,10 +1,9 @@
 use azul::{
-    dom::{GeolocationProbeConfig, MapPinTapCallback},
-    option::OptionRefAny,
+    dom::GeolocationProbeConfig,
     prelude::*,
     sensor::SensorKind,
     task::TerminateTimer,
-    widgets::{MapLatLon, MapTileLayer, MapViewport, MapViewportChangedCallback, MapWidget},
+    widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget},
 };
 
 struct MapState {
@@ -342,17 +341,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_viewport(viewport)
         .with_on_viewport_changed(
             data.clone(),
-            MapViewportChangedCallback {
-                cb: on_viewport_changed,
-                callable: OptionRefAny::None,
-            },
+            on_viewport_changed,
         )
         .with_on_pin_tap(
             data.clone(),
-            MapPinTapCallback {
-                cb: on_pin_tap,
-                callable: OptionRefAny::None,
-            },
+            on_pin_tap,
         )
         .dom();
 
@@ -600,10 +593,7 @@ extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
         TimerId::unique(),
         Timer::create(
             data.clone(),
-            TimerCallback {
-                cb: compass_tick,
-                ctx: OptionRefAny::None,
-            },
+            compass_tick,
             info.get_system_time_fn(),
         ),
     );

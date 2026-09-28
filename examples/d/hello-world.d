@@ -8,6 +8,12 @@ final class Counter
     int count = 5;
 }
 
+Update onClick(Counter counter, CallbackInfo info)
+{
+    counter.count += 1;
+    return Update.refreshDom;
+}
+
 Dom layout(Counter counter, LayoutCallbackInfo info)
 {
     auto label = Dom.pWithText(counter.count.to!string)
@@ -15,10 +21,7 @@ Dom layout(Counter counter, LayoutCallbackInfo info)
 
     auto button = Button("Increase counter")
         .withButtonType(ButtonType.primary)
-        .withOnClick(counter, (Counter c, CallbackInfo _) {
-            c.count += 1;
-            return Update.refreshDom;
-        });
+        .withOnClick(counter, &onClick);
 
     return Dom.body()
         .withChild(label)

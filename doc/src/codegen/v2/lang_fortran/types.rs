@@ -6,7 +6,7 @@
 //!   Fortran `bind(C)` derived types have C-compatible memory layout
 //!   (matches Rust's `#[repr(C)]`), so values can flow across the FFI
 //!   boundary by value.
-//! - **Unit-only enums** become a F2008 `enum, bind(C)` block (which
+//! - **Unit-only enums** become an F2003 `enum, bind(C)` block (which
 //!   has fixed underlying integer kind compatible with C `int`) plus
 //!   a public `integer(c_int)` named alias so users can declare
 //!   `integer(c_int) :: my_button = AzButtonType_Primary`.
@@ -19,18 +19,25 @@
 //! - **Callback typedefs** become `abstract interface` blocks plus a
 //!   `procedure(...), pointer :: AzFooCallbackType` alias. Fortran
 //!   procedure pointers with `bind(C)` are exactly C function pointers.
-//! - **Recursive / VecRef / GenericTemplate / DestructorOrClone** types
-//!   are emitted as ABI-opaque blob stand-ins when their layout is
-//!   computable (they ARE embedded by value — every `AzXVec` carries an
-//!   `AzXVecDestructor`), else skipped with a `! SKIPPED:` comment.
+//! - **Recursive / VecRef / DestructorOrClone** types are emitted as
+//!   ABI-opaque blob stand-ins when their layout is computable (they ARE
+//!   embedded by value — every `AzXVec` carries an `AzXVecDestructor`).
+//! - **Generic templates** (`CssPropertyValue<T>`, `PhysicalSize<T>`) have
+//!   no C ABI of their own and get no declaration: what crosses the
+//!   boundary is an INSTANTIATION (`StyleCursorValue`, `PhysicalSizeU32`),
+//!   and those are declared from `ir.type_aliases` like any other type.
+//!   The template's place in the file carries a note naming them.
+//! - **Named constants** (`GlContextPtr_ACCUM_ALPHA_BITS`) become
+//!   `integer(kind), parameter` declarations in the chunk that declares
+//!   their owning class.
 
 use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
+    ArgRefKind, CallbackTypedefDef, CodegenIR, ConstantDef, EnumDef, EnumVariantKind, FieldDef,
+    FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::layout::{blob_field_decl, mono_layout, type_layout};
 use super::{
@@ -57,6 +64,13 @@ pub fn generate_types_for(
     builder.line("! ----------------------------------------------------------------------");
     builder.blank();
 
+    // 0. The named constants of the classes this chunk declares (the
+    //    OpenGL enum values api.json files under `GlContextPtr`). They
+    //    are the same kind of declaration as the unit-enum enumerators
+    //    below, so they live with the types rather than with the
+    //    interface blocks.
+    emit_constants_for(builder, ir, belongs, split);
+
     // 1. Unit (simple) enums first so they may appear in derived-type
     //    field declarations as `integer(c_int)` aliases. Skipped-category
     //    tagged unions (DestructorOrClone etc.) are embedded BY VALUE in
@@ -73,7 +87,7 @@ pub fn generate_types_for(
                     continue;
                 }
             }
-            emit_skipped_enum(builder, e);
+            emit_skipped_enum(builder, ir, e);
             continue;
         }
         if !e.is_union {
@@ -107,7 +121,7 @@ pub fn generate_types_for(
                     continue;
                 }
             }
-            emit_skipped_struct(builder, s);
+            emit_skipped_struct(builder, ir, s);
             continue;
         }
         items.push((s.sort_order, Item::Struct(s)));
@@ -158,6 +172,149 @@ pub fn generate_types_for(
 }
 
 // ============================================================================
+// Named constants
+// ============================================================================
+
+/// The Fortran name of an api.json constant.
+///
+/// api.json files a constant under its class (`GlContextPtr_ACCUM_ALPHA_BITS`)
+/// and the C binding spells it `AzGlContextPtr_ACCUM_ALPHA_BITS`. Keeping
+/// that prefix here is not decoration: a Fortran `parameter` is visible in
+/// every scope that reaches the module, `use azul` reaches all of them, and
+/// the OpenGL enum names include `INT`, `EXP`, `INDEX`, `MIN`, `MAX`,
+/// `REPEAT` and `NEAREST` — every one of them a Fortran intrinsic a bare
+/// constant would shadow in the user's own program. The prefixed spelling is
+/// also the one the unit-enum enumerators already use
+/// (`AzUpdate_RefreshDom`), so the whole binding names its compile-time
+/// values one way.
+pub(crate) fn constant_name(c: &ConstantDef) -> String {
+    truncate_identifier(&ffi_type_name(&c.name))
+}
+
+/// The class an api.json constant is filed under: `GlContextPtr` of
+/// `GlContextPtr_ACCUM_ALPHA_BITS`. api.json class names are PascalCase
+/// with no `_`, so the first one separates the class from the constant.
+fn constant_owner(c: &ConstantDef) -> &str {
+    c.name
+        .split_once('_')
+        .map(|(owner, _)| owner)
+        .unwrap_or(&c.name)
+}
+
+/// The named constants of every class this chunk declares, grouped by
+/// owning class so each group can carry the api.json-module marker and the
+/// `public ::` run the per-module facades are built from.
+fn emit_constants_for(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    belongs: &dyn Fn(&str) -> bool,
+    split: &super::Split,
+) {
+    let mine: Vec<&ConstantDef> = ir
+        .constants
+        .iter()
+        .filter(|c| belongs(constant_owner(c)))
+        .collect();
+    let mut i = 0;
+    while i < mine.len() {
+        let owner = constant_owner(mine[i]);
+        let mut j = i;
+        while j < mine.len() && constant_owner(mine[j]) == owner {
+            j += 1;
+        }
+        emit_constant_group(builder, ir, split, owner, &mine[i..j]);
+        i = j;
+    }
+}
+
+fn emit_constant_group(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    split: &super::Split,
+    owner: &str,
+    group: &[&ConstantDef],
+) {
+    builder.line(&split.marker(owner));
+    builder.line(&format!(
+        "! The {} compile-time constants of {}.",
+        group.len(),
+        owner
+    ));
+    let mut declared = Vec::with_capacity(group.len());
+    for c in group {
+        let f_ty = map_type_to_fortran(&c.type_name, ir);
+        // Every api.json constant is an integer today. A non-integer one
+        // has no `parameter` spelling this emitter knows, and inventing a
+        // wrong one would be worse than the loud "undefined name" a caller
+        // gets instead.
+        let Some(kind) = f_ty.strip_prefix("integer(").and_then(|k| k.strip_suffix(')')) else {
+            continue;
+        };
+        let name = constant_name(c);
+        for d in &c.doc {
+            builder.line(&format!("! {}", sanitize_comment_line(d)));
+        }
+        let (literal, note) = constant_literal(&c.value, kind);
+        if let Some(note) = note {
+            builder.line(&format!("! {}", note));
+        }
+        builder.line(&format!("{}, parameter :: {} = {}", f_ty, name, literal));
+        declared.push(name);
+    }
+    for name in &declared {
+        builder.line(&format!("public :: {}", name));
+    }
+    builder.blank();
+}
+
+/// The Fortran literal for an api.json constant value.
+///
+/// api.json spells the OpenGL values in hex (`"0x0D5B"`), which is how the
+/// GL specification and every other binding writes them, so `int(z'0D5B',
+/// c_int32_t)` keeps that spelling. Fortran has no unsigned integer kind,
+/// however, and a handful of these values have the sign bit set
+/// (`0xFFFFFFFF`, `TIMEOUT_IGNORED`): they have no positive image in the
+/// kind that carries their bits, and a BOZ wider than its kind is not
+/// portable — F2008 reads a BOZ as a value, so it overflows, while F2018
+/// reads it as a bit pattern. Those are written as the equivalent negative
+/// decimal — the same bits — and the second half of the pair is the comment
+/// line that says so, so the api.json spelling is never lost.
+fn constant_literal(value: &str, kind: &str) -> (String, Option<String>) {
+    // `c_int32_t` -> 32. A kind with no width in its name (none occurs
+    // today) is assumed to be the widest, which only ever costs a wider
+    // two's-complement wrap than needed.
+    let bits: u32 = kind
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap_or(64);
+    let hex = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"));
+    let parsed = match hex {
+        Some(h) => u128::from_str_radix(h, 16).ok(),
+        None => value.parse::<u128>().ok(),
+    };
+    let signed_max = (1u128 << (bits - 1)) - 1;
+    match (parsed, hex) {
+        (Some(v), _) if v > signed_max => (
+            format!("{}_{}", (v as i128) - (1i128 << bits), kind),
+            Some(format!(
+                "api.json value {}: the same {} bits, spelled the only way a signed kind can hold them.",
+                value, bits
+            )),
+        ),
+        (Some(_), Some(h)) => (format!("int(z'{}', {})", h.to_ascii_uppercase(), kind), None),
+        (Some(v), None) => (format!("{}_{}", v, kind), None),
+        // Not a whole number: pass api.json's own spelling through, so an
+        // unspellable value fails the Fortran build loudly instead of
+        // disappearing from the binding.
+        (None, _) => (value.to_string(), None),
+    }
+}
+
+// ============================================================================
 // Inclusion filters
 // ============================================================================
 
@@ -193,12 +350,72 @@ pub(crate) fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
-fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
+/// The instantiations of a generic template that DO cross the C ABI:
+/// `CssPropertyValue<T>` is nothing at the boundary, `StyleCursorValue`
+/// (= `CssPropertyValue<StyleCursor>`) is a concrete union with a concrete
+/// layout. The IR carries each one as a type alias with a monomorphized
+/// definition, and [`generate_types_for`] declares them from there.
+fn instantiations_of<'a>(ir: &'a CodegenIR, template: &str) -> Vec<&'a str> {
+    ir.type_aliases
+        .iter()
+        .filter(|ta| ta.monomorphized_def.is_some() && ta.target.trim() == template)
+        .map(|ta| ta.name.as_str())
+        .collect()
+}
+
+/// Note why a type carries no declaration of its own.
+///
+/// A GENERIC TEMPLATE is not a gap. It has no C ABI at all — nothing
+/// crosses the boundary as a `CssPropertyValue` or a `PhysicalSize`, only
+/// as one of their instantiations — and every one of those IS declared,
+/// under its own name, from `ir.type_aliases`. Calling that a skipped item
+/// claimed a hole in the binding that was never there. Anything else
+/// reaching here is a real gap and still says so.
+fn emit_undeclared(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    what: &str,
+    name: &str,
+    why: &str,
+    generic: bool,
+) {
+    if !generic {
+        builder.line(&format!("! SKIPPED: {} {} ({})", what, name, why));
+        return;
+    }
+    let inst = instantiations_of(ir, name);
+    if inst.is_empty() {
+        builder.line(&format!(
+            "! Generic template {} {}: no C ABI of its own, and no instantiation of it crosses the boundary.",
+            what, name
+        ));
+        return;
+    }
+    // Name the first few so a reader looking for `PhysicalSize` in this
+    // file finds the type they actually want.
+    let shown: Vec<String> = inst.iter().take(3).map(|n| ffi_type_name(n)).collect();
     builder.line(&format!(
-        "! SKIPPED: struct {} ({})",
-        s.name,
-        s.category.description()
+        "! Generic template {} {}: no C ABI of its own. Its {} instantiation(s)",
+        what,
+        name,
+        inst.len()
     ));
+    builder.line(&format!(
+        "! are declared each under its own name ({}{}).",
+        shown.join(", "),
+        if inst.len() > shown.len() { ", ..." } else { "" }
+    ));
+}
+
+fn emit_skipped_struct(builder: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
+    emit_undeclared(
+        builder,
+        ir,
+        "struct",
+        &s.name,
+        s.category.description(),
+        !s.generic_params.is_empty() || s.category == TypeCategory::GenericTemplate,
+    );
 }
 
 /// Emit an ABI-opaque stand-in type: a single array component of the
@@ -221,16 +438,19 @@ fn emit_opaque_blob(builder: &mut CodeBuilder, name: &str, l: super::layout::Abi
     builder.blank();
 }
 
-fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
-    builder.line(&format!(
-        "! SKIPPED: enum {} ({})",
-        e.name,
-        e.category.description()
-    ));
+fn emit_skipped_enum(builder: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
+    emit_undeclared(
+        builder,
+        ir,
+        "enum",
+        &e.name,
+        e.category.description(),
+        !e.generic_params.is_empty() || e.category == TypeCategory::GenericTemplate,
+    );
 }
 
 // ============================================================================
-// Unit-only enum (F2008 `enum, bind(C)` block + integer alias)
+// Unit-only enum (F2003 `enum, bind(C)` block + integer alias)
 // ============================================================================
 
 fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
@@ -243,7 +463,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     let alias = ffi_type_name(&e.name);
 
     if e.variants.is_empty() {
-        // Empty enums are illegal in F2008 `enum, bind(C)`; emit just
+        // Empty enums are illegal in an `enum, bind(C)`; emit just
         // the integer alias as a degenerate type.
         builder.line(&format!(
             "! NOTE: enum {} has no variants; emitting integer alias only.",
@@ -258,7 +478,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         return;
     }
 
-    // F2008 enum block.
+    // F2003 enum block.
     builder.line("enum, bind(C)");
     builder.indent();
     for (i, v) in e.variants.iter().enumerate() {

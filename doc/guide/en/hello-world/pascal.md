@@ -4,15 +4,15 @@ title: Hello World [Pascal]
 language: en
 canonical_slug: hello-world/pascal
 audience: external
-maturity: wip
+maturity: mature
 guide_order: 24
 topic_only: false
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - examples/pascal/hello-world.pas
-last_generated_rev: dab922c5e869ab3c1ff69a2d7f4af1af19a5c27c
-generated_at: 2026-07-04T00:00:00Z
+last_generated_rev: 2660b0c45c9ea401ad6777a203f468755167e62e
+generated_at: 2026-09-16T00:00:00Z
 default-search-keys:
   - App
   - AppConfig
@@ -27,328 +27,189 @@ default-search-keys:
 
 ## Introduction
 
-The Pascal binding is a single generated `Azul` unit (`azul.pas`) for
-**Free Pascal 3.2+** that declares every `Az*` function as
-`cdecl; external 'azul'`, plus a small "host-invoker" layer that lets
-you write callbacks as ordinary Object Pascal classes. There is no
-extra runtime and no code generator to run on your side: you download
-one `.pas` file and the native library, and `fpc` does the rest.
-
-Two compiler directives make the FFI work and must be present in any
-program that uses the unit (the example below has them):
-
-- `{$mode objfpc}{$H+}` — Object Pascal mode: classes, `override`,
-  and (`$H+`) `AnsiString` as the default string type.
-- `{$PACKRECORDS C}` — forces C-ABI struct layout, so `Az*` records
-  passed by value match the Rust `extern "C"` ABI exactly. Without it,
-  field offsets silently differ and calls corrupt memory.
-
-One thing the unit does for you: its `initialization` block masks all
-FPU exceptions (`SetExceptionMask`). The Free Pascal runtime unmasks
-InvalidOp, ZeroDivide and Overflow at program start, but libazul is
-Rust and C code written for the IEEE-754 default environment, where
-NaN and ±inf are ordinary values — layout code computes `inf - inf`
-on purpose. With FPC's traps armed, the first such operation inside
-the library dies, and on macOS/aarch64 the kernel reports it as
-`EAccessViolation` although no memory access is wrong. If you need
-FP traps in your own numeric code, enable them only around code that
-never calls into azul, and mask them again before the next call.
+To use `libazul` from Free Pascal (3.2.0+), you need the native prebuilt library and the generated
+`Azul` bindings (`azul.pas`). The bindings wrap the C API in classes: you write a model class,
+plain functions as callbacks, and pass ordinary Pascal strings. For older compilers, see the 
+[Supported Compilers](#supported-compilers) section.
 
 ## Installation
 
-You need the Free Pascal Compiler (`fpc`, 3.2+ — `apt install
-fp-compiler` / `brew install fpc`), the generated `azul.pas` unit, and
-the native library. All three downloads come from the release page and
-are built by the release CI.
-
-Linux:
-
-```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul.pas
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.pas
-fpc -Mobjfpc -Sh -Fl. hello-world.pas
-LD_LIBRARY_PATH=. ./hello-world
-```
+You need the Free Pascal Compiler (`brew install fpc` / `apt install fp-compiler`), 
+the `azul.pas` unit and the native library from the release page.
 
 macOS:
 
 ```sh
+# macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
+# Linux
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so
+# Windows
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll
+
 curl -O https://azul.rs/ui/release/$VERSION/azul.pas
 curl -O https://azul.rs/ui/release/$VERSION/hello-world.pas
-fpc -Mobjfpc -Sh -Fl. hello-world.pas
-DYLD_LIBRARY_PATH=. ./hello-world
+fpc -Fl. hello-world.pas
+DYLD_LIBRARY_PATH=. ./hello-world # hello-world.exe on Windows
 ```
 
-Windows:
+
+The bindings link the library by name, so `-Fl.` (the library search path) 
+is the only flag you need. You will find the precompiled `.so` and `.dylib` 
+files for various different architectures on the release page, download and 
+rename it to link properly.
+
+### Building from source
+
+Only needed if you want to track `master` or patch the library locally:
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul.pas
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.pas
-fpc -Mobjfpc -Sh -Fl. hello-world.pas
-hello-world.exe
+# git clone https://github.com/fschutt/azul
+# cd myfolder/azul
+# generate the bindings from api.json (required)
+cargo run -p azul-doc --release -- codegen all
+# build the actual DLL with the now-generated .rs C-API bindings
+cargo build -p azul-dll --release --features build-dll
 ```
 
-`-Fl.` adds the current directory to the *linker's* library search
-path. `azul.pas` carries a `{$linklib azul}` directive, so FPC links
-against `libazul` automatically — you do **not** need `-k-lazul` on
-the command line, only `-Fl.` (or a system-installed `libazul`) so the
-linker can find the library file.
+Notice the required `--features build-dll`. The DLL lands in
+`target/release/libazul.{so,dylib}` (or `azul.dll`), the unit in 
+`target/codegen/azul.pas`. Copy both next to your program.
 
 ## Simple "Counter" Example
-
-This is the exact program shipped as `examples/pascal/hello-world.pas`:
 
 ```pascal
 program HelloWorld;
 
-{$mode objfpc}{$H+}
-{$PACKRECORDS C}
+{$mode delphi}
 
 uses
-  ctypes, sysutils,
-  Azul;
+  SysUtils, Azul;
 
 type
-  { Plain data model. }
   TMyModel = class
     Counter: Integer;
-    constructor Create(c: Integer);
   end;
 
-  { Click handler: bump counter and request a DOM refresh.
-    Button.onClick is TYPED since the typed-callback API change: derive
-    from TAzButtonOnClickCallbackInvoker, not the generic TAzCallbackInvoker. }
-  TMyClickHandler = class(TAzButtonOnClickCallbackInvoker)
-    procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
-  end;
-
-  { Layout handler: build the DOM. }
-  TMyLayoutHandler = class(TAzLayoutCallbackInvoker)
-    procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
-  end;
-
-constructor TMyModel.Create(c: Integer);
+function OnIncrease(Model: TMyModel; Info: TAzCallbackInfo): TAzUpdate;
 begin
-  Counter := c;
+  Model.Counter := Model.Counter + 1;
+  Result := azRefreshDom;
 end;
 
-function MakeAzString(const s: ansistring): TAzString;
-begin
-  if Length(s) = 0 then
-    Result := AzString_fromUtf8(nil, 0)
-  else
-    Result := AzString_fromUtf8(PChar(@s[1]), Length(s));
-end;
-
-procedure TMyClickHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
+function Layout(Model: TMyModel; Info: TAzLayoutCallbackInfo): TDom;
 var
-  m: TObject;
+  LabelDom: TDom;
+  Btn: TButton;
 begin
-  m := azul_refany_get(PAzRefAny(arg0));
-  if (m <> nil) and (m is TMyModel) then
-    TMyModel(m).Counter := TMyModel(m).Counter + 1;
-  if out_ptr <> nil then
-    PAzUpdate(out_ptr)^ := TAzUpdate_RefreshDom;
-end;
+  LabelDom := TDom.P(IntToStr(Model.Counter))
+    .WithCss('font-size: 32px; margin: 0;');
 
-procedure TMyLayoutHandler.Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer);
-var
-  m: TObject;
-  counter_text, label_wrap, body: TDom;
-  btn: TButton;
-  click_handler: TMyClickHandler;
-  click_cb: TAzButtonOnClickCallback;
-  click_data: TAzRefAny;
-begin
-  m := azul_refany_get(PAzRefAny(arg0));
-  if (m = nil) or not (m is TMyModel) then
-  begin
-    body := TDom.CreateBody;
-    if out_ptr <> nil then
-      PAzDom(out_ptr)^ := body.Release;
-    body.Free;
-    Exit;
-  end;
+  Btn := TButton.Create('Increase counter')
+    .SetButtonType(azPrimary)
+    .OnClick<TMyModel>(OnIncrease);
 
-  { Idiomatic wrapper classes: TDom.CreateTextDoNotUseWithoutBlockLevelWrapper / CreateDiv / CreateBody are
-    named constructors; builder methods return fresh TDom wrappers and
-    consume their by-value inputs, so .Free on a consumed wrapper only
-    releases the object shell, never the DOM it was moved into. }
-  counter_text := TDom.CreateTextDoNotUseWithoutBlockLevelWrapper(MakeAzString(IntToStr(TMyModel(m).Counter)));
-  label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
-                              .WithChild(counter_text);
-
-  click_handler := TMyClickHandler.Create;
-  click_cb := azul_register_buttononclickcallback(click_handler);
-  click_data := azul_refany_create(TMyModel(m));
-
-  btn := TButton.Create(MakeAzString('Increase counter'))
-                .WithButtonType(TAzButtonType_Primary)
-                .WithOnClick(click_data, click_cb);
-
-  body := TDom.CreateBody.WithChild(label_wrap).WithChild(btn.Dom);
-
-  { Release detaches the raw record: ownership passes to libazul via out_ptr. }
-  if out_ptr <> nil then
-    PAzDom(out_ptr)^ := body.Release;
-
-  { Free the wrapper shells (their records were consumed / released above). }
-  counter_text.Free;
-  label_wrap.Free;
-  btn.Free;
-  body.Free;
+  Result := TDom.Body.AddChild(LabelDom).AddChild(Btn.Dom);
 end;
 
 var
-  model: TMyModel;
-  layout_handler: TMyLayoutHandler;
-  data: TAzRefAny;
-  layout_cb: TAzLayoutCallback;
-  wco: TAzWindowCreateOptions;
-  cfg: TAzAppConfig;
-  app: TAzApp;
-
+  Model: TMyModel;
+  App: TAzApp<TMyModel>;
 begin
-  WriteLn('[azul] Pascal full-GUI hello-world starting.');
+  Model := TMyModel.Create;
+  Model.Counter := 5;
 
-  model := TMyModel.Create(5);
-  data := azul_refany_create(model);
+  App := TAzApp<TMyModel>.Create(Model, Layout);
+  App.Window.Title := 'Hello World';
+  App.Window.Width := 400;
+  App.Window.Height := 300;
+  App.Run;
 
-  layout_handler := TMyLayoutHandler.Create;
-  layout_cb := azul_register_layoutcallback(layout_handler);
-
-  wco := AzWindowCreateOptions_default();
-  wco.window_state.layout_callback := layout_cb;
-  wco.window_state.size.dimensions.width := 400.0;
-  wco.window_state.size.dimensions.height := 300.0;
-  wco.window_state.flags.decorations := TAzWindowDecorations_NoTitleAutoInject;
-  wco.window_state.flags.background_material := TAzWindowBackgroundMaterial_Sidebar;
-
-  cfg := AzAppConfig_create();
-  app := AzApp_create(data, cfg);
-  AzApp_run(@app, wco);
+  App.Free;
 end.
 ```
 
-Five things to notice.
+`TAzApp<TMyModel>` takes ownership of your model: `App.Free` frees the app and then the
+model, so do not free the model yourself. Callbacks are plain functions that receive your 
+model and the callback info. 
 
-- **The host-invoker pattern** — FPC cannot hand libazul a per-callback
-  function pointer that captures state (there are no closures with a C
-  ABI, and struct-by-value callback signatures are off-limits for most
-  managed FFIs). Instead, the `Azul` unit registers *one* C stub per
-  callback kind with libazul when the unit loads (its `initialization`
-  block calls `AzApp_setButtonOnClickCallbackInvoker`,
-  `AzApp_setLayoutCallbackInvoker`, and so on — about 20 kinds). Your
-  handler is a plain object: subclass the matching invoker class,
-  override `Invoke`, then call the matching `azul_register_*` function.
-  That returns a small `TAz*Callback` record carrying a numeric handle;
-  when the event fires, libazul calls the unit's stub with that handle,
-  the stub looks your object up in a handle table and dispatches to
-  your `Invoke`.
-- **Typed invoker classes** — since the typed-callback change every
-  widget event has its own pair: derive from
-  `TAzButtonOnClickCallbackInvoker` and register with
-  `azul_register_buttononclickcallback` (analogously
-  `TAzLayoutCallbackInvoker` / `azul_register_layoutcallback`). Deriving
-  from a generic invoker class will not compile against the current
-  unit — the `override` has no matching virtual method.
-- **`azul_refany_create` / `azul_refany_get`** — the Pascal analogue of
-  `RefAny`. `azul_refany_create(TObject)` stores your object in the
-  unit's handle table and wraps the handle in a `TAzRefAny` that libazul
-  carries around; `azul_refany_get(PAzRefAny(arg0))` in a callback hands
-  the *same instance* back. Always guard with `<> nil` and `is` before
-  the typecast, and fall back to an empty body / no-op on mismatch.
-- **Ownership** — the handle table *owns* every object you pass to
-  `azul_refany_create` or `azul_register_*`, and `Free`s it exactly once
-  when libazul drops the last reference (the table dedups by object
-  identity and refcounts, so re-wrapping the same model on each relayout
-  is safe). So do **not** `Free` those objects yourself — only the
-  short-lived `TDom` / `TButton` *wrapper shells* you build inside a
-  layout callback are yours to `Free`.
-- **Raw `Invoke` signatures** — `arg0` is the data `PAzRefAny`, `arg1`
-  the (unused here) info pointer, and `out_ptr` is where the result is
-  written: a click handler stores `PAzUpdate(out_ptr)^ :=
-  TAzUpdate_RefreshDom`, a layout handler stores `PAzDom(out_ptr)^ :=
-  body.Release` (the wrapper form) or `PAzDom(out_ptr)^ := body` (the raw
-  record form). Forgetting the `out_ptr` write is the classic
-  "window opens but nothing happens" bug.
-- **Fluent wrapper style** — `TDom.CreateDiv` / `TButton.Create` are
-  named constructors returning wrapper objects; `WithCss`, `WithChild`,
-  `WithButtonType`, `WithOnClick` return a fresh wrapper so you can chain
-  them (`TDom.CreateDiv.WithCss(...).WithChild(...)`). `body.Release`
-  detaches the raw record and hands ownership to libazul through
-  `out_ptr`. (The raw `AzDom_*` / `AzButton_*` record functions are still
-  exported if you prefer the C-style by-value builder.) Strings cross the
-  FFI as UTF-8 buffers: `MakeAzString` copies an `AnsiString` via
-  `AzString_fromUtf8`.
+The bindings automatically downcast the `RefAny` model to the type expected by the callbacks 
+first argument and logs an error (returning `DoNothing`) if the downcast fails. An exception 
+raised inside a callback is caught and logged the same way, so that the app keeps running, 
+even if a callback fails.
+
+## Supported Compilers
+
+The example uses `{$mode delphi}`. In `{$mode objfpc}{$H+}`, generics
+need `specialize` and function arguments need `@`:
+
+```pascal
+type
+  TMyApp = specialize TAzApp<TMyModel>;
+
+  Btn := TButton.Create('Increase counter')
+    .SetButtonType(azPrimary)
+    .specialize OnClick<TMyModel>(@OnIncrease);
+
+  App := TMyApp.Create(Model, @Layout);
+```
+
+The `azul.pas` bindings are written for Free Pascal and does not compile with Embarcadero Delphi. 
+It masks floating-point exceptions when it loads, because the library relies on IEEE-754 NaN and
+infinity values. If you enable FPU exceptions in your own code, mask them again before
+calling into Azul.
+
+FPC 3.0.x has no generic methods. Pass a typed callback object instead of `OnClick<TMyModel>`:
+
+```pascal
+    .OnClick(TAzButtonOnClickCallbackTypedWrapper<TMyModel>.Create(OnIncrease));
+```
+
+FPC 3.3.1 adds anonymous functions, so you *can* use inline callbacks, 
+however this is not recommended, because the general goal in Azul 
+is to separate the callback code from the UI code as much as possible
+without any implicit captured variables.
+
+```pascal
+    .OnClick<TMyModel>(
+      function(Model: TMyModel; Info: TAzCallbackInfo): TAzUpdate
+      begin
+        Model.Counter := Model.Counter + 1;
+        Result := azRefreshDom;
+      end);
+```
 
 ## Build and run
 
-From the directory containing `azul.pas`, `hello-world.pas` and the
-native library:
+From the directory containing `azul.pas`, `hello-world.pas` and the native library:
 
 ```sh
-fpc -Mobjfpc -Sh -Fl. hello-world.pas
+fpc -Fl. hello-world.pas
 
-# Linux
-LD_LIBRARY_PATH=. ./hello-world
 # macOS
 DYLD_LIBRARY_PATH=. ./hello-world
+# Linux
+LD_LIBRARY_PATH=. ./hello-world
 # Windows
 hello-world.exe
 ```
 
-`-Mobjfpc -Sh` mirror the `{$mode objfpc}{$H+}` directives on the
-command line. `azul.pas`'s `{$linklib azul}` handles the `-lazul` for
-you. If your linker still cannot find the library file, pass its
-directory to the linker explicitly:
+You should see the window pictured on the [hello-world landing page](../hello-world.md).
+Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
 
-```sh
-fpc -Mobjfpc -Sh -Fl. -k-L. hello-world.pas
-```
+1. `App.Run` opens a native window and runs `Layout` once with your model.
+2. The returned DOM is styled, laid out, and rendered.
+3. The framework then continuously queries whether anything matches the event filter set up
+   in the DOM. On receiving a click event, the framework borrows your data model mutably, runs the
+   click callback, observes the `RefreshDom` return, and re-invokes the layout callback.
+4. The framework determines the diff between the previous frame's DOM and the current one,
+   and only re-updates and re-paints the counter, not the entire window.
 
-Compiling `azul.pas` takes about two seconds and prints two
-`Comment level 2 found` warnings — these come from directive text
-quoted inside the generated header comment and are harmless.
+Congratulations! Once you've got the hello-world example running, you've already mastered 80%
+of the framework. As you might have guessed, more complex UI and styling are only composing
+more Dom objects together and working with the various event filters.
 
-You should see the window pictured on the
-[hello-world landing page](..md). Click the button: the
-counter increments, `TMyLayoutHandler.Invoke` re-runs, and the new
-value renders.
+You can now start reading about the [architecture patterns](../architecture.md) or
+explore what [methods the `Dom` has to offer](../dom.md).
 
-## Common errors
-
-- **`ld: symbol(s) not found` / `cannot find -lazul` at the link
-  step** — the native library is not where the linker looks. Build from
-  the directory holding `libazul.{so,dylib}` / `azul.dll` and keep
-  `-Fl.` (or add the explicit `-k-L.` linker path shown above).
-- **Runtime: "library not found"** — the *loader* cannot find the
-  library. Export `LD_LIBRARY_PATH=.` (Linux) /
-  `DYLD_LIBRARY_PATH=.` (macOS), or place `azul.dll` next to the
-  `.exe` on Windows.
-- **`There is no method in an ancestor class to be overridden`** — you
-  derived from the wrong invoker class or changed the `Invoke`
-  signature. It must be exactly
-  `Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;`
-  on the typed per-widget class (`TAzButtonOnClickCallbackInvoker`,
-  `TAzLayoutCallbackInvoker`, ...).
-- **Counter does not update on click** — the handler never wrote
-  `PAzUpdate(out_ptr)^ := TAzUpdate_RefreshDom`, or `azul_refany_get`
-  returned `nil` / a different class and the `is` guard skipped the
-  increment. `WriteLn` in the failure branch to verify.
-- **Random crashes when passing your own records to `Az*`
-  functions** — a unit is missing `{$PACKRECORDS C}`. Every unit that
-  declares or passes `Az*` records by value needs it.
-- **Growing memory in long-running apps** — handler objects passed to
-  `azul_register_*` are currently *not* freed when the native side
-  releases the handle. The example creates a fresh `TMyClickHandler`
-  per layout pass, which is fine for a demo but leaks a small object
-  per relayout; in a long-running app, create your invoker instances
-  once and reuse them.
-- **Threads** — the handle table behind `azul_refany_create` /
-  `azul_register_*` is not synchronized. Register callbacks and create
-  RefAnys from the main thread only; do not register/release from
-  `AzThread` callbacks concurrently.
+See you in the next tutorial!

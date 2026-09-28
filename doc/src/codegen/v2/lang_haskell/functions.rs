@@ -4,8 +4,8 @@
 //! single Haskell binding of the shape:
 //!
 //! ```haskell
-//! foreign import ccall safe "AzApp_create_via"
-//!   c_AzApp_create_via :: Ptr RefAny -> Ptr AppConfig -> Ptr App -> IO ()
+//! foreign import ccall safe "AzApp_create_byref"
+//!   c_AzApp_create_byref :: Ptr RefAny -> Ptr AppConfig -> Ptr App -> IO ()
 //! ```
 //!
 //! Conventions:
@@ -22,7 +22,7 @@
 //!   IR type. Pointers to FFI types become `Ptr <Name>`; primitives become their `Foreign.C.Types`
 //!   equivalent.
 //! - Functions whose C-ABI signature passes or returns a struct by value route through the
-//!   `<name>_via` shim (`cshim.rs`): aggregate args are `Ptr T`, an aggregate return is a trailing
+//!   `<name>_byref` shim (`cshim.rs`): aggregate args are `Ptr T`, an aggregate return is a trailing
 //!   `Ptr T` out-parameter.
 
 use anyhow::Result;
@@ -118,7 +118,7 @@ pub fn emit_foreign_imports_for(
 /// Imports for the host-invoker protocol (`core/src/host_invoker.rs`): the
 /// shared handle releaser, host-handle `RefAny` constructors, and per
 /// callback kind the invoker setter + the `createFromHostHandle` factory.
-/// The `_via` forms are the shims `cshim.rs` emits for the by-value
+/// The `_byref` forms are the shims `cshim.rs` emits for the by-value
 /// returns. The managed layer in `Azul` builds `refAnyCreate` and the
 /// closure-taking callback setters on top of these.
 pub fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
@@ -135,9 +135,9 @@ pub fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, conf
     builder.indent();
     builder.line("c_AzApp_setHostHandleReleaser :: FunPtr (Word64 -> IO ()) -> IO ()");
     builder.dedent();
-    builder.line("foreign import ccall safe \"AzRefAny_newHostHandle_via\"");
+    builder.line("foreign import ccall safe \"AzRefAny_newHostHandle_byref\"");
     builder.indent();
-    builder.line("c_AzRefAny_newHostHandle_via :: Word64 -> Ptr RefAny -> IO ()");
+    builder.line("c_AzRefAny_newHostHandle_byref :: Word64 -> Ptr RefAny -> IO ()");
     builder.dedent();
     builder.line("foreign import ccall safe \"AzRefAny_getHostHandle\"");
     builder.indent();
@@ -176,12 +176,12 @@ pub fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, conf
         ));
         builder.dedent();
         builder.line(&format!(
-            "foreign import ccall safe \"Az{}_createFromHostHandle_via\"",
+            "foreign import ccall safe \"Az{}_createFromHostHandle_byref\"",
             wrapper
         ));
         builder.indent();
         builder.line(&format!(
-            "c_Az{}_createFromHostHandle_via :: Word64 -> Ptr {} -> IO ()",
+            "c_Az{}_createFromHostHandle_byref :: Word64 -> Ptr {} -> IO ()",
             wrapper,
             super::haskell_data_name(wrapper)
         ));
@@ -328,6 +328,15 @@ fn emit_one_register_helper(
     builder.indent();
     let args_vars: Vec<String> = (0..cb.args.len()).map(|i| format!("a{}", i)).collect();
     let call_args = args_vars.join(" ");
+    // The lambda below becomes a C function pointer through
+    // `foreign import ccall "wrapper"`. An exception that unwinds out of
+    // such a frame into Rust is undefined behaviour - the RTS has no frame
+    // to unwind to - so the user's function runs under the same guard the
+    // managed invokers use (`Azul.Types.Common`). This tier has no
+    // `CallbackInfo` to log through - it holds raw pointers, not the
+    // wrapper types the idiomatic layer builds `log` on - so the report
+    // goes to stderr; the managed path in `Azul.Internal.Callbacks` logs
+    // through the callback's own sink.
     if ret_is_aggregate {
         let args_pat = if args_vars.is_empty() {
             String::from("outPtr")
@@ -335,19 +344,45 @@ fn emit_one_register_helper(
             format!("{} outPtr", args_vars.join(" "))
         };
         builder.line(&format!(
-            "innerFn <- mk_{}_inner $ \\{} -> do",
-            cb.name, args_pat,
+            "innerFn <- mk_{}_inner $ \\{} -> azulGuard \"{}\" azulStderr $ do",
+            cb.name, args_pat, cb.name,
         ));
         builder.indent();
-        builder.line(&format!("__ret <- userFn {}", call_args));
+        // Forced inside the guard: `poke` would force it anyway, but only
+        // because it happens to be inside too.
+        builder.line(&format!("__ret <- userFn {} >>= azulForce", call_args));
         builder.line("poke outPtr __ret");
         builder.dedent();
     } else {
-        let args_pat = args_vars.join(" ");
-        builder.line(&format!(
-            "innerFn <- mk_{}_inner $ \\{} -> userFn {}",
-            cb.name, args_pat, call_args,
-        ));
+        // `\ -> e` is not a lambda: a callback typedef that takes no
+        // arguments binds none.
+        let lambda = if args_vars.is_empty() {
+            String::new()
+        } else {
+            format!("\\{} -> ", args_vars.join(" "))
+        };
+        let applied = if call_args.is_empty() {
+            "userFn".to_string()
+        } else {
+            format!("(userFn {})", call_args)
+        };
+        if returns_void {
+            builder.line(&format!(
+                "innerFn <- mk_{}_inner $ {}azulGuard \"{}\" azulStderr {}",
+                cb.name, lambda, cb.name, applied,
+            ));
+        } else {
+            // A value answer: the guard forces it and, if the user raised,
+            // hands the C caller the neutral value of the FFI type instead.
+            builder.line(&format!(
+                "innerFn <- mk_{}_inner $ {}azulGuardValue \"{}\" azulStderr {} {}",
+                cb.name,
+                lambda,
+                cb.name,
+                ffi_fallback_value(&ret_raw),
+                applied,
+            ));
+        }
     }
     builder.line(&format!("c_Az{}_set_inner innerFn", cb.name));
     builder.line(&format!("pure p_Az{}_trampoline", cb.name));
@@ -355,10 +390,31 @@ fn emit_one_register_helper(
     builder.blank();
 }
 
+/// The value a guarded callback answers with when the user's function
+/// raised: the neutral value of the FFI return type, never a half-built
+/// one. Numeric zero for every C integer and float, a null pointer for a
+/// pointer, NUL for a character.
+fn ffi_fallback_value(ret_raw: &str) -> &'static str {
+    let t = ret_raw
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .trim();
+    if t.starts_with("FunPtr ") {
+        "nullFunPtr"
+    } else if t.starts_with("Ptr ") {
+        "nullPtr"
+    } else if t == "Char" {
+        "'\\0'"
+    } else {
+        "0"
+    }
+}
+
 /// The ONE inclusion predicate for this binding. `cshim::should_emit_shim_for`
 /// is defined as `should_emit_function(..) && needs_shim(..)`, so a function
-/// can never get a `foreign import "<name>_via"` without the C shim that
-/// defines `<name>_via`.
+/// can never get a `foreign import "<name>_byref"` without the C shim that
+/// defines `<name>_byref`.
 pub(super) fn should_emit_function(
     func: &FunctionDef,
     ir: &CodegenIR,
@@ -390,8 +446,9 @@ pub(super) fn should_emit_function(
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) {
@@ -425,9 +482,9 @@ pub(super) fn should_emit_function(
 /// builds its call sites from this so the two can never disagree about
 /// which arguments travel by pointer.
 pub(super) struct FfiSig {
-    /// `c_<symbol>` or `c_<symbol>_via`.
+    /// `c_<symbol>` or `c_<symbol>_byref`.
     pub binding: String,
-    /// True when the import points at the `_via` shim (aggregate args are
+    /// True when the import points at the `_byref` shim (aggregate args are
     /// `Ptr T`, an aggregate return is a trailing out-pointer).
     pub shimmed: bool,
     /// Haskell type of each C argument, in order (without the out-pointer).
@@ -469,7 +526,7 @@ pub(super) fn ffi_signature(func: &FunctionDef, ir: &CodegenIR) -> FfiSig {
     };
     FfiSig {
         binding: if shimmed {
-            format!("c_{}_via", func.c_name)
+            format!("c_{}_byref", func.c_name)
         } else {
             format!("c_{}", func.c_name)
         },
@@ -492,7 +549,7 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     }
     let sig = ffi_signature(func, ir);
     let symbol = if sig.shimmed {
-        format!("{}_via", func.c_name)
+        format!("{}_byref", func.c_name)
     } else {
         func.c_name.clone()
     };

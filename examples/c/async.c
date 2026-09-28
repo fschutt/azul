@@ -84,14 +84,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzMapViewport viewport = m.ptr->viewport;
     MapStateRef_delete(&m);
 
-    AzMapTileLayer layer = AzMapTileLayer_default();
+    AzMapTileLayer layer = AzMapTileLayer_createDefault();
     AzString credit = AzString_clone(&layer.attribution);
 
     AzMapWidget widget = AzMapWidget_create(layer);
     widget = AzMapWidget_withTheme(widget, AzMapTheme_System);
     widget = AzMapWidget_withViewport(widget, viewport);
-    widget = AzMapWidget_withOnMount(widget, AzRefAny_clone(&data),
-        (AzMapMountCallback){ .cb = on_map_mount, .callable = AzOptionRefAny_none() });
+    widget = AzMapWidget_withOnMount(widget, AzRefAny_clone(&data), on_map_mount);
 
     AzDom map = AzMapWidget_dom(widget);
     AzDom_setCss(&map, str("width: 100%; height: 100%;"));

@@ -243,7 +243,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         // Scalar returns (Update etc.) → write int32. Aggregate returns
         // (Dom from LayoutCallback) → the user handed us an _AzDom cstruct
         // value (a cpointer); memcpy its bytes through `out`. `ctype-sizeof`
-        // gives the true C size (240 for AzDom), matching return_c_size.
+        // gives the true C size (280 for AzDom), matching return_c_size.
         let ret_ctype = cb
             .return_type
             .as_deref()

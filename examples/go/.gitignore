@@ -1,0 +1,9 @@
+# staged by scripts/e2e_language_matrix.sh / the release bundle, never committed
+azul-go/
+hello-world
+hello-world.exe
+hello-world-go-e2e
+hello-world-go-e2e.exe
+libazul.dylib
+libazul.so
+azul.dll

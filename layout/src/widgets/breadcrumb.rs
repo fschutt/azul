@@ -82,6 +82,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_breadcrumb_on_navigate_callback_thunk,
     setter_fn:      AzApp_setBreadcrumbOnNavigateCallbackInvoker,
     from_handle_fn: AzBreadcrumbOnNavigateCallback_createFromHostHandle,
+    from_handle_byref_fn: AzBreadcrumbOnNavigateCallback_createFromHostHandleByref,
     extra_args:     [ state: BreadcrumbState ],
 }
 
@@ -371,7 +372,7 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
     let bc = &mut *bc;
     match bc.on_navigate.as_mut() {
         Some(BreadcrumbOnNavigate { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, inner)
+            callback.invoke(refany.clone(), info, inner)
         }
         None => Update::DoNothing,
     }
@@ -593,7 +594,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

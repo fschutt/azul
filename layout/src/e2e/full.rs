@@ -3342,8 +3342,7 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 /// Started in `AppInternal::create()` when `AZ_DEBUG=<port>` is set.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
-static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
-
+static DEBUG_SERVER: std::sync::Mutex<Option<Arc<DebugServerHandle>>> = std::sync::Mutex::new(None);
 /// Per-window E2E scheduler slot: the half-finished scenario run that has to
 /// survive between event-loop ticks.
 ///
@@ -3697,9 +3696,9 @@ impl Drop for DebugServerHandle {
 /// Returns `None` when `AZ_DEBUG` was not set or the server
 /// hasn't been started yet.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
-    DEBUG_SERVER.get().cloned()
+    DEBUG_SERVER.lock().ok().and_then(|guard| guard.clone())
 }
 
 /// Check if the debug timer should be registered.
@@ -3794,7 +3793,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         response_tx: tx,
     };
 
-    if let Some(handle) = DEBUG_SERVER.get() {
+    if let Some(handle) = get_debug_server() {
         if let Ok(mut sender) = handle.request_tx.lock() {
             let _ = sender.send(request);
         }
@@ -3834,7 +3833,18 @@ pub fn init_debug_server_statics(port: u16) {
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 pub fn set_debug_server(handle: Arc<DebugServerHandle>) {
-    let _ = DEBUG_SERVER.set(handle);
+    if let Ok(mut guard) = DEBUG_SERVER.lock() {
+        *guard = Some(handle);
+    }
+}
+
+/// Clear the debug server handle (e.g., when stopped).
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server-http")]
+pub fn clear_debug_server() {
+    if let Ok(mut guard) = DEBUG_SERVER.lock() {
+        *guard = None;
+    }
 }
 
 /// The port the debug server was started on (`0` if it was never started).
@@ -3867,7 +3877,9 @@ pub fn create_debug_channel() -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRe
         port: 0,
         request_tx,
     });
-    let _ = DEBUG_SERVER.set(handle.clone());
+    if let Ok(mut guard) = DEBUG_SERVER.lock() {
+        *guard = Some(handle.clone());
+    }
     (handle, request_rx)
 }
 
@@ -13006,7 +13018,7 @@ Dom layout(RefAny& data, LayoutCallbackInfo& info) {{
 int main() {{
     RefAny data = RefAny::create(0);
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    App app = App::create(std::move(data), AppConfig::default_());
+    App app = App::create(std::move(data), AppConfig::create());
     app.run(std::move(window));
     return 0;
 }}

@@ -1603,10 +1603,11 @@ impl_option!(
 );
 
 /// Window type classification for behavior control
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
 #[repr(C)]
 pub enum WindowType {
     /// Normal application window
+    #[default]
     Normal,
     /// Menu popup window (always-on-top, frameless, auto-closes on focus loss)
     Menu,
@@ -1614,12 +1615,6 @@ pub enum WindowType {
     Tooltip,
     /// Dialog window (blocks parent window)
     Dialog,
-}
-
-impl Default for WindowType {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 /// Window frame state (normal, minimized, maximized, fullscreen)
@@ -1633,10 +1628,11 @@ pub enum WindowFrame {
 }
 
 /// Window decoration style
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
 #[repr(C)]
 pub enum WindowDecorations {
     /// Full decorations: title bar with controls
+    #[default]
     Normal,
     /// No title text but controls visible (extended frame).
     /// The application must draw its own title text.
@@ -1655,12 +1651,6 @@ pub enum WindowDecorations {
     None,
 }
 
-impl Default for WindowDecorations {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
 /// Compositor blur/transparency effects for window background.
 ///
 /// Anything but `Opaque` gives the window PER-PIXEL alpha on the CPU path:
@@ -1673,10 +1663,11 @@ impl Default for WindowDecorations {
 /// Wayland an input region, Windows a window region). This is partial
 /// (per-pixel) transparency, not whole-window opacity; X11 without an ARGB
 /// visual falls back to `_NET_WM_WINDOW_OPACITY`, which is whole-window.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
 #[repr(C)]
 pub enum WindowBackgroundMaterial {
     /// No transparency or blur
+    #[default]
     Opaque,
     /// Transparent without blur
     Transparent,
@@ -1690,12 +1681,6 @@ pub enum WindowBackgroundMaterial {
     Titlebar,
     /// Windows: Mica Alt material
     MicaAlt,
-}
-
-impl Default for WindowBackgroundMaterial {
-    fn default() -> Self {
-        Self::Opaque
-    }
 }
 
 impl Default for WindowFlags {

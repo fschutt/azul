@@ -40,23 +40,22 @@ problems in user interfaces that they did 40 years ago: managing state, synchron
 application data with what users see, and enabling communication between distant 
 components without creating a spaghettified mess.
 
-The root of this struggle lies in a core conflict that nearly every toolkit fails to 
-properly address: the conflict between the "Visual Tree" (the hierarchy of object on the screen) 
-and the "State Graph" (the logical relations between components interacting with each other).
+The core thesis of Azul is that this struggle lies in a core conflict that nearly every 
+toolkit fails to properly address: a conflict between the "Visual Tree" (the hierarchy of object on the screen, such as `div.foo > p > ::text`) 
+and the "State Graph" (the logical relations between components interacting with each other, 
+such as `Toolbar <-> TreeView <-> Table`).
 
 *   The "Visual Tree" is the hierarchy of elements as they appear on the screen. It is always 
-    a tree: a window contains a panel, which contains a button. Its structure is defined by 
-    layout and presentation.
+    a tree: a window contains a panel, which contains a button. This hierarchy is pretty much 
+    present in all but the most primitive UI frameworks, because you need some form of logical 
+    grouping for layouting, unless the layout is calculated manually.
 *   The "State Graph" is the map of how application data and logic are connected. A filter 
     control in a toolbar (`Visual Tree` -> `Toolbar` -> `Filter Data`) needs to alter the 
-    data displayed in a completely separate table  (`Visual Tree` -> `MainPanel` -> `Table`) _without_
+    data displayed in a completely separate table  (`Visual Tree` -> `MainPanel` -> `Table`) without
     the two pieces being merged in a "FilterDataTableWithToolbar", as that will create a 
     complete mess once the interactions become more complex.
 
-Second, the biggest problem (especially confronted by React), is the inherent object-oriented mindset
-of web browsers, with operations such as `dom.addChild` or `removeChild` or `nodeABC.delete`: when 
-something gets visually deleted, the nodes dependent on `nodeABC` need to be updated too, otherwise
-they now point to stale visual objects.
+The second biggest problem of UIs is the question: How do we handle the inherent mutability of UI components? Mutable APIs such as in web browsers only hand you a `dom.addChild(c)` function and expect you to do the synchronization back to your application data model yourself. Other solutions such as SolidJS trigger hooks whenever your data model changes, or create a diff between two full virtual DOM trees (such as in React).
 
 ## Prior Art
 
@@ -105,27 +104,27 @@ graph TD
 ```
 
 The "pain" of UI programming stems from frameworks that either fuse them 
-together or awkwardly force the graph to conform to the shape of the tree.
+together or awkwardly force a node graph to conform to the shape of the tree.
 
 ### Fused Hierarchy [OOP]
 
 The first generation of toolkits (Qt, GTK, MFC, Swing) were built on an 
 object-oriented model - not because it was necessary, but because it was 
-considered "best practice". The paradigm was simple: the UI is a tree of 
-stateful objects. A `Button` object holds its own text and state, a `MyCustomPanel` 
+considered „best practice“. The paradigm was simple: the UI is a tree of 
+stateful objects, therefore would be logical to put the custom behaviour of a `Button` right on an extended instance - hence the need for "object-oriented" inheritance. A `MyCustomPanel` 
 object inherits from `Panel` and adds its own data and logic, objects are
-then composed in a hierarchy until you get to the parent "window" object.
+then composed in a hierarchy of *types* (not values) until you get to the parent „window“ object.
 
 ```python
 # OOP Paradigm
-class MyApp(othertoolkit.App):
+class MyPanel(othertoolkit.Panel):
     # ...
     def on_click():
         # text_input implicitly comes from othertoolkit.App
         input = self.text_input.getText()
         calculated = do_somthing_with_input(input)
         self.output.setText(calculated)
-        self.text_input.setText(„“)
+        self.text_input.setText("")
 ```
 
 ```mermaid
@@ -159,8 +158,7 @@ hierarchy _is equal to_ the visual hierarchy. This immediately creates real prob
 
 The next major step, led by frameworks like React, Angular and the Elm Architecture, 
 introduced a new functional paradigm: `UI = f(data)`. The UI is a declarative, pure 
-function of the application's state. This was revolutionary at the time, as it solved the 
-problem of state synchronization. When the data is changed, the framework efficiently updates 
+function of the application's state. When the data is changed, the framework efficiently updates 
 the view to match instead of manually needing a `setText()` call ("two-way data binding").
 
 ```python
@@ -172,7 +170,7 @@ def MyApp():
     def handle_click():
         calculated = do_something_with_input(input_value)
         set_output_value(calculated)
-        set_input_value(„“)
+        set_input_value("")
 
     return Page(children=[
         TextInput(value=input_value, on_change=set_input_value),
@@ -222,8 +220,8 @@ def MyApp():
 ```
 
 Here, the State Graph is still being forced into the tree structure of the view, leading 
-to "prop drilling" and components with indirect APIs. The existence of complex "escape hatches" 
-like Redux or the Context API is evidence of this core constraint—they are patterns invented 
+to "prop drilling" and components with indirect APIs. The existence of "escape hatches" 
+like Redux or the Context API is evidence of this core constraint - they are patterns invented 
 to work around this default tree-based data flow.
 
 Elms solution goes even further to „lift all state up“ to the root ancestor and route everything 
@@ -234,16 +232,19 @@ of the constrained hierarchy:
 2.  **View:** A pure function that takes the `Model` and returns a description of the UI.
 3.  **Update:** A single, central function that is the only entity allowed to modify the state.
 
-It does so by taking an incoming `Msg` (a message from the UI) and the current state, and
+Elm does this by taking an incoming `Msg` (a message from the UI) and the current state, and
 producing a *new* state.
 
 ### Ignoring Hierarchy (IMGUI)
 
-Immediate Mode toolkits (IMGUI) take a different approach. The paradigm is to have no persistent 
+Immediate Mode toolkits (IMGUI) have no persistent 
 UI objects at all; the UI is redrawn from scratch from application data every single frame. This 
 solves synchronization issue by brute force but shoves the problem of application architecture 
-onto the developer instead of the framework - leading to a "minimal, opinionated framework", but
-serious problems with layouting and accessibility.
+onto the developer instead of the framework - programmers now have to store lots of "UI state" as 
+part of their application data model, such as focus state, scroll positions, caches, etc. Immediate 
+mode toolkits are mainly popular with game development overlays, but not much outside of that, 
+simply because the inherent complexity of UIs is now shoved onto the application instead of the 
+framework, which isn't much of a help.
 
 ```python
 # IMGUI Paradigm Model
@@ -272,81 +273,55 @@ graph TD
     style C fill:#cfc,stroke:#333,stroke-width:2px
 ```
 
-IMGUI doesn't solve the Visual Tree vs. State Graph problem — it just largely ignores the problem 
+IMGUI doesn't solve the Visual Tree vs. State Graph problem - it just largely ignores the problem 
 and instead creates a _hidden data binding_ in a "closure with captured arguments" instead of a 
-"class with state and functions": 
-
+"class with state and functions".
 
 While the form is different from OOP, the operation (and the problem) is the same. A closure is 
 just a function on a struct containing all captured variables. The effect is the same as a class-with-methods, 
-but on top of that, it provides even less layout flexibility than object-oriented code.
+but on top of that, it provides even less layout flexibility than object-oriented code, because the UI drawing functions juggles the raw values around (to calculate the layout) instead of abstracting them in more "declarative" objects and letting the framework solve the layout.
 
-Immediate Mode GUI does solve the synchronization problem, but it fails at the other two core 
-problems of GUIs: data access and inter-widget communication.
+## What is the essence of a UI toolkit?
 
-## Intermediate Considerations
-
-### Why Electron Won
-
-The success of Electron is (besides practical reasons) likely a consequence of the _architectural_ 
-superiority of Reactive over OOP frameworks. In the 2010s, developers were moving to the declarative 
-web paradigm - not because it provided more features, but primarily because it was more maintainable 
-than the 1990s-era OOP model. When tasked with building a desktop application, they had a choice: 
-revert to the painful, fused hierarchy paradigm of Qt or GTK, lock themselves to a certain vendor toolkit, 
-or use the more modern (yet still constrained) hierarchy of React.
-
-Electron provides the bridge - while many developers were probably unconscious about it, they chose it 
-not for its stellar performance (or lack of it), but for its better paradigm, as they were now free to
-use much more functional-ish frameworks than whatever XAML hell Microsoft was presenting at the time. 
-The native desktop world had no answer to this at the time, so developers accepted the performance cost 
-and tons of build-tool workarounds as a necessary evil.
-
-Azul is not an answer to the Reactive or OOP mindset. It doesn't try to reinvent "Electron, but in Rust" 
-or "React, but in Rust". Instead, it tries to build a different paradigm: acknowledging the theoretical 
-idea of `UI = f(data)` but fusing it with the practical reality that the final application will always be
-a "messy graph", and it's better to "contain" the mess rather than trying to out-theorize it.
-
-### What is the essence of a UI toolkit?
-
-A question that sometimes comes up in discussions is how a "GUI toolkit" differs from a "rendering library".
-This is the second distinction between the major paradigms or classes of "GUI toolkits". One could mainly 
-categorize the toolkit by its handling of the following three "hard problems":
+A question that sometimes comes up in programming discussions is how a "GUI toolkit" differs from a "rendering library".
+One could mainly categorize GUI toolkits or libraries by their approach to handling the 
+following three "hard problems":
 
 1.  **Data Access / Model-View separation:** Somehow a callback needs access to both the data model (i.e.
-    the class) and the stateful UI object (to scrape the text out), but at the same time the „data model“
+    the application data) and the stateful UI object of the framework (to scrape the text out), but at the same time the „data model“
     should be as far removed from the UI as possible, so that logic functions do not depend on view data (`my_ui_object.getText()`).
 2.  **Synchronization:** It is very easy for the visual UI state and the data model to go out of sync.
-    Solutions so far include "Observer patterns" (callbacks that run when something changes), React-like
-    reconciliation or "just redraw everything" (IMGUI).
+    Solutions so far include "Observer patterns" (callbacks that run when something changes, granular 
+    reactivity), React-like reconciliation of entire DOM trees or "just redraw everything, and throw 
+    the state away" (IMGUI).
 3.  **Inter-widget communication:** This is the hardest problem to solve, as it's not directly obvious 
     in TodoMVC-esque applications. Existing toolkits assume that the widget hierarchy (visual tree) and
     the inheritance (or function call) hierarchy are the same (using the least common ancestor as a 
     channel, either via OOP inheritance or via React-style prop drilling). Other solutions involve 
     observable cells of functionality (`useMemo` / `useEffect` in SolidJS), which the framework then 
-    coordinates (downside: moves the "mess" implicitly into the framework instead of the user code).
+    coordinates.
 
-Overall, immediate-mode libraries do not solve these problems at all, instead shoving the responsibility 
-for managing state onto the application programmer in the name of "freedom". Well, "freedom" in GUI state 
-management is simply a euphemism for "we don't actually have a clue on how to manage state" - at least saying
-that would be simply more honest.
+Overall, rendering libraries do not solve these problems at all while frameworks usually do - sometimes 
+using special features of the language itself such as in SwiftUI and Flutter.
 
 ## Starting again from scratch
 
 So, if we could free our mind conceptually from both OOP and Reactive programming, what would a 
-"proper toolkit look like? By "proper" it means that it solves the problems above and scales to 
+"proper" toolkit look like? By "proper" it means that it solves the problems above and scales to 
 larger (500K - 1 million lines of code) applications without becoming an unmaintainable mess.
 
 ### Encoding Visual Hierarchy
 
 The first thing we'd need to decide is whether we'd like to serialize the UI or render it directly 
-(IMGUI), without first storing it. The choice here is relatively obvious, because the former creates
+(IMGUI). The choice here is relatively obvious, because the former creates
 instant opportunity for introspection of the visual state (such as in a HTML debugger). The 
 counter-argument against this has been traditionally "performance", but when testing Azuls memory 
 profile, this effectively came up as a non-issue: the entire DOM with styling in even a large 
 application is only ~500KB - 1MB of actual data.
 
-In terms of efficiency there is a massive upside to this, as we don't need to redraw the entire
-screen just to blink a cursor, which enables power savings on low-powered devices. Second, it also
+In terms of efficiency there is also a massive upside to this: we can diff the DOMs state instead
+of just getting new pixels, which gives the framework more semantic information to work with for
+caching. Second, it also
 nicely maps to how computers execute - compare the XML hierarchy to function call stacks:
 
 ```html
@@ -368,22 +343,21 @@ div(class="parent", children = [
 ```
 
 Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via 
-inheritance because the latter is often language-specific and not supported in all languages, 
-whereas functions are language agnostic.
+inheritance (OOP) or types (xilem) because the latter are often language-specific and not supported 
+in all languages, whereas C-callback style function pointers are language agnostic.
 
 ### Encoding Data Access
 
 The second decision is where to store the UI data, so that the callbacks may access it again.
 Widget-specific data has to be either stored on the programmer side (in the application, using 
-inheritance or traits) or in the framework (either using data attributes or - worse - global state 
-modifying functions such as synchronous `setColor(RED); draw(); swap();` calls). 
+inheritance or traits) or in the framework. 
 What format should we use?
 
 Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then 
-construct your application as a series of UI objects. Azul however, stores the application data 
+construct your application as a hierarchy of UI objects. Azul stores the application data 
 as an implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it 
-just stores "some data", but the toolkit doesn't know what the type is. You can upcast your data 
-and wrap it via `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` 
+just stores "some data as bytes" - together with minimal information about the class / data type. 
+You can upcast any piece of data, wrap it via `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` 
 or `.downcast_mut()`, respectively:
 
 ```rust
@@ -391,22 +365,22 @@ let data = RefAny::new(5); // owns the data
 let data_clone = data.clone(); // only bumps the reference count
 
 let data_ref: &usize = data.downcast_ref::<usize>().unwrap(); // ok
-println!(„{}“, *data); // prints „5“
+println!("{}", *data); // prints 5
 
-let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data_ref still held
-// object destroyed here
+// error: data_ref still held
+let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap();
+// object destroyed when last reference to it is dropped
 ```
 
-Effectively this is similar to `Observables`, however, since `RefAny`s are connected to a `Callback`, 
-a `Dom`, a `Task` or a `Thread`, the topology of how they are connected is more obvious than 
-with a free-floating `Observable`, whose memory lives merely "somewhere".
+Effectively this is similar to an `Observable`, however, since `RefAny`s are usually connected to a 
+`Callback`, a `Dom`, a `Task` or a `Thread`, the topology of how they are connected is more obvious.
 
-The biggest upside here is that this model makes the framework C-compatible (as Rust closures or traits 
-can never be expressed in the C ABI). The biggest downside of this is that we need an extra 
-"upcast / downcast" system, as well as heap memory allocation.
+While the up- and downcasting loses some type safety (we'll discover later how to work around this 
+fact), the biggest upside here is that this model makes the framework C-compatible. If the framework 
+would use Rust closures or traits, this would effectively make it unusable outside of Rust.
 
-Using [insert language]s module system, we can however minimize (and in practice completely avoid) 
-any errors related to up / downcasting by controlling the visibility of the thing we're downcasting 
+Using [insert language]s module system, we can minimize (and in practice completely avoid) 
+any errors related to up / downcasting by controlling the *visibility* of the thing we're downcasting 
 to - effectively making the "blast radius" of a type casting error so minimal that it becomes 
 irrelevant in practice:
 
@@ -430,40 +404,36 @@ extern „C“
 fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
     // downcast - as NumberInputInternal is private to this module,
     // only code in this module can downcast to NumberInputInternal
-    // external code can't even name the type, so no downcast error possible
+    // external code can't even name the type, so no downcast error
     let d = data.downcast::<NumberInputInternal>().unwrap();
 }
 ```
 
-This way, once a decent amount of test coverage is done, the "internals" of any widget
-are hidden from the outside completely. When all references to a `RefAny` are deleted, 
-the internal object is deleted, too (running either a default or custom destructor).
+This way, once a decent amount of test coverage is done, the „internals“ of any widget
+are hidden from the outside completely. In the API of Azuls default widget set you'll often see `FooConfig` structs that carry the public "configuration" of said widget, which reflects this pattern. When all references to a `RefAny` are deleted, 
+the internal object is then destroyed, running either a default null or custom destructor function. Additionally, the framework can keep "heavy" `RefAny` objects alive between two `layout()` calls, e.g. for storing things like a video decoder handle or a map tile cache, where the cached data belongs neither in the application data model nor in the framework built-in as a primitive - read more in the [Merge Callbacks](./dom/merge-callbacks.md) guide.
 
 ### Building a State Graph
 
-The pattern that naturally emerged from this `RefAny` + `Callback` was the "backreference"
-pattern: storing a `RefAny` + `Callback` inside of a `RefAny`, designing public APIs of widgets
-in a "dependency injection" style.
+The architectural pattern that naturally emerges from this `RefAny` + `Callback` is the „backreference“ or "dependency injection" pattern: you can store a `RefAny` + `Callback` inside of a `RefAny`, which allows you to design public APIs of widgets
+in a „dependency injection“ style, without the need for "prop drilling".
 
 The goal of this is to pass data / callbacks of a higher-level data model directly down to 
-a lower-level component during DOM construction, without having to "prop drill" any data / 
+a lower-level component during DOM construction, without having to „prop drill“ any data / 
 callbacks through intermediary components / middleware, but also, in difference to OOP, keep
-both components "in the dark" about each other. The only way where it's necessary to know the 
+both components „in the dark“ about each other. The only way where it's necessary to know the 
 relations is in the executed callback: exactly where we'd expect some form of complexity, and
-where we could use a debugger to "step through" a potential downcast failure.
+where we could use a debugger to „step through“ a potential downcast failure. Since this is all very theoretical, let's look at some examples:
 
 ## Examples
 
 ### Simple: Input Validation
 
-To explain this new concept more concrete, let's build a number input that wraps a text input 
-and validates that the user typed a number > 18 in a `VerifyAgeApplication`. This demonstrates the 
-backreference pattern in its simplest form — a linear chain from low-level (`TextInput`) 
-through mid-level (`NumberInput`) to high-level application logic (`VerifyAgeApplication`).
+To explain this concept more concretely, let's build a number input that wraps a text input 
+and validates that the user typed a number > 18 in a `VerifyAgeApplication`. This demonstrates the dependency injection pattern in its simplest form - a linear chain from low-level (`TextInput`) 
+through mid-level (`NumberInput`) to high-level application logic (`VerifyAgeApplication`), all extending each other without inheritance.
 
-`TextInput` is the lowest-level, azul-provided widget that manages text and provides 
-hooks for validation. It doesn't know anything about number validation or age validation.
-What it does know is "I should call this callback when the focus was lost".
+At its core, text input is handled by marking a text node `contenteditable`. On top of that, the `TextInput` then provides a relatively basic API on top, similar to what a web browser would offer. It provides a hook for "any" validation when receiving a `focusout` event - whether that callback then validates input as a number, a regex match or a date validation - the `TextInput` itself doesn't care. It doesn't know anything about number validation or age validation. The only thing it knows is „I should call this callback when the focus was lost, which will return true or false“.
 
 ```python
 class TextInput:
@@ -501,8 +471,8 @@ def _on_focus_lost(data, callbackinfo):
     return user_callback(user_data, callbackinfo, data.text)
 ```
 
-`NumberInput` now wraps `TextInput` and adds validation logic. It again 
-holds a backreference to *its* parent (in this case `VerifyAgeApplication`) via 
+`NumberInput` as a "superclass" of `TextInput` now wraps `TextInput` and adds number-specific validation logic. It again 
+holds a field for a dependency-injected callback to *its* superclass (in this case `VerifyAgeApplication`) via 
 `on_number_input`:
 
 ```python
@@ -540,9 +510,9 @@ def _validate_text_input_as_number(data, callbackinfo, string):
     return app_callback(app_data, callbackinfo, number)
 ```
 
-The top-level application logic of `VerifyAgeApplication` is then completely 
-decoupled from UI concerns, and can expect the NumberInput to call it back 
-with a number, not a string (so the validation logic has already passed):
+Finally, the top-level application logic of `VerifyAgeApplication` is then completely 
+decoupled from UI concerns. The application can expect the `NumberInput` to call it back 
+with a number, not a string (so the validation logic has already passed). It can therefore concentrate completely on the "business logic" aspect while the input validation is abstracted away and already done by the time this callback is reached:
 
 ```python
 class VerifyAgeApplication:
@@ -575,8 +545,7 @@ app = App(VerifyAgeApplication(18), AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(layout_func))
 ```
 
-The key here is that no matter how complex the application gets in its "State Graph", 
-it is now decoupled from any "Visual Tree", i.e. from the visual hierarchy itself.
+The key here is that no matter how complex the application gets in its „State Graph“, it is now decoupled from any „Visual Tree“, i.e. from the visual hierarchy, the `Dom`, itself.
 
 ```mermaid
 graph TD
@@ -600,9 +569,9 @@ through the backreferences:
 2. `_validate_text_input_as_number(RefAny<NumberInput>, text_string)`
 3. `_on_age_input(RefAny<MyApplication>, validated_number)`
 
-Each level knows only about its immediate parent via the backreference. `TextInput` has 
+Each level knows only about its immediate parent via the backreference and can be unit-tested individually. `TextInput` has 
 no knowledge of `VerifyAgeApplication`, and `VerifyAgeApplication` has no knowledge of the specific UI widget 
-being used. The State Graph is explicit: `VerifyAgeApplication → NumberInput → TextInput`.
+being used. Additionally, its data model does *not* contain any handle to the input widget - instead it only stores the user's age and re-creates the text input widget. The framework will then take care of keeping scroll positions, focus and cursor positions in the exact same place.
 
 This pattern scales to arbitrary depth. You could create an `EmailInput` that wraps 
 `TextInput` and validates email format, or a `CreditCardInput` that validates card IDs. 
@@ -614,19 +583,17 @@ The power of backreferences becomes even clearer with non-hierarchical state dep
 Consider a node graph editor, where the logical connections between nodes (a complex graph) 
 have no real relation to their visual layout (a flat list of sibling elements on a canvas).
 
-The challenge of a node graph is that the logical connections between nodes (a complex graph) 
-have no relation to their visual layout (a flat list of sibling elements on a canvas). In the 
+In the 
 `NodeGraph`, when a user clicks an input port on a node, how does the widget tell the top-level 
-`NodeGraph` state to create a connection? It doesn't send a message "up" the Visual Tree. 
-Similar to the `TextInput`, it follows a pre-defined "chain of backreferences" (operating on the 
-"Logical Graph"):
+`NodeGraph` state to create a connection? It doesn't send a message „up“ the Visual Tree. 
+Similar to the `TextInput`, it follows a pre-defined „chain of backreferences“ (operating on the „Logical Graph“):
 
 1.  The `Dom` for the input port has a callback holding a `PortWidget`'s data.
-2.  This `PortWidget` contains a backreference to its logical parent‚s data, the `NodeWidget`.
+2.  This `PortWidget` contains a backreference to its logical parent, the `NodeWidget`.
 3.  The `NodeWidget` in turn holds a backreference to the top-level `NodeGraphWidget`, which contains
     the entire application state.
 
-The callback for the click event on a visual node's `Input` / `Output` simply follows 
+The callback for the click event on a visual nodes' `Input` / `Output` simply follows 
 this chain of references, making a direct jump from the event source to the top-level data model.
 
 ```python
@@ -680,26 +647,18 @@ port_a1_controller = PortWidget("PortA1", node_a_controller)
 port_a1_controller.handle_click_event()
 ```
 
-The flow of control follows the logical graph, not the visual tree:
+The flow of control again follows the logical graph:
 
 1. `Event` -> `PortWidget.handle_click_event()` 
 2. `PortWidget.handle_click_event()` -> `NodeWidget.on_port_clicked()` 
 3. `NodeWidget.on_port_clicked()` -> `NodeGraphWidget.on_port_clicked()`
 
-This data flow is completely independent of the visual layout and the intermediary middleware flow
-is completely hidden at the highest level - which makes testing much simpler and decouples the actual 
-callback from the entire framework (in tests you can pass in a mock RefAny and test that it changed).
-The `PortWidget` is perfectly decoupled; it doesn't know what the `NodeGraphWidget` is, only that 
+During testing, you can simply pass in a mock `RefAny` and test that this part of your application or this widget hits all branches (in code coverage) and that it modifies the state / calls the expected callback - making it "UI testable" without there being any actual UI. The key is that the `PortWidget` doesn't know what the `NodeGraphWidget` is, only that 
 it must call a function on the reference it was given.
 
 In the "real-world" NodeGraph, the flow is more complex, but the pattern scales horizontally,
 irrespective of the number of events that the graph needs to handle or the complexity of the 
 graphs features.
-
-One practical note: the visual nodes of the graph are addressed with *markers*
-(`Dom::with_marker` + `CallbackInfo::get_node_id_by_marker`, next section) - the drag
-handler resolves "which on-screen element is node 5?" by a string the widget stamped
-during rendering, not by searching for a dataset.
 
 ```mermaid
 graph TD
@@ -733,40 +692,22 @@ graph TD
     linkStyle 2,3,8,9 stroke:#0a0,stroke-width:2px
 ```
 
-## The inter-widget fast path: markers + VirtualView re-renders
+## Inter-widget communication
 
-Backreferences answer "how does a *child* widget reach *up* into state it was
-composed from?". The opposite direction has its own pattern: a callback firing
-on one part of the UI wants to update a **sibling widget it did not create and
-whose internals it must not know** - and it wants to do so *live*, per input
-event, without paying for a full `layout()`.
+The last problem is a rare occurrence but occasionally happens: How do we connect two widgets, where the modification of a widget has to lead to a visual change of the other, without the other widget knowing what the UI structure looks like? In the previous examples, we used a full `layout()` call to make sure the UI is always synchronized and relied on the framework to keep things like focus, cursor and scroll positions in-place across multiple `layout()` calls. However, for very fast changes, Azul offers things like `info.set_css_property()` to quickly modify a CSS property.
 
-The motivating example (from the `azul-paint` demo): a drawing canvas receives
-pen input at up to 140 packets per second, and a `ProgressBar` in the header
-should show the current pen pressure. The obvious "heavy path" works:
+In the `AzPaint` demo we have a canvas which can respond to pen input at up to 140 packets per second - on the side of the canvas we also have a `ProgressBar` to reflect the pen pressure (i.e. from 0 to 100). So, how do we keep the UI in sync here? The "easy way" would be to put the pressure in the application data, update it on every `On::Touch` event and call `layout()` and rely that the frameworks caching is good enough.
 
-1. store the pressure in the app's data model,
-2. return `Update::RefreshDom`,
-3. `layout()` runs again, the DOM is diffed, the bar is rebuilt at the new width.
+1. Store the pressure in the app's data model
+2. Return `Update::RefreshDom`
+3. `layout()` runs again, the DOM is diffed, the bar is rebuilt at the new width
 
-That is correct, and it stays the right choice for state the application
-actually owns. But for *transient, high-frequency, presentation-only* values it
-does three things nobody asked for: it pollutes the app data model with a
-live-input sample, it rebuilds the whole window's DOM to move one bar, and it
-couples the canvas callback to the header's structure.
+This would work - but it would be a bit wasteful. Instead, we want to "connect" the `Canvas` and the `ProgressBar` showing the pressure strength without calling `layout()` and then keep the logic for updating the `ProgressBar` contained in its own API, so the `Canvas` doesn't need to know anything about the UI structure of the `ProgressBar`.
 
-The fast path solves the same problem with three pieces:
+Azul offers a "fast path" for these scenarios:
 
-**1. A marker: the address of a node.** During `layout()`, the app mints a
-fresh UUID string (`Uuid::short()` - 22 chars of flickrBase58; `Uuid::v4()`
-for the canonical form) and stamps it on the widget's DOM with
-`Dom::with_marker`. The same string is kept wherever the driving callback can
-see it - typically in the `RefAny` that callback already receives. A marker is
-like an HTML `id`, with two deliberate differences: it is **invisible to CSS
-matching** (it exists purely to be resolved back to a node, so stamping one
-can never restyle anything), and it is **excluded from node equality** - so
-minting a fresh UUID on every rebuild never makes the DOM diff consider the
-node "changed".
+**1.** During `layout()`, the app creates a
+fresh `Uuid::short()` string and annotates the "connected" `Dom` node with this marker. Then, it copies this `Uuid` into the callback-local `RefAny`. The marker UUID here acts like an HTML `id`, except that it is **invisible to CSS and doesn't affect node equality** - creating a fresh UUID on every `layout()` doesn't affect the diff, so no `Mount` / `Unmount` events fire by accident.
 
 ```rust,no_run
 // layout(): mint the address and stamp it on the widget...
@@ -777,16 +718,9 @@ let bar = ProgressBar::create(0.0)
 // ...and keep the same string in the state the canvas callbacks get.
 ```
 
-Why a UUID and not a name? Decoupling: with `"pressure-meter"` the connection
-between the two components rests on a hard-coded string that anything else in
-the process - another widget instance, a library, a copy-pasted snippet -
-could also use. A UUID minted at layout() time collides with nothing by
-construction, so the connection is exactly as private as the state that
-carries it.
-
-**2. Resolution + a public widget API.** When the canvas receives pressure, its
-callback resolves the marker to a live node id, then hands that node to a
-function *the widget itself exports*:
+**2.** When the canvas now receives pressure, its
+callback resolves the marker to a node id, then hands that node to a
+function that the `ProgressBar` widget exports:
 
 ```rust,no_run
 extern "C" fn on_pen_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -802,21 +736,9 @@ extern "C" fn on_pen_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 ```
 
-`update_progress` is the crucial boundary: the caller never sees the
-`ProgressBar`'s dataset type. The widget downcasts its **own private** `RefAny`
-(the same "datasets are private to the widget module" rule the backreference
-pattern relies on), stores the value, and asks the framework for step three.
+Almost like magic, the `ProgressBar` now updates on pressure, without any new calls to `layout()` - so what's going on here?
 
-**3. A single-node `VirtualView` re-render.** `ProgressBar::dom()` mounts the
-bar as a `VirtualView` node - a node whose content is produced by a callback
-rendering into the node's already-laid-out bounds. `update_progress` ends with
-`CallbackInfo::trigger_virtual_view_rerender(node)`, which queues exactly one
-piece of work: re-invoke *that node's* `VirtualView` callback against the
-updated dataset. The callback returns the bar's new DOM, the framework restyles
-and lays it out *inside the existing bounds*, and damage tracking repaints just
-the bar's rectangle. The rest of the window is untouched: no `layout()`, no
-window-wide DOM diff, no app-data-model round trip - the canvas callback can
-return `Update::DoNothing` and the meter still moves.
+**3.** Internally, `ProgressBar::dom()` creates a minimal `VirtualView` for the actual bar - a `VirtualView` is usually used for infinite content, but can also be used for "sections" of a `Dom`, that can create a new sub-`Dom` and update it dynamically.
 
 ```mermaid
 graph TD
@@ -834,38 +756,13 @@ graph TD
     class F,R data
 ```
 
-Three properties make this a *pattern* rather than a progress-bar trick:
+This is, however, an exception for performance reasons, not the usual case. The `ProgressBar` then triggers a `info.trigger_virtual_view_rerender(node_id)`, which queues its "bar" for being recreated - similar to fine-grained reactivity, the framework now knows that only this section of the `Dom` was updated without doing a full diff over the entire `Dom`. To sum it up:
 
-- **The address is data, not structure.** A marker lives for one layout():
-  each rebuild mints a fresh UUID and stamps it again, and because markers
-  are excluded from node equality the re-mint is free - the diff never sees
-  it. Nothing is hard-coded, so the connection between the two components
-  cannot collide with any other widget, library, or copy-pasted snippet. The
-  old alternative - searching for a node by its dataset - was ambiguous the
-  moment two widgets of the same type existed.
-- **Widget internals stay private.** The contract is the widget's exported
-  update function (`update_progress` here). A widget opts into live updates by
-  wrapping itself in a `VirtualView` and exporting such a function; callers
-  need the node id and nothing else. This is the same encapsulation the
-  backreference chain gives, applied in the other direction.
-- **The cost is proportional to the widget, not the window.** A `VirtualView`
-  re-render re-runs one callback and relayouts one subtree in fixed bounds.
-  (For updates that change only CSS properties there is an even smaller
-  hammer - `CallbackInfo::set_css_property` patches a computed style in
-  place; the node graph uses it for drag positioning. The `VirtualView` route
-  is for updates that change the widget's *content*.)
-
-Choose the path by the nature of the value: state the application owns and
-other UI depends on belongs in the data model behind `RefreshDom`; transient
-presentation values a single widget displays (live meters, previews,
-scrub positions) belong on the fast path.
+- Real "application state" belongs in the data model and updates via `layout()` and `RefreshDom`
+- Simple UI presentation values (live meters, previews, scrub positions) belong on the fast path
 
 ## Summary
 
-This document was mostly theoretical, but it's important to read because the main "reason d'etre" 
-(reason for existence) of "Why Azul?" doesn't lie in the technical choices (webrender vs vello, Rust 
-vs Zig vs C++), but in the novel *architecture* approach, which hasn't been replicated this 
-way (the closest match to this approach is Apples SwiftUI, interestingly enough).
+The main takeaway from this document is that Azuls „reason d'etre“ (reason for existence) lies less in its technical merit ("Like X but in Rust!", "you should use webrender over vello, it's so much better"), but rather in its distinct architecture.
 
-This document should help developers understand not only the goal of Azul, but also the "why" of 
-their pain points in GUI programming - because someone who cannot articulate a problem cannot solve it.
+The goal is not just to show how Azul solves these problems, but also to reflect on the „why“ of existing pain points in GUI programming. Beyond Azuls solution, we hope this helps programmers to articulate the core three problems in GUI programming - because someone who cannot articulate a problem cannot solve it.

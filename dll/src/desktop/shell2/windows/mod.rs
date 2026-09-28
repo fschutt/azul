@@ -31,9 +31,9 @@ mod gl;
 pub mod menu;
 pub mod radial_controller;
 pub mod registry;
-pub(crate) mod system_style;
 #[cfg(feature = "cpurender")]
 mod subpixel;
+pub(crate) mod system_style;
 mod tooltip;
 mod wcreate;
 pub mod win_event;
@@ -1379,9 +1379,7 @@ impl Win32Window {
                                             .to_present_rects_physical(
                                                 dpi, d.w as u32, d.h as u32, false,
                                             )
-                                            .unwrap_or_else(|| {
-                                                vec![(0, 0, d.w as u32, d.h as u32)]
-                                            })
+                                            .unwrap_or_else(|| vec![(0, 0, d.w as u32, d.h as u32)])
                                     } else {
                                         vec![(0, 0, d.w as u32, d.h as u32)]
                                     };
@@ -2659,6 +2657,8 @@ impl Win32Window {
             } else {
                 None
             };
+            // The GPU swap went to a hidden window; the skip heuristic must not drop this repaint.
+            self.needs_gpu_present = true;
             (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
             if let Some((w, h)) = replay {
                 const WM_SIZE: u32 = 0x0005;
@@ -2671,7 +2671,12 @@ impl Win32Window {
                 };
                 let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
                 // Last statement: window_proc re-borrows this window.
-                (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+                (self.win32.user32.SendMessageW)(
+                    self.hwnd,
+                    WM_SIZE,
+                    kind as dlopen::WPARAM,
+                    lparam,
+                );
             }
         }
     }
@@ -6830,7 +6835,9 @@ unsafe extern "system" fn window_proc(
                 const SPI_SETFONTSMOOTHINGORIENTATION: usize = 0x2013;
                 if matches!(
                     wparam as usize,
-                    SPI_SETFONTSMOOTHING | SPI_SETFONTSMOOTHINGTYPE | SPI_SETFONTSMOOTHINGORIENTATION
+                    SPI_SETFONTSMOOTHING
+                        | SPI_SETFONTSMOOTHINGTYPE
+                        | SPI_SETFONTSMOOTHINGORIENTATION
                 ) {
                     window.sync_panel_subpixel_order(true);
                 }

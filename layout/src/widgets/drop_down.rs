@@ -58,6 +58,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_drop_down_on_choice_change_callback_thunk,
     setter_fn:      AzApp_setDropDownOnChoiceChangeCallbackInvoker,
     from_handle_fn: AzDropDownOnChoiceChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDropDownOnChoiceChangeCallback_createFromHostHandleByref,
     extra_args:     [ choice_index: usize ],
 }
 
@@ -256,7 +257,7 @@ extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Upda
 
     match refany.on_choice_change.as_mut() {
         Some(DropDownOnChoiceChange { refany, callback }) => {
-            (callback.cb)(refany.clone(), info, choice_id)
+            callback.invoke(refany.clone(), info, choice_id)
         }
         None => Update::DoNothing,
     }
@@ -608,7 +609,7 @@ mod autotest_generated {
             monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
-            ctx: OptionRefAny::None,
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));

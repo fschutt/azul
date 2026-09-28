@@ -22,7 +22,7 @@
 //! `_clone`); otherwise that position keeps the type's own Swift declaration.
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet},
 };
 
@@ -56,25 +56,27 @@ pub enum Prim {
 }
 
 impl Prim {
+    /// The Rust/C spelling of a scalar. api.json's own scalar aliases
+    /// (`GLuint = u32`, `GLfloat = f32`, ...) are NOT listed here: they are
+    /// `type_alias` entries in the IR, and every caller resolves a name
+    /// through `Model::unalias` before asking - one table, not two.
     pub fn from_rust(t: &str) -> Option<Prim> {
         Some(match t {
             "bool" => Prim::Bool,
-            // `typedef uint8_t AzGLboolean;`
-            "u8" | "c_uchar" | "GLboolean" => Prim::U8,
+            "u8" | "c_uchar" => Prim::U8,
             "i8" => Prim::I8,
             "c_char" => Prim::CChar,
             "u16" | "c_ushort" => Prim::U16,
             "i16" | "c_short" => Prim::I16,
-            "u32" | "c_uint" | "GLuint" | "GLenum" | "GLbitfield" => Prim::U32,
-            "i32" | "c_int" | "GLint" | "GLsizei" => Prim::I32,
-            "u64" | "c_ulonglong" | "GLuint64" => Prim::U64,
-            "i64" | "c_longlong" | "GLint64" => Prim::I64,
+            "u32" | "c_uint" => Prim::U32,
+            "i32" | "c_int" => Prim::I32,
+            "u64" | "c_ulonglong" => Prim::U64,
+            "i64" | "c_longlong" => Prim::I64,
             "c_long" => Prim::CLong,
             "c_ulong" => Prim::CULong,
-            "f32" | "c_float" | "GLfloat" | "GLclampf" => Prim::F32,
-            "f64" | "c_double" | "GLdouble" | "GLclampd" => Prim::F64,
-            "usize" | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr"
-            | "GLintptr" => Prim::Int,
+            "f32" | "c_float" => Prim::F32,
+            "f64" | "c_double" => Prim::F64,
+            "usize" | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" => Prim::Int,
             _ => return None,
         })
     }
@@ -235,6 +237,17 @@ pub struct Model<'a> {
     /// How many provisional answers were handed out; an answer that used one
     /// is not cached.
     provisional: Cell<usize>,
+    /// The classes the IR singles out, resolved once (see `singletons`).
+    singletons: OnceCell<Singletons>,
+}
+
+/// api.json names the emitter has to spell but must not hard-code: they are
+/// found by `TypeCategory` / shape and cached here.
+#[derive(Default)]
+struct Singletons {
+    string: Option<String>,
+    refany: Option<String>,
+    option_refany: Option<String>,
 }
 
 impl<'a> Model<'a> {
@@ -450,6 +463,7 @@ impl<'a> Model<'a> {
             cache: RefCell::new(BTreeMap::new()),
             in_progress: RefCell::new(BTreeSet::new()),
             provisional: Cell::new(0),
+            singletons: OnceCell::new(),
         };
         m.classify();
         m.cache.borrow_mut().clear();
@@ -663,11 +677,13 @@ impl<'a> Model<'a> {
     fn owned_uncached(&self, type_name: &str) -> Ty {
         match self.owned_pre(type_name) {
             Ty::Class(name) => {
-                if name == "String" {
+                let class = &self.classes[&name];
+                // The two types the IR itself singles out: the string and the
+                // type-erased data slot. Both are native in Swift.
+                if class.category == TypeCategory::String {
                     return Ty::Str;
                 }
-                let class = &self.classes[&name];
-                if class.category == TypeCategory::RefAny || name == "RefAny" {
+                if class.category == TypeCategory::RefAny {
                     return Ty::RefAny;
                 }
                 if let Some(t) = self.option_shape(class) {
@@ -687,19 +703,67 @@ impl<'a> Model<'a> {
 
     /// The type's own Swift declaration (never a native container).
     pub fn declared(&self, name: &str) -> Ty {
-        if name == "String" {
-            return Ty::Str;
-        }
         if self.enums.contains_key(name) {
             return Ty::Enum(name.to_string());
         }
-        match self.classes.get(name).map(|c| c.kind) {
-            Some(Kind::Plain) => Ty::Plain(name.to_string()),
-            Some(Kind::Union) => Ty::Union(name.to_string()),
-            Some(Kind::Class) if name == "RefAny" => Ty::RefAny,
-            Some(Kind::Class) => Ty::Class(name.to_string()),
-            None => Ty::Unsupported(name.to_string()),
+        let Some(c) = self.classes.get(name) else {
+            return Ty::Unsupported(name.to_string());
+        };
+        // The string and the type-erased data slot keep their native shape
+        // even here: neither has a declaration of its own to fall back to.
+        match c.category {
+            TypeCategory::String => return Ty::Str,
+            TypeCategory::RefAny => return Ty::RefAny,
+            _ => {}
         }
+        match c.kind {
+            Kind::Plain => Ty::Plain(name.to_string()),
+            Kind::Union => Ty::Union(name.to_string()),
+            Kind::Class => Ty::Class(name.to_string()),
+        }
+    }
+
+    /// The api.json class the IR marks as the string (`TypeCategory::String`).
+    /// `Ty::Str` erases the name, but the C symbols are spelled with it.
+    pub fn string_class(&self) -> Option<&str> {
+        self.singletons().string.as_deref()
+    }
+
+    /// The api.json class the IR marks as the type-erased data slot
+    /// (`TypeCategory::RefAny`), for the same reason as `string_class`.
+    pub fn refany_class(&self) -> Option<&str> {
+        self.singletons().refany.as_deref()
+    }
+
+    /// The `Option<RefAny>` class: what a callback wrapper's ctx slot holds,
+    /// found by its shape rather than by its name.
+    pub fn option_refany_class(&self) -> Option<&str> {
+        self.singletons().option_refany.as_deref()
+    }
+
+    /// The three classes the IR singles out, looked up once: `cleanup` and
+    /// the callback planner ask for them per member.
+    fn singletons(&self) -> &Singletons {
+        self.singletons.get_or_init(|| {
+            let of = |category: TypeCategory| {
+                self.classes
+                    .values()
+                    .find(|c| c.category == category)
+                    .map(|c| c.name.clone())
+            };
+            Singletons {
+                string: of(TypeCategory::String),
+                refany: of(TypeCategory::RefAny),
+                option_refany: self
+                    .classes
+                    .values()
+                    .filter(|c| c.category == TypeCategory::Option)
+                    .map(|c| c.name.clone())
+                    .find(|n| {
+                        matches!(self.owned(n), Ty::Option { payload, .. } if matches!(*payload, Ty::RefAny))
+                    }),
+            }
+        })
     }
 
     /// The shape of a field.
@@ -866,16 +930,54 @@ impl<'a> Model<'a> {
         })
     }
 
+    /// The function a binding reports a boundary failure through, if `class`
+    /// has one: a `&mut self` method that returns nothing and takes a log
+    /// LEVEL (a fieldless enum) and a message (the string). Exactly one
+    /// function in api.json has that shape. It writes to libazul's global
+    /// diagnostics sink rather than into the receiver, so logging through a
+    /// copy of the value reaches the same place.
+    ///
+    /// Returns the C symbol and the level enum's class name.
+    pub fn log_fn(&self, class: &str) -> Option<(String, String)> {
+        self.functions_of(class).iter().find_map(|f| {
+            let void = f
+                .return_type
+                .as_deref()
+                .is_none_or(|r| matches!(self.owned(r), Ty::Void));
+            if !void || f.args.len() != 3 {
+                return None;
+            }
+            if !matches!(f.args[0].ref_kind, ArgRefKind::RefMut | ArgRefKind::PtrMut)
+                || f.args[1].ref_kind != ArgRefKind::Owned
+                || f.args[2].ref_kind != ArgRefKind::Owned
+            {
+                return None;
+            }
+            let level = f.args[1].type_name.trim();
+            (self.enums.contains_key(level)
+                && matches!(self.owned(&f.args[2].type_name), Ty::Str))
+            .then(|| (f.c_name.clone(), level.to_string()))
+        })
+    }
+
     /// The `get_ctx` of an info type, if it has one: that is where a closure
     /// stored in a callback's ctx is read back.
     pub fn ctx_getter(&self, info_type: &str) -> Option<String> {
         self.functions_of(info_type)
             .iter()
             .find(|f| {
-                f.method_name == "get_ctx"
+                // A borrowing getter that answers with the ctx slot's shape,
+                // `Option<RefAny>`. api.json spells the slot's accessor
+                // `get_ctx` on every info type and carries no other marker
+                // for it, so the name is part of the test - without it an
+                // info type with a second `Option<RefAny>` getter would hand
+                // the closure reader the wrong one.
+                f.method_name == "get_ctx" // allow-api-name: the ctx slot's accessor is a naming convention api.json does not model
                     && f.args.len() == 1
                     && matches!(f.args[0].ref_kind, ArgRefKind::Ref | ArgRefKind::Ptr)
-                    && f.return_type.as_deref() == Some("OptionRefAny")
+                    && f.return_type.as_deref().is_some_and(|r| {
+                        matches!(self.owned(r), Ty::Option { payload, .. } if matches!(*payload, Ty::RefAny))
+                    })
             })
             .map(|f| f.c_name.clone())
     }

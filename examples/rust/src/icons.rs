@@ -126,7 +126,7 @@ fn main() {
     println!("  3. Placeholder if not found\n");
     
     let data = RefAny::new(IconDemo);
-    let app = App::new(data, AppConfig::default());
+    let app = App::create(data, AppConfig::create());
     let mut window = WindowCreateOptions::new(icon_demo_layout);
     window.window_state.title = AzString::from("Icon System Demo");
     window.window_state.size.dimensions.width = 500.0;

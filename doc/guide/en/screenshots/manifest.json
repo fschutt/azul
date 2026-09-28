@@ -1,7 +1,15 @@
 {
   "version": 1,
-  "generated_at": "2026-08-20T17:43:44.781860+00:00",
+  "generated_at": "2026-09-15T23:31:50.996641700+00:00",
   "screenshots": [
+    {
+      "name": "headless-hello",
+      "width": 400,
+      "height": 200,
+      "subtitle": "A free-standing render — no window, no display server",
+      "slideshow": null,
+      "source_page": "doc/guide/en/headless/rendering.md"
+    },
     {
       "name": "hello-world",
       "width": 400,
@@ -9,62 +17,6 @@
       "subtitle": "The minimum viable Azul window — counter label plus a button.",
       "slideshow": null,
       "source_page": "doc/guide/en/hello-world.md"
-    },
-    {
-      "name": "inline-prose",
-      "width": 480,
-      "height": 200,
-      "subtitle": "Default inline flow with hyphens: auto",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/inline.md"
-    },
-    {
-      "name": "inline-tags",
-      "width": 480,
-      "height": 140,
-      "subtitle": "display: inline-block tags inside flowing text",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/inline.md"
-    },
-    {
-      "name": "inline-multicol",
-      "width": 520,
-      "height": 200,
-      "subtitle": "column-count: 2 with column-gap and column-rule",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/inline.md"
-    },
-    {
-      "name": "flex-sidebar",
-      "width": 480,
-      "height": 200,
-      "subtitle": "Fixed sidebar with growing content area",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/flex.md"
-    },
-    {
-      "name": "flex-equal",
-      "width": 480,
-      "height": 160,
-      "subtitle": "Three equal columns via flex-grow: 1",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/flex.md"
-    },
-    {
-      "name": "flex-center",
-      "width": 400,
-      "height": 200,
-      "subtitle": "Both axes centred",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/flex.md"
-    },
-    {
-      "name": "flex-wrap",
-      "width": 480,
-      "height": 240,
-      "subtitle": "Cards wrap onto multiple lines as the container narrows",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout/flex.md"
     },
     {
       "name": "pos-modal",
@@ -99,6 +51,38 @@
       "source_page": "doc/guide/en/layout/blocks.md"
     },
     {
+      "name": "flex-sidebar",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Fixed sidebar with growing content area",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-equal",
+      "width": 480,
+      "height": 160,
+      "subtitle": "Three equal columns via flex-grow: 1",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-center",
+      "width": 400,
+      "height": 200,
+      "subtitle": "Both axes centred",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-wrap",
+      "width": 480,
+      "height": 240,
+      "subtitle": "Cards wrap onto multiple lines as the container narrows",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
       "name": "grid-holy-grail",
       "width": 480,
       "height": 320,
@@ -123,12 +107,44 @@
       "source_page": "doc/guide/en/layout/grid.md"
     },
     {
+      "name": "inline-prose",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Default inline flow with hyphens: auto",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/inline.md"
+    },
+    {
+      "name": "inline-tags",
+      "width": 480,
+      "height": 140,
+      "subtitle": "display: inline-block tags inside flowing text",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/inline.md"
+    },
+    {
+      "name": "inline-multicol",
+      "width": 520,
+      "height": 200,
+      "subtitle": "column-count: 2 with column-gap and column-rule",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/inline.md"
+    },
+    {
       "name": "icons-toolbar",
       "width": 400,
       "height": 120,
       "subtitle": "A toolbar mixing app and material icons",
       "slideshow": null,
       "source_page": "doc/guide/en/styling/icon-packs.md"
+    },
+    {
+      "name": "styling-gradients",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Linear, radial, and conic backgrounds",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/properties.md"
     },
     {
       "name": "text-heading",
@@ -155,14 +171,6 @@
       "source_page": "doc/guide/en/styling/text-and-fonts.md"
     },
     {
-      "name": "styling-gradients",
-      "width": 480,
-      "height": 200,
-      "subtitle": "Linear, radial, and conic backgrounds",
-      "slideshow": null,
-      "source_page": "doc/guide/en/styling/properties.md"
-    },
-    {
       "name": "themes-light",
       "width": 400,
       "height": 180,
@@ -179,44 +187,12 @@
       "source_page": "doc/guide/en/styling/themes.md"
     },
     {
-      "name": "headless-hello",
-      "width": 400,
-      "height": 200,
-      "subtitle": "A free-standing render — no window, no display server",
-      "slideshow": null,
-      "source_page": "doc/guide/en/headless/rendering.md"
-    },
-    {
       "name": "styling-panel",
       "width": 400,
       "height": 160,
       "subtitle": "A class-styled panel with hover-ready rules",
       "slideshow": null,
       "source_page": "doc/guide/en/styling.md"
-    },
-    {
-      "name": "layout-block",
-      "width": 480,
-      "height": 200,
-      "subtitle": "Default block flow. Each element on its own line",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout.md"
-    },
-    {
-      "name": "layout-flex",
-      "width": 480,
-      "height": 160,
-      "subtitle": "Same children with display: flex",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout.md"
-    },
-    {
-      "name": "layout-grid",
-      "width": 480,
-      "height": 200,
-      "subtitle": "Same children with display: grid",
-      "slideshow": null,
-      "source_page": "doc/guide/en/layout.md"
     }
   ],
   "slideshows": {

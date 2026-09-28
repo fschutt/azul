@@ -153,6 +153,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_layout_callback_thunk,
     setter_fn:      AzApp_setLayoutCallbackInvoker,
     from_handle_fn: AzLayoutCallback_createFromHostHandle,
+    from_handle_byref_fn: AzLayoutCallback_createFromHostHandleByref,
 }
 
 impl Default for LayoutCallback {
@@ -191,6 +192,7 @@ crate::impl_managed_callback! {
     thunk_fn:       az_virtual_view_callback_thunk,
     setter_fn:      AzApp_setVirtualViewCallbackInvoker,
     from_handle_fn: AzVirtualViewCallback_createFromHostHandle,
+    from_handle_byref_fn: AzVirtualViewCallback_createFromHostHandleByref,
 }
 
 impl VirtualViewCallback {
@@ -248,6 +250,23 @@ impl CaretTweenCallback {
     }
 }
 
+// Host-invoker plumbing (see core/src/host_invoker.rs). `CaretTweenInfo`
+// carries no context, so the thunk reads it from the invocation slot.
+crate::impl_managed_callback! {
+    wrapper:        CaretTweenCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [info: CaretTweenInfo],
+    return_ty:      LogicalRect,
+    default_ret:    info.current,
+    invoker_static: CARET_TWEEN_INVOKER,
+    invoker_ty:     AzCaretTweenCallbackInvoker,
+    thunk_fn:       az_caret_tween_callback_thunk,
+    setter_fn:      AzApp_setCaretTweenCallbackInvoker,
+    from_handle_fn: AzCaretTweenCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCaretTweenCallback_createFromHostHandleByref,
+}
+
 /// Inputs for one selection-tween evaluation.
 ///
 /// Carries the full PAST and CURRENT selection band geometry: all rectangles
@@ -286,6 +305,23 @@ impl SelectionTweenCallback {
             ctx: OptionRefAny::None,
         }
     }
+}
+
+// Host-invoker plumbing. An empty result means "not animated": the framework
+// then renders `info.current`.
+crate::impl_managed_callback! {
+    wrapper:        SelectionTweenCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [info: SelectionTweenInfo],
+    return_ty:      LogicalRectVec,
+    default_ret:    info.current.clone(),
+    invoker_static: SELECTION_TWEEN_INVOKER,
+    invoker_ty:     AzSelectionTweenCallbackInvoker,
+    thunk_fn:       az_selection_tween_callback_thunk,
+    setter_fn:      AzApp_setSelectionTweenCallbackInvoker,
+    from_handle_fn: AzSelectionTweenCallback_createFromHostHandle,
+    from_handle_byref_fn: AzSelectionTweenCallback_createFromHostHandleByref,
 }
 
 /// Trapezoidal velocity profile: velocity ramps up HARD over the first
@@ -505,6 +541,30 @@ pub enum MeasureDomMode {
 }
 
 impl VirtualViewCallbackInfo {
+    /// Report a diagnostic from inside this callback.
+    ///
+    /// The same sink `CallbackInfo::log` writes to, so a binding's callback
+    /// boundary can report a failure here instead of only to stderr - which
+    /// is what makes a failing virtual-view callback visible to the app's log
+    /// pipeline rather than only to whoever is watching the terminal.
+    pub fn log(&mut self, level: crate::resources::AppLogLevel, message: impl Into<AzString>) {
+        let level_str = match level {
+            crate::resources::AppLogLevel::Off => "off",
+            crate::resources::AppLogLevel::Error => "error",
+            crate::resources::AppLogLevel::Warn => "warn",
+            crate::resources::AppLogLevel::Info => "info",
+            crate::resources::AppLogLevel::Debug => "debug",
+            crate::resources::AppLogLevel::Trace => "trace",
+        };
+        if level != crate::resources::AppLogLevel::Off {
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
+        }
+    }
+
     #[must_use]
     pub const fn new<'a>(
         reason: VirtualViewCallbackReason,
@@ -801,9 +861,22 @@ impl Default for TimerCallbackReturn {
 ///
 /// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
 /// reference.
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TextDirection {
+    LeftToRight,
+    RightToLeft,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {
+    pub locale: &'a AzString,
+    pub accessed_locale: core::cell::Cell<bool>,
+    pub accessed_text_direction: core::cell::Cell<bool>,
+    pub text_direction: TextDirection,
+
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
     /// OpenGL context so that the `layout()` function can render textures
@@ -1268,6 +1341,44 @@ impl core::fmt::Debug for LayoutCallbackInfo {
 }
 
 impl LayoutCallbackInfo {
+    pub fn get_locale(&self) -> &AzString {
+        unsafe {
+            (*self.ref_data).accessed_locale.set(true);
+            (*self.ref_data).locale
+        }
+    }
+
+    pub fn is_rtl(&self) -> bool {
+        unsafe {
+            (*self.ref_data).accessed_text_direction.set(true);
+            (*self.ref_data).text_direction == TextDirection::RightToLeft
+        }
+    }
+
+    /// Report a diagnostic from inside this callback.
+    ///
+    /// The same sink `CallbackInfo::log` writes to, so a binding's callback
+    /// boundary can report a failure here instead of only to stderr - which
+    /// is what makes a failing layout callback visible to the app's log
+    /// pipeline rather than only to whoever is watching the terminal.
+    pub fn log(&mut self, level: crate::resources::AppLogLevel, message: impl Into<AzString>) {
+        let level_str = match level {
+            crate::resources::AppLogLevel::Off => "off",
+            crate::resources::AppLogLevel::Error => "error",
+            crate::resources::AppLogLevel::Warn => "warn",
+            crate::resources::AppLogLevel::Info => "info",
+            crate::resources::AppLogLevel::Debug => "debug",
+            crate::resources::AppLogLevel::Trace => "trace",
+        };
+        if level != crate::resources::AppLogLevel::Off {
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
+        }
+    }
+
     #[must_use]
     pub const fn new<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
@@ -1958,3 +2069,17 @@ impl_option!(
 #[cfg(test)]
 #[path = "callbacks_test.rs"]
 mod callbacks_test;
+
+impl crate::host_invoker::HostCtxCarrier for LayoutCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        // Points at the wrapper's own `ctx`, which `<Wrapper>::invoke`
+        // borrows for the whole call.
+        self.set_callable_ptr(ctx);
+    }
+}
+
+impl crate::host_invoker::HostCtxCarrier for VirtualViewCallbackInfo {
+    fn install_host_ctx(&mut self, ctx: &OptionRefAny) {
+        self.set_callable_ptr(ctx);
+    }
+}

@@ -52,6 +52,20 @@ impl PlatformCapability {
         cap(true, "native (in-process QUIC)", "")
     }
 
+    /// Probe peer-to-peer QUIC (`IrohEndpoint`). Native: the in-process iroh engine when the
+    /// `iroh` feature is compiled in. Web: not yet, until iroh runs over WebTransport.
+    pub fn iroh() -> PlatformCapability {
+        if cfg!(az_iroh_engine) {
+            cap(true, "iroh (QUIC, ring)", "")
+        } else {
+            cap(
+                false,
+                "none",
+                "no iroh engine in this build: IrohEndpoint::bind reports an Error event",
+            )
+        }
+    }
+
     /// Probe user background threads (`Thread::create`). Always available on
     /// native targets; on web there is no worker mode yet, so a created
     /// thread reports dead-on-arrival and this probe says `false`.

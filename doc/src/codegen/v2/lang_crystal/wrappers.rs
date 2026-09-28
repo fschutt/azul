@@ -239,6 +239,8 @@ impl<'a> Model<'a> {
     /// After a fresh FFI value was copied (by `_copyFromPtr`) or only
     /// borrowed by a call, free it.
     fn cleanup(&self, t: &Ty, ptr: &str) -> Option<String> {
+        // allow-api-name: `Ty::Str`/`Ty::RefAny` ARE those two API classes -
+        // this maps the shape back to the class whose `_delete` frees it.
         let name = match t {
             Ty::Str => "String",
             Ty::RefAny => "RefAny",
@@ -291,6 +293,7 @@ fn exact(t: &Ty) -> Option<String> {
         Ty::Void => "::Nil".to_string(),
         Ty::Prim(p) => p.crystal().to_string(),
         Ty::Str => "::String".to_string(),
+        // allow-api-name: `Ty::RefAny` is the RefAny class by definition.
         Ty::RefAny => cls("RefAny"),
         Ty::Enum(n) | Ty::Class(n) => cls(n),
         Ty::Option { payload, .. } => format!("({} | ::Nil)", exact(payload)?),
@@ -388,7 +391,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(0, &format!("enum {}", lib(name)));
             if let Some(f) = fns(FunctionKind::Default) {
                 w.l(1, "# Rust `Default`.");
-                w.l(1, "def self.default : self");
+                w.l(1, "def self.create_default : self");
                 w.l(2, &fun(&f));
                 w.l(1, "end");
                 w.l(0, "");
@@ -439,6 +442,40 @@ impl<'m, 'a> Emitter<'m, 'a> {
     // Classes
     // ------------------------------------------------------------------------
 
+    /// The api.json constants this class owns, as Crystal constants in its
+    /// body (`Azul::GlContextPtr::ACCUM_ALPHA_BITS`).
+    ///
+    /// These are the OpenGL enum values - 1436 of them, all on `GlContextPtr`.
+    /// The C header has always had them; Crystal had none, so a caller could
+    /// not name a single argument of the GL surface.
+    fn emit_constants(&self, w: &mut W, class: &str) {
+        let prefix = format!("{class}_");
+        let mut any = false;
+        for c in self.m.ir.constants.iter() {
+            if !c.name.starts_with(&prefix) {
+                continue;
+            }
+            let bare = c.member_name();
+            let suffix = match c.type_name.trim() {
+                "u8" => "_u8",
+                "u16" => "_u16",
+                "u64" => "_u64",
+                "i8" => "_i8",
+                "i16" => "_i16",
+                "i32" => "_i32",
+                "i64" => "_i64",
+                "f32" => "_f32",
+                "f64" => "_f64",
+                _ => "_u32",
+            };
+            w.l(1, &format!("{} = {}{}", bare, c.value, suffix));
+            any = true;
+        }
+        if any {
+            w.l(0, "");
+        }
+    }
+
     fn emit_class(&mut self, w: &mut W, c: &ClassInfo) {
         let m = self.m;
         let name = &c.name;
@@ -457,6 +494,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 lib(name)
             ),
         );
+        self.emit_constants(w, name);
 
         // --- storage hooks ---------------------------------------------------
         if let Shape::Union { variants, .. } = &c.shape {
@@ -697,7 +735,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
         }
         if let Some(f) = t(FunctionKind::Default) {
             w.l(1, "# Rust `Default`.");
-            w.l(1, &format!("def self.default : {}", cls(name)));
+            w.l(1, &format!("def self.create_default : {}", cls(name)));
             w.l(2, &format!("__r = {}", fun(&f)));
             w.l(2, &format!("{}.__own(__r)", cls(name)));
             w.l(1, "end");
@@ -708,9 +746,9 @@ impl<'m, 'a> Emitter<'m, 'a> {
                     && f.args.is_empty()
             });
             if !is_union && !has_zero_arg_new {
-                w.l(1, "# Same as `.default`.");
+                w.l(1, "# Same as `.create_default`.");
                 w.l(1, &format!("def self.new : {}", cls(name)));
-                w.l(2, "default");
+                w.l(2, "create_default");
                 w.l(1, "end");
                 w.l(0, "");
             }
@@ -751,10 +789,12 @@ impl<'m, 'a> Emitter<'m, 'a> {
             );
             let get = match &ty {
                 Ty::Class(n) => Some(format!("{}.__view(__f, self)", cls(n))),
+                // allow-api-name: a RefAny field is viewed through the RefAny class.
                 Ty::RefAny => Some("Azul::RefAny.__view(__f, self)".to_string()),
                 other => m.out_expr(other, "__f"),
             };
             let get_ty = match &ty {
+                // allow-api-name: as above - the RefAny class names itself.
                 Ty::RefAny => Some(cls("RefAny")),
                 other => exact(other),
             };
@@ -1039,13 +1079,17 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 .args
                 .first()
                 .is_some_and(|a| a.ref_kind == ArgRefKind::Owned && m.owned(&a.type_name).is_ref_any());
+            // allow-api-name: the callback context slot IS an OptionRefAny;
+            // a closure can only be carried if that type can be built and freed.
             let ctx_usable = ctx_arg.is_some()
+                // allow-api-name: the context slot IS an OptionRefAny.
                 && m.fun("OptionRefAny", "delete").is_some()
                 && (cb.wrapper.is_some() || layout_factory_candidate.is_some());
             let carry_in_data =
                 (data_first && cb_args.len() == 1 && refany_args.len() == 1).then(|| refany_args[0]);
             let closure = self.callback_convertible(td)
                 && (ctx_usable || carry_in_data.is_some())
+                // allow-api-name: as above - the context type.
                 && matches!(m.owned("OptionRefAny"), Ty::Option { .. });
             if closure && data_first {
                 generic = true;
@@ -1110,6 +1154,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                         Some((wstruct, cb_field, ctx_field)) => {
                             setups.push(format!("{} = {}.new", local, lib(wstruct)));
                             setups.push(format!("{}.{} = {}", local, sanitize_identifier(cb_field), pname));
+                            // allow-api-name: as above - the context type.
                             if !matches!(m.owned("OptionRefAny"), Ty::Option { .. }) {
                                 return false;
                             }
@@ -1468,12 +1513,96 @@ impl<'m, 'a> Emitter<'m, 'a> {
         out
     }
 
+    /// The log sink among a callback's arguments: the argument index, the
+    /// `LibAzul` fun to call, and the level constant to report at.
+    ///
+    /// Structural, never a list of kinds: the first argument whose class
+    /// declares an instance method taking an enum level and a string
+    /// message. A kind without one reports to STDERR instead.
+    fn log_sink(&self, td: &CallbackTypedefDef) -> Option<(usize, String, String)> {
+        let m = self.m;
+        for (j, a) in td.args.iter().enumerate() {
+            // Owned arguments arrive BY VALUE, so a local copy can be
+            // addressed for the `self` pointer the method takes; an argument
+            // passed by reference is an untyped `::Pointer(::Void)` here
+            // (see `cb_lib_arg`) and carries nothing to call through.
+            if a.ref_kind != ArgRefKind::Owned {
+                continue;
+            }
+            let Some(fns) = m.functions.get(a.type_name.trim()) else {
+                continue;
+            };
+            let Some(f) = fns.iter().find(|f| {
+                matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut)
+                    // api.json flags no capability as "the diagnostic
+                    // channel", and the shape alone (an enum level plus a
+                    // string message) also matches ordinary methods, so this
+                    // one entry point has to be named. The symbol, the level
+                    // constant and the argument all come from the IR.
+                    // allow-api-name: the diagnostic channel's api.json name.
+                    && f.method_name == "log"
+                    && f.args.len() == 3
+                    && m.ir
+                        .find_struct(f.args[2].type_name.trim())
+                        .is_some_and(|s| s.category == TypeCategory::String)
+            }) else {
+                continue;
+            };
+            let level_ty = f.args[1].type_name.trim();
+            let Some(e) = m.ir.find_enum(level_ty) else { continue };
+            if e.is_union || e.variants.is_empty() {
+                continue;
+            }
+            // A failed callback is an error; the first variant is the only
+            // other thing the IR can offer if the level enum ever loses it.
+            let variant = e
+                .variants
+                .iter()
+                .find(|v| v.name == "Error")
+                .unwrap_or(&e.variants[0]);
+            return Some((
+                j,
+                fun(&f.c_name),
+                format!("{}::{}", lib(level_ty), enum_member_name(&variant.name)),
+            ));
+        }
+        None
+    }
+
+    /// The statement that puts this kind's FALLBACK return value in
+    /// `__result`, for the trampoline arm where the callback raised: the
+    /// return type's default constructor when it has one, else all-zero
+    /// bytes (variant 0 of a fieldless enum, an empty POD).
+    ///
+    /// Before this, that arm returned the `uninitialized` slot - whatever
+    /// was on the stack, read by Rust as a live value of the type, a fresh
+    /// bug class on top of the one being reported.
+    fn ret_fallback(&self, td: &CallbackTypedefDef) -> String {
+        let ctor = td.return_type.as_deref().map(str::trim).and_then(|rt| {
+            self.m
+                .functions
+                .get(rt)?
+                .iter()
+                .find(|f| f.kind == FunctionKind::Default && f.args.is_empty())
+                .map(|f| fun(&f.c_name))
+        });
+        match ctor {
+            Some(c) => format!("__result = {}", c),
+            // `Pointer#clear` zeroes the slot in place, whatever the type -
+            // no need to know whether it is an enum, a POD or a union.
+            None => "pointerof(__result).clear(1)".to_string(),
+        }
+    }
+
     fn emit_trampolines(&mut self, w: &mut W) {
         let m = self.m;
         w.l(0, "# :nodoc:");
         w.l(0, "# One non-capturing C entry point per callback typedef. It finds the");
         w.l(0, "# registered Crystal closure (in the callback's ctx, or in the data RefAny)");
-        w.l(0, "# and calls it.");
+        w.l(0, "# and calls it, catching everything it may raise: an exception crossing");
+        w.l(0, "# back into libazul's frames is undefined behaviour, so each entry point");
+        w.l(0, "# reports it (through the callback's log sink when it has one) and");
+        w.l(0, "# returns its kind's fallback value instead.");
         w.l(0, "module Azul::Trampolines");
         for tdn in self.trampolines.clone() {
             let td = m.callbacks[&tdn];
@@ -1506,10 +1635,11 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(0, "");
             w.l(1, &format!("def self.call_{}({}) : {}", tdn, params.join(", "), ret));
             let void = ret == "::Nil";
+            let sink = self.log_sink(td);
             if !void {
                 w.l(2, &format!("__result = uninitialized {}", ret));
             }
-            w.l(2, &format!("Azul::Native.guard(\"{}\") do", tdn));
+            w.l(2, "begin");
             w.l(3, &format!("__f = nil.as({}?)", erased));
             if let Some((j, getter)) = &ctx {
                 w.l(3, &format!("__i = __c{}", j));
@@ -1530,6 +1660,38 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 w.l(3, &format!("__f.call({})", names.join(", ")));
             } else {
                 w.l(3, &format!("__result = __f.call({})", names.join(", ")));
+            }
+            // A Crystal exception unwinding into libazul's frames is
+            // undefined behaviour across the C ABI, so EVERYTHING the
+            // callback (and the downcast of its data RefAny) can raise stops
+            // here: it is reported and the fallback value above is returned.
+            w.l(2, "rescue __ex : ::Exception");
+            if !void {
+                w.l(3, "# The body never ran to its assignment, so `__result` is still");
+                w.l(3, "# uninitialized: give Rust this kind's fallback value, not");
+                w.l(3, "# whatever was on the stack. (Built HERE and not before the");
+                w.l(3, "# call: a default that the callback then replaces would be an");
+                w.l(3, "# owned value nobody ever frees.)");
+                w.l(3, &self.ret_fallback(td));
+            }
+            match &sink {
+                Some((j, log_fn, level)) => {
+                    w.l(3, "# Through the callback's own log sink, so the failure");
+                    w.l(3, "# reaches the host's log pipeline and not just a terminal.");
+                    w.l(3, &format!("__le = __c{}", j));
+                    w.l(3, &format!("Azul::Native.callback_raised(\"{}\", __ex) do |__msg|", tdn));
+                    // The Crystal 1.21 rule at the top of this file: the
+                    // AzString goes through a local, never straight into the
+                    // argument list of another LibAzul call.
+                    w.l(4, "__ls = Azul::Native.az_string(__msg)");
+                    w.l(4, &format!("{}(pointerof(__le), {}, __ls)", log_fn, level));
+                    w.l(4, "true");
+                    w.l(3, "end");
+                }
+                None => {
+                    w.l(3, "# No argument of this kind offers a log sink: STDERR it is.");
+                    w.l(3, &format!("Azul::Native.callback_raised(\"{}\", __ex) {{ false }}", tdn));
+                }
             }
             w.l(2, "end");
             if data_first {

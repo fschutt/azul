@@ -14,8 +14,21 @@
 //!
 //! The shims are emitted into `cbits/azul_shims.c` and compiled into
 //! the cabal library via the `c-sources` field. Foreign-imports point
-//! at the `<C symbol>_via` names; the wrapper layer in `Azul` hides the
+//! at the `<C symbol>_byref` names; the wrapper layer in `Azul` hides the
 //! pointer dance so user code keeps the natural `args -> IO T` shape.
+//!
+//! ## Why the suffix is `_byref`
+//!
+//! `_byref` is this repo's name for exactly this shape — `lang_c.rs`
+//! emits `Az<Class>_<method>Byref` twins of the same kind — so every tool
+//! that folds a by-reference wrapper back onto the function it forwards to
+//! (the reachability probe in `bug_classes.rs` canonicalises a symbol by
+//! stripping a `byref` suffix) sees that a call to `AzDom_createBody_byref`
+//! IS a call to `AzDom_createBody`. Under the binding's old `_via` spelling
+//! the whole shimmed surface — ~8500 functions — looked unreachable even
+//! though the idiomatic layer called every one of them. The underscore
+//! keeps the shim distinct from libazul's own `...Byref` twin, which is a
+//! different symbol with a different argument order.
 //!
 //! The file is also the **layout oracle** for `Azul.Types`: one
 //! `size_t az_hs_sizeof_<T>(void)` / `az_hs_alignof_<T>` / `az_hs_offsetof_<T>_<m>`
@@ -37,7 +50,7 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
     out
 }
 
-/// `cbits/azul_<module>.c`: the `_via` shims of the module's classes, the
+/// `cbits/azul_<module>.c`: the `_byref` shims of the module's classes, the
 /// inbound trampolines of its callback typedefs and the layout-oracle
 /// functions of its types.
 pub fn generate_c_shims_for_module(
@@ -62,7 +75,7 @@ const C_HEADER: &str = "/* =====================================================
          /* Auto-generated C shims for the Haskell Azul bindings.        */\n\
          /* GHC's FFI doesn't support struct-by-value across the         */\n\
          /* boundary; every function whose C signature uses one gets a   */\n\
-         /* `<name>_via` wrapper that takes/returns through pointers.   */\n\
+         /* `<name>_byref` wrapper that takes/returns through pointers. */\n\
          /* ============================================================ */\n\n\
          #include <stddef.h>\n\
          #include \"azul.h\"\n\n";
@@ -163,7 +176,7 @@ fn emit_layout_oracle(
 // ============================================================================
 
 /// Prototypes for the host-invoker exports (`core/src/host_invoker.rs`),
-/// which `azul.h` does not declare, plus `_via` shims for the two by-value
+/// which `azul.h` does not declare, plus `_byref` shims for the two by-value
 /// returns Haskell needs: `AzRefAny_newHostHandle` and every
 /// `Az<K>_createFromHostHandle`.
 fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
@@ -176,7 +189,7 @@ fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenCon
     managed_host_invoker::emit_cdef_block(out, ir);
     out.push('\n');
     out.push_str(
-        "void AzRefAny_newHostHandle_via(uint64_t id, AzRefAny *az_out) { *az_out = AzRefAny_newHostHandle(id); }\n",
+        "void AzRefAny_newHostHandle_byref(uint64_t id, AzRefAny *az_out) { *az_out = AzRefAny_newHostHandle(id); }\n",
     );
     for cb in managed_host_invoker::host_invoker_kinds(ir) {
         if !config.should_include_type(&cb.name) {
@@ -187,7 +200,7 @@ fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenCon
             continue;
         }
         out.push_str(&format!(
-            "void Az{w}_createFromHostHandle_via(uint64_t id, Az{w} *az_out) {{ *az_out = Az{w}_createFromHostHandle(id); }}\n",
+            "void Az{w}_createFromHostHandle_byref(uint64_t id, Az{w} *az_out) {{ *az_out = Az{w}_createFromHostHandle(id); }}\n",
             w = w
         ));
     }
@@ -387,8 +400,8 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 /// libazul export) AND actually needs a shim.
 ///
 /// Defined as `should_emit_function(..) && needs_shim(..)` so the import
-/// side and the shim side cannot drift: a `foreign import "<name>_via"`
-/// always has the C shim that defines `<name>_via`.
+/// side and the shim side cannot drift: a `foreign import "<name>_byref"`
+/// always has the C shim that defines `<name>_byref`.
 pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     super::functions::should_emit_function(func, ir, config) && needs_shim(func)
 }
@@ -563,7 +576,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         let c_r = c_typename(r);
         params.push(format!("{} *az_out", c_r));
         out.push_str(&format!(
-            "void {}_via({}) {{ *az_out = {}({}); }}\n",
+            "void {}_byref({}) {{ *az_out = {}({}); }}\n",
             func.c_name,
             params.join(", "),
             target,
@@ -571,7 +584,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         ));
     } else if returns_void {
         out.push_str(&format!(
-            "void {}_via({}) {{ {}({}); }}\n",
+            "void {}_byref({}) {{ {}({}); }}\n",
             func.c_name,
             params.join(", "),
             target,
@@ -581,7 +594,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         let r = func.return_type.as_deref().unwrap();
         let c_r = c_typename(r);
         out.push_str(&format!(
-            "{} {}_via({}) {{ return {}({}); }}\n",
+            "{} {}_byref({}) {{ return {}({}); }}\n",
             c_r,
             func.c_name,
             params.join(", "),

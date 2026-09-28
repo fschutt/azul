@@ -1,11 +1,9 @@
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType, RefAny,
-        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
+        ButtonOnClickCallbackType, CallbackInfo, RefAny, RibbonOnTabClickCallbackType, Update,
     },
     css::{ColorU, SystemStyle},
-    dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback},
-    option::OptionRefAny,
+    dom::Dom,
     str::String as AzString,
     widgets::{
         ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
@@ -199,10 +197,7 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     let mut name_combo = ribbon_style.styled_combo_box(font_names, s("Calibri (Body)"), 133);
     name_combo.set_on_select(
         data.clone(),
-        ComboBoxOnSelectCallback {
-            cb: on_font_select as ComboBoxOnSelectCallbackType,
-            callable: OptionRefAny::None,
-        },
+        on_font_select,
     );
     let mut size_combo = ribbon_style.styled_combo_box(font_sizes, s("11"), 45);
     let name_text = name_combo.resolved_text_style();
@@ -333,10 +328,7 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     let mut gallery = RibbonGallery::create(cells).with_selected(state.selected_style);
     gallery.set_on_select(
         data.clone(),
-        RibbonGalleryOnSelectCallback {
-            cb: on_style_select as RibbonGalleryOnSelectCallbackType,
-            callable: OptionRefAny::None,
-        },
+        on_style_select,
     );
 
     let styles = RibbonGroup::create(s("Styles"))

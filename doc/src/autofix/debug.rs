@@ -164,7 +164,7 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                                 println!("      [Expanded to CallbackTypedef]");
                                 println!(
                                     "        Args: {:?}",
-                                    args.iter().map(|a| &a.ty).collect::<Vec<_>>()
+                                    args.iter().map(|a| (a.name.as_deref(), a.ty.as_str())).collect::<Vec<_>>()
                                 );
                                 println!("        Returns: {:?}", returns);
                             }
@@ -185,7 +185,7 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                     TypeDefKind::CallbackTypedef { args, returns } => {
                         println!(
                             "      Args: {:?}",
-                            args.iter().map(|a| &a.ty).collect::<Vec<_>>()
+                            args.iter().map(|a| (a.name.as_deref(), a.ty.as_str())).collect::<Vec<_>>()
                         );
                         println!("      Returns: {:?}", returns);
                     }

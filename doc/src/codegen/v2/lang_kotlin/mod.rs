@@ -24,6 +24,7 @@
 //! Kotlin-flavoured wrappers around them (Kotlin-style nullability
 //! `Pointer?`, Kotlin keyword set, `?.value` accessors).
 
+pub mod derives;
 pub mod gradle;
 pub mod managed;
 pub mod wrappers;
@@ -59,13 +60,22 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 1. FFI interface
     emit_native_interface(&mut builder, ir, config);
 
+    // 1b. api.json's constants (the GL enum values), which only the FFI
+    // layer used to carry.
+    derives::emit_constants(&mut builder, ir, config);
+
+    // 1c. The one helper the derive surface below shares: engine string →
+    // `kotlin.String`. Emitted before its callers purely for readability;
+    // Kotlin resolves top-level declarations in any order.
+    derives::emit_string_decoder(&mut builder, ir, config);
+
     // 2. Type declarations (enums + structs + callbacks)
     for enum_def in &ir.enums {
         if !should_include_enum(enum_def, config) {
             continue;
         }
         if enum_def.is_union {
-            emit_tagged_union(&mut builder, enum_def, ir);
+            emit_tagged_union(&mut builder, enum_def, ir, config);
         } else {
             emit_unit_enum(&mut builder, enum_def);
         }
@@ -74,7 +84,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         if !should_include_struct(struct_def, config) {
             continue;
         }
-        emit_struct(&mut builder, struct_def, ir);
+        emit_struct(&mut builder, struct_def, ir, config);
     }
     for cb in &ir.callback_typedefs {
         emit_callback_interface(&mut builder, cb, ir);
@@ -91,7 +101,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        emit_monomorphized_alias(&mut builder, ta, mono_def, ir);
+        emit_monomorphized_alias(&mut builder, ta, mono_def, ir, config);
     }
 
     // 3. Idiomatic wrappers
@@ -205,8 +215,9 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     if let Some(s) = ir.find_struct(&func.class_name) {
         if matches!(
             s.category,
+            // A borrowed slice (`VecRef`) is NOT excluded: the C struct is
+            // emitted, so its trait functions belong in the FFI layer too.
             TypeCategory::Recursive
-                | TypeCategory::VecRef
                 | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
         ) || !s.generic_params.is_empty()
@@ -373,7 +384,12 @@ fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
 // Tagged union
 // ============================================================================
 
-fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &CodegenIR) {
+fn emit_tagged_union(
+    builder: &mut CodeBuilder,
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
     let name = ffi_type_name(&enum_def.name);
 
     // 1. Tag enum
@@ -447,7 +463,14 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
     }
-    builder.line(&format!("open class {} : Union() {{", name));
+    // A tagged union never gets a `wrappers.rs` wrapper class (that
+    // predicate looks types up with `find_struct`), so THIS class carries
+    // the type's value surface — see `derives`.
+    builder.line(&format!(
+        "open class {} : Union(){} {{",
+        name,
+        supertype_suffix(&derives::supertypes(&enum_def.name, &name, ir, config))
+    ));
     builder.indent();
     let mut field_names: Vec<String> = Vec::new();
     for v in &enum_def.variants {
@@ -553,6 +576,11 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         }
     }
 
+    // The derive surface goes here, not after the nested classes: `ByValue`
+    // opens a body of its own, and `equals`/`hashCode` have to be readable
+    // as a pair inside ONE class body.
+    derives::emit_value_surface(builder, &enum_def.name, &name, ir, config);
+
     builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
     builder.line(&format!(
         "class ByReference : {}(), Structure.ByReference",
@@ -572,6 +600,7 @@ fn emit_monomorphized_alias(
     ta: &TypeAliasDef,
     mono_def: &MonomorphizedTypeDef,
     ir: &CodegenIR,
+    config: &CodegenConfig,
 ) {
     let name = ffi_type_name(&ta.name);
     for d in &ta.doc {
@@ -600,7 +629,11 @@ fn emit_monomorphized_alias(
             builder.blank();
         }
         MonomorphizedKind::Struct { fields } => {
-            builder.line(&format!("open class {} : Structure() {{", name));
+            builder.line(&format!(
+                "open class {} : Structure(){} {{",
+                name,
+                supertype_suffix(&derives::supertypes(&ta.name, &name, ir, config))
+            ));
             builder.indent();
             let mut field_names: Vec<String> = Vec::new();
             if fields.is_empty() {
@@ -612,6 +645,7 @@ fn emit_monomorphized_alias(
                 }
             }
             emit_kotlin_field_order_override(builder, &field_names);
+            derives::emit_value_surface(builder, &ta.name, &name, ir, config);
             builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
             builder.line(&format!(
                 "class ByReference : {}(), Structure.ByReference",
@@ -664,8 +698,14 @@ fn emit_monomorphized_alias(
                 builder.line("}");
             }
 
-            // Outer Union
-            builder.line(&format!("open class {} : Union() {{", name));
+            // Outer Union. A monomorphized alias is invisible to
+            // `find_struct`/`find_enum`, so nothing else in the emitter
+            // wraps it: this class carries its whole value surface.
+            builder.line(&format!(
+                "open class {} : Union(){} {{",
+                name,
+                supertype_suffix(&derives::supertypes(&ta.name, &name, ir, config))
+            ));
             builder.indent();
             let mut field_names = Vec::new();
             for v in variants {
@@ -678,6 +718,7 @@ fn emit_monomorphized_alias(
                 field_names.push(format!("\"{}\"", v.name));
             }
             emit_kotlin_field_order_override(builder, &field_names);
+            derives::emit_value_surface(builder, &ta.name, &name, ir, config);
             builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
             builder.line(&format!(
                 "class ByReference : {}(), Structure.ByReference",
@@ -751,7 +792,7 @@ fn ref_kind_field_type_kt(type_name: &str, ref_kind: &FieldRefKind, ir: &Codegen
 // POD struct
 // ============================================================================
 
-fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) {
     let name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -761,7 +802,11 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         }
     }
 
-    builder.line(&format!("open class {} : Structure() {{", name));
+    builder.line(&format!(
+        "open class {} : Structure(){} {{",
+        name,
+        supertype_suffix(&derives::supertypes(&s.name, &name, ir, config))
+    ));
     builder.indent();
 
     let mut field_names: Vec<String> = Vec::new();
@@ -782,6 +827,11 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if s.category == TypeCategory::Vec {
         emit_vec_to_list_kt(builder, s, ir);
     }
+
+    // Value surface for the structs `wrappers.rs` does not wrap (POD types
+    // whose whole API is their `derive` list). A wrapped struct gets its
+    // surface on the wrapper instead, so it is never emitted twice.
+    derives::emit_value_surface(builder, &s.name, &name, ir, config);
 
     emit_byvalue_byref(builder, &name);
 
@@ -1125,15 +1175,33 @@ pub fn sanitize_kt_identifier(name: &str) -> String {
     }
 }
 
+/// Render a list of extra supertypes as the `, A, B` tail of a class
+/// header whose first supertype (`Structure()` / `Union()`) is already
+/// written. Empty list → empty string, so the header is unchanged for the
+/// types that add nothing.
+pub fn supertype_suffix(extra: &[String]) -> String {
+    if extra.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", extra.join(", "))
+    }
+}
+
 /// Sanitise a name for use as a Kotlin wrapper-class / type name.
-/// Mirrors `sanitize_kt_identifier` PLUS the Java `String` → `AzulString`
-/// rename so the emitted wrapper doesn't shadow `kotlin.String` /
-/// `java.lang.String` inside `package com.azul`. Used by every call
-/// site that materialises a *type or class* name — call sites that
-/// materialise *argument* names should keep using `sanitize_kt_identifier`.
-pub fn kotlin_class_name(name: &str) -> String {
-    if name == "String" {
-        return "AzulString".to_string();
+/// Mirrors `sanitize_kt_identifier` PLUS an `Azul` prefix for the ONE type
+/// the JVM already has: the engine's string type would otherwise shadow
+/// `kotlin.String` / `java.lang.String` inside `package com.azul`, and
+/// every wrapper signature spelling `String` would silently bind to the
+/// wrong one. Which type that is comes from the IR category, not from its
+/// api.json spelling. Used by every call site that materialises a *type or
+/// class* name — call sites that materialise *argument* names should keep
+/// using `sanitize_kt_identifier`.
+pub fn kotlin_class_name(name: &str, ir: &CodegenIR) -> String {
+    if ir
+        .find_struct(name)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        return format!("Azul{}", name);
     }
     sanitize_kt_identifier(name)
 }

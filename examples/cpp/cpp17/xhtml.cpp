@@ -24,7 +24,7 @@ int main() {
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 
-    App app = App::create(std::move(data), AppConfig::default_());
+    App app = App::create(std::move(data), AppConfig::create());
     app.run(std::move(window));
 
     return 0;

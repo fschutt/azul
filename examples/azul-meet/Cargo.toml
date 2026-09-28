@@ -5,13 +5,12 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    azul-meet - a Google-Meet-style demo on the public azul API. A meeting UI
-    whose toolbar toggles enable/disable microphone, camera and screen-share;
-    each toggle triggers a relayout so the DOM gains/loses a CameraWidget /
-    ScreenCaptureWidget / MicrophoneWidget (whose AfterMount starts the capture).
-    Remote participants are grey placeholders; the local user is a live tile.
-    Auto-joins a generated 'meeting link'. Sending media to remote peers over
-    the wire is the WebTransport follow-up.
+    azul-meet - a Google-Meet-style demo on the public azul API. Opens two
+    participants in one process, Ada in a CPU-rendered window with her camera
+    and Ben in a GPU-rendered window sharing his screen, linked by azul.iroh
+    endpoints: every captured frame is JPEG-encoded, sent as one QUIC stream,
+    and decoded into the other window's remote tile. Without a peer link it
+    falls back to a single window with placeholder participants.
 """
 publish = false
 

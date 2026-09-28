@@ -255,6 +255,15 @@ impl TypeDefinition {
                                 doc: Vec::new(),
                             },
                         );
+                        fields.insert(
+                            "flags".to_string(),
+                            FieldDef {
+                                name: "flags".to_string(),
+                                ty: "u8".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -667,6 +676,7 @@ impl TypeDefinition {
                             // Keep RefKind as-is - no conversion needed anymore
                             // The api.json CallbackArgData now uses RefKind directly
                             CallbackArgInfo {
+                                name: arg.name,
                                 ty: arg.ty,
                                 ref_kind: arg.ref_kind,
                             }
@@ -3236,7 +3246,7 @@ fn extract_into_inner_type(bound: &syn::TypeParamBound) -> Option<String> {
 }
 
 /// Extract a single method definition from an ImplItemFn
-fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
+pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
     let method_name = method.sig.ident.to_string();
 
     // Check visibility (pub or not) - vis is on the method, not the sig

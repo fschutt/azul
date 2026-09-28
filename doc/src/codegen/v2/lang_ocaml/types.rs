@@ -5,13 +5,16 @@
 //! - **Two-pass struct emission**: Ctypes requires a struct's typ value to exist before fields are
 //!   added (because field types may reference other structs). Pass 1 emits the bare typ stub; pass
 //!   2 adds fields and seals.
-//! - **Unit enums** (`is_union == false`) -> a polymorphic-variant alias (`type t = [ \`A | \`B ]`)
-//!   plus integer mapping helpers `to_int` / `of_int` that pin the C ABI numbering.
+//! - **Unit enums** (`is_union == false`) -> the FFI view `type az_x = int` with its typ value,
+//!   identity `_to_int` / `_of_int` helpers and one `az_x_variant_<v>` constant per variant. The
+//!   user-facing ADT module (`Update.RefreshDom`) lives in `wrappers.rs` (`azul_enums_<module>.ml`).
 //! - **Tagged-union enums** (`is_union == true`) -> the FFI-side `structure` with a `tag :
 //!   uint32_t` field plus a `payload` byte array sized for the largest variant. The OCaml-side
 //!   polymorphic variant + conversion helpers live in `wrappers.rs`.
-//! - **Skipped categories** (`Recursive`, `VecRef`, `DestructorOrClone`, `GenericTemplate`) emit a
-//!   `(* SKIPPED: ... *)` comment for traceability.
+//! - **Types with no public surface** (`Recursive`, `DestructorOrClone`, `GenericTemplate`) get a
+//!   one-line note saying what they are. They are not omissions: a destructor/clone union is
+//!   libazul's own plumbing and still gets its ABI placeholder above, and a generic template has
+//!   no C form of its own - each instantiation is emitted as its own monomorphized alias.
 
 use anyhow::Result;
 
@@ -19,9 +22,13 @@ use super::{
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, FunctionKind, StructDef, TypeCategory},
+        ir::{
+            CodegenIR, EnumDef, FieldDef, FieldRefKind, MonomorphizedKind, StructDef, TypeAliasDef,
+            TypeCategory,
+        },
     },
-    map_type_to_ocaml, ocaml_ffi_type_name, sanitize_doc, sanitize_identifier,
+    map_type_to_ocaml, map_type_to_ocaml_typ, ocaml_ffi_type_name, sanitize_doc,
+    sanitize_identifier,
 };
 
 // ============================================================================
@@ -111,7 +118,7 @@ pub fn emit_forward_struct_decls(
         }
         if matches!(
             s.category,
-            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
+            TypeCategory::Recursive | TypeCategory::DestructorOrClone
         ) {
             let ffi = ocaml_ffi_type_name(&s.name);
             builder.line(&format!("type {} = unit ptr", ffi));
@@ -170,11 +177,66 @@ pub fn emit_forward_struct_decls(
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        let ffi = ocaml_ffi_type_name(&ta.name);
-        builder.line(&format!("type {} = unit ptr", ffi));
-        builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+        emit_type_alias(builder, ta, ir);
     }
     builder.blank();
+}
+
+/// The FFI view of one type alias.
+///
+/// A monomorphized generic alias (`LayoutClearValue =
+/// CssPropertyValue<LayoutClear>`) is not a pointer: azul.h emits
+/// `union AzLayoutClearValue { ... }` and every entry point takes it
+/// and returns it BY VALUE. Giving all of them `unit ptr` made the
+/// binding read and write 8 bytes where the C ABI has a 16-, 24- or
+/// 88-byte union, and shrank every parent that embeds one - the same
+/// defect the `DestructorOrClone` unions above were fixed for. So an
+/// aggregate alias gets a sized blob, exactly as a tagged union of the
+/// same layout does, a scalar alias gets its target's own view
+/// (`GLuint` IS a `u32`), and only an alias the IR cannot size stays
+/// opaque.
+fn emit_type_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR) {
+    let ffi = ocaml_ffi_type_name(&ta.name);
+    if let Some((size, align)) = c_size_of_alias(ta, ir, &mut Vec::new()) {
+        builder.line(&format!("type {}", ffi));
+        builder.line(&format!(
+            "let ({} : {} structure typ) = structure \"{}\"",
+            ffi,
+            ffi,
+            format_c_struct_name(&ta.name)
+        ));
+        emit_byte_blob_fields(builder, &ffi, size, align);
+        builder.line(&format!("let () = seal {}", ffi));
+        return;
+    }
+    match alias_scalar_view(ta, ir) {
+        Some((ocaml_type, ctypes_value)) => {
+            builder.line(&format!("type {} = {}", ffi, ocaml_type));
+            builder.line(&format!("let ({} : {} typ) = {}", ffi, ffi, ctypes_value));
+        }
+        None => {
+            builder.line(&format!("type {} = unit ptr", ffi));
+            builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+        }
+    }
+}
+
+/// The `(OCaml type, Ctypes view)` of an alias that crosses the ABI as a
+/// scalar: a monomorphized unit enum (an `int`, like every other unit
+/// enum) or an alias of a primitive (`GLuint = u32`). `None` for anything
+/// whose target this emitter cannot name.
+fn alias_scalar_view(ta: &TypeAliasDef, ir: &CodegenIR) -> Option<(String, String)> {
+    if let Some(m) = &ta.monomorphized_def {
+        if matches!(m.kind, MonomorphizedKind::SimpleEnum { .. }) {
+            return Some(("int".to_string(), "int".to_string()));
+        }
+        return None;
+    }
+    primitive_size(ta.target.trim())?;
+    Some((
+        map_type_to_ocaml_typ(&ta.target, ir),
+        map_type_to_ocaml(&ta.target, ir),
+    ))
 }
 
 // ============================================================================
@@ -219,30 +281,24 @@ pub fn emit_struct_fields_and_enums(
     let mut items: Vec<(usize, Item)> = Vec::new();
     for s in ir.structs.iter().filter(|s| belongs(&s.name)) {
         if !should_emit_struct(s, config) {
-            if !s.generic_params.is_empty() {
-                builder.line(&format!("(* SKIPPED: generic struct {} *)", s.name));
-            } else {
-                builder.line(&format!(
-                    "(* SKIPPED: struct {} ({}) *)",
-                    s.name,
-                    s.category.description()
-                ));
-            }
+            builder.line(&no_public_surface_note(
+                "struct",
+                &s.name,
+                &s.generic_params,
+                s.category,
+            ));
             continue;
         }
         items.push((s.sort_order, Item::Struct(s)));
     }
     for e in ir.enums.iter().filter(|e| belongs(&e.name)) {
         if !should_emit_enum(e, config) {
-            if !e.generic_params.is_empty() {
-                builder.line(&format!("(* SKIPPED: generic enum {} *)", e.name));
-            } else {
-                builder.line(&format!(
-                    "(* SKIPPED: enum {} ({}) *)",
-                    e.name,
-                    e.category.description()
-                ));
-            }
+            builder.line(&no_public_surface_note(
+                "enum",
+                &e.name,
+                &e.generic_params,
+                e.category,
+            ));
             continue;
         }
         if e.is_union {
@@ -271,12 +327,15 @@ pub fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // A borrowed slice (`VecRef`) is NOT excluded. `struct AzU8VecRef {
+    // const void* ptr; size_t len; }` is an ordinary two-field struct that
+    // every `AzGl_*` entry point takes BY VALUE; emitting it as one opaque
+    // word passed only the pointer and left the length whatever was in the
+    // next register. It gets no wrapper record (nothing here owns borrowed
+    // memory, so nothing may free it) - only the honest layout.
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::DestructorOrClone | TypeCategory::GenericTemplate
     )
 }
 
@@ -601,13 +660,8 @@ fn c_size_of_type(type_name: &str, ir: &CodegenIR, visiting: &mut Vec<String>) -
     }
 
     // Primitives.
-    match trimmed {
-        "bool" | "u8" | "i8" | "c_char" | "c_uchar" | "char" => return (1, 1),
-        "u16" | "i16" => return (2, 2),
-        "u32" | "i32" | "c_int" | "c_uint" | "f32" => return (4, 4),
-        "u64" | "i64" | "usize" | "isize" | "f64" => return (8, 8),
-        "c_void" | "()" | "void" => return (0, 1),
-        _ => {}
+    if let Some(r) = primitive_size(trimmed) {
+        return r;
     }
 
     // Cycle break.
@@ -644,14 +698,101 @@ fn c_size_of_type(type_name: &str, ir: &CodegenIR, visiting: &mut Vec<String>) -
         return r;
     }
 
+    // A monomorphized generic alias is a real aggregate on the wire, so a
+    // parent that embeds one must count its true size. Sizing it 8 (the
+    // pointer-shaped fallback below) is what made every tagged union with
+    // a `*Value` payload - `CssProperty` above all - come out at a
+    // fraction of its C size.
+    if let Some(ta) = ir.find_type_alias(trimmed) {
+        visiting.push(trimmed.to_string());
+        let r = c_size_of_alias(ta, ir, visiting).or_else(|| match &ta.monomorphized_def {
+            // A monomorphized unit enum is a C `enum`: an int.
+            Some(m) => matches!(m.kind, MonomorphizedKind::SimpleEnum { .. }).then_some((4, 4)),
+            // `GLuint = u32` and friends are their target.
+            None => primitive_size(ta.target.trim()),
+        });
+        visiting.pop();
+        if let Some(r) = r {
+            return r;
+        }
+    }
+
     // Callback function pointers, opaque types, unknown — pointer-sized.
     (8, 8)
 }
 
+/// (size, alignment) of a C primitive, or `None` when the name is not one.
+fn primitive_size(name: &str) -> Option<(usize, usize)> {
+    Some(match name {
+        "bool" | "u8" | "i8" | "c_char" | "c_uchar" | "char" => (1, 1),
+        "u16" | "i16" => (2, 2),
+        "u32" | "i32" | "c_int" | "c_uint" | "f32" => (4, 4),
+        "u64" | "i64" | "usize" | "isize" | "f64" => (8, 8),
+        "c_void" | "()" | "void" => (0, 1),
+        _ => return None,
+    })
+}
+
+/// (size, alignment) of a monomorphized generic alias that crosses the ABI
+/// as an AGGREGATE - a `#[repr(C, u8)]` tagged union or a struct. `None`
+/// for a scalar alias (a monomorphized unit enum, `GLuint = u32`) and for
+/// an alias the IR never monomorphized.
+fn c_size_of_alias(
+    ta: &TypeAliasDef,
+    ir: &CodegenIR,
+    visiting: &mut Vec<String>,
+) -> Option<(usize, usize)> {
+    match &ta.monomorphized_def.as_ref()?.kind {
+        MonomorphizedKind::SimpleEnum { .. } => None,
+        MonomorphizedKind::Struct { fields } => Some(c_size_of_fields(fields, ir, visiting)),
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            let mut max_payload_size: usize = 0;
+            let mut max_payload_align: usize = 1;
+            for v in variants {
+                let (psz, pal) = match (&v.payload_type, &v.payload_ref_kind) {
+                    (None, _) => (0, 1),
+                    (Some(t), FieldRefKind::Owned) => c_size_of_type(t, ir, visiting),
+                    // A pointer payload (`BoxOrStatic`) is one word.
+                    (Some(_), _) => (8, 8),
+                };
+                if psz > max_payload_size {
+                    max_payload_size = psz;
+                }
+                if pal > max_payload_align {
+                    max_payload_align = pal;
+                }
+            }
+            Some(tagged_layout(max_payload_size, max_payload_align))
+        }
+    }
+}
+
+/// The `#[repr(C, u8)]` layout over the largest payload: a 1-byte tag
+/// padded up to the payload's alignment, the payload, then the whole
+/// rounded up to that alignment again.
+fn tagged_layout(max_payload_size: usize, max_payload_align: usize) -> (usize, usize) {
+    let align = max_payload_align.max(1);
+    let head = 1_usize.div_ceil(align) * align;
+    let total = head + max_payload_size;
+    (total.div_ceil(align) * align, align)
+}
+
 fn c_size_of_struct(s: &StructDef, ir: &CodegenIR, visiting: &mut Vec<String>) -> (usize, usize) {
+    c_size_of_fields(&s.fields, ir, visiting)
+}
+
+/// The C layout of a field list: each field at its own alignment, the
+/// whole rounded up to the widest one. Shared by `c_size_of_struct` and
+/// by the monomorphized `Struct` aliases, which carry fields and no
+/// `StructDef`.
+fn c_size_of_fields(
+    fields: &[FieldDef],
+    ir: &CodegenIR,
+    visiting: &mut Vec<String>,
+) -> (usize, usize) {
     let mut offset: usize = 0;
     let mut max_align: usize = 1;
-    for f in &s.fields {
+    for f in fields {
         // Ref-kind pointers are 8/8.
         let (fs, fa) = match f.ref_kind {
             FieldRefKind::Owned => c_size_of_type(&f.type_name, ir, visiting),
@@ -739,20 +880,7 @@ fn c_size_of_tagged_enum(
         }
     }
 
-    // #[repr(C, u8)]: 1-byte tag, padded up to max_payload_align, then
-    // max_payload_size, then total padded up to max_payload_align.
-    let head = if max_payload_align == 0 {
-        1
-    } else {
-        1_usize.div_ceil(max_payload_align) * max_payload_align
-    };
-    let total = head + max_payload_size;
-    let aligned = if max_payload_align == 0 {
-        total
-    } else {
-        total.div_ceil(max_payload_align) * max_payload_align
-    };
-    (aligned, max_payload_align.max(1))
+    tagged_layout(max_payload_size, max_payload_align)
 }
 
 // ============================================================================
@@ -770,7 +898,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 
     if e.variants.is_empty() {
         builder.line(&format!(
-            "(* SKIPPED: unit enum {} has no variants *)",
+            "(* unit enum {}: api.json declares no variants, so there is no value to emit *)",
             e.name
         ));
         builder.blank();
@@ -859,150 +987,40 @@ fn format_c_struct_name(ir_name: &str) -> String {
     format!("Az{}", ir_name)
 }
 
-// ============================================================================
-// Unit-only enum capabilities
-// ============================================================================
-//
-// A unit enum is `type az_x = int` with an int VIEW, not a `Ctypes.structure`,
-// so `Ctypes.addr` does not apply - an int is not addressable. The entry
-// points take `ptr az_x`, so these allocate a cell. Both surfaces are driven
-// from `unit_enum_caps` so the interface cannot omit what the module defines;
-// in OCaml the `.mli` seals the module, and that drift is the bug this whole
-// file keeps rediscovering.
-
-/// Which trait entry points this unit enum actually exports.
-fn unit_enum_caps(e: &EnumDef, ir: &CodegenIR) -> Vec<(FunctionKind, String)> {
-    let mut out = Vec::new();
-    for f in ir.functions_for_class(&e.name) {
-        if matches!(
-            f.kind,
-            FunctionKind::PartialEq
-                | FunctionKind::Hash
-                | FunctionKind::DebugToString
-                | FunctionKind::Cmp
-                | FunctionKind::PartialCmp
-                | FunctionKind::Default
-        ) && !out
-            .iter()
-            .any(|(k, _): &(FunctionKind, String)| *k == f.kind)
-        {
-            out.push((f.kind, super::functions::ocaml_binding_name(&f.c_name)));
-        }
+/// The one-line note that stands where a type with no public surface would
+/// have been declared.
+///
+/// None of these is an omission the emitter should be fixed for, and none
+/// of them costs the binding any API:
+///
+/// - a `DestructorOrClone` union is libazul's own drop glue (its fields are function pointers
+///   libazul calls on its own values); the ABI placeholder it needs in order to sit inside a
+///   parent struct is declared in pass 1, and there is nothing else to wrap;
+/// - a `Recursive` type cannot be laid out by value at all (it contains itself);
+/// - a generic template has no C form of its own - `CssPropertyValue<T>` exists in azul.h only as
+///   its instantiations, which this emitter writes as monomorphized aliases.
+///
+/// It says so, instead of the "SKIPPED" it used to say, because "skipped"
+/// reads as "the emitter gave up here" and sent every reader looking for
+/// missing API.
+fn no_public_surface_note(
+    what: &str,
+    name: &str,
+    generic_params: &[String],
+    category: TypeCategory,
+) -> String {
+    if !generic_params.is_empty() {
+        return format!(
+            "(* {} {} is a generic template: it has no C form of its own, only the \
+             monomorphized instantiations emitted as type aliases *)",
+            what, name
+        );
     }
-    out
-}
-
-fn emit_unit_enum_trait_decls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
-    for (kind, _) in unit_enum_caps(e, ir) {
-        match kind {
-            FunctionKind::PartialEq => {
-                builder.line("(* Equality routed through the C ABI. *)");
-                builder.line("val equal : int -> int -> bool");
-            }
-            FunctionKind::Hash => {
-                builder.line("(* Hash routed through the C ABI. *)");
-                builder.line("val hash : int -> int");
-            }
-            FunctionKind::DebugToString => {
-                builder.line("(* Debug rendering routed through the C ABI. *)");
-                builder.line("val to_string : int -> string");
-            }
-            FunctionKind::Cmp => {
-                builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
-                builder.line("val compare : int -> int -> int");
-            }
-            FunctionKind::PartialCmp => {
-                // NOT `compare`: the ABI answers 255 for "incomparable", and a
-                // total `compare : int -> int -> int` has no honest value for
-                // that. An option says exactly what PartialOrd means.
-                builder.line("(* Partial order routed through the C ABI; None = incomparable. *)");
-                builder.line("val partial_compare : int -> int -> int option");
-            }
-            FunctionKind::Default => {
-                builder.line("(* The Rust Default. *)");
-                builder.line("val default : unit -> int");
-            }
-            _ => {}
-        }
-    }
-}
-
-fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
-    let ffi = super::ocaml_ffi_type_name(&e.name);
-    for (kind, raw) in unit_enum_caps(e, ir) {
-        match kind {
-            FunctionKind::PartialEq => {
-                builder.line("let equal (a : int) (b : int) : bool =");
-                builder.indent();
-                builder.line(&format!(
-                    "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
-                    raw, ffi, ffi
-                ));
-                builder.dedent();
-            }
-            FunctionKind::Hash => {
-                builder.line("let hash (t : int) : int =");
-                builder.indent();
-                builder.line(&format!(
-                    "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
-                    raw, ffi
-                ));
-                builder.dedent();
-            }
-            FunctionKind::DebugToString => {
-                let del = super::functions::ocaml_binding_name("AzString_delete");
-                builder.line("let to_string (t : int) : string =");
-                builder.indent();
-                builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
-                builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
-                builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
-                builder.line(
-                    "let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in",
-                );
-                builder.line(
-                    "let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else \
-                     Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) \
-                     ~length:vec_len in",
-                );
-                builder.line(&format!("{} (Ctypes.addr __s);", del));
-                builder.line("__out");
-                builder.dedent();
-            }
-            FunctionKind::Cmp => {
-                // 0 = Less, 1 = Equal, 2 = Greater on the C side; OCaml's
-                // `compare` wants negative / zero / positive. Exact
-                // correspondence over the same three outcomes.
-                builder.line("let compare (a : int) (b : int) : int =");
-                builder.indent();
-                builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
-                     b)) with",
-                    raw, ffi, ffi
-                ));
-                builder.line("| 0 -> -1");
-                builder.line("| 1 -> 0");
-                builder.line("| _ -> 1");
-                builder.dedent();
-            }
-            FunctionKind::PartialCmp => {
-                builder.line("let partial_compare (a : int) (b : int) : int option =");
-                builder.indent();
-                builder.line(&format!(
-                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} \
-                     b)) with",
-                    raw, ffi, ffi
-                ));
-                builder.line("| 0 -> Some (-1)");
-                builder.line("| 1 -> Some 0");
-                builder.line("| 2 -> Some 1");
-                builder.line("| _ -> None");
-                builder.dedent();
-            }
-            FunctionKind::Default => {
-                // No receiver, so nothing to allocate.
-                builder.line(&format!("let default () : int = {} ()", raw));
-            }
-            _ => {}
-        }
-    }
+    format!(
+        "(* {} {} is internal to libazul ({}): no public surface, and its ABI \
+         placeholder is declared above *)",
+        what,
+        name,
+        category.description()
+    )
 }
