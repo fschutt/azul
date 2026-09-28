@@ -2497,6 +2497,12 @@ fn run_linux_windows(
             break;
         }
 
+        // The app-level sources' per-iteration half: acknowledge the loop
+        // waker, drain the shared D-Bus connection completely, read the
+        // hotkey grab connection. The loops park on these sources' fds
+        // (`loop_waker::wait_fds`) instead of polling them.
+        crate::desktop::loop_waker::service_sources();
+
         // Tray: dispatch D-Bus traffic. This is what ANSWERS the panel — SNI
         // is ~90% property reads, and a host whose GetAll times out shows no
         // icon at all. The returned callbacks are the panel-drawn dbusmenu's
@@ -2594,9 +2600,9 @@ fn run_linux_windows(
         }
 
         // Global hotkeys: read the X grab connection (the portal's listener
-        // thread parks its own), then run what fired against the first
-        // window - the tray's route. The loops below cap their park while a
-        // hotkey is registered, so this runs a few times a second at least.
+        // thread parks its own and raises the loop waker), then run what
+        // fired against the first window - the tray's route. A press wakes
+        // the loop through the grab connection's fd in the poll set.
         crate::desktop::global_hotkey::pump_into_first_linux_window();
 
         // Process events for all windows
@@ -2909,6 +2915,20 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     }
     if pollfds.is_empty() {
         return Ok(());
+    }
+
+    // The app-level sources (D-Bus, the hotkey grab connection, the loop
+    // waker) wake this wait too, and work they already buffered - which no
+    // descriptor announces any more - is served before parking.
+    if crate::desktop::loop_waker::must_not_park() {
+        return Ok(());
+    }
+    for fd in crate::desktop::loop_waker::wait_fds() {
+        pollfds.push(libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
     }
 
     unsafe {

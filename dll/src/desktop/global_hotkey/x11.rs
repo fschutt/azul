@@ -6,10 +6,12 @@
 //! registration and kept for the process. A grab's `KeyPress` is reported to
 //! the grabbing client with `window = root`; on the windows' shared
 //! connection it would reach an event router that knows only its own
-//! windows. The cost is that this connection's fd is not in the loop's poll
-//! set, so while a hotkey is registered the X11 / Wayland loops cap their
-//! park (like they do for the tray's D-Bus) and [`poll`] drains it on every
-//! loop iteration.
+//! windows. The X11 / Wayland loops put this connection's fd into their poll
+//! set ([`connection_fd`], through `desktop::loop_waker::wait_fds`), and
+//! [`poll`] drains it at the top of every loop iteration. Events Xlib
+//! already read into its queue (during the `XSync` of a registration) no
+//! longer show on the fd; [`has_queued_events`] tells the loop not to park
+//! on top of them.
 //!
 //! # The lock modifiers
 //!
@@ -125,6 +127,7 @@ type XStringToKeysymFn = unsafe extern "C" fn(*const c_char) -> KeySym;
 type XSetErrorHandlerFn = unsafe extern "C" fn(Option<XErrorHandler>) -> Option<XErrorHandler>;
 type XSyncFn = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 type XPendingFn = unsafe extern "C" fn(*mut Display) -> c_int;
+type XConnectionNumberFn = unsafe extern "C" fn(*mut Display) -> c_int;
 type XNextEventFn = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 type XGetModifierMappingFn = unsafe extern "C" fn(*mut Display) -> *mut XModifierKeymap;
 type XFreeModifiermapFn = unsafe extern "C" fn(*mut XModifierKeymap) -> c_int;
@@ -140,6 +143,7 @@ struct Xlib {
     set_error_handler: XSetErrorHandlerFn,
     sync: XSyncFn,
     pending: XPendingFn,
+    connection_number: XConnectionNumberFn,
     next_event: XNextEventFn,
     get_modifier_mapping: XGetModifierMappingFn,
     free_modifiermap: XFreeModifiermapFn,
@@ -171,6 +175,9 @@ fn xlib() -> Option<&'static Xlib> {
                 .ok()?,
             sync: *lib.get::<XSyncFn>(b"XSync\0").ok()?,
             pending: *lib.get::<XPendingFn>(b"XPending\0").ok()?,
+            connection_number: *lib
+                .get::<XConnectionNumberFn>(b"XConnectionNumber\0")
+                .ok()?,
             next_event: *lib.get::<XNextEventFn>(b"XNextEvent\0").ok()?,
             get_modifier_mapping: *lib
                 .get::<XGetModifierMappingFn>(b"XGetModifierMapping\0")
@@ -498,6 +505,30 @@ fn poll() {
     }
 }
 
+/// The grab connection's socket, for the loops' poll set. `None` until the
+/// first registration opened the connection.
+pub(super) fn connection_fd() -> Option<i32> {
+    let x = xlib()?;
+    let guard = state();
+    let s = guard.as_ref()?;
+    let fd = unsafe { (x.connection_number)(s.display as *mut Display) };
+    (fd >= 0).then_some(fd)
+}
+
+/// Are events already in Xlib's queue for the grab connection? `XPending`
+/// flushes and reads whatever the socket holds without blocking, so after a
+/// `false` the socket is empty too and the fd announces the next press.
+pub(super) fn has_queued_events() -> bool {
+    let Some(x) = xlib() else {
+        return false;
+    };
+    let guard = state();
+    let Some(s) = guard.as_ref() else {
+        return false;
+    };
+    unsafe { (x.pending)(s.display as *mut Display) > 0 }
+}
+
 pub(super) fn backend() -> GlobalHotkeyBackend {
     GlobalHotkeyBackend {
         name: "X11 XGrabKey (root window)",
@@ -505,7 +536,8 @@ pub(super) fn backend() -> GlobalHotkeyBackend {
         register,
         unregister,
         poll,
-        // The grab connection is not in the loop's poll set.
-        needs_loop_polling: true,
+        // The grab connection's fd is in the loops' poll set
+        // (`desktop::loop_waker::wait_fds`): a press wakes the loop.
+        needs_loop_polling: false,
     }
 }

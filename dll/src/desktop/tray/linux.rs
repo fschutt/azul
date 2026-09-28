@@ -1202,6 +1202,11 @@ impl PlatformTray {
             (dbus.dbus_message_unref)(reply);
             (dbus.dbus_connection_flush)(conn);
 
+            // The panel's property reads and clicks arrive on this socket:
+            // put it in the run loops' wait set, so they are answered as they
+            // arrive instead of on a 100 ms poll.
+            crate::desktop::loop_waker::watch_dbus_connection(&dbus, conn);
+
             Ok(Self { dbus, conn, state })
         }
     }
@@ -1266,10 +1271,14 @@ impl PlatformTray {
     /// Dispatch incoming D-Bus traffic (property reads, Activate calls,
     /// dbusmenu GetLayout/Event), then hand back the menu callbacks the
     /// host's clicks selected - the run loop invokes them against a window
-    /// exactly like macOS's `pump_tray_into_windows`.
+    /// through the app-event collector.
+    ///
+    /// The collector's `loop_waker::service_sources` has usually drained the
+    /// connection already; draining again is a no-op read, and keeps this
+    /// pump self-sufficient.
     pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
         unsafe {
-            (self.dbus.dbus_connection_read_write_dispatch)(self.conn, 0);
+            crate::desktop::shell2::linux::dbus::drain_connection(&self.dbus, self.conn);
         }
         let ids: Vec<i32> = match self.state.clicked.lock() {
             Ok(mut q) => q.drain(..).collect(),

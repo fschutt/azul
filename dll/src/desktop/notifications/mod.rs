@@ -270,9 +270,10 @@ pub fn pump_notifications() -> Vec<NotificationDelivery> {
     .unwrap_or_default()
 }
 
-/// Is a notification outstanding, or a request / event waiting? The Linux
-/// loops read this to bound their poll - the server's signals arrive on the
-/// D-Bus socket, which is not in their wait set (the tray's reasoning).
+/// Is a notification outstanding, or a request / event waiting? (The Linux
+/// loops no longer bound their park on this: the server's signals arrive on
+/// the D-Bus socket, which is in their wait set through `desktop::loop_waker`,
+/// and `loop_waker::must_not_park` covers a queued request or event.)
 #[must_use]
 pub fn needs_polling() -> bool {
     let live = SERVICE

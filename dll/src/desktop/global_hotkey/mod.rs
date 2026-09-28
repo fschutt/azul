@@ -9,7 +9,7 @@
 //! | mechanism | Carbon `RegisterEventHotKey` | `RegisterHotKey` | `XGrabKey` on the root window | portal `GlobalShortcuts` |
 //! | permission | none | none | none | the desktop may ask the user |
 //! | a press arrives as | an NSEvent -> Carbon handler | `WM_HOTKEY` on a message-only window | `KeyPress` on a 2nd X connection | `Activated` on a D-Bus thread |
-//! | wakes the loop by itself | yes | yes | no - the loop polls | no - the loop polls |
+//! | wakes the loop by itself | yes | yes | yes - the grab connection's fd is in the poll set | yes - the listener raises the loop waker |
 //! | "another app owns it" | `eventHotKeyExistsErr` | `ERROR_HOTKEY_ALREADY_REGISTERED` | `BadAccess` | the desktop decides |
 //! | can be absent | no | no | no `$DISPLAY` | no portal backend (probe) |
 //!
@@ -95,12 +95,46 @@ pub fn install_simulated_backend() {
 
 /// Must the run loop wake up by itself right now? True while a hotkey is
 /// registered on a backend whose presses arrive on something the loop does
-/// not wait on (X11's second connection, the portal's D-Bus thread, the
-/// headless simulation). The X11 / Wayland / headless loops cap their park
-/// on this, exactly as they do for a live tray.
+/// not wait on - only the headless simulation now, whose presses come from a
+/// test thread that has no handle to the headless loop's condvar. The X11
+/// and Wayland loops wait on their backends instead (`loop_waker`).
 #[must_use]
 pub fn needs_loop_polling() -> bool {
     registry::needs_loop_polling()
+}
+
+/// The descriptor that announces a press, for the Linux loops' poll set:
+/// the X11 grab connection once a registration opened it. The portal needs
+/// none (its listener raises `loop_waker::wake`); Carbon and Win32 wake their
+/// loops through the OS.
+#[cfg(target_os = "linux")]
+#[must_use]
+pub fn loop_wait_fd() -> Option<i32> {
+    x11::connection_fd()
+}
+
+/// See the Linux [`loop_wait_fd`]: no other platform's backend needs one.
+#[cfg(not(target_os = "linux"))]
+#[must_use]
+pub fn loop_wait_fd() -> Option<i32> {
+    None
+}
+
+/// Has the grab connection already read presses that its fd therefore no
+/// longer announces? `loop_waker::must_not_park` asks before a Linux loop
+/// parks.
+#[cfg(target_os = "linux")]
+#[must_use]
+pub fn has_buffered_input() -> bool {
+    x11::has_queued_events()
+}
+
+/// See the Linux [`has_buffered_input`]: Carbon and Win32 buffer nothing
+/// the OS does not announce itself.
+#[cfg(not(target_os = "linux"))]
+#[must_use]
+pub fn has_buffered_input() -> bool {
+    false
 }
 
 /// The capability probe's answer, for [`crate::desktop::extra::capability`].

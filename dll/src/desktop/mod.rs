@@ -148,6 +148,9 @@ pub mod tray;
 /// Native notifications — UNUserNotificationCenter, org.freedesktop.Notifications,
 /// a Shell_NotifyIcon balloon; the tray's sibling
 pub mod notifications;
+/// The run loops' wake-up line for the app-level sources: their fds for the
+/// Linux poll sets, a cross-thread wake, and the per-iteration service.
+pub mod loop_waker;
 /// Source-text invariants for how the run loops wait on and deliver the
 /// app-level sources (tray, notifications, global hotkeys).
 #[cfg(test)]

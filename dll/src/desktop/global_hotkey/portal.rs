@@ -262,6 +262,9 @@ fn ensure_listener() {
                     .map(|(id, _)| *id);
                 if let Some(id) = id {
                     push_fired(GlobalHotkeyId { id });
+                    // This thread cannot run the callback, and the loop is
+                    // parked in poll(2): the waker's fd is in its set.
+                    crate::desktop::loop_waker::wake();
                 }
             }
         });
@@ -289,6 +292,7 @@ fn register(id: GlobalHotkeyId, hotkey: &GlobalHotkey) -> Result<BackendGrant, G
                 if is_registered(id) {
                     sessions().insert(id.id, session_path);
                     report(id, Ok(()));
+                    crate::desktop::loop_waker::wake();
                 } else {
                     // Unregistered while the desktop was asking the user.
                     close_session(&session_path);
@@ -297,6 +301,7 @@ fn register(id: GlobalHotkeyId, hotkey: &GlobalHotkey) -> Result<BackendGrant, G
             Err(e) => {
                 crate::plog_warn!("[global-hotkey] the portal did not bind {trigger}: {e}");
                 report(id, Err(e));
+                crate::desktop::loop_waker::wake();
             }
         })
         .map_err(|e| platform("could not start the portal handshake", e))?;
@@ -323,7 +328,8 @@ pub(super) fn backend() -> GlobalHotkeyBackend {
         register,
         unregister,
         poll,
-        // Fires arrive on the listener thread, which cannot wake the loop.
-        needs_loop_polling: true,
+        // Fires arrive on the listener thread, which wakes the loop through
+        // `desktop::loop_waker::wake` right after parking them.
+        needs_loop_polling: false,
     }
 }

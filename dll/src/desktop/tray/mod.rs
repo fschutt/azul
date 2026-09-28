@@ -136,10 +136,9 @@ pub fn install_tray(
     }
 }
 
-/// Is a tray icon currently installed? The Linux event loops read this to
-/// bound their poll: the tray's D-Bus fd is not in the wait set, so an
-/// unbounded park would leave the panel's property reads unanswered until
-/// some unrelated window event happened to wake the loop.
+/// Is a tray icon currently installed? (The Linux loops no longer bound their
+/// park on this: the tray's D-Bus socket is in their wait set through
+/// `desktop::loop_waker`.)
 #[must_use]
 pub fn has_live_tray() -> bool {
     LIVE_TRAY.with(|c| c.borrow().is_some())

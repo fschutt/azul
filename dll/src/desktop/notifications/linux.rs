@@ -524,6 +524,10 @@ impl PlatformNotifier {
                      buttons are not shown and clicks are not reported"
                 );
             }
+            // ActionInvoked / NotificationClosed arrive on this socket: put it
+            // in the run loops' wait set (the tray's, when both exist - it is
+            // the same shared connection).
+            crate::desktop::loop_waker::watch_dbus_connection(&dbus, conn);
             Ok(Self {
                 dbus,
                 conn,
@@ -628,14 +632,13 @@ impl PlatformNotifier {
         }
     }
 
-    /// Dispatch what arrived on the connection, which runs the filter.
-    /// `read_write_dispatch` dispatches ONE message per call, so a few calls
-    /// drain a burst; with a zero timeout each is a non-blocking poll.
+    /// Dispatch what arrived on the connection, which runs the filter. The
+    /// shared drain reads once and dispatches until libdbus's queue is empty
+    /// (`read_write_dispatch` did one message per call, so a burst larger
+    /// than its old 8-call budget waited for the next wake-up).
     pub(super) fn pump(&mut self) {
-        for _ in 0..8 {
-            if unsafe { (self.dbus.dbus_connection_read_write_dispatch)(self.conn, 0) } == 0 {
-                break;
-            }
+        unsafe {
+            crate::desktop::shell2::linux::dbus::drain_connection(&self.dbus, self.conn);
         }
     }
 }

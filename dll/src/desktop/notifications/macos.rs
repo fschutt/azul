@@ -69,7 +69,7 @@ use objc2::{
     runtime::{AnyClass, AnyObject, Bool},
     AllocAnyThread,
 };
-use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint};
+use objc2_foundation::{NSObject, NSObjectProtocol};
 
 /// `UNAuthorizationOptionSound | UNAuthorizationOptionAlert`.
 const AUTH_SOUND_ALERT: usize = (1 << 1) | (1 << 2);
@@ -83,24 +83,12 @@ const ACTION_OPTION_FOREGROUND: usize = 1 << 2;
 /// `UNNotificationCategoryOptionCustomDismissAction`: without it UN never
 /// reports a dismissal at all.
 const CATEGORY_OPTION_CUSTOM_DISMISS: usize = 1 << 0;
-/// `NSEventTypeApplicationDefined`.
-const NS_EVENT_TYPE_APPLICATION_DEFINED: usize = 15;
 
 /// The user's answer to the permission prompt, as last reported.
 const PERMISSION_UNKNOWN: u8 = 0;
 const PERMISSION_GRANTED: u8 = 1;
 const PERMISSION_DENIED: u8 = 2;
 static PERMISSION: AtomicU8 = AtomicU8::new(PERMISSION_UNKNOWN);
-
-#[link(name = "AppKit", kind = "framework")]
-extern "C" {
-    /// The global `NSApp`: nil until `+[NSApplication sharedApplication]` has
-    /// run on the main thread. Read (not `sharedApplication`) from UN's queue,
-    /// because calling that off the main thread would CREATE the application
-    /// object there when none exists yet.
-    #[allow(non_upper_case_globals)]
-    static NSApp: *mut AnyObject;
-}
 
 fn class(name: &str) -> Option<&'static AnyClass> {
     let c = CString::new(name).ok()?;
@@ -271,40 +259,13 @@ fn report_permission(granted: bool) {
 }
 
 /// Queue an event for the run loop and wake it: the manual loop parks in
-/// `runMode:beforeDate:`, which an app-defined NSEvent ends. Same wake as
-/// `menuItemAction:`; under `NSApplication.run()` the 33 ms drain timer picks
-/// the event up and the posted NSEvent is discarded.
+/// `runMode:beforeDate:`, which the shared loop waker's app-defined NSEvent
+/// ends (`desktop::loop_waker::wake`, callable from UN's queue). Under
+/// `NSApplication.run()` the 33 ms drain timer picks the event up and the
+/// posted NSEvent is discarded.
 fn queue_and_wake(event: NotificationEvent) {
     queue_notification_event(event);
-    unsafe { wake_main_loop() };
-}
-
-unsafe fn wake_main_loop() {
-    let app: *mut AnyObject = unsafe { NSApp };
-    if app.is_null() {
-        return;
-    }
-    let Some(event_cls) = class("NSEvent") else {
-        return;
-    };
-    let event: *mut AnyObject = unsafe {
-        msg_send![
-            event_cls,
-            otherEventWithType: NS_EVENT_TYPE_APPLICATION_DEFINED,
-            location: NSPoint::new(0.0, 0.0),
-            modifierFlags: 0usize,
-            timestamp: 0.0f64,
-            windowNumber: 0isize,
-            context: core::ptr::null_mut::<AnyObject>(),
-            subtype: 0i16,
-            data1: 0isize,
-            data2: 0isize
-        ]
-    };
-    if event.is_null() {
-        return;
-    }
-    let _: () = unsafe { msg_send![app, postEvent: event, atStart: false] };
+    crate::desktop::loop_waker::wake();
 }
 
 // ---- the center's delegate -------------------------------------------------

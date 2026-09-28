@@ -31,9 +31,23 @@ pub struct DBusLib {
     // Connection management
     pub dbus_bus_get: unsafe extern "C" fn(c_int, *mut DBusError) -> *mut DBusConnection,
     pub dbus_connection_unref: unsafe extern "C" fn(*mut DBusConnection),
+    /// Taken by the run loop's wait set (`desktop::loop_waker`), which keeps
+    /// the shared session connection it polls alive for the process.
+    pub dbus_connection_ref: unsafe extern "C" fn(*mut DBusConnection) -> *mut DBusConnection,
     pub dbus_connection_read_write_dispatch:
         unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
     pub dbus_connection_flush: unsafe extern "C" fn(*mut DBusConnection),
+
+    // Main-loop integration: the socket to put in a poll set, and reading /
+    // dispatching as two steps. `read_write_dispatch` above does ONE of the
+    // two per call - it dispatches a queued message OR reads - so a message
+    // it read sat parsed in libdbus's queue, where no poll(2) on the socket
+    // can see it. The run loop reads once, then dispatches until the queue
+    // reports `DBUS_DISPATCH_COMPLETE`. All four exist in every libdbus-1.
+    pub dbus_connection_get_unix_fd: unsafe extern "C" fn(*mut DBusConnection, *mut c_int) -> c_int,
+    pub dbus_connection_read_write: unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
+    pub dbus_connection_dispatch: unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+    pub dbus_connection_get_dispatch_status: unsafe extern "C" fn(*mut DBusConnection) -> c_int,
 
     // Name registration
     pub dbus_bus_request_name:
@@ -223,6 +237,15 @@ pub const DBUS_HANDLER_RESULT_HANDLED: c_int = 0;
 pub const DBUS_HANDLER_RESULT_NOT_YET_HANDLED: c_int = 1;
 pub const DBUS_HANDLER_RESULT_NEED_MEMORY: c_int = 2;
 
+// `DBusDispatchStatus`, returned by `dbus_connection_dispatch` and
+// `dbus_connection_get_dispatch_status`.
+/// More messages are parsed and waiting in the incoming queue.
+pub const DBUS_DISPATCH_DATA_REMAINS: c_int = 0;
+/// The incoming queue is empty.
+pub const DBUS_DISPATCH_COMPLETE: c_int = 1;
+/// libdbus ran out of memory; try again later.
+pub const DBUS_DISPATCH_NEED_MEMORY: c_int = 2;
+
 impl DBusLib {
     /// Load libdbus-1.so.3 dynamically
     ///
@@ -246,6 +269,11 @@ impl DBusLib {
                 unsafe extern "C" fn(*mut DBusConnection),
                 "dbus_connection_unref"
             ),
+            dbus_connection_ref: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> *mut DBusConnection,
+                "dbus_connection_ref"
+            ),
             dbus_connection_read_write_dispatch: load_symbol!(
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
@@ -255,6 +283,26 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection),
                 "dbus_connection_flush"
+            ),
+            dbus_connection_get_unix_fd: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, *mut c_int) -> c_int,
+                "dbus_connection_get_unix_fd"
+            ),
+            dbus_connection_read_write: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection, c_int) -> c_int,
+                "dbus_connection_read_write"
+            ),
+            dbus_connection_dispatch: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+                "dbus_connection_dispatch"
+            ),
+            dbus_connection_get_dispatch_status: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusConnection) -> c_int,
+                "dbus_connection_get_dispatch_status"
             ),
 
             // Name registration

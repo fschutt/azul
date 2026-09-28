@@ -3046,6 +3046,18 @@ impl WaylandWindow {
             }
         }
 
+        // App-level work no descriptor in the set below will announce: D-Bus
+        // messages libdbus parsed during a blocking call, a notification a
+        // callback posted this iteration, a listener thread's
+        // `loop_waker::wake`. Return instead of parking; the main loop's
+        // app-event collector serves it at the top of the next iteration.
+        if crate::desktop::loop_waker::must_not_park() {
+            unsafe {
+                (self.wayland.wl_display_flush)(self.display);
+            }
+            return Ok(());
+        }
+
         // Get the display fd
         let display_fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
 
@@ -3117,6 +3129,20 @@ impl WaylandWindow {
                 });
             }
 
+            // The app-level sources: the tray's and the notification server's
+            // D-Bus socket and the loop waker the hotkey portal's listener
+            // thread raises. Readability is all they report; the main loop's
+            // app-event collector reads them at the top of the next
+            // iteration. They replace the old 100 ms cap that ran whenever a
+            // tray, a notification or a hotkey existed.
+            for fd in crate::desktop::loop_waker::wait_fds() {
+                pollfds.push(libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set, so their completion can't wake poll(). While any thread is
             // in flight, poll on a ~16ms tick and drain thread writebacks on every
@@ -3143,22 +3169,10 @@ impl WaylandWindow {
             // While closing, poll with 0 so the iteration completes and the run
             // loop reaches its `get_all_window_ids()` check and unregisters.
             let closing = !self.is_open || self.common.current_window_state().flags.close_requested;
-            // A live tray talks D-Bus, whose fd is not in this poll set — cap
-            // the park so the run loop's tray pump answers the panel's
-            // property reads (same reasoning as `has_threads`).
-            // An outstanding native notification is the same case: the
-            // server's ActionInvoked / NotificationClosed arrive on D-Bus.
-            let has_tray = crate::desktop::tray::has_live_tray()
-                || crate::desktop::notifications::needs_polling();
-            // Same for a registered global hotkey: the portal's `Activated`
-            // arrives on a D-Bus thread whose fd is not in this set either.
-            let has_hotkeys = crate::desktop::global_hotkey::needs_loop_polling();
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
                 16
-            } else if has_tray || has_hotkeys {
-                100
             } else {
                 -1
             };

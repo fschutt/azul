@@ -4912,6 +4912,16 @@ impl X11Window {
                 return Ok(());
             }
 
+            // App-level work no descriptor below will announce: D-Bus
+            // messages libdbus parsed during a blocking call, presses the
+            // hotkey connection's Xlib already queued, a notification a
+            // callback posted this iteration, a thread's `loop_waker::wake`.
+            // Return instead of parking - the main loop's app-event
+            // collector serves it, exactly like the Xlib-queue drain above.
+            if crate::desktop::loop_waker::must_not_park() {
+                return Ok(());
+            }
+
             // Build pollfd array: X11 connection + all timer fds
             let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
 
@@ -4971,6 +4981,20 @@ impl X11Window {
                 });
             }
 
+            // The app-level sources: the tray's and the notification
+            // server's D-Bus socket, the global-hotkey grab connection, and
+            // the loop waker a listener thread raises. Readability is all
+            // they report; the main loop's app-event collector reads them at
+            // the top of the next iteration. They replace the old 100 ms cap
+            // that ran whenever a tray, a notification or a hotkey existed.
+            for fd in crate::desktop::loop_waker::wait_fds() {
+                pollfds.push(libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set — their completion can't wake poll(). So while any thread
             // is in flight, poll on a ~16ms tick and drain thread writebacks on
@@ -4983,23 +5007,7 @@ impl X11Window {
                 .as_ref()
                 .map(|lw| !lw.threads.is_empty())
                 .unwrap_or(false);
-            // A live tray talks D-Bus, whose fd is not in this poll set — the
-            // panel's property reads sit unanswered until the loop wakes. Cap
-            // the park so the run loop's tray pump runs a few times a second.
-            // An outstanding native notification is the same case: the
-            // server's ActionInvoked / NotificationClosed arrive on D-Bus.
-            let has_tray = crate::desktop::tray::has_live_tray()
-                || crate::desktop::notifications::needs_polling();
-            // Same for a registered global hotkey: its X grab connection (or
-            // the portal's D-Bus thread) is not in this set either.
-            let has_hotkeys = crate::desktop::global_hotkey::needs_loop_polling();
-            let timeout_ms: i32 = if has_threads {
-                16
-            } else if has_tray || has_hotkeys {
-                100
-            } else {
-                -1
-            };
+            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
             // A trackpad gesture end is inferred from SILENCE (XI2 has no
             // gesture-end event), so nothing will wake this poll to observe
             // it. Shorten the park to the remaining idle budget instead —
