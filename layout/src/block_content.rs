@@ -156,7 +156,9 @@ impl BlockContent {
     /// that no text run follows directly: `Trailing` on its last grapheme -
     /// the end of a line before a break, the end of the block. Past the end:
     /// the end. On a blank block, the one position it has: offset 0 of its
-    /// first text run. `None` for a block with no text item at all.
+    /// first text run, or - with no text item at all, an empty editable - of
+    /// the run its first keystroke will be seeded as (the one a blank line's
+    /// caret names). Always `Some`; an `Option` so a caller may refuse.
     #[must_use]
     pub fn caret_at(&self, at: FlatByte) -> Option<TextCursor> {
         let want = at.0;
@@ -183,7 +185,9 @@ impl BlockContent {
             }
             acc += len;
         }
-        last_end.or_else(|| first_run.map(|run| caret_in_run(run, "", 0)))
+        Some(last_end.unwrap_or_else(|| {
+            caret_in_run(first_run.unwrap_or(self.generated), "", 0)
+        }))
     }
 
     /// `cursor`, moved off a generated item: a caret the layout minted ON the

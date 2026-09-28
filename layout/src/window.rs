@@ -2805,6 +2805,11 @@ impl LayoutWindow {
     /// paths use (`cursor_byte_offset_in_run`), so a trailing cursor on a
     /// ZWJ emoji family or a decomposed `é` lands past the WHOLE cluster,
     /// and bidi text resolves in logical order (bytes, not visual x).
+    ///
+    /// The caret is read in its own numbering ([`Self::element_content`]):
+    /// in a list item its text is run 1, behind the `::marker`. Read against
+    /// the DOM's text alone, where the same text is run 0, every caret in a
+    /// list item came out at the end of the text.
     #[must_use]
     pub fn resolve_cursor_to_text_byte(
         &self,
@@ -2812,21 +2817,8 @@ impl LayoutWindow {
         node_id: NodeId,
         cursor: &TextCursor,
     ) -> u32 {
-        use crate::text3::cache::InlineContent as IC;
-        let content = self.get_text_before_textinput(dom_id, node_id);
-        let run_idx = cursor.cluster_id.source_run as usize;
-        let mut acc: usize = 0;
-        for (i, item) in content.iter().enumerate() {
-            if i == run_idx {
-                if let IC::Text(run) = item {
-                    acc += crate::text3::edit::cursor_byte_offset_in_run(&run.text, cursor);
-                }
-                return u32::try_from(acc).unwrap_or(u32::MAX);
-            }
-            acc += crate::block_content::flat_len_of(item);
-        }
-        // Cursor past the content (stale session): clamp to the end.
-        u32::try_from(acc).unwrap_or(u32::MAX)
+        let at = self.element_content(dom_id, node_id).flat_byte_of(cursor);
+        u32::try_from(at.0).unwrap_or(u32::MAX)
     }
 
     /// The current selection as app-facing byte spans (see
@@ -11005,9 +10997,9 @@ impl LayoutWindow {
         use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
         let dom_id = target.dom;
-        let Some(node_id) = target.node.into_crate_internal() else {
+        if target.node.into_crate_internal().is_none() {
             return false;
-        };
+        }
 
         // A plain arrow over a DOCUMENT selection collapses it: moving the
         // session's caret (below) left it painted, and the thing the next
@@ -11043,7 +11035,6 @@ impl LayoutWindow {
             return self.apply_seat_selection_op(
                 seat_id,
                 target,
-                node_id,
                 text_target.block,
                 op,
                 &layout,
@@ -11217,7 +11208,6 @@ impl LayoutWindow {
         &mut self,
         seat_id: u64,
         target: DomNodeId,
-        node_id: NodeId,
         block: TextBlock,
         op: &azul_core::events::SelectionOp,
         layout: &UnifiedLayout,
@@ -11225,8 +11215,19 @@ impl LayoutWindow {
     ) -> bool {
         use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
+        use crate::block_content::BlockContent;
+
         let dom_id = target.dom;
-        let content = self.get_text_before_textinput(dom_id, node_id);
+        // The seat's key edits the element of ITS caret's block, in the
+        // caret's numbering - as the primary's does (`delete_selection`).
+        // Keyed to the focused host, it spliced the host's flattened text,
+        // where every paragraph's runs are numbered one after the other: a
+        // seat caret in the second paragraph deleted in the first. `None` - no
+        // edit - for a caret in an anonymous block.
+        let edit_node = self.edit_element(target, Some(block));
+        let content = edit_node
+            .map(|element| self.element_content(dom_id, element))
+            .unwrap_or_default();
         // A seat with no caret here starts at the end of the text - in the
         // SHAPED layout's own terms (a trailing cursor on the last cluster),
         // which is what the step resolver can walk from; the byte-past-the-end
@@ -11234,7 +11235,7 @@ impl LayoutWindow {
         let end = dense
             .and_then(crate::text3::dense::DenseText::last_cluster_cursor)
             .or_else(|| layout.get_last_cluster_cursor())
-            .unwrap_or_else(|| Self::end_of_content_cursor(&content));
+            .unwrap_or_else(|| Self::end_of_content_cursor(content.items()));
         let mut caret = self
             .text_edit_manager
             .seat_caret(seat_id)
@@ -11292,6 +11293,9 @@ impl LayoutWindow {
                 true
             }
             SelectionMode::Delete => {
+                let Some(edit_node) = edit_node else {
+                    return false;
+                };
                 if caret.anchor.is_none() && !matches!(op.step, SelectionStep::Character) {
                     let anchor = caret.cursor;
                     for _ in 0..op.repeat.max(1) {
@@ -11299,12 +11303,13 @@ impl LayoutWindow {
                     }
                     caret.anchor = Some(anchor);
                 }
-                let selection = caret.selection();
+                let (mut content, generated) = content.into_parts();
                 let edit = match op.direction {
                     SelectionDirection::Forward => crate::text3::edit::TextEdit::DeleteForward,
                     SelectionDirection::Backward => crate::text3::edit::TextEdit::DeleteBackward,
                 };
-                let current = [selection];
+                let current =
+                    BlockContent::selections_past_generated(vec![caret.selection()], generated);
                 let (new_content, new_selections) =
                     match crate::text3::edit::edit_text_outcome(&content, &current, &edit) {
                         crate::text3::edit::EditOutcome::Applied {
@@ -11313,10 +11318,22 @@ impl LayoutWindow {
                         } => (content, selections),
                         crate::text3::edit::EditOutcome::NoOp(_) => return false,
                     };
+                // The marker is not text: Backspace before the first character
+                // has nothing of the block's own to delete.
+                if new_content.get(..generated) != content.get(..generated) {
+                    return false;
+                }
                 let changes = crate::text3::edit::run_text_diff(&content, &new_content);
+                // Undo and the overlay hold the text only; the reshape re-adds
+                // the marker.
+                let content = content.split_off(generated);
+                let new_content = {
+                    let mut with_prefix = new_content;
+                    with_prefix.split_off(generated)
+                };
                 self.record_delete_undo(
                     target,
-                    node_id,
+                    edit_node,
                     content,
                     new_content.clone(),
                     &current,
@@ -11336,7 +11353,7 @@ impl LayoutWindow {
                     &changes,
                     Some(seat_id),
                 );
-                self.update_text_cache_after_edit(dom_id, node_id, new_content);
+                self.update_text_cache_after_edit(dom_id, edit_node, new_content);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
             }
@@ -13636,6 +13653,20 @@ impl LayoutWindow {
         Some([(mc.block, lo), (mc.block, hi)])
     }
 
+    /// The text block whose flat text the IME's byte offsets index while
+    /// `focused` has the focus: the editing session's, when the focus holds it
+    /// (a host holds the block its caret is in; a focused block, or a node
+    /// inside one, is in its own). `None` with no session there.
+    #[must_use]
+    pub fn ime_text_block(&self, focused: DomNodeId) -> Option<TextBlock> {
+        let block = self.text_edit_manager.get_editing_block()?;
+        let focus_node = focused.node.into_crate_internal()?;
+        let holds = block.dom() == focused.dom
+            && (self.node_is_self_or_descendant(focused.dom, block.first_node(), focus_node)
+                || self.text_block_of(focused) == Some(block));
+        holds.then_some(block)
+    }
+
     /// The focused editable's text with the preedit spliced in at the caret,
     /// and the preedit's byte range in it - the DOCUMENT a platform text-input
     /// client is asked about (10b-i-b-i).
@@ -13645,6 +13676,13 @@ impl LayoutWindow {
     /// `attributedSubstringForProposedRange:` and `firstRectForCharacterRange:`
     /// all index into THIS text, and two shells assembling it two ways would
     /// disagree by exactly the preedit.
+    ///
+    /// The text is the editing session's BLOCK's flat text while the focus
+    /// holds that block ([`Self::ime_text_block`]): the text the IME's byte
+    /// offsets ([`Self::focused_caret_byte_offset`] and the rest) index. Taken
+    /// from the focused host, a host with paragraphs handed the IME every
+    /// paragraph's text and a caret offset into one of them. With no session
+    /// in the focus, the focused node's text.
     ///
     /// Empty with nothing focused. `preedit_range` is `None` when no
     /// composition is open.
@@ -13656,8 +13694,13 @@ impl LayoutWindow {
         let Some(node_id) = focused.node.into_crate_internal() else {
             return (String::new(), None);
         };
-        let content = self.get_text_before_textinput(focused.dom, node_id);
-        let committed = self.extract_text_from_inline_content(&content);
+        let committed = match self.ime_text_block(focused) {
+            Some(block) => self.block_content(block).flat_text(),
+            None => {
+                let content = self.get_text_before_textinput(focused.dom, node_id);
+                self.extract_text_from_inline_content(&content)
+            }
+        };
 
         let Some(preedit) = self.text_edit_manager.preedit_text.as_ref() else {
             return (committed, None);
@@ -13862,37 +13905,19 @@ impl LayoutWindow {
         self.text_edit_manager.handle_drag.is_some()
     }
 
-    /// A `TextCursor`'s offset into the node's whole string (10b-i-b).
+    /// A `TextCursor`'s offset into its block's flat text (10b-i-b) - the
+    /// string [`Self::ime_document`] hands the IME.
     ///
-    /// The cursor names a cluster inside ONE RUN, and
-    /// `cursor_byte_offset_in_run` answers only the within-run half - so using
-    /// it alone puts every offset in a multi-run paragraph at the wrong
-    /// character. Every run before the cursor's has to be counted back in,
-    /// which is what this does and what makes it worth having once rather than
-    /// at each call site.
+    /// The cursor names a cluster inside ONE RUN of the block's content in the
+    /// LAYOUT's numbering ([`Self::block_content`]): behind a list item's
+    /// `::marker`, and with a preserved newline a run of its own that the
+    /// flat text holds as `'\n'`. Counting only the text runs of the DOM's
+    /// text found no run 1 in a list item (no offset at all) and put every
+    /// caret after a line break one byte short of the string the IME was
+    /// given.
     #[must_use]
     pub fn byte_offset_of_cursor(&self, block: TextBlock, cursor: &TextCursor) -> Option<usize> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
-
-        let node = block.element()?;
-        let content = self.get_text_before_textinput(block.dom(), node);
-        let target_run = cursor.cluster_id.source_run;
-        let mut consumed = 0usize;
-        for (i, item) in content.iter().enumerate() {
-            let InlineContent::Text(run) = item else {
-                continue;
-            };
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            match i.cmp(&target_run) {
-                core::cmp::Ordering::Less => consumed += run.text.len(),
-                core::cmp::Ordering::Equal => {
-                    let byte = cursor_byte_offset_in_run(&run.text, cursor).min(run.text.len());
-                    return Some(consumed + byte);
-                }
-                core::cmp::Ordering::Greater => break,
-            }
-        }
-        None
+        Some(self.block_content(block).flat_byte_of(cursor).0)
     }
 
     /// Where the caret is, as a byte offset into the focused editable's text
@@ -13938,10 +13963,16 @@ impl LayoutWindow {
     /// Set the focused editable's selection from a BYTE RANGE (10b-i-b).
     ///
     /// The seam whose absence made `setSelectedTextRange:` a no-op, so a
-    /// dragged selection handle sprang back. `TextTarget::caret_at_byte`
-    /// resolves each end against the SHAPED LAYOUT rather than by counting
-    /// characters, which is what keeps an offset inside a multi-byte grapheme
-    /// from landing between its bytes.
+    /// dragged selection handle sprang back. Each end is the inverse of
+    /// [`Self::focused_selection_byte_range`]'s reading - the caret at that
+    /// [`FlatByte`] of the session block's flat text
+    /// ([`BlockContent::caret_at`]), snapped to a grapheme start so an offset
+    /// inside a multi-byte grapheme never lands between its bytes. Resolved
+    /// against the shaped clusters instead, the offsets counted a list item's
+    /// marker as text and skipped every line break.
+    ///
+    /// [`FlatByte`]: crate::block_content::FlatByte
+    /// [`BlockContent::caret_at`]: crate::block_content::BlockContent::caret_at
     ///
     /// Returns `false` when there is no live editable to select in - the
     /// caller then leaves the platform's own idea of the selection alone
@@ -13949,15 +13980,19 @@ impl LayoutWindow {
     pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
         use azul_core::selection::SelectionRange;
 
-        let Some(target) = self.session_text_target() else {
+        use crate::block_content::FlatByte;
+
+        let Some(block) = self.text_edit_manager.get_editing_block() else {
             return false;
         };
+        let content = self.block_content(block);
         let (lo, hi) = if start <= end {
             (start, end)
         } else {
             (end, start)
         };
-        let (Some(from), Some(to)) = (target.caret_at_byte(lo), target.caret_at_byte(hi)) else {
+        let (Some(from), Some(to)) = (content.caret_at(FlatByte(lo)), content.caret_at(FlatByte(hi)))
+        else {
             return false;
         };
 
@@ -14124,9 +14159,10 @@ impl LayoutWindow {
             search_range
         };
 
-        // Extract the search text from inline content
-        let content = self.get_text_before_textinput(block.dom(), dom_node_id);
-        let full_text = self.extract_text_from_inline_content(&content);
+        // Extract the search text from inline content - in the carets' own
+        // numbering: in a list item the word is run 1, behind the `::marker`,
+        // and the DOM's text alone has no run 1 to search.
+        let (content, _) = self.element_content(block.dom(), dom_node_id).into_parts();
 
         // Extract the selected word text using byte offsets
         let start_byte = word_range.start.cluster_id.start_byte_in_run as usize;
@@ -17747,8 +17783,24 @@ impl LayoutWindow {
         // caret-less session keeps the recorded node. Host-level readback
         // stays correct either way: `collect_text_from_children` composes
         // children through the per-node overlay.
-        let session_block = self.text_edit_manager.get_editing_block();
-        let Some(node_id) = self.edit_element(changeset.node, session_block) else {
+        //
+        // The caret is the SEAT's: the primary's session block for seat 0,
+        // another seat's own caret block for its keystroke - keyed to the
+        // primary's block, a second person typing in the paragraph below
+        // wrote into the host's flattened text at their caret's run number,
+        // which there names the FIRST paragraph. A seat with no caret here
+        // yet types at the end, in the last block the node holds.
+        let caret_block = if is_primary_seat {
+            self.text_edit_manager.get_editing_block()
+        } else {
+            self.text_edit_manager
+                .seat_caret(seat_id)
+                .filter(|c| c.node == changeset.node)
+                .map(|c| c.block)
+                .or_else(|| self.text_block_of(changeset.node))
+                .or_else(|| self.text_blocks_within(changeset.node).last().copied())
+        };
+        let Some(node_id) = self.edit_element(changeset.node, caret_block) else {
             // A caret in an anonymous block: no element to key the edit to.
             return empty;
         };
@@ -18404,41 +18456,41 @@ impl LayoutWindow {
     /// that answers them from an empty scratch buffer gets none of that, which
     /// is exactly the state the Android bridge shipped in.
     ///
-    /// The offset is derived from the primary cursor's `GraphemeClusterId`:
-    /// `start_byte_in_run` is relative to its own run, so the byte lengths of
-    /// every preceding run are summed to reach an offset into the flattened
-    /// string that `extract_text_from_inline_content` produces. Text and offset
-    /// therefore come from the SAME flattening, and cannot disagree.
+    /// Text and offset are the ones [`Self::ime_document`] and
+    /// [`Self::focused_caret_byte_offset`] give the other IMEs: the session
+    /// block's flat text and the caret's [`FlatByte`] in it, read in the
+    /// caret's own numbering ([`Self::block_content`]) with its affinity
+    /// resolved. Summing the focused HOST's runs up to the caret's run number
+    /// and adding the raw `start_byte_in_run` put a list item's caret past
+    /// its text and a `Trailing` caret one grapheme early.
+    ///
+    /// [`FlatByte`]: crate::block_content::FlatByte
     ///
     /// `None` when nothing editable has focus.
     #[must_use]
     pub fn ime_surrounding_text(&mut self) -> Option<(String, usize)> {
         let focused = self.focus_manager.get_focused_node().copied()?;
         let node_id = focused.node.into_crate_internal()?;
+
+        if let Some(block) = self.ime_text_block(focused) {
+            let content = self.block_content(block);
+            let text = content.flat_text();
+            let offset = self
+                .text_edit_manager
+                .get_primary_cursor()
+                .map_or(text.len(), |cursor| {
+                    content.flat_byte_of(&cursor).0.min(text.len())
+                });
+            return Some((text, offset));
+        }
+
+        // No caret in the focus yet (focus landed but no session opened) is a
+        // valid state: report the text with the caret at the end, which is
+        // where an IME would assume it is anyway.
         let content = self.get_text_before_textinput(focused.dom, node_id);
         let text = self.extract_text_from_inline_content(&content);
-
-        // No cursor yet (focus landed but nothing has been typed) is a valid
-        // state: report the text with the caret at the end, which is where an
-        // IME would assume it is anyway.
-        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
-            let len = text.len();
-            return Some((text, len));
-        };
-
-        let run = cursor.cluster_id.source_run as usize;
-        let mut offset = 0usize;
-        for (idx, item) in content.iter().enumerate() {
-            if idx >= run {
-                break;
-            }
-            offset += crate::overlay::flatten_inline_content(core::slice::from_ref(item)).len();
-        }
-        offset += cursor.cluster_id.start_byte_in_run as usize;
-        // Clamp: a stale cursor from before an edit must not produce an
-        // out-of-bounds slice in the caller.
-        let offset = offset.min(text.len());
-        Some((text, offset))
+        let len = text.len();
+        Some((text, len))
     }
 
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
@@ -19149,20 +19201,27 @@ impl LayoutWindow {
     /// preedit, so the last shaped composition erased the others.
     #[must_use]
     pub fn spliced_text_with_preedits(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
+        // In the carets' own numbering (behind a list item's `::marker`), and
+        // each caret's byte with its affinity resolved: a `Trailing` caret is
+        // AFTER its grapheme. Spliced into the DOM's text alone at the raw
+        // `start_byte_in_run`, a list item's composition went into no run at
+        // all, and one after a `Trailing` caret landed a grapheme early.
+        let block_content = self.element_content(dom_id, node_id);
         // (run, byte, seat, text)
         let mut inserts: Vec<(usize, usize, u64, String)> = Vec::new();
         if self.preedit_shaped_node == Some((dom_id, node_id)) {
-            if let (Some(p), Some(cursor)) = (
+            if let (Some(p), Some((run, byte))) = (
                 self.text_edit_manager
                     .preedit_text
                     .as_ref()
                     .filter(|p| !p.is_empty()),
-                self.text_edit_manager.get_primary_cursor(),
+                self.text_edit_manager
+                    .get_primary_cursor()
+                    .and_then(|cursor| block_content.run_byte_of(&cursor)),
             ) {
                 inserts.push((
-                    cursor.cluster_id.source_run as usize,
-                    cursor.cluster_id.start_byte_in_run as usize,
+                    run,
+                    byte.0,
                     azul_core::window::PRIMARY_POINTER_SEAT,
                     p.clone(),
                 ));
@@ -19184,23 +19243,26 @@ impl LayoutWindow {
             }) else {
                 continue;
             };
-            inserts.push((
-                caret.cursor.cluster_id.source_run as usize,
-                caret.cursor.cluster_id.start_byte_in_run as usize,
-                *seat,
-                p.text.clone(),
-            ));
+            let Some((run, byte)) = block_content.run_byte_of(&caret.cursor) else {
+                continue;
+            };
+            inserts.push((run, byte.0, *seat, p.text.clone()));
         }
+        let (mut content, generated) = block_content.into_parts();
         inserts.sort_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
         for (run_idx, byte_pos, _, preedit) in inserts {
             if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
-                let clamped_pos = byte_pos.min(run.text.len());
+                let mut clamped_pos = byte_pos.min(run.text.len());
+                while clamped_pos > 0 && !run.text.is_char_boundary(clamped_pos) {
+                    clamped_pos -= 1;
+                }
                 let mut t = String::from(&*run.text);
                 t.insert_str(clamped_pos, &preedit);
                 run.text = Arc::from(t.as_str());
             }
         }
-        content
+        // The node's text: the reshape puts the generated items back in front.
+        content.split_off(generated)
     }
 
     pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
@@ -21276,14 +21338,23 @@ impl LayoutWindow {
         let Some(node_id) = self.edit_element(target, Some(session_block)) else {
             return false;
         };
-        let content = self.get_text_before_textinput(dom_id, node_id);
-        let (new_content, new_selections) =
+        // In the carets' own numbering: in a list item the text is run 1,
+        // behind the `::marker`, and the DOM's text alone has no run 1 to
+        // paste into.
+        let (content, generated) = self.element_content(dom_id, node_id).into_parts();
+        let selections =
+            crate::block_content::BlockContent::selections_past_generated(selections, generated);
+        let (mut new_content, new_selections) =
             crate::text3::edit::edit_text_multi(&content, &selections, &lines);
-        self.record_paste_undo(target, node_id, &content, &new_content, &selections);
+        // Undo and the overlay hold the text only; the reshape re-adds the
+        // generated items.
+        let text_before = content.get(generated..).unwrap_or(&[]);
+        let text_after = new_content.split_off(generated.min(new_content.len()));
+        self.record_paste_undo(target, node_id, text_before, &text_after, &selections);
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
         }
-        self.update_text_cache_after_edit(dom_id, node_id, new_content);
+        self.update_text_cache_after_edit(dom_id, node_id, text_after);
         self.text_edit_manager.mark_dirty();
         true
     }

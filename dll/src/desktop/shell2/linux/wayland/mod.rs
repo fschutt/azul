@@ -10634,69 +10634,39 @@ impl WaylandWindow {
                     Some(mc) => mc,
                     None => return,
                 };
-                // The element whose text the session's block is (an
-                // anonymous block has none to report).
-                let node_id = match mc.block.element() {
-                    Some(id) => id,
-                    None => return,
+                // The session block's flat text and the caret's offsets in it:
+                // the IME's one reading (`LayoutWindow::ime_document`'s text,
+                // `byte_offset_of_cursor`) - in the carets' own numbering,
+                // affinity resolved. Summing the DOM text's runs up to the
+                // caret's run number put a list item's caret past its text
+                // and a `Trailing` caret a grapheme early.
+                let block = mc.block;
+                let text_str = lw.block_content(block).flat_text();
+                let offset = |cursor: &azul_core::selection::TextCursor| -> usize {
+                    lw.byte_offset_of_cursor(block, cursor).unwrap_or(0)
                 };
-                let dom_id = mc.block.dom();
 
-                // Get current text (checks dirty_text_nodes first)
-                let content = lw.get_text_before_textinput(dom_id, node_id);
-                let text_str = lw.extract_text_from_inline_content(&content);
-
-                // Compute global byte offset: sum prior runs + offset in current run
+                // text-input-v3: `cursor` is where the caret IS - a range's
+                // focus, its `end` - and `anchor` the selection's other end.
+                // A range used to go out as (start, end), anchor for cursor.
                 let (cursor_byte, anchor_byte) = match mc.get_primary() {
-                    Some(identified) => {
-                        let calc_global_offset =
-                            |cursor: &azul_core::selection::TextCursor| -> i32 {
-                                let run_idx = cursor.cluster_id.source_run as usize;
-                                let byte_in_run = cursor.cluster_id.start_byte_in_run as usize;
-                                let mut global = 0usize;
-                                for (i, item) in content.iter().enumerate() {
-                                    if i >= run_idx {
-                                        break;
-                                    }
-                                    match item {
-                                        azul_layout::text3::cache::InlineContent::Text(r) => {
-                                            global += r.text.len()
-                                        }
-                                        azul_layout::text3::cache::InlineContent::Space(_) => {
-                                            global += 1
-                                        }
-                                        azul_layout::text3::cache::InlineContent::LineBreak(_) => {
-                                            global += 1
-                                        }
-                                        azul_layout::text3::cache::InlineContent::Tab {
-                                            ..
-                                        } => global += 1,
-                                        _ => {}
-                                    }
-                                }
-                                (global + byte_in_run) as i32
-                            };
-                        match &identified.selection {
-                            azul_core::selection::Selection::Cursor(c) => {
-                                let off = calc_global_offset(c);
-                                (off, off)
-                            }
-                            azul_core::selection::Selection::Range(r) => {
-                                (calc_global_offset(&r.start), calc_global_offset(&r.end))
-                            }
+                    Some(identified) => match &identified.selection {
+                        azul_core::selection::Selection::Cursor(c) => {
+                            let off = offset(c);
+                            (off, off)
                         }
-                    }
+                        azul_core::selection::Selection::Range(r) => {
+                            (offset(&r.end), offset(&r.start))
+                        }
+                    },
                     None => (0, 0),
                 };
 
                 // Never hand the wire an oversized string — see
                 // trim_surrounding_text: beyond ~4 KB the message is not
                 // truncated, the compositor disconnects us.
-                let (window, cursor_in_window, anchor_in_window) = trim_surrounding_text(
-                    &text_str,
-                    cursor_byte.max(0) as usize,
-                    anchor_byte.max(0) as usize,
-                );
+                let (window, cursor_in_window, anchor_in_window) =
+                    trim_surrounding_text(&text_str, cursor_byte, anchor_byte);
                 match std::ffi::CString::new(&text_str[window]) {
                     Ok(cstr) => (cstr, cursor_in_window, anchor_in_window),
                     Err(_) => (std::ffi::CString::new("").unwrap(), 0, 0),
@@ -10946,27 +10916,12 @@ impl WaylandWindow {
         let Some(caret) = lw.text_edit_manager.seat_caret(seat_id) else {
             return;
         };
-        let Some(node_id) = caret.node.node.into_crate_internal() else {
-            return;
-        };
-        let content = lw.get_text_before_textinput(caret.node.dom, node_id);
-        let text_str = lw.extract_text_from_inline_content(&content);
+        // The seat's caret block's flat text, read like the primary's: in the
+        // caret's own numbering, affinity resolved.
+        let block = caret.block;
+        let text_str = lw.block_content(block).flat_text();
         let global_of = |cursor: &azul_core::selection::TextCursor| -> usize {
-            let run_idx = cursor.cluster_id.source_run as usize;
-            let mut global = 0usize;
-            for (i, item) in content.iter().enumerate() {
-                if i >= run_idx {
-                    break;
-                }
-                match item {
-                    azul_layout::text3::cache::InlineContent::Text(r) => global += r.text.len(),
-                    azul_layout::text3::cache::InlineContent::Space(_)
-                    | azul_layout::text3::cache::InlineContent::LineBreak(_)
-                    | azul_layout::text3::cache::InlineContent::Tab { .. } => global += 1,
-                    _ => {}
-                }
-            }
-            global + cursor.cluster_id.start_byte_in_run as usize
+            lw.byte_offset_of_cursor(block, cursor).unwrap_or(0)
         };
         let cursor_byte = global_of(&caret.cursor);
         let anchor_byte = caret.anchor.as_ref().map_or(cursor_byte, global_of);
