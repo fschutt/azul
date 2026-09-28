@@ -2729,4 +2729,138 @@ mod autotest_generated {
         let mut state = state;
         assert_eq!(wrapper(&mut state).inner.ratio, 0.75);
     }
+
+    // ==================================================================
+    // A drag across the app's rebuilds
+    // ==================================================================
+
+    /// The split-pane container in a flattened DOM (found by its class).
+    fn split_container(data: &[azul_core::dom::NodeData]) -> &azul_core::dom::NodeData {
+        data.iter()
+            .find(|nd| {
+                nd.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-native-split-pane"))
+            })
+            .expect("a split-pane container")
+    }
+
+    /// The state the container's callbacks see - what the next pointer
+    /// event reads.
+    fn callback_state(container: &azul_core::dom::NodeData) -> SplitPaneStateWrapper {
+        let mut r = container.callbacks.as_ref()[0].refany.clone();
+        let w = r
+            .downcast_ref::<SplitPaneStateWrapper>()
+            .expect("split-pane state");
+        (*w).clone()
+    }
+
+    /// The reconciler's pass over an app rebuild: match `old` to `new` and
+    /// carry the matched nodes' states (merge callbacks) across. Returns the
+    /// new build's node data as the next frame sees it.
+    fn rebuild(old: &StyledDom, new: &StyledDom) -> Vec<azul_core::dom::NodeData> {
+        use azul_core::{
+            diff::{reconcile_dom, transfer_states},
+            dom::NodeData,
+            styled_dom::NodeHierarchyItem,
+            task::Instant,
+            OrderedMap,
+        };
+        let mut old_data: Vec<NodeData> = old.node_data.as_ref().to_vec();
+        let mut new_data: Vec<NodeData> = new.node_data.as_ref().to_vec();
+        let old_h: Vec<NodeHierarchyItem> = old.node_hierarchy.as_ref().to_vec();
+        let new_h: Vec<NodeHierarchyItem> = new.node_hierarchy.as_ref().to_vec();
+        let diff = reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_h,
+            &new_h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        transfer_states(&mut old_data, &mut new_data, &diff.node_moves);
+        new_data
+    }
+
+    /// The app's page: a caption the app rewrites on every callback, and the
+    /// split pane at the ratio the app stores.
+    fn app_dom(ratio: f32, caption: &str) -> StyledDom {
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(caption),
+                ))
+                .with_child(plain(SplitDirection::Horizontal).with_ratio(ratio).dom()),
+        )
+    }
+
+    /// Device bug (AzWidgets, 2026-09-28: the splitter is "pretty much
+    /// unusable"): the demo's `on_resize` returns `RefreshDom`, like every
+    /// callback there, so the FIRST move of a drag rebuilds the app's DOM -
+    /// and the rebuilt split pane starts idle, at the ratio the app built it
+    /// with. The second move found no drag in flight and the divider snapped
+    /// back. The reconciler matches the old container to the new one; the
+    /// drag has to survive that, the way a slider's does
+    /// (`merge_slider_state`).
+    #[test]
+    fn a_divider_drag_survives_the_rebuild_its_on_resize_asks_for() {
+        // Frame 1: a press on the divider at x = 100 and one move, to 0.7.
+        let old = app_dom(0.5, "callbacks: 0");
+        {
+            let mut r = split_container(old.node_data.as_ref()).callbacks.as_ref()[0]
+                .refany
+                .clone();
+            let mut w = r
+                .downcast_mut::<SplitPaneStateWrapper>()
+                .expect("split-pane state");
+            w.is_dragging = true;
+            w.drag_start_px = 100.0;
+            w.ratio_at_drag_start = 0.5;
+            w.inner.ratio = 0.7;
+        }
+        // Frame 2: the app rebuilt everything, the split pane at the ratio
+        // it was built with.
+        let new = app_dom(0.5, "callbacks: 1");
+
+        let new_data = rebuild(&old, &new);
+        let after = callback_state(split_container(&new_data));
+        assert!(
+            after.is_dragging,
+            "the drag must survive the rebuild - the next move must still resize"
+        );
+        assert_eq!(after.drag_start_px, 100.0, "the drag keeps its anchor");
+        assert_eq!(after.ratio_at_drag_start, 0.5);
+        assert_eq!(
+            after.inner.ratio, 0.7,
+            "mid-drag the pointer's ratio wins over the one the app rebuilt with"
+        );
+    }
+
+    /// Once the pointer is up the app's ratio is the truth again, as for any
+    /// controlled widget: an idle split pane takes the rebuilt ratio.
+    #[test]
+    fn an_idle_split_pane_takes_the_ratio_the_app_rebuilds_it_with() {
+        let old = app_dom(0.5, "callbacks: 0");
+        {
+            let mut r = split_container(old.node_data.as_ref()).callbacks.as_ref()[0]
+                .refany
+                .clone();
+            let mut w = r
+                .downcast_mut::<SplitPaneStateWrapper>()
+                .expect("split-pane state");
+            w.inner.ratio = 0.7;
+        }
+        let new = app_dom(0.3, "callbacks: 1");
+
+        let new_data = rebuild(&old, &new);
+        let after = callback_state(split_container(&new_data));
+        assert!(!after.is_dragging);
+        assert_eq!(
+            after.inner.ratio, 0.3,
+            "idle: the app's rebuilt ratio is kept"
+        );
+    }
 }
