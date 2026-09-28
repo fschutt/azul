@@ -52,6 +52,8 @@ use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
 mod macos;
 #[cfg(target_os = "linux")]
 mod portal;
+/// The portal backend's batch planner - pure, so it is tested on every host.
+mod portal_plan;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "linux")]

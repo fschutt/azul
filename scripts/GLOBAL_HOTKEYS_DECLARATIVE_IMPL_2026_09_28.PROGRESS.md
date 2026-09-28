@@ -94,15 +94,21 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     `pump_linux_windows` (renamed from `pump_into_first_*`, 4 one-line call-site edits in run.rs)
     and `pump_headless` all go through `begin_turn`; relayouts now also on desktop.
 
+11a. test(hotkeys): the portal batch planner - RED by assertion: `dll/src/desktop/global_hotkey/
+    portal_plan.rs` (pure, compiled on every host, `#[cfg(test)] mod tests`) with stubbed
+    `shortcut_id` (None) and `plan_commit` (empty plan).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
 
-11. RED pure portal planner test + refactor portal: one session per batch, stable ids =
-    `portal_trigger(hk)`, `trigger_description` kept; dll `attach_loop_waker` / `wake_fds`;
-    headless condvar waker.
+11b. fix: implement the planner; portal backend queues grabs and binds each batch in ONE session
+    at `commit`, shortcut id = `portal_trigger(hk)`, tombstones + close/compaction; dll
+    `attach_loop_waker` / `wake_fds` for the other agent; headless condvar waker.
+    trigger_description / ShortcutsChanged parsing is left open (zvariant `a(sa{sv})` decoding
+    too risky uncompiled).
 12. RED `callback_info_flag_mutators_queue_exactly_one_matching_change` + `retry_global_hotkey`
     row; feat CallbackInfo: `get_global_hotkey_status(hotkey)`, `get_global_hotkeys`,
     `get_global_hotkey_event`, `retry_global_hotkey` + `CallbackChange::RetryGlobalHotkey` (arms
