@@ -4,10 +4,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
-    },
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
     refany::{OptionRefAny, RefAny},
@@ -619,9 +616,10 @@ const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
 
-const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul_native-list-rows-row",
-))];
+/// The class every row carries: how the arrow-key handler finds the rows.
+const ROW_CLASS_NAME: &str = "__azul_native-list-rows-row";
+const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] =
+    &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
 const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
 
 const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -803,6 +801,13 @@ pub struct ListView {
     /// What to do when the user left-clicks a row
     /// (usually used for selecting the row depending on the state)
     pub on_row_click: OptionListViewOnRowClick,
+    /// The selected row, if any (default = None).
+    ///
+    /// The list is ONE stop in the Tab order (WAI-ARIA listbox): Tab lands on
+    /// this row, or on the first row when none is selected, and the arrow keys
+    /// move between the rows from there. Up/Down/Home/End report the row they
+    /// land on through `on_row_click`, like a click - store it here on rebuild.
+    pub selected_row: OptionUsize,
 }
 
 impl Default for ListView {
@@ -819,6 +824,7 @@ impl Default for ListView {
             on_lazy_load_scroll: None.into(),
             on_column_click: None.into(),
             on_row_click: None.into(),
+            selected_row: None.into(),
         }
     }
 }
@@ -931,6 +937,19 @@ impl ListView {
         self.sorted_by = sorted_by;
     }
 
+    /// Builder form of [`Self::set_selected_row`].
+    #[must_use]
+    pub const fn with_selected_row(mut self, selected_row: OptionUsize) -> Self {
+        self.set_selected_row(selected_row);
+        self
+    }
+
+    /// Which row is selected: the row Tab lands on (the list is one Tab stop).
+    /// `None` - or an index past the last row - puts the stop on the first row.
+    pub const fn set_selected_row(&mut self, selected_row: OptionUsize) {
+        self.selected_row = selected_row;
+    }
+
     #[must_use]
     pub const fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
         self.set_scroll_offset(scroll_offset);
@@ -1020,6 +1039,12 @@ impl ListView {
         };
         let on_column_click = self.on_column_click.clone();
         let on_row_click = self.on_row_click.clone();
+        // WAI-ARIA listbox: the rows are ONE Tab stop - the selected row, or
+        // the first when none is. The arrow keys move within them.
+        let row_stop = crate::widgets::roving::stop_index(
+            self.selected_row.into_option(),
+            self.rows.as_ref().len(),
+        );
 
         Dom::create_div()
             .with_css_props(CSS_MATCH_17553577885456905601)
@@ -1079,7 +1104,9 @@ impl ListView {
                                 let row_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_7894335449545988724)
                                     .with_ids_and_classes(ROW_CLASS)
-                                    .with_tab_index(TabIndex::Auto)
+                                    .with_tab_index(crate::widgets::roving::item_tab_index(
+                                        row_index, row_stop,
+                                    ))
             // Role so the accessibility tree knows what this IS:
             // a list, so a reader can say "3 of 12". The NAME comes from the widget's own text,
             // which azul derives when a readable label is present.
@@ -1100,23 +1127,42 @@ impl ListView {
                                             .collect::<Vec<_>>()
                                             .into(),
                                     );
+                                let row_data = RefAny::new(RowClickData {
+                                    row_index,
+                                    state: state.clone(),
+                                    on_row_click: on_row_click.clone(),
+                                });
+                                // The arrow keys work on every list (focus moves
+                                // even when nobody listens for the selection);
+                                // the click is wired only when the app set a hook.
+                                let key = CoreCallbackData {
+                                    event: EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
+                                    ),
+                                    refany: row_data.clone(),
+                                    callback: CoreCallback {
+                                        cb: on_list_view_row_key as usize,
+                                        ctx: OptionRefAny::None,
+                                    },
+                                };
                                 match &on_row_click {
                                     OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
-                                        vec![CoreCallbackData {
-                                            event: EventFilter::Hover(HoverEventFilter::Click),
-                                            refany: RefAny::new(RowClickData {
-                                                row_index,
-                                                state: state.clone(),
-                                                on_row_click: on_row_click.clone(),
-                                            }),
-                                            callback: CoreCallback {
-                                                cb: on_list_view_row_click as usize,
-                                                ctx: OptionRefAny::None,
+                                        vec![
+                                            CoreCallbackData {
+                                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                                refany: row_data,
+                                                callback: CoreCallback {
+                                                    cb: on_list_view_row_click as usize,
+                                                    ctx: OptionRefAny::None,
+                                                },
                                             },
-                                        }]
+                                            key,
+                                        ]
                                         .into(),
                                     ),
-                                    OptionListViewOnRowClick::None => row_dom,
+                                    OptionListViewOnRowClick::None => {
+                                        row_dom.with_callbacks(vec![key].into())
+                                    }
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -1151,6 +1197,63 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
             refany: user_data,
             callback,
         }) => (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index),
+        None => Update::DoNothing,
+    }
+}
+
+/// Arrow keys on the focused row (WAI-ARIA APG single-select listbox): Up and
+/// Down move to the neighbouring row and hold at the ends, Home and End jump to
+/// the first / last row. The target row is focused, becomes the list's one Tab
+/// stop and is SELECTED - reported through `on_row_click` exactly like a click
+/// on it (selection follows focus). Every handled key is `prevent_default`-ed,
+/// an arrow at the end of the list included, so spatial navigation cannot walk
+/// out of the list. Left/Right, every other key and any key held with Alt,
+/// Ctrl, Cmd or Shift keep their default.
+extern "C" fn on_list_view_row_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up) => Step::Previous,
+        Some(K::Down) => Step::Next,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(container) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let rows = roving::items_of(&info, container, ROW_CLASS_NAME);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, rows.len(), step, false) else {
+        return Update::DoNothing;
+    };
+    let (state, on_row_click) = {
+        let Some(data) = refany.downcast_ref::<RowClickData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_row_click.clone())
+    };
+
+    info.prevent_default();
+    if target == current {
+        // Already at that end: the key is the list's, but nothing moves.
+        return Update::DoNothing;
+    }
+    // Moved BEFORE the app hears the selection, so a focus it asks for wins.
+    roving::move_stop(&mut info, &rows, target);
+    // The rows are the row container's children in order, so the target's
+    // position IS its row index.
+    match on_row_click.as_ref() {
+        Some(ListViewOnRowClick {
+            refany: user_data,
+            callback,
+        }) => (callback.cb)(user_data.clone(), info, state, target),
         None => Update::DoNothing,
     }
 }
@@ -1223,27 +1326,34 @@ mod list_view_click_tests {
         let on_row_click: ListViewOnRowClickCallbackType = noop_row;
         lv.set_on_row_click(RefAny::new(()), on_row_click);
         let dom = lv.dom();
+        let clicks = |row: &Dom| {
+            row.root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+                .count()
+        };
         // children = [header, rows]; each row div carries the MouseUp callback.
         let rows = dom.children.as_ref()[1].children.as_ref();
         assert_eq!(rows.len(), 2);
         for row in rows {
             assert_eq!(
-                row.root.callbacks.as_ref().len(),
+                clicks(row),
                 1,
                 "row must carry the click callback when on_row_click is set"
             );
         }
 
-        // Without the hook → no callbacks (opt-in, no wasted dispatch).
+        // Without the hook → no click callback (opt-in, no wasted dispatch).
+        // The arrow-key handler stays: focus still moves between the rows.
         let mut bare = ListView::default();
         bare.rows = ListViewRowVec::from_vec(vec![empty_row()]);
         let dom2 = bare.dom();
         let rows2 = dom2.children.as_ref()[1].children.as_ref();
         assert_eq!(rows2.len(), 1);
-        assert!(
-            rows2[0].root.callbacks.as_ref().is_empty(),
-            "no callback when on_row_click is unset"
-        );
+        assert_eq!(clicks(&rows2[0]), 0, "no click callback when on_row_click is unset");
+        assert_eq!(rows2[0].root.callbacks.as_ref().len(), 1, "only the key handler");
     }
 }
 
@@ -1483,6 +1593,7 @@ mod autotest_generated {
         assert!(lv.on_lazy_load_scroll.is_none());
         assert!(lv.on_column_click.is_none());
         assert!(lv.on_row_click.is_none());
+        assert!(lv.selected_row.is_none());
         assert_eq!(lv.scroll_offset, PixelValueNoPercent::zero());
 
         // An empty column list is accepted, not rejected or defaulted.
@@ -1859,7 +1970,7 @@ mod autotest_generated {
 
         for (i, row) in rows.children.as_ref().iter().enumerate() {
             let cbs = row.root.callbacks.as_ref();
-            assert_eq!(cbs.len(), 1);
+            assert_eq!(cbs.len(), 2, "the click and the arrow-key callback");
             assert!(matches!(
                 cbs[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -1895,9 +2006,20 @@ mod autotest_generated {
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
             .with_on_row_click(RefAny::new(()), rcb)
             .dom();
+        let is_click =
+            |cb: &CoreCallbackData| cb.event == EventFilter::Hover(HoverEventFilter::Click);
         let (h, r) = header_and_rows(&row_only);
         assert!(h.children.as_ref()[0].root.callbacks.as_ref().is_empty());
-        assert_eq!(r.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
+        assert_eq!(
+            r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|&cb| is_click(cb))
+                .count(),
+            1
+        );
 
         let col_only = ListView::create(cols(&["a"]))
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
@@ -1905,7 +2027,15 @@ mod autotest_generated {
             .dom();
         let (h, r) = header_and_rows(&col_only);
         assert_eq!(h.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
-        assert!(r.children.as_ref()[0].root.callbacks.as_ref().is_empty());
+        assert!(
+            !r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .any(|cb| is_click(cb)),
+            "a column hook must not attach a row click"
+        );
     }
 
     /// A wrong-typed payload must make the internal handlers bail out rather
@@ -1957,7 +2087,7 @@ mod autotest_generated {
         assert_eq!(r.children.as_ref().len(), N_ROWS);
         for row in r.children.as_ref() {
             assert_eq!(row.children.as_ref().len(), N_COLS);
-            assert_eq!(row.root.callbacks.as_ref().len(), 1);
+            assert_eq!(row.root.callbacks.as_ref().len(), 2, "click + arrow keys");
         }
     }
 
@@ -2070,7 +2200,7 @@ mod autotest_generated {
 #[cfg(test)]
 mod roving_tabindex_tests {
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId},
+        dom::{DomId, DomNodeId, NodeId, TabIndex},
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::VirtualKeyCode,
     };
@@ -2177,6 +2307,34 @@ mod roving_tabindex_tests {
             rv::tab_walk(&styled, Some(after(4)), false, 2),
             vec![row(0), before()],
         );
+    }
+
+    #[test]
+    fn tab_lands_on_the_selected_row_and_an_out_of_range_selection_falls_back_to_the_first() {
+        let styled = page(list(4, None).with_selected_row(Some(2_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(2), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(2), before()],
+        );
+
+        let styled = page(list(4, None).with_selected_row(Some(9_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+        );
+    }
+
+    #[test]
+    fn set_selected_row_and_with_selected_row_agree() {
+        let mut lv = list(3, None);
+        lv.set_selected_row(Some(1_usize).into());
+        assert_eq!(lv.selected_row.as_ref().copied(), Some(1));
+        let lv = lv.with_selected_row(None.into());
+        assert!(lv.selected_row.is_none());
     }
 
     #[test]
