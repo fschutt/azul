@@ -119,13 +119,17 @@ the last commit; `scripts/GLOBAL_HOTKEYS_DECLARATIVE_IMPL_2026_09_28.md` replace
     `simulated_answer_from_name`, `settle_result_from_name`, `global_hotkey_status_matches`,
     `global_hotkey_status_name`, `global_hotkey_owner_name`.
 
+13b. feat(e2e): `global_hotkey` presses through the WINDOW's manager; new ops
+    `global_hotkey_answer`, `global_hotkey_settle`; new assertion `assert_global_hotkeys`
+    (`expect: [{accelerator, status?, owner?}]`, `count?`); gate reasons rewritten (global_hotkey
+    stays in UNOBSERVABLE_MANAGERS / not_fingerprintable - moving it to the fingerprinted set is
+    OPEN).
+
 ## IN PROGRESS
 
 (nothing uncommitted)
 
 ## NEXT
-13b. e2e: ops use the window's manager; `global_hotkey_answer`, `global_hotkey_settle`,
-    `assert_global_hotkeys`; update gate reasons in `layout/src/e2e/full.rs` (~7727, ~8848).
 14. demo `examples/azul-widgets/src/hotkeys.rs` declares from state (layout() gets `info`).
 15. optional fix(macos) F13-F20: RED = manifest rows F13..F20 macOS column 0 -> 1 in
     `layout/tests/keycode_table_manifest_is_exhaustive.rs`; fix = arms 0x69 F13, 0x6B F14, 0x71

@@ -2480,18 +2480,41 @@ pub enum DebugEvent {
     },
 
     /// `{ "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" }` - press a
-    /// registered SYSTEM-WIDE hotkey, as if the OS had reported it.
+    /// DECLARED system-wide hotkey, as if the OS had reported it.
     ///
     /// The accelerator is parsed like `GlobalHotkey::parse` (case, spacing
     /// and modifier order are irrelevant; `CmdOrCtrl` is the host's primary
-    /// modifier). The fire is parked in the process-wide mailbox and the run
-    /// loop delivers it - the callback has run by the next `wait_frame`. An
-    /// error when the accelerator does not parse or no registration holds
-    /// it. Under `AZ_BACKEND=headless` nothing is grabbed at the OS (the
-    /// simulated backend is installed); on a real backend this presses the
-    /// registration without the keyboard.
+    /// modifier). The press is parked in the window's App manager and the
+    /// run loop's hotkey pump runs it against its owner - the callback has
+    /// run by the next `wait_frame`. An error, listing what is declared with
+    /// status and owner, when the accelerator does not parse or nothing
+    /// holds it. Under `AZ_BACKEND=headless` nothing is grabbed at the OS
+    /// (the simulated backend is installed); on a real backend this presses
+    /// the grab without the keyboard.
     GlobalHotkey {
         accelerator: String,
+    },
+
+    /// `{ "op": "global_hotkey_answer", "accelerator": "Ctrl+Alt+K",
+    /// "answer": "taken" }` - program what the SIMULATED backend answers to
+    /// the next grab of that accelerator: `active`, `pending` (settle it
+    /// later with `global_hotkey_settle`), `taken`, `denied`, `unsupported`,
+    /// `unavailable` or `key_not_mappable`. One-shot. An error on a real
+    /// backend. Program it BEFORE the declaration that grabs, or combine it
+    /// with a "Retry" (`CallbackInfo::retry_global_hotkey`).
+    GlobalHotkeyAnswer {
+        accelerator: String,
+        answer: String,
+    },
+
+    /// `{ "op": "global_hotkey_settle", "accelerator": "Ctrl+Alt+K",
+    /// "result": "active" }` - play the desktop's LATE answer to a `pending`
+    /// grab (the Wayland portal's dialog): `active`, `denied`, `taken` or
+    /// `platform`. The pump folds it in on its next turn and re-runs the
+    /// `layout()` passes that read the status.
+    GlobalHotkeySettle {
+        accelerator: String,
+        result: String,
     },
 
     /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
@@ -3984,6 +4007,117 @@ pub fn logs_dropped() -> u64 {
     LOGS_DROPPED.load(Ordering::Relaxed)
 }
 
+// -- global hotkeys: the names scenarios spell things with ------------------
+
+/// `global_hotkey_answer`'s `answer`.
+fn simulated_answer_from_name(
+    name: &str,
+) -> Result<crate::managers::global_hotkey::SimulatedAnswer, String> {
+    use azul_core::global_hotkey::GlobalHotkeyError as E;
+
+    use crate::managers::global_hotkey::SimulatedAnswer as A;
+    Ok(match name {
+        "active" | "grant" => A::Grant,
+        "pending" => A::Pending,
+        "taken" => A::Refuse(E::TakenByAnotherApp),
+        "denied" => A::Refuse(E::Denied),
+        "unsupported" => A::Refuse(E::Unsupported),
+        "unavailable" => A::Refuse(E::Unavailable("simulated".into())),
+        "key_not_mappable" => A::Refuse(E::KeyNotMappable),
+        other => {
+            return Err(format!(
+                "unknown answer {other:?} (active, pending, taken, denied, unsupported, \
+                 unavailable, key_not_mappable)"
+            ))
+        }
+    })
+}
+
+/// `global_hotkey_settle`'s `result`.
+fn settle_result_from_name(
+    name: &str,
+) -> Result<Result<azul_css::AzString, azul_core::global_hotkey::GlobalHotkeyError>, String> {
+    use azul_core::global_hotkey::GlobalHotkeyError as E;
+    Ok(match name {
+        "active" => Ok(azul_css::AzString::from_const_str("")),
+        "denied" => Err(E::Denied),
+        "taken" => Err(E::TakenByAnotherApp),
+        "platform" => Err(E::Platform("simulated".into())),
+        other => {
+            return Err(format!(
+                "unknown result {other:?} (active, denied, taken, platform)"
+            ))
+        }
+    })
+}
+
+/// The name `assert_global_hotkeys` reports a status with: the failure's
+/// reason for a `Failed` one.
+fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
+    use azul_core::global_hotkey::{GlobalHotkeyError as E, GlobalHotkeyStatus as S};
+    match status {
+        S::NotRegistered => "not_registered",
+        S::Pending => "pending",
+        S::Active => "active",
+        S::Failed(E::InvalidAccelerator(_)) => "invalid",
+        S::Failed(E::AlreadyRegistered(_)) => "already_registered",
+        S::Failed(E::TakenByAnotherApp) => "taken",
+        S::Failed(E::KeyNotMappable) => "key_not_mappable",
+        S::Failed(E::Denied) => "denied",
+        S::Failed(E::Unavailable(_)) => "unavailable",
+        S::Failed(E::Unsupported) => "unsupported",
+        S::Failed(E::Platform(_)) => "platform",
+    }
+}
+
+/// Does `status` match the name a scenario wrote? `failed` matches any
+/// failure; everything else its own name only.
+fn global_hotkey_status_matches(
+    status: &azul_core::global_hotkey::GlobalHotkeyStatus,
+    want: &str,
+) -> bool {
+    if want == "failed" {
+        return matches!(
+            status,
+            azul_core::global_hotkey::GlobalHotkeyStatus::Failed(_)
+        );
+    }
+    global_hotkey_status_name(status) == want
+}
+
+/// The name `assert_global_hotkeys` spells an owner with.
+fn global_hotkey_owner_name(owner: azul_core::global_hotkey::GlobalHotkeyOwner) -> &'static str {
+    use azul_core::global_hotkey::GlobalHotkeyOwner as O;
+    match owner {
+        O::App => "app",
+        O::ThisWindow => "window",
+        O::OtherWindow => "other_window",
+        O::Nobody => "nobody",
+    }
+}
+
+/// What the window's App manager holds, for error messages.
+fn describe_global_hotkeys(callback_info: &azul_layout::callbacks::CallbackInfo) -> String {
+    let infos = callback_info.get_global_hotkeys();
+    let parts: Vec<String> = infos
+        .as_ref()
+        .iter()
+        .map(|info| {
+            format!(
+                "{} {} ({})",
+                info.hotkey.to_display_string().as_str(),
+                global_hotkey_status_name(&info.status),
+                global_hotkey_owner_name(info.owner)
+            )
+        })
+        .collect();
+    if parts.is_empty() {
+        String::from("nothing")
+    } else {
+        parts.join(", ")
+    }
+}
+
 /// The global-hotkey E2E vocabulary: what a scenario writes, and the names
 /// it spells answers, statuses and owners with.
 #[cfg(all(test, feature = "std"))]
@@ -4588,6 +4722,7 @@ impl AssertionResult {
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `withdrawn?`, `count?` |
+/// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -4634,6 +4769,8 @@ pub fn evaluate_assertion(
         "assert_unmocked_request" => eval_assert_unmocked_request(params),
         // Native notifications, as the headless backend recorded them
         "assert_notification" => eval_assert_notification(params),
+        // Global hotkeys, as the window's App manager holds them
+        "assert_global_hotkeys" => eval_assert_global_hotkeys(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -6325,6 +6462,94 @@ fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
     ))
 }
 
+/// `assert_global_hotkeys`: what the window's App manager holds, owners
+/// relative to this window.
+///
+/// `expect` lists accelerators with an optional `status` (`active`,
+/// `pending`, `not_registered`, `failed` for any failure, or a reason:
+/// `taken`, `denied`, `unsupported`, `unavailable`, `key_not_mappable`,
+/// `invalid`, `platform`) and an optional `owner` (`window`,
+/// `other_window`, `app`, `nobody`). An accelerator nobody declares and
+/// nothing remembers reads `not_registered`. `count` is the exact number of
+/// listed accelerators.
+///
+/// ```json
+/// { "op": "assert_global_hotkeys",
+///   "expect": [{ "accelerator": "Ctrl+Alt+K", "status": "active", "owner": "window" }] }
+/// ```
+fn eval_assert_global_hotkeys(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_global_hotkeys", params, &["expect", "count"])
+    {
+        return bad;
+    }
+    let infos = callback_info.get_global_hotkeys();
+    let infos = infos.as_ref();
+    if let Some(expected) = params.get("count").and_then(serde_json::Value::as_u64) {
+        if infos.len() as u64 != expected {
+            return AssertionResult::fail_with(
+                "the number of global hotkeys differs",
+                expected.to_string(),
+                format!("{}: {}", infos.len(), describe_global_hotkeys(callback_info)),
+            );
+        }
+    }
+    let empty = Vec::new();
+    let expect = params
+        .get("expect")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&empty);
+    for entry in expect {
+        let Some(accelerator) = entry.get("accelerator").and_then(serde_json::Value::as_str)
+        else {
+            return AssertionResult::fail(
+                "assert_global_hotkeys: every `expect` entry needs an `accelerator`",
+            );
+        };
+        let hotkey = match azul_core::global_hotkey::GlobalHotkey::parse(accelerator) {
+            Ok(hotkey) => hotkey,
+            Err(e) => return AssertionResult::fail(format!("assert_global_hotkeys: {e}")),
+        };
+        let found = infos.iter().find(|info| info.hotkey == hotkey);
+        if let Some(want) = entry.get("status").and_then(serde_json::Value::as_str) {
+            let status = found.map_or(
+                azul_core::global_hotkey::GlobalHotkeyStatus::NotRegistered,
+                |info| info.status.clone(),
+            );
+            if !global_hotkey_status_matches(&status, want) {
+                return AssertionResult::fail_with(
+                    format!("{accelerator}: the status differs"),
+                    want,
+                    global_hotkey_status_name(&status),
+                );
+            }
+        }
+        if let Some(want) = entry.get("owner").and_then(serde_json::Value::as_str) {
+            let Some(info) = found else {
+                return AssertionResult::fail_with(
+                    format!("{accelerator}: not listed, so it has no owner"),
+                    want,
+                    describe_global_hotkeys(callback_info),
+                );
+            };
+            let owner = global_hotkey_owner_name(info.owner);
+            if owner != want {
+                return AssertionResult::fail_with(
+                    format!("{accelerator}: the owner differs"),
+                    want,
+                    owner,
+                );
+            }
+        }
+    }
+    AssertionResult::pass(format!(
+        "global hotkeys as expected: {}",
+        describe_global_hotkeys(callback_info)
+    ))
+}
+
 /// `assert_notification`: a native notification the app posted, as the
 /// HEADLESS backend recorded it (`AZ_BACKEND=headless`; a real backend shows
 /// the notification instead of recording it, and this then fails with an
@@ -7812,10 +8037,11 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "global_hotkey",
-        "owns no window state: the registry of system-wide hotkeys is PROCESS-GLOBAL by design (a \
-         hotkey is grabbed for the app, never for a window), keyed by app-wide `GlobalHotkeyId`s \
-         rather than DOM nodes, and its fire mailbox is drained destructively by the run loop. \
-         There is no LayoutWindow field and nothing node-keyed, so X10 has nothing to judge",
+        "owns nothing node-keyed: `LayoutWindow::global_hotkeys` is a handle on the APP's \
+         manager (shared by every window) plus the window's sequence number, and the manager is \
+         keyed by ACCELERATOR and by declaring window, never by a DOM node, so X10 has no node \
+         to judge. What a window declared and where each accelerator stands is asserted by \
+         `assert_global_hotkeys` instead",
     ),
     (
         "a11y",
@@ -8933,11 +9159,12 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         ),
         (
             "global_hotkey",
-            "nothing on the WINDOW to hash: the hotkey registry is one process-global shared by \
-             every window (hotkeys are app-wide), and its fire mailbox is read only by \
-             `take_fired`, which consumes what it returns - measuring it would swallow the press \
-             the app was about to receive, and a change in it could not be attributed to the \
-             window this snapshot is of",
+            "not yet hashed: the window's field is a handle on the APP's manager, shared by every \
+             window, so its statuses move with OTHER windows' declarations and could not be \
+             attributed to this snapshot's window; and its press mailbox is read only by \
+             `take_deliveries`, which consumes what it returns - measuring it would swallow the \
+             press the app was about to receive. Hashing just this window's declaration (its \
+             accelerators, via `infos_for`) is the follow-up",
         ),
     ];
     #[cfg(not(feature = "a11y"))]
@@ -14895,8 +15122,13 @@ pub fn process_debug_event(
             match azul_core::global_hotkey::GlobalHotkey::parse(accelerator) {
                 Err(e) => send_err(request, format!("global_hotkey: {e}")),
                 Ok(hotkey) => {
-                    let shared =
-                        crate::managers::global_hotkey::SharedGlobalHotkeys::current_or_detached();
+                    // The WINDOW's App manager: the one its layout() declared
+                    // into and the loop's pump drains.
+                    let shared = callback_info
+                        .get_layout_window()
+                        .global_hotkeys
+                        .shared()
+                        .clone();
                     if shared.simulate(&hotkey) {
                         // Wake the loop: the press is delivered by the run
                         // loop's hotkey pump, not inside this op.
@@ -14906,23 +15138,76 @@ pub fn process_debug_event(
                         send_err(
                             request,
                             format!(
-                                "global_hotkey: nothing holds {} (declared: {:?})",
+                                "global_hotkey: nothing holds {} (declared: {})",
                                 hotkey.to_display_string().as_str(),
-                                shared
-                                    .infos_for(crate::managers::global_hotkey::HotkeySource::App)
-                                    .iter()
-                                    .map(|info| format!(
-                                        "{} {:?}",
-                                        info.hotkey.to_display_string().as_str(),
-                                        info.status
-                                    ))
-                                    .collect::<Vec<_>>()
+                                describe_global_hotkeys(callback_info)
                             ),
                         );
                     }
                 }
             }
         }
+
+        DebugEvent::GlobalHotkeyAnswer {
+            accelerator,
+            answer,
+        } => match (
+            azul_core::global_hotkey::GlobalHotkey::parse(accelerator),
+            simulated_answer_from_name(answer),
+        ) {
+            (Err(e), _) => send_err(request, format!("global_hotkey_answer: {e}")),
+            (_, Err(e)) => send_err(request, format!("global_hotkey_answer: {e}")),
+            (Ok(hotkey), Ok(answer)) => {
+                if callback_info
+                    .get_layout_window()
+                    .global_hotkeys
+                    .shared()
+                    .program_answer(hotkey, answer)
+                {
+                    send_ok(request, None, None);
+                } else {
+                    send_err(
+                        request,
+                        "global_hotkey_answer: the simulated backend is not installed (run with \
+                         AZ_BACKEND=headless)"
+                            .to_string(),
+                    );
+                }
+            }
+        },
+
+        DebugEvent::GlobalHotkeySettle {
+            accelerator,
+            result,
+        } => match (
+            azul_core::global_hotkey::GlobalHotkey::parse(accelerator),
+            settle_result_from_name(result),
+        ) {
+            (Err(e), _) => send_err(request, format!("global_hotkey_settle: {e}")),
+            (_, Err(e)) => send_err(request, format!("global_hotkey_settle: {e}")),
+            (Ok(hotkey), Ok(outcome)) => {
+                if callback_info
+                    .get_layout_window()
+                    .global_hotkeys
+                    .shared()
+                    .settle(&hotkey, outcome)
+                {
+                    // The pump folds the answer in and re-runs the passes
+                    // that read the status.
+                    needs_update = true;
+                    send_ok(request, None, None);
+                } else {
+                    send_err(
+                        request,
+                        format!(
+                            "global_hotkey_settle: nothing holds {} (declared: {})",
+                            hotkey.to_display_string().as_str(),
+                            describe_global_hotkeys(callback_info)
+                        ),
+                    );
+                }
+            }
+        },
 
         DebugEvent::TakeScreenshot => {
             log(
