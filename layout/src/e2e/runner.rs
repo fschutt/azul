@@ -2594,6 +2594,24 @@ impl Runner {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            // Port of the DLL arm: a roving tab stop moved. The Tab order is
+            // read from the node data on every Tab press, so the flag write is
+            // the whole change.
+            CallbackChange::SetNodeTabIndex {
+                dom_id,
+                node_id,
+                tab_index,
+            } => {
+                if let Some(layout_result) = self.layout_window.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_tab_index(*tab_index);
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::RemountDom { xml } => {
                 // The E2E `mount` / `unmount` document is per-window state, not
                 // a process-global sink: store it on the window and let
@@ -6464,5 +6482,87 @@ mod tests {
             runner.layout_window.scrollbar_drag().is_none(),
             "the scripted release must let go of the thumb"
         );
+    }
+
+    /// `SetNodeTabIndex` - the roving tab stop of a composite widget - is
+    /// applied to the node data the Tab order is collected from, so the very
+    /// next Tab press sees it. body = 0 > a = 1 (stop), b = 2 (not a stop),
+    /// c = 3 (stop); then the stop moves from a to b.
+    #[test]
+    fn a_tab_index_written_by_a_callback_moves_the_tab_stop() {
+        use std::collections::BTreeSet;
+
+        use azul_core::{callbacks::FocusTarget, dom::TabIndex};
+        use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+
+        reset_test_clock();
+        freeze_test_clock();
+        let item = |t: TabIndex| Dom::create_div().with_tab_index(t);
+        let mut dom = Dom::create_body()
+            .with_child(item(TabIndex::Auto))
+            .with_child(item(TabIndex::NoKeyboardFocus))
+            .with_child(item(TabIndex::Auto));
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+
+        let node = |i: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        };
+        let tab_from = |runner: &Runner, from: Option<usize>| {
+            resolve_focus_target(
+                &FocusTarget::Next,
+                &runner.layout_window.layout_results,
+                from.map(node),
+                &BTreeSet::new(),
+            )
+        };
+
+        assert_eq!(
+            tab_from(&runner, None),
+            Ok(FocusResolution::Resolved(node(1))),
+            "precondition: a is the first tab stop",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(1)),
+            Ok(FocusResolution::Resolved(node(3))),
+            "precondition: b starts outside the Tab order",
+        );
+
+        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(1),
+            tab_index: TabIndex::NoKeyboardFocus,
+        });
+        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(2),
+            tab_index: TabIndex::Auto,
+        });
+
+        assert_eq!(
+            tab_from(&runner, None),
+            Ok(FocusResolution::Resolved(node(2))),
+            "the stop moved to b, so Tab from nowhere lands on b",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(2)),
+            Ok(FocusResolution::Resolved(node(3))),
+            "from b, Tab leaves for c",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(3)),
+            Ok(FocusResolution::Resolved(node(2))),
+            "from c, Tab wraps to b - a is no longer a stop",
+        );
+
+        // A node id past the end of the DOM is ignored rather than panicking.
+        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(10_000),
+            tab_index: TabIndex::Auto,
+        });
     }
 }

@@ -892,6 +892,20 @@ pub enum CallbackChange {
         node_id: NodeId,
         ids_and_classes: azul_core::dom::IdOrClassVec,
     },
+    /// Move an existing node into or out of the Tab order: `Auto` makes it a
+    /// tab stop, `NoKeyboardFocus` keeps it focusable from code and by click
+    /// but takes it out of sequential navigation.
+    ///
+    /// This is the roving tabindex of a composite widget (a radio group, a
+    /// tab list, a listbox, a tree, a date grid): the group is ONE tab stop,
+    /// and when an arrow key moves the active item the stop moves with it.
+    /// The Tab order is read from the node data on every Tab press, so the
+    /// write takes effect on the very next one without a relayout.
+    SetNodeTabIndex {
+        dom_id: DomId,
+        node_id: NodeId,
+        tab_index: azul_core::dom::TabIndex,
+    },
     /// Replace the window's whole DOM with the debug `mount` op's inline
     /// XML+CSS document (`Some`), or drop the override again (`None`, the
     /// `unmount` op).
@@ -2812,6 +2826,27 @@ impl CallbackInfo {
             dom_id,
             node_id,
             ids_and_classes,
+        });
+    }
+
+    /// Move a node into or out of the Tab order (applied after the callback
+    /// returns).
+    ///
+    /// `TabIndex::Auto` makes `node_id` a tab stop; `TabIndex::NoKeyboardFocus`
+    /// takes it out of sequential navigation while it stays focusable by click
+    /// and through [`Self::set_focus`]. A composite widget uses the pair to keep
+    /// its ROVING tab stop on the active item: the whole group is one stop, and
+    /// the arrow key that moves the active item moves the stop with it.
+    ///
+    /// A `DomNodeId` that names no node is ignored.
+    pub fn set_tab_index(&mut self, node_id: DomNodeId, tab_index: azul_core::dom::TabIndex) {
+        let Some(internal) = node_id.node.into_crate_internal() else {
+            return;
+        };
+        self.push_change(CallbackChange::SetNodeTabIndex {
+            dom_id: node_id.dom,
+            node_id: internal,
+            tab_index,
         });
     }
 

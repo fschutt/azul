@@ -7267,6 +7267,27 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            // A roving tab stop moved (a composite widget's arrow key). The
+            // Tab order is collected from the node data on every Tab press,
+            // so writing the flag is the whole change - nothing to lay out
+            // or repaint.
+            CallbackChange::SetNodeTabIndex {
+                dom_id,
+                node_id,
+                tab_index,
+            } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_tab_index(*tab_index);
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::RemountDom { xml } => {
                 // The E2E `mount` / `unmount` document is per-window state, not
                 // a process-global sink: store it on the window and let
