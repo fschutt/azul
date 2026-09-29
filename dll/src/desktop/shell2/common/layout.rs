@@ -1045,11 +1045,9 @@ pub fn regenerate_layout(
         &mut styled_dom,
         azul_core::task::Instant::now(),
     );
-    // A window resize is no state change: what its rebuild moves (a ribbon
-    // compressing its groups at a breakpoint) reflows in place. Sliding it
-    // there would drag the layout behind the window edge, and a resized
-    // window would not look like a fresh one at the same size.
-    pending.animate_moves = relayout_reason != azul_core::callbacks::RelayoutReason::Resize;
+    // A resize, a colour-scheme or an app-theme rebuild is no state change:
+    // what it moves reflows in place (`RelayoutReason::animates_moves`).
+    pending.animate_moves = relayout_reason.animates_moves();
 
     // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
     // match to an old one (it is a fresh mount: state, focus and scroll on

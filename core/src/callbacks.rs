@@ -952,6 +952,23 @@ pub enum RelayoutReason {
     AppThemeChange,
 }
 
+impl RelayoutReason {
+    /// Whether the rebuild SLIDES the nodes it moved (FLIP) or reflows them
+    /// in place. A change the user made inside the UI animates; a change of
+    /// the ENVIRONMENT the whole window is rebuilt into - its size, its
+    /// colour scheme, the app theme - reflows in place: sliding every node
+    /// from where the old environment put it would animate the whole window
+    /// (a ribbon compressing at a breakpoint dragged behind the window edge;
+    /// a theme switch slid every control between the two themes' metrics).
+    #[must_use]
+    pub const fn animates_moves(self) -> bool {
+        match self {
+            Self::Initial | Self::RefreshDom | Self::RouteChange | Self::Other => true,
+            Self::Resize | Self::ThemeChange | Self::AppThemeChange => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct LayoutCallbackInfo {
