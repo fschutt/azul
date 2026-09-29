@@ -15,6 +15,7 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
   the live show).
 - 889b90705 GREEN time_picker: `CONTAINER_BASE` / `CLICKABLE_BASE` / `READOUT_BASE`; `flat::on_base`
   (end of flat.rs) replaces the tabs' `tab_part`.
+- 92b516d0b GREEN toast: `TOAST_CARD_BASE` (incl. placement) / `TOAST_CLOSE_BASE`.
 
 ## IN PROGRESS
 
