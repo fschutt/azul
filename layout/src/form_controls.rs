@@ -31,9 +31,12 @@
 //! ONE table, [`INPUT_TYPE_WIDGETS`]: an HTML `type` (or `<select>` /
 //! `<textarea>`) to a [`FormWidget`]. A missing or unknown `type` is the
 //! text state, as in HTML. A text-like input whose `list` attribute names a
-//! `<datalist>` with options becomes a [`ComboBox`]. The rows marked
-//! `WAVE2-GLUE(W1)` are types a parallel wave builds dedicated widgets for;
-//! until then each maps to the nearest existing one.
+//! `<datalist>` with options becomes a [`ComboBox`]. Every type has a widget
+//! of its own, and the variant carries the mode that widget is built in:
+//! `password` is `FormWidget::TextInput(TextInputKind::Password)`, `week` is
+//! `FormWidget::DatePicker(DatePickerMode::Week)`, `submit` is
+//! `FormWidget::Button(ButtonFormAction::Submit)`, so building the widget
+//! needs no second table.
 //!
 //! # What moves from the raw node to the widget
 //!
@@ -124,20 +127,27 @@ use azul_css::{
 use crate::{
     callbacks::CallbackInfo,
     widgets::{
-        button::Button,
+        button::{Button, ButtonFormAction},
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
         color_input::{color_from_hex, ColorInput, ColorInputOnValueChangeCallbackType, ColorInputState},
         combobox::{ComboBox, ComboBoxOnSelectCallbackType, ComboBoxState},
-        date_picker::{DatePicker, DatePickerOnChangeCallbackType, DatePickerState},
+        date_picker::{
+            iso_week_monday, iso_week_of, iso_weeks_in_year, DatePicker, DatePickerMode,
+            DatePickerOnChangeCallbackType, DatePickerState,
+        },
+        datetime_local::{
+            DateTimeLocalPicker, DateTimeLocalPickerOnChangeCallbackType, DateTimeLocalPickerState,
+        },
         drop_down::{DropDown, DropDownOnChoiceChangeCallbackType},
         file_input::{FileInput, FileInputOnPathChangeCallbackType, FileInputState},
+        form::HiddenInput,
         number_input::{NumberInput, NumberInputOnValueChangeCallbackType, NumberInputState},
         radio_group::{RadioGroup, RadioGroupOnChangeCallbackType, RadioGroupState},
         slider::{Slider, SliderOnValueChangeCallbackType, SliderState},
         text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState},
         text_input::{
-            OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType, TextInputState,
-            TextInputValid,
+            OnTextInputReturn, TextInput, TextInputKind, TextInputOnTextInputCallbackType,
+            TextInputState, TextInputValid,
         },
         time_picker::{TimePicker, TimePickerOnChangeCallbackType, TimePickerState},
     },
@@ -167,10 +177,13 @@ pub fn opt_out_attribute() -> AttributeType {
     })
 }
 
-/// The widget a raw form control becomes.
+/// The widget a raw form control becomes - and, where one widget serves
+/// several HTML types, the mode it is built in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FormWidget {
-    TextInput,
+    /// `text`, `password`, `search`, `email`, `tel`, `url`: one widget, one
+    /// mode per type.
+    TextInput(TextInputKind),
     TextArea,
     NumberInput,
     CheckBox,
@@ -178,9 +191,17 @@ pub enum FormWidget {
     ColorInput,
     FileInput,
     Slider,
-    DatePicker,
+    /// `date`, `month`, `week` (ISO 8601).
+    DatePicker(DatePickerMode),
+    /// `datetime-local`: a date picker and a time picker in one row.
+    DateTimeLocal,
     TimePicker,
-    Button,
+    /// `button`, `submit`, `reset`: what the button does to its form.
+    Button(ButtonFormAction),
+    /// `image`: a submit button named by its `alt`. With no loader for `src`
+    /// here, the `alt` text is also its label - HTML's own rendering of an
+    /// image button whose image is not available.
+    ImageButton,
     DropDown,
     ComboBox,
     /// `type="hidden"`: an invisible node that keeps its attributes (a form
@@ -193,7 +214,7 @@ impl FormWidget {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::TextInput => "text-input",
+            Self::TextInput(_) => "text-input",
             Self::TextArea => "text-area",
             Self::NumberInput => "number-input",
             Self::CheckBox => "check-box",
@@ -201,9 +222,11 @@ impl FormWidget {
             Self::ColorInput => "color-input",
             Self::FileInput => "file-input",
             Self::Slider => "slider",
-            Self::DatePicker => "date-picker",
+            Self::DatePicker(_) => "date-picker",
+            Self::DateTimeLocal => "datetime-local",
             Self::TimePicker => "time-picker",
-            Self::Button => "button",
+            Self::Button(_) => "button",
+            Self::ImageButton => "image-button",
             Self::DropDown => "drop-down",
             Self::ComboBox => "combobox",
             Self::Hidden => "hidden",
@@ -214,7 +237,7 @@ impl FormWidget {
     const fn is_text_like(self) -> bool {
         matches!(
             self,
-            Self::TextInput | Self::TextArea | Self::NumberInput | Self::ComboBox
+            Self::TextInput(_) | Self::TextArea | Self::NumberInput | Self::ComboBox
         )
     }
 }
@@ -226,31 +249,34 @@ impl FormWidget {
 /// text state (HTML's rule), which is why `"text"` is also the fallback in
 /// [`widget_for`].
 pub static INPUT_TYPE_WIDGETS: &[(&str, FormWidget)] = &[
-    ("text", FormWidget::TextInput),
+    ("text", FormWidget::TextInput(TextInputKind::Text)),
+    ("password", FormWidget::TextInput(TextInputKind::Password)),
+    ("search", FormWidget::TextInput(TextInputKind::Search)),
+    ("email", FormWidget::TextInput(TextInputKind::Email)),
+    ("tel", FormWidget::TextInput(TextInputKind::Tel)),
+    ("url", FormWidget::TextInput(TextInputKind::Url)),
     ("checkbox", FormWidget::CheckBox),
     ("radio", FormWidget::Radio),
     ("color", FormWidget::ColorInput),
     ("file", FormWidget::FileInput),
     ("number", FormWidget::NumberInput),
     ("range", FormWidget::Slider),
-    ("date", FormWidget::DatePicker),
+    ("date", FormWidget::DatePicker(DatePickerMode::Date)),
+    ("month", FormWidget::DatePicker(DatePickerMode::Month)),
+    ("week", FormWidget::DatePicker(DatePickerMode::Week)),
+    ("datetime-local", FormWidget::DateTimeLocal),
     ("time", FormWidget::TimePicker),
-    ("button", FormWidget::Button),
+    ("button", FormWidget::Button(ButtonFormAction::None)),
+    ("submit", FormWidget::Button(ButtonFormAction::Submit)),
+    ("reset", FormWidget::Button(ButtonFormAction::Reset)),
+    ("image", FormWidget::ImageButton),
+    ("hidden", FormWidget::Hidden),
     ("<select>", FormWidget::DropDown),
     ("<textarea>", FormWidget::TextArea),
-    ("password", FormWidget::TextInput), // WAVE2-GLUE(W1): password
-    ("search", FormWidget::TextInput),   // WAVE2-GLUE(W1): search
-    ("email", FormWidget::TextInput),    // WAVE2-GLUE(W1): email
-    ("tel", FormWidget::TextInput),      // WAVE2-GLUE(W1): tel
-    ("url", FormWidget::TextInput),      // WAVE2-GLUE(W1): url
-    ("month", FormWidget::DatePicker),   // WAVE2-GLUE(W1): month
-    ("week", FormWidget::DatePicker),    // WAVE2-GLUE(W1): week
-    ("datetime-local", FormWidget::DatePicker), // WAVE2-GLUE(W1): datetime-local
-    ("reset", FormWidget::Button),       // WAVE2-GLUE(W1): reset
-    ("submit", FormWidget::Button),      // WAVE2-GLUE(W1): submit
-    ("image", FormWidget::Button),       // WAVE2-GLUE(W1): image
-    ("hidden", FormWidget::Hidden),      // WAVE2-GLUE(W1): hidden
 ];
+
+/// The text state: a missing or unknown `type`.
+const TEXT_STATE: FormWidget = FormWidget::TextInput(TextInputKind::Text);
 
 // ── Memory: the user's values across the app's rebuilds ─────────────────────
 
@@ -265,10 +291,18 @@ pub enum FormValue {
     Number(f32),
     /// A colour input's colour.
     Color(ColorU),
-    /// A date picker's date.
+    /// A date picker's date (for a week picker: the Monday of the week).
     Date { year: u32, month: u32, day: u32 },
     /// A time picker's time, hour in 24-hour form.
     Time { hour: u32, minute: u32 },
+    /// A `datetime-local` picker's date and time, hour in 24-hour form.
+    DateTime {
+        year: u32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+    },
     /// A drop-down's choice index.
     Choice(usize),
     /// A file input's path.
@@ -444,7 +478,7 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
         NodeType::DataList => {
             if let Some(id) = first_id(node) {
                 let mut choices = Vec::new();
-                collect_choices(dom, &mut choices);
+                collect_choices(dom, &mut choices, None);
                 out.datalists.insert(id, choices);
             }
         }
@@ -489,8 +523,7 @@ fn replacement_for(raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) -> Option<Dom> {
 fn widget_for(node: &NodeData, pre: &Prepass) -> Option<FormWidget> {
     let row = match node.get_node_type() {
         NodeType::Input => input_type(node),
-        // WAVE2-GLUE(W1): select optgroup - `<optgroup>`s are flattened into
-        // the drop-down's choices below (`collect_choices`).
+        // `<optgroup>`s become the drop-down's headings (`collect_choices`).
         NodeType::Select => String::from("<select>"),
         NodeType::TextArea => String::from("<textarea>"),
         _ => return None,
@@ -498,10 +531,10 @@ fn widget_for(node: &NodeData, pre: &Prepass) -> Option<FormWidget> {
     let kind = INPUT_TYPE_WIDGETS
         .iter()
         .find(|(ty, _)| *ty == row)
-        .map_or(FormWidget::TextInput, |(_, kind)| *kind);
+        .map_or(TEXT_STATE, |(_, kind)| *kind);
     // `list=` naming a datalist with options: a combobox. Not for a
     // password, whose value must not be suggested (HTML ignores `list` there).
-    if kind == FormWidget::TextInput && row != "password" {
+    if matches!(kind, FormWidget::TextInput(k) if k != TextInputKind::Password) {
         let listed = attr_value(node, "list")
             .and_then(|id| pre.datalists.get(&id))
             .is_some_and(|choices| !choices.is_empty());
@@ -521,6 +554,14 @@ struct Choice {
     label: String,
     selected: bool,
     disabled: bool,
+}
+
+/// One `<optgroup>`: its label, over `len` choices from `first` on.
+#[derive(Debug, Clone, PartialEq, Hash)]
+struct Group {
+    label: String,
+    first: usize,
+    len: usize,
 }
 
 /// Everything the widget is built from, read once off the raw node.
@@ -543,8 +584,12 @@ struct Spec {
     rows: Option<u32>,
     cols: Option<u32>,
     alt: Option<String>,
+    /// HTML `pattern`, for the text-like types.
+    pattern: Option<String>,
     /// A `<select>`'s options, or the options of the datalist `list` names.
     choices: Vec<Choice>,
+    /// A `<select>`'s `<optgroup>`s, over runs of `choices`.
+    groups: Vec<Group>,
     /// A `<textarea>`'s text content.
     text: String,
 }
@@ -560,8 +605,9 @@ impl Spec {
             .or_else(|| attr_value(node, "title"))
             .filter(|l| !l.trim().is_empty());
         let mut choices = Vec::new();
+        let mut groups = Vec::new();
         if kind == FormWidget::DropDown {
-            collect_choices(raw, &mut choices);
+            collect_choices(raw, &mut choices, Some(&mut groups));
         }
         let text = if kind == FormWidget::TextArea {
             let content = text_content(raw);
@@ -594,7 +640,9 @@ impl Spec {
             rows: positive(attr_value(node, "rows")),
             cols: positive(attr_value(node, "cols")),
             alt: attr_value(node, "alt"),
+            pattern: attr_value(node, "pattern").filter(|p| !p.is_empty()),
             choices,
+            groups,
             text,
         }
     }
@@ -694,8 +742,10 @@ fn push_text(dom: &Dom, out: &mut String) {
 }
 
 /// The `<option>`s of a `<select>` or `<datalist>`, in order, looking
-/// through `<optgroup>`s.
-fn collect_choices(dom: &Dom, out: &mut Vec<Choice>) {
+/// through `<optgroup>`s - which, when `groups` asks for them, are recorded
+/// as headings over their options. HTML's optgroups do not nest; an option
+/// in a group inside a group belongs to the outer one.
+fn collect_choices(dom: &Dom, out: &mut Vec<Choice>, mut groups: Option<&mut Vec<Group>>) {
     for child in dom.children.iter() {
         match child.root.get_node_type() {
             NodeType::SelectOption => {
@@ -712,9 +762,22 @@ fn collect_choices(dom: &Dom, out: &mut Vec<Choice>) {
                     disabled: flag(&child.root, "disabled"),
                 });
             }
-            // WAVE2-GLUE(W1): select optgroup - flattened until the
-            // drop-down can show groups.
-            NodeType::OptGroup => collect_choices(child, out),
+            NodeType::OptGroup => {
+                let first = out.len();
+                collect_choices(child, out, None);
+                if let Some(groups) = groups.as_deref_mut() {
+                    // `label` is HTML's; `Dom::create_optgroup*` names the
+                    // group through its aria-label.
+                    let label = attr_value(&child.root, "label")
+                        .or_else(|| attr_value(&child.root, "aria-label"))
+                        .unwrap_or_default();
+                    groups.push(Group {
+                        label,
+                        first,
+                        len: out.len() - first,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -730,48 +793,68 @@ fn default_choice(choices: &[Choice]) -> usize {
         .unwrap_or(0)
 }
 
+/// A drop-down over `choices`, each `<optgroup>` a heading over its run of
+/// options (`DropDown::add_optgroup`), the ungrouped options around the
+/// groups in document order.
+fn grouped_drop_down(choices: &[Choice], groups: &[Group]) -> DropDown {
+    fn labels(choices: &[Choice]) -> Vec<AzString> {
+        choices.iter().map(|c| AzString::from(c.label.clone())).collect()
+    }
+    fn append(dd: &mut DropDown, choices: &[Choice]) {
+        if choices.is_empty() {
+            return;
+        }
+        let mut all = core::mem::replace(&mut dd.choices, StringVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        all.extend(labels(choices));
+        dd.choices = all.into();
+    }
+
+    let mut dd = DropDown::new(StringVec::from_const_slice(&[]));
+    let mut at = 0;
+    for group in groups {
+        let end = (group.first + group.len).min(choices.len()).max(at);
+        let start = group.first.clamp(at, end);
+        append(&mut dd, choices.get(at..start).unwrap_or(&[]));
+        dd.add_optgroup(
+            AzString::from(group.label.clone()),
+            StringVec::from_vec(labels(choices.get(start..end).unwrap_or(&[]))),
+        );
+        at = end;
+    }
+    append(&mut dd, choices.get(at..).unwrap_or(&[]));
+    dd
+}
+
 fn parse_f32(v: Option<&String>) -> Option<f32> {
     v.and_then(|s| s.trim().parse::<f32>().ok())
         .filter(|f| f.is_finite())
 }
 
-const fn is_leap(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}
-
-const fn days_in_month(year: u32, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap(year) => 29,
-        2 => 28,
-        _ => 30,
-    }
-}
-
 /// `(year, month, day)` from a `date` / `month` / `week` /
-/// `datetime-local` value.
+/// `datetime-local` value. A `month` is its first day; a `week` is the
+/// MONDAY of that ISO 8601 week (week 1 holds the year's first Thursday), and
+/// a week the year does not have (`W00`, `W53` of a 52-week year) is no
+/// value at all, as in HTML.
 fn parse_date(ty: &str, value: &str) -> Option<(u32, u32, u32)> {
     let v = value.trim();
     match ty {
         "month" => {
             let (y, m) = v.split_once('-')?;
-            Some((y.parse().ok()?, m.parse().ok()?, 1))
+            let month: u32 = m.parse().ok()?;
+            if !(1..=12).contains(&month) {
+                return None;
+            }
+            Some((y.parse().ok()?, month, 1))
         }
         "week" => {
-            // "2024-W11": the week's first day, counted from January 1st.
-            // (ISO weeks start on the Monday of the week holding January
-            // 4th; this nearest-widget stand-in ignores that offset.)
             let (y, w) = v.split_once("-W").or_else(|| v.split_once("-w"))?;
             let year: u32 = y.parse().ok()?;
             let week: u32 = w.parse().ok()?;
-            let mut day_of_year = week.max(1).saturating_sub(1).saturating_mul(7).saturating_add(1);
-            let mut month = 1;
-            while month < 12 && day_of_year > days_in_month(year, month) {
-                day_of_year -= days_in_month(year, month);
-                month += 1;
+            if week == 0 || week > iso_weeks_in_year(year) {
+                return None;
             }
-            Some((year, month, day_of_year.min(days_in_month(year, month))))
+            Some(iso_week_monday(year, week))
         }
         _ => {
             // `date`, and the date half of `datetime-local`.
@@ -791,6 +874,22 @@ fn parse_time(value: &str) -> Option<(u32, u32)> {
     let hour = parts.next()?.trim().parse().ok()?;
     let minute = parts.next()?.trim().parse().ok()?;
     Some((hour, minute))
+}
+
+/// `((year, month, day), (hour, minute))` from a `datetime-local` value,
+/// `YYYY-MM-DDTHH:MM[:SS]` (HTML also accepts a space for the `T`).
+fn parse_datetime(value: &str) -> Option<((u32, u32, u32), (u32, u32))> {
+    let (date, time) = value.trim().split_once(['T', 't', ' '])?;
+    Some((parse_date("date", date)?, parse_time(time)?))
+}
+
+/// The date a picker in `mode` shows when the app gave it no usable value
+/// (HTML shows an empty field; a picker always shows a date).
+fn fallback_date(mode: DatePickerMode) -> (u32, u32, u32) {
+    match mode {
+        DatePickerMode::Week => iso_week_monday(2000, 1),
+        DatePickerMode::Date | DatePickerMode::Month => (2000, 1, 1),
+    }
 }
 
 /// A range's value, HTML-style: snapped to `step` from `min` (default step
@@ -921,6 +1020,22 @@ extern "C" fn record_time(mut data: RefAny, _info: CallbackInfo, state: TimePick
     Update::DoNothing
 }
 
+extern "C" fn record_datetime_local(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: DateTimeLocalPickerState,
+) -> Update {
+    let hour = state.time.canonical_hour();
+    remember_with(&mut data, |_| FormValue::DateTime {
+        year: state.date.year,
+        month: state.date.month,
+        day: state.date.day,
+        hour,
+        minute: state.time.minute,
+    });
+    Update::DoNothing
+}
+
 /// A drop-down shows a choice only by being rebuilt with it.
 extern "C" fn record_choice(mut data: RefAny, _info: CallbackInfo, choice: usize) -> Update {
     remember_with(&mut data, |_| FormValue::Choice(choice));
@@ -998,14 +1113,20 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
     let name = spec.label.clone();
 
     let mut dom = match kind {
-        FormWidget::TextInput => {
+        FormWidget::TextInput(text_kind) => {
             let text = match remembered {
                 Some(FormValue::Text(t)) => t,
                 _ => spec.value.clone().unwrap_or_default(),
             };
-            let mut w = TextInput::create().with_text(text.into());
+            // The kind masks a password, adds a search's clear button and
+            // checks an e-mail or URL; `name` / `type` reach the root by the
+            // graft, like every other attribute.
+            let mut w = TextInput::create_with_kind(text_kind).with_text(text.into());
             if let Some(p) = &spec.placeholder {
                 w = w.with_placeholder(p.clone().into());
+            }
+            if let Some(p) = &spec.pattern {
+                w = w.with_pattern(p.clone().into());
             }
             if let Some(max) = spec.maxlength {
                 w.text_input_state.inner.max_len = max;
@@ -1132,18 +1253,53 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             }
             w.dom()
         }
-        FormWidget::DatePicker => {
+        FormWidget::DatePicker(mode) => {
+            let ty = mode.html_type();
             let (year, month, day) = match remembered {
                 Some(FormValue::Date { year, month, day }) => (year, month, day),
                 _ => spec
                     .value
                     .as_deref()
-                    .and_then(|v| parse_date(&spec.ty, v))
-                    .or_else(|| spec.min.as_deref().and_then(|v| parse_date(&spec.ty, v)))
-                    .unwrap_or((2000, 1, 1)),
+                    .and_then(|v| parse_date(ty, v))
+                    .or_else(|| spec.min.as_deref().and_then(|v| parse_date(ty, v)))
+                    .unwrap_or_else(|| fallback_date(mode)),
+            };
+            let picker = match mode {
+                DatePickerMode::Date => DatePicker::create(year, month, day),
+                DatePickerMode::Month => DatePicker::create_month(year, month),
+                DatePickerMode::Week => {
+                    // Whichever day of the week was stored, the picker holds
+                    // the week it falls in (ISO numbering).
+                    let (week_year, week) = iso_week_of(year, month, day);
+                    DatePicker::create_week(week_year, week)
+                }
             };
             let hook: DatePickerOnChangeCallbackType = record_date;
-            let mut w = DatePicker::create(year, month, day).with_on_change(recorder, hook);
+            let mut w = picker.with_on_change(recorder, hook);
+            if let Some(n) = name {
+                w = w.with_accessibility_name(n);
+            }
+            w.dom()
+        }
+        FormWidget::DateTimeLocal => {
+            let ((year, month, day), (hour, minute)) = match remembered {
+                Some(FormValue::DateTime {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                }) => ((year, month, day), (hour, minute)),
+                _ => spec
+                    .value
+                    .as_deref()
+                    .and_then(parse_datetime)
+                    .or_else(|| spec.min.as_deref().and_then(parse_datetime))
+                    .unwrap_or(((2000, 1, 1), (0, 0))),
+            };
+            let hook: DateTimeLocalPickerOnChangeCallbackType = record_datetime_local;
+            let mut w = DateTimeLocalPicker::create(year, month, day, hour, minute)
+                .with_on_change(recorder, hook);
             if let Some(n) = name {
                 w = w.with_accessibility_name(n);
             }
@@ -1163,29 +1319,43 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             }
             w.dom()
         }
-        FormWidget::Button => {
-            // A button's label is its value; HTML's defaults otherwise.
-            let label = spec.value.clone().unwrap_or_else(|| match spec.ty.as_str() {
-                "submit" => String::from("Submit"),
-                "reset" => String::from("Reset"),
-                "image" => spec.alt.clone().unwrap_or_else(|| String::from("Submit")),
-                _ => String::new(),
+        FormWidget::Button(action) => {
+            // A button's label is its value; HTML's defaults otherwise. The
+            // form action is what makes submit / reset act on their form.
+            let label = spec.value.clone().unwrap_or_else(|| match action {
+                ButtonFormAction::Submit => String::from("Submit"),
+                ButtonFormAction::Reset => String::from("Reset"),
+                ButtonFormAction::None => String::new(),
             });
-            Button::create(label.into()).dom()
+            let w = match action {
+                ButtonFormAction::Submit => Button::create_submit(label.into()),
+                ButtonFormAction::Reset => Button::create_reset(label.into()),
+                ButtonFormAction::None => Button::create(label.into()),
+            };
+            w.dom()
+        }
+        FormWidget::ImageButton => {
+            // Nothing here loads `src`, so there is no image to show: HTML
+            // shows the `alt` text in its place, and so does this submit
+            // button - named by the same text. The root keeps `type=image`
+            // (the graft lets the app's `type` win).
+            let alt = spec
+                .alt
+                .clone()
+                .filter(|a| !a.trim().is_empty())
+                .unwrap_or_else(|| String::from("Submit"));
+            let mut w = Button::create_submit(alt.clone().into());
+            w.alt = alt.into();
+            w.dom()
         }
         FormWidget::DropDown => {
-            let labels: Vec<AzString> = spec
-                .choices
-                .iter()
-                .map(|c| AzString::from(c.label.clone()))
-                .collect();
-            let count = labels.len();
+            let count = spec.choices.len();
             let selected = match remembered {
                 Some(FormValue::Choice(i)) if i < count => i,
                 _ => default_choice(&spec.choices),
             };
             let hook: DropDownOnChoiceChangeCallbackType = record_choice;
-            let mut w = DropDown::new(StringVec::from_vec(labels))
+            let mut w = grouped_drop_down(&spec.choices, &spec.groups)
                 .with_selected(selected)
                 .with_on_choice_change(recorder, hook);
             if let Some(n) = name {
@@ -1223,11 +1393,11 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             }
             w.dom()
         }
-        FormWidget::Hidden => {
-            let mut d = Dom::create_div();
-            d.root.set_css("display: none;");
-            d
-        }
+        FormWidget::Hidden => HiddenInput::create(
+            attr_value(node, "name").unwrap_or_default().into(),
+            spec.value.clone().unwrap_or_default().into(),
+        )
+        .dom(),
     };
 
     // HTML's character / line counts, as a size the app's own style (added
@@ -1314,6 +1484,12 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     for attr in from.attributes().iter() {
         if kind != FormWidget::Hidden && is_consumed(attr) {
             continue;
+        }
+        if matches!(attr, AttributeType::InputType(_)) {
+            // ONE `type`, the app's: an image button is built as a submit
+            // button, but it is still `type=image` to the engine, CSS and
+            // assistive technology.
+            attrs.retain(|a| !matches!(a, AttributeType::InputType(_)));
         }
         if !attrs.contains(attr) {
             attrs.push(attr.clone());

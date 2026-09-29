@@ -493,8 +493,8 @@ fn a_text_input_backed_by_a_datalist_becomes_a_combobox() {
 
 #[test]
 fn every_visible_html_input_type_becomes_a_widget() {
-    // The types a parallel wave builds dedicated widgets for still become the
-    // NEAREST existing widget today - never a raw node that draws nothing.
+    // Never a raw node that draws nothing; which widget each type becomes is
+    // pinned per type in `dedicated_widgets` below.
     let lw = styling_window();
     for ty in [
         "text", "checkbox", "radio", "color", "file", "number", "range", "date", "time", "button",
