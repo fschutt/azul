@@ -49,13 +49,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   restyle stays the structure theme's (marker); 7 autotest DOM-style pins now pin
   `with_theme(Flat)`; new: an unpinned bar built for flora restyles in flora's colours)
 
+- segmented: RED d141d7ebd, impl: see git log (`segmented::{follow_skin, follow_segment}`; the
+  restyle stays the structure theme's; 6 autotest DOM-style pins now pin `with_theme(Flat)`;
+  new: an unpinned control built for flora restyles in flora's colours)
+
 ## IN PROGRESS
 
-- segmented
+- stepper
 
 ## NEXT
 
-segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
+ stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
 

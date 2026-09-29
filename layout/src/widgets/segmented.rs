@@ -95,7 +95,7 @@ pub struct Segmented {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the segments are built
     /// from (and the colours a selection restyles them with), so switching it
     /// rebuilds the control.
@@ -402,6 +402,29 @@ pub(crate) fn skin_for(theme: UiTheme) -> SegmentedSkin {
     }
 }
 
+/// One segment in BOTH themes' blocks (`themes::flat::follow_props`) - the
+/// `segment` of an unpinned control's skin.
+#[must_use]
+fn follow_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::flat::follow_props(
+        (skin_for(UiTheme::Flat).segment)(selected, is_first, is_last).as_slice(),
+        (skin_for(UiTheme::Flora).segment)(selected, is_first, is_last).as_slice(),
+    )
+}
+
+/// The skin an UNPINNED segmented control is built with, so it follows the
+/// app theme: `structure`'s theme (its marker goes on the control, so the
+/// selection restyle writes that theme's colours) and every segment in
+/// BOTH themes' blocks.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> SegmentedSkin {
+    SegmentedSkin {
+        theme: structure,
+        segment: follow_segment,
+        restyle: skin_for(structure).restyle,
+    }
+}
+
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
     #[must_use]
@@ -417,8 +440,8 @@ impl Segmented {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the control renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the control follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -493,13 +516,16 @@ impl Segmented {
     }
 
     /// Renders the control. Rendering goes through the theme modules (as
-    /// `Button::dom` does): each hands [`Self::build`] its skin.
-    /// `UiTheme::default()` is flat.
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the control follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::segmented(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::segmented(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::segmented(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -2053,8 +2079,10 @@ mod autotest_generated {
     fn dom_styles_each_segment_by_its_position_and_selection() {
         for n in [1usize, 2, 3, 5] {
             for selected in 0..n {
+                // The flat look (an unpinned control carries every theme's blocks).
                 let dom = Segmented::create(n_labels(n))
                     .with_selected_index(selected)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let children = dom.children.as_ref();
                 assert_eq!(children.len(), n);
@@ -2077,6 +2105,7 @@ mod autotest_generated {
             for selected in 0..n {
                 let dom = Segmented::create(n_labels(n))
                     .with_selected_index(selected)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let marked: Vec<usize> = dom
                     .children
@@ -2105,6 +2134,7 @@ mod autotest_generated {
         for selected in [n, n + 1, 1_000, usize::MAX, usize::MAX - 1] {
             let dom = Segmented::create(n_labels(n))
                 .with_selected_index(selected)
+                .with_theme(UiTheme::Flat)
                 .dom();
             assert_eq!(
                 dom.children.as_ref().len(),
@@ -2126,7 +2156,7 @@ mod autotest_generated {
     #[test]
     fn dom_rounds_only_the_two_outer_segments() {
         let n = 4;
-        let dom = Segmented::create(n_labels(n)).dom();
+        let dom = Segmented::create(n_labels(n)).with_theme(UiTheme::Flat).dom();
         let r = SEG_RADIUS as f32;
 
         let radii_of = |child: &Dom| -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
@@ -2181,7 +2211,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_single_segment_is_rounded_on_both_ends() {
-        let dom = Segmented::create(labels(&["only"])).dom();
+        let dom = Segmented::create(labels(&["only"]))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 1);
 
@@ -2361,6 +2393,7 @@ mod autotest_generated {
         // still give exactly one selected segment, at the requested position.
         let dom = Segmented::create(labels(&["same", "same", "same"]))
             .with_selected_index(1)
+            .with_theme(UiTheme::Flat)
             .dom();
         let children = dom.children.as_ref();
         for (i, child) in children.iter().enumerate() {
