@@ -152,21 +152,6 @@ pub(crate) const fn border_bottom(width_px: isize) -> [CssPropertyWithConditions
 
 /// See [`border_bottom`].
 #[must_use]
-pub(crate) const fn border_top(width_px: isize) -> [CssPropertyWithConditions; 2] {
-    [
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
-            LayoutBorderTopWidth::const_px(width_px),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
-            StyleBorderTopStyle {
-                inner: BorderStyle::Solid,
-            },
-        )),
-    ]
-}
-
-/// See [`border_bottom`].
-#[must_use]
 pub(crate) const fn border_left(width_px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
