@@ -4227,3 +4227,20 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
         },
     )
 }
+
+// ==== card ====
+//
+// The flat card is the widget's established panel: white, a #DEE2E6 hairline,
+// an 8px radius and a soft drop shadow, with the desktop's window surface and
+// separator as its night twins - the application's text inside it inherits
+// the themed ink. A card takes no focus, so it has no ring.
+
+/// The flat card: the widget's own panel style.
+#[must_use]
+pub fn card(c: crate::widgets::card::Card) -> Dom {
+    crate::widgets::card::build(
+        c,
+        crate::widgets::card::CARD_STYLE,
+        IdOrClassVec::from_const_slice(crate::widgets::card::CARD_CLASS),
+    )
+}

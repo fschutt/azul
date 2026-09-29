@@ -80,7 +80,7 @@ static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
     color: CARD_SHADOW_COLOR,
 };
 
-const CARD_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -191,7 +191,14 @@ pub struct Card {
     pub flex_grow: f32,
     /// Optional: Function to call when the card is clicked
     pub on_click: OptionCardOnClick,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// The class every card carries, in every theme.
+pub(crate) static CARD_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-card"))];
 
 /// Callback function type invoked when the card container is clicked.
 pub type CardOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -224,6 +231,7 @@ impl Card {
             content,
             flex_grow: 0.0,
             on_click: OptionCardOnClick::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -279,18 +287,48 @@ impl Card {
         self
     }
 
+    /// Pick the widget theme. Unset (`None`), the card renders in the default
+    /// theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this card into its DOM: one box around the content, classed
+    /// `__azul-native-card`. The look comes from the theme module
+    /// (`themes::flat::card` / `themes::flora::card`); `None` renders flat.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{EventFilter, HoverEventFilter},
-        };
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::card(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::card(self),
+        }
+    }
+}
 
-        static CARD_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-card"))];
+/// The card's DOM with `style` as its box (after the card's own
+/// `flex-grow`), `classes` on it, and the click callback if it has one.
+pub(crate) fn build(
+    card: Card,
+    style: &[CssPropertyWithConditions],
+    classes: IdOrClassVec,
+) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{EventFilter, HoverEventFilter},
+    };
 
+    {
         // Optional click callback on the card's root container (same wiring
         // as button's on_click).
-        let callbacks = match self.on_click.into_option() {
+        let callbacks = match card.on_click.into_option() {
             Some(CardOnClick {
                 refany: data,
                 callback,
@@ -305,19 +343,19 @@ impl Card {
             None => Vec::new(),
         };
 
-        // Prepend the (param-dependent) flex-grow, then the static card style.
+        // Prepend the (param-dependent) flex-grow, then the theme's card style.
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::FlexGrow(
             LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                inner: FloatValue::new(self.flex_grow),
+                inner: FloatValue::new(card.flex_grow),
             }),
         ))];
-        props.extend_from_slice(CARD_STYLE);
+        props.extend_from_slice(style);
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CARD_CLASS))
+            .with_ids_and_classes(classes)
             .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
             .with_callbacks(callbacks.into())
-            .with_children(vec![self.content].into())
+            .with_children(vec![card.content].into())
     }
 }
 

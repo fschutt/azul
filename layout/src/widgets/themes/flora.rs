@@ -4700,3 +4700,11 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
         },
     )
 }
+
+// ==== card ====
+
+/// The flora card.
+#[must_use]
+pub fn card(c: crate::widgets::card::Card) -> Dom {
+    super::flat::card(c)
+}
