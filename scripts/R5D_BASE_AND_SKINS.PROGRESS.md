@@ -8,15 +8,15 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
 - c19e2ef1d RED: one `structure_tests` test per widget (`a_<widget>_declares_its_structure_once_for_every_theme`).
 - cfd4b8836 GREEN stepper: `CIRCLE_BASE` / `CONNECTOR_BASE` / `LABEL_BASE`; circle box-sizing unified to
   border-box; `circle_style_declares_the_same_property_set_for_both_states` 18 -> 19.
+- d70ed0c15 GREEN tabs: `HEADER_BASE` / `AFTER_BASE` / `TAB_BASE` / `PANEL_BASE`; allowed header
+  align-items and before-tabs flex-grow; 4 flat-const comparisons now compare with the flat look.
 
 ## IN PROGRESS
 
-- GREEN tabs.
+- GREEN text_input.
 
 ## NEXT
 
-2. GREEN tabs: `TAB_BASE` (box-sizing content-box, align-items center, cursor pointer), header / after /
-   panel bases; allow header align-items (flora end) and before-tabs flex-grow (flat 1, flora 0).
 3. GREEN text_input: search row base + clear-button base (display flex/none, justify/align center);
    live show writes `flex`.
 4. GREEN (already shared, flora restates): time_picker, toast, tooltip, tree_view bases.
