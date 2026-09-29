@@ -54,11 +54,17 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   `FileInputState.paths`, dialog filter from `accept_patterns`, multi-file dialog + resume,
   "N files" label; `FormValue::Files`, `Submission::Entries` - one FormData entry per file)
 
+- item 8c fix `cecf199d3`
+- item 7 (hand-built part): RED `e55acc1d2`, fix = next commit
+  (`form_controls::hand_built_entries` spells a hand-built widget's state like the replaced
+  control; `widgets::form` reads the named control's dataset / handler payloads / descendants',
+  a radio group's chosen label from its row)
+
 ## IN PROGRESS
-- item 7 (hand-built widgets in FormData)
+- item 9 (FFI-shaped `CallbackInfo::get_form_data`, api.json list)
 
 ## NEXT
-- items 7 (hand-built part), 9 (list + FFI-shaped method), report
+- item 9, report
 
 ## Open questions
 - none yet

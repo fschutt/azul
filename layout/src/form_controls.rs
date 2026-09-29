@@ -1061,7 +1061,7 @@ fn radio_value(node: &NodeData) -> String {
 
 /// Every text leaf under `dom`, concatenated - the text a reader sees: an
 /// `<icon>`'s spec text names a glyph and is left out.
-fn text_content(dom: &Dom) -> String {
+pub(crate) fn text_content(dom: &Dom) -> String {
     let mut out = String::new();
     push_text(dom, &mut out);
     out
@@ -1969,6 +1969,95 @@ fn resolved_value(
         Some(user) if core::mem::discriminant(&user) == core::mem::discriminant(default) => user,
         _ => default.clone(),
     }
+}
+
+/// The entries a widget the APP built (no replaced raw control) contributes
+/// to its form under its `name`, read off `state` - its state, as its
+/// dataset or one of its handlers' payloads carries it - and spelled exactly
+/// as the replaced control of the same kind spells them ([`Spelling`]): a
+/// checkbox or switch its `own_value` ("on" without one) while checked and
+/// nothing otherwise, a slider its number, a colour input its hex, a file
+/// input one entry per file (one empty entry for none), a drop-down its
+/// chosen label, a time picker `HH:MM`. `None` when `state` is no such
+/// widget's. (A radio group's value is its chosen option's LABEL, which only
+/// its DOM holds - `widgets::form` reads it there.)
+pub(crate) fn hand_built_entries(state: &RefAny, own_value: Option<String>) -> Option<Vec<String>> {
+    use crate::widgets::{
+        check_box::CheckBoxStateWrapper, color_input::ColorPickerData,
+        file_input::FileInputStateWrapper, slider::SliderStateWrapper,
+        switch::SwitchStateWrapper, time_picker::TimePickerStateWrapper,
+    };
+
+    let spelling = |kind: FormWidget, choice_values: Vec<String>| Spelling {
+        kind,
+        own_value: own_value.clone().unwrap_or_else(|| String::from("on")),
+        choice_values,
+    };
+    let mut state = state.clone();
+
+    // One probe per statement: each borrow of the state ends before the
+    // next one is taken.
+    let check_box = state
+        .downcast_ref::<CheckBoxStateWrapper>()
+        .map(|w| w.inner.checked);
+    if let Some(checked) = check_box {
+        return Some(spelling(FormWidget::CheckBox, Vec::new()).spell(&FormValue::Checked(checked)));
+    }
+    let switch = state
+        .downcast_ref::<SwitchStateWrapper>()
+        .map(|w| w.inner.checked);
+    if let Some(checked) = switch {
+        return Some(spelling(FormWidget::CheckBox, Vec::new()).spell(&FormValue::Checked(checked)));
+    }
+    let slider = state
+        .downcast_ref::<SliderStateWrapper>()
+        .map(|w| w.inner.value);
+    if let Some(value) = slider {
+        return Some(spelling(FormWidget::Slider, Vec::new()).spell(&FormValue::Number(value)));
+    }
+    let color = state
+        .downcast_ref::<ColorPickerData>()
+        .map(|d| d.current_color());
+    if let Some(color) = color {
+        return Some(spelling(FormWidget::ColorInput, Vec::new()).spell(&FormValue::Color(color)));
+    }
+    let files = state.downcast_ref::<FileInputStateWrapper>().map(|w| {
+        let mut files: Vec<String> = w
+            .inner
+            .paths
+            .as_ref()
+            .iter()
+            .map(|p| p.as_str().to_string())
+            .collect();
+        if files.is_empty() {
+            files.extend(w.inner.path.as_ref().map(|p| p.as_str().to_string()));
+        }
+        files
+    });
+    if let Some(files) = files {
+        return Some(spelling(FormWidget::FileInput, Vec::new()).spell(&FormValue::Files(files)));
+    }
+    let choice = state.downcast_ref::<DropDown>().map(|d| {
+        let labels: Vec<String> = d
+            .choices
+            .as_ref()
+            .iter()
+            .map(|c| c.as_str().to_string())
+            .collect();
+        (d.selected, labels)
+    });
+    if let Some((selected, labels)) = choice {
+        return Some(spelling(FormWidget::DropDown, labels).spell(&FormValue::Choice(selected)));
+    }
+    let time = state
+        .downcast_ref::<TimePickerStateWrapper>()
+        .map(|w| (w.inner.canonical_hour(), w.inner.minute));
+    if let Some((hour, minute)) = time {
+        return Some(
+            spelling(FormWidget::TimePicker, Vec::new()).spell(&FormValue::Time { hour, minute }),
+        );
+    }
+    None
 }
 
 /// What a RAW form control contributes to its form's INITIAL `FormData`:

@@ -73,6 +73,7 @@ use crate::{
         button::ButtonFormAction,
         combobox::ComboBoxStateWrapper,
         date_picker::DatePickerData,
+        radio_group::RadioGroupStateWrapper,
         datetime_local::DateTimeLocalPickerStateWrapper,
         text_area::TextAreaStateWrapper,
         text_input::{TextInputKind, TextInputStateWrapper},
@@ -505,10 +506,49 @@ fn probe_state(dataset: Option<RefAny>) -> Option<ControlValue> {
     combo
 }
 
-/// The value of the control whose state is `dataset` (if it is a widget this
-/// module knows) or, failing that, its `value` attribute.
-fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> Option<ControlValue> {
-    probe_state(dataset).or_else(|| value_attribute.map(|value| ControlValue { value, valid: true }))
+/// The entries of a named control that is no replaced raw control and no
+/// widget [`probe_state`] reads: a widget the app built, read off `states`
+/// (its state as its dataset, its handlers' payloads, or its descendants'
+/// carry it) and spelled like the replaced control of its kind
+/// (`crate::form_controls::hand_built_entries`; `own_value` is a checkbox's
+/// `value`) - a radio group's chosen option through `radio_label`, which
+/// names option `n` from the DOM - or, for none of those, the node's `value`
+/// attribute.
+fn built_widget_values(
+    states: &[RefAny],
+    value_attribute: Option<AzString>,
+    radio_label: impl Fn(usize) -> Option<String>,
+) -> Vec<ControlValue> {
+    let as_values = |entries: Vec<String>| -> Vec<ControlValue> {
+        entries
+            .into_iter()
+            .map(|value| ControlValue {
+                value: AzString::from(value),
+                valid: true,
+            })
+            .collect()
+    };
+    let own_value = value_attribute.as_ref().map(|v| v.as_str().to_string());
+    for state in states {
+        if let Some(entries) = crate::form_controls::hand_built_entries(state, own_value.clone()) {
+            return as_values(entries);
+        }
+        let radio = {
+            let mut state = state.clone();
+            let selected = state
+                .downcast_ref::<RadioGroupStateWrapper>()
+                .map(|w| w.inner.selected_index);
+            selected
+        };
+        if let Some(selected) = radio {
+            // Nothing while no option is chosen.
+            return as_values(radio_label(selected).into_iter().collect());
+        }
+    }
+    value_attribute
+        .map(|value| ControlValue { value, valid: true })
+        .into_iter()
+        .collect()
 }
 
 /// What the form-control replacement (`crate::form_controls`) reports for a
@@ -517,7 +557,7 @@ fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> 
 /// answers when it knows nothing of the node.
 fn from_submission(
     submission: Submission,
-    unknown: impl FnOnce() -> Option<ControlValue>,
+    unknown: impl FnOnce() -> Vec<ControlValue>,
 ) -> Vec<ControlValue> {
     match submission {
         Submission::Entries(values) => values
@@ -527,7 +567,7 @@ fn from_submission(
                 valid: true,
             })
             .collect(),
-        Submission::Unknown => unknown().into_iter().collect(),
+        Submission::Unknown => unknown(),
     }
 }
 
@@ -584,6 +624,52 @@ fn built_control_state(named: &Dom) -> Option<RefAny> {
         .cloned()
 }
 
+/// Every state an UNSTYLED control carries, in document order: its dataset,
+/// its handlers' payloads, then its descendants' (a time picker keeps its
+/// state on its spinners, a radio group on its rows).
+fn built_states(control: &Dom) -> Vec<RefAny> {
+    fn push(dom: &Dom, out: &mut Vec<RefAny>) {
+        out.extend(dom.root.get_dataset().cloned());
+        out.extend(dom.root.callbacks.as_ref().iter().map(|c| c.refany.clone()));
+        for child in dom.children.as_ref() {
+            push(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    push(control, &mut out);
+    out
+}
+
+/// [`built_states`] of the RENDERED control `node`.
+fn carried_states(info: &CallbackInfo, node: DomNodeId) -> Vec<RefAny> {
+    let Some(id) = node.node.into_crate_internal() else {
+        return Vec::new();
+    };
+    let Some(layout) = info.get_layout_window().get_layout_result(&node.dom) else {
+        return Vec::new();
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    let end = id.index() + 1 + layout.styled_dom.node_hierarchy.as_container().subtree_len(id);
+    let mut out = Vec::new();
+    for index in id.index()..end {
+        if let Some(data) = node_data.get(NodeId::new(index)) {
+            out.extend(data.get_dataset().cloned());
+            out.extend(data.callbacks.as_ref().iter().map(|c| c.refany.clone()));
+        }
+    }
+    out
+}
+
+/// The text of the `n`-th child of the rendered `node` (a radio group's
+/// option row: its label).
+fn nth_child_text(info: &CallbackInfo, node: DomNodeId, n: usize) -> Option<String> {
+    let mut child = info.get_first_child(node)?;
+    for _ in 0..n {
+        child = info.get_next_sibling(child)?;
+    }
+    info.get_node_text_content(child)
+}
+
 /// [`built_control_state`] for a RENDERED named node: the node holding the
 /// state (the named node or its first child) and the state.
 fn control_state(info: &mut CallbackInfo, named: DomNodeId) -> (DomNodeId, Option<RefAny>) {
@@ -631,9 +717,19 @@ fn collect_initial(children: &[Dom], entries: &mut Vec<FormEntry>, invalid: &mut
                 continue;
             }
             let values = from_submission(crate::form_controls::default_submission(child), || {
-                control_value(
-                    built_control_state(child),
+                if let Some(live) = probe_state(built_control_state(child)) {
+                    return alloc::vec![live];
+                }
+                built_widget_values(
+                    &built_states(child),
                     value_attribute_of(attributes.as_ref()),
+                    |n| {
+                        child
+                            .children
+                            .as_ref()
+                            .get(n)
+                            .map(crate::form_controls::text_content)
+                    },
                 )
             });
             for value in values {
@@ -703,8 +799,11 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
         let values = match probe_state(dataset) {
             Some(live) => alloc::vec![live],
             None => from_submission(replaced_submission(info, node), || {
-                info.get_node_attribute(node, "value")
-                    .map(|value| ControlValue { value, valid: true })
+                built_widget_values(
+                    &carried_states(info, node),
+                    info.get_node_attribute(node, "value"),
+                    |n| nth_child_text(info, node, n),
+                )
             }),
         };
         for value in values {
