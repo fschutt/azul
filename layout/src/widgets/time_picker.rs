@@ -1043,13 +1043,15 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{
+            DomId, DomNodeId, EventFilter, FocusEventFilter, HoverEventFilter, NodeId, NodeType,
+        },
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use rust_fontconfig::FcFontCache;
 
@@ -1059,6 +1061,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1478,7 +1481,9 @@ mod autotest_generated {
     }
 
     /// The single retext a spinner/toggle press must push, asserting there is
-    /// exactly one and that it is the *only* change of any kind.
+    /// exactly one and that nothing else was pushed - apart from the value a
+    /// column announces live as the spin button it is (`announced`, pinned
+    /// by the spin-button tests below).
     fn only_retext(changes: &[CallbackChange]) -> (DomNodeId, String) {
         let texts = pushed_texts(changes);
         assert_eq!(
@@ -1487,11 +1492,19 @@ mod autotest_generated {
             "expected exactly one retext, got {} change(s) total",
             changes.len(),
         );
+        let others = changes
+            .iter()
+            .filter(|c| {
+                !matches!(
+                    c,
+                    CallbackChange::ChangeNodeText { .. }
+                        | CallbackChange::ChangeNodeAccessibilityValue { .. }
+                )
+            })
+            .count();
         assert_eq!(
-            changes.len(),
-            1,
-            "the press pushed {} change(s) beyond its retext",
-            changes.len() - 1,
+            others, 0,
+            "the press pushed {others} change(s) beyond its retext and its announced value",
         );
         texts.into_iter().next().unwrap()
     }
@@ -2613,21 +2626,23 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_registers_every_handler_on_mouse_up_and_makes_the_cell_focusable() {
+    fn dom_registers_clicks_on_the_arrows_and_the_toggle_and_keys_on_the_columns() {
         let styled = StyledDom::create_from_dom(TimePicker::create(8, 8).with_24h(false).dom());
-        let mut interactive = 0;
-        for nd in styled.node_data.as_ref() {
+        let key_down = EventFilter::Focus(FocusEventFilter::VirtualKeyDown);
+        let (mut clicks, mut keys) = (0, 0);
+        for (idx, nd) in styled.node_data.as_ref().iter().enumerate() {
             for cb in nd.callbacks.as_ref() {
                 // Arrows and the AM/PM toggle fire on mouse-up; the two spinner
-                // COLUMNS additionally take the wheel, so a gesture anywhere on
-                // a column spins its value instead of scrolling the page.
+                // COLUMNS take the wheel, so a gesture anywhere on a column
+                // spins its value instead of scrolling the page, and - being
+                // the spin buttons - the keys.
                 assert!(
                     matches!(
                         cb.event,
                         EventFilter::Hover(HoverEventFilter::Click)
                             | EventFilter::Hover(HoverEventFilter::Scroll)
-                    ),
-                    "a time-picker cell fires on {:?}, not mouse-up or scroll",
+                    ) || cb.event == key_down,
+                    "a time-picker cell fires on {:?}, not mouse-up, scroll or a key",
                     cb.event,
                 );
                 assert!(
@@ -2635,30 +2650,29 @@ mod autotest_generated {
                     "a native handler carries an FFI context",
                 );
                 if cb.event == EventFilter::Hover(HoverEventFilter::Click) {
-                    interactive += 1;
+                    clicks += 1;
+                }
+                if cb.event == key_down {
+                    keys += 1;
                 }
             }
-            // CLICK targets must be keyboard-reachable. A WHEEL target need not
-            // be: you do not tab to a scroll area to spin it — the arrows inside
-            // the column are its keyboard affordance, and making the column a
-            // tab stop would put a focus ring on a box with no keyboard action.
-            let has_click = nd
-                .callbacks
-                .as_ref()
-                .iter()
-                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click));
-            if has_click {
-                assert_eq!(
-                    nd.flags.get_tab_index(),
-                    Some(TabIndex::Auto),
-                    "a clickable time-picker cell is not keyboard-focusable",
-                );
-            }
+            // WAI-ARIA APG spinbutton: a COLUMN is the Tab stop - its value is
+            // what the keys change. An arrow is a click target only: it is no
+            // Tab stop, and a click on it focuses its column (the engine
+            // focuses the nearest focusable ancestor of a click). The AM/PM
+            // toggle is a button of its own.
+            let stop = matches!(idx, N_HOUR_SPINNER | N_MINUTE_SPINNER | N_AMPM);
+            assert_eq!(
+                nd.flags.get_tab_index(),
+                stop.then_some(TabIndex::Auto),
+                "flattened node {idx}: only the two columns and AM/PM are Tab stops",
+            );
         }
         assert_eq!(
-            interactive, 5,
+            clicks, 5,
             "12-hour mode must expose 4 arrows + 1 AM/PM toggle"
         );
+        assert_eq!(keys, 2, "each column takes the keys");
     }
 
     #[test]
@@ -2673,17 +2687,22 @@ mod autotest_generated {
                 "flattened node {idx} registered a handler it should not have",
             );
         }
-        // The spinner columns take the WHEEL (and nothing else): scrolling over
-        // the hours must spin the hours, not scroll the page.
+        // The spinner columns take the WHEEL - scrolling over the hours must
+        // spin the hours, not scroll the page - and the spin button's keys,
+        // and nothing else.
         for idx in [N_HOUR_SPINNER, N_MINUTE_SPINNER] {
             let cbs = styled.node_data.as_ref()[idx].callbacks.clone();
             let cbs = cbs.as_ref();
             assert_eq!(
                 cbs.len(),
-                1,
-                "a spinner column carries exactly the scroll handler"
+                2,
+                "a spinner column carries exactly the scroll and the key handler"
             );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Scroll));
+            assert_eq!(
+                cbs[1].event,
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown)
+            );
         }
     }
 
@@ -2716,14 +2735,14 @@ mod autotest_generated {
 
     #[test]
     fn dom_shares_one_state_refany_across_every_handler() {
-        // Four arrows, the AM/PM toggle and the two column wheel handlers must
-        // all mutate the *same* state; a per-cell copy would let the hour and
-        // the minute drift apart.
+        // Four arrows, the AM/PM toggle, the two column wheel handlers and the
+        // two column key handlers must all mutate the *same* state; a per-cell
+        // copy would let the hour and the minute drift apart.
         let styled = StyledDom::create_from_dom(TimePicker::create(5, 5).with_24h(false).dom());
         let payloads = state_payloads(&styled);
         assert_eq!(
             payloads.len(),
-            7,
+            9,
             "not every handler carries the widget state"
         );
 
@@ -2961,7 +2980,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_spinner_makes_both_arrows_focusable_click_targets() {
+    fn build_spinner_makes_both_arrows_click_targets_but_no_tab_stops() {
         let dom = build_spinner(
             AzString::from_const_str("0"),
             RefAny::new(0u8),
@@ -2979,10 +2998,12 @@ mod autotest_generated {
                 "{which}: an arrow registers exactly one handler"
             );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
+            // The COLUMN is the spin button's one Tab stop; a click on an
+            // arrow focuses the column (its nearest focusable ancestor).
             assert_eq!(
                 cell.root.flags.get_tab_index(),
-                Some(TabIndex::Auto),
-                "{which}: the arrow is not keyboard-focusable",
+                None,
+                "{which}: the arrow is a Tab stop of its own",
             );
             assert_eq!(classes(cell), vec![CLASS_ARROW.to_string()]);
         }
@@ -3498,7 +3519,7 @@ mod autotest_generated {
         );
         assert_eq!(read_state(&shared).hour, 10);
         assert_eq!(
-            changes.len(),
+            pushed_texts(&changes).len(),
             1,
             "the retext was skipped because a callback ran"
         );
@@ -3873,6 +3894,263 @@ mod autotest_generated {
         assert_eq!(name(&minute_cells[0]).as_deref(), Some("Increase minute"));
         assert_eq!(name(&minute_cells[2]).as_deref(), Some("Decrease minute"));
     }
+
+    // ==================================================================
+    // A column is a SPIN BUTTON (WAI-ARIA APG spinbutton): its value is ONE
+    // Tab stop, and Up / Down, PageUp / PageDown and Home / End change it.
+    // The arrows stay click targets, but they are no Tab stops. (The stepper
+    // went this way in S2; the column reuses its key rules,
+    // `roving::plain_key`.)
+    // ==================================================================
+
+    /// Presses `key` (holding `held`) on the column at flattened node
+    /// `column`; panics when the column has no key handler - every column
+    /// before the spin-button model.
+    fn press_column(
+        styled: &StyledDom,
+        column: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, node(column), key, held)
+            .expect("every column must carry the spin button's key handler")
+    }
+
+    #[test]
+    fn tab_visits_the_hour_the_minute_and_am_pm_but_never_an_arrow() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30).with_24h(false));
+        assert_eq!(
+            rv::tab_walk(&styled, None, true, 4),
+            vec![
+                node(N_HOUR_SPINNER),
+                node(N_MINUTE_SPINNER),
+                node(N_AMPM),
+                node(N_HOUR_SPINNER),
+            ],
+            "three stops - hour, minute, AM/PM - and round again",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(node(N_AMPM)), false, 2),
+            vec![node(N_MINUTE_SPINNER), node(N_HOUR_SPINNER)],
+        );
+    }
+
+    #[test]
+    fn an_arrow_stays_clickable_and_its_click_focuses_its_column() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let nodes = styled.node_data.as_ref();
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (arrow, column) in [
+            (N_HOUR_UP, N_HOUR_SPINNER),
+            (N_HOUR_DOWN, N_HOUR_SPINNER),
+            (N_MINUTE_UP, N_MINUTE_SPINNER),
+            (N_MINUTE_DOWN, N_MINUTE_SPINNER),
+        ] {
+            assert!(
+                nodes[arrow]
+                    .callbacks
+                    .as_ref()
+                    .iter()
+                    .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click)),
+                "arrow {arrow} is no longer a click target",
+            );
+            // A press focuses the nearest focusable ancestor of what it hit
+            // (`managers::hover::focusable_under_pointer`): an unfocusable
+            // arrow hands the focus to its column, where the keys work.
+            assert!(
+                !nodes[arrow].is_focusable(),
+                "arrow {arrow} takes the focus itself, away from the column's keys",
+            );
+            assert_eq!(hierarchy[arrow].parent_id(), Some(NodeId::new(column)));
+            assert!(nodes[column].is_focusable(), "column {column} is not focusable");
+        }
+    }
+
+    #[test]
+    fn a_column_declares_a_spin_button_named_for_its_unit_with_its_value() {
+        let (styled, _) = laid_out(TimePicker::create(9, 5));
+        for (column, name, value) in [
+            (N_HOUR_SPINNER, "Hour", "9"),
+            (N_MINUTE_SPINNER, "Minute", "05"),
+        ] {
+            let info = styled.node_data.as_ref()[column]
+                .get_accessibility_info()
+                .unwrap_or_else(|| panic!("column {column} declares nothing to assistive technology"));
+            assert_eq!(
+                info.role,
+                azul_core::a11y::AccessibilityRole::SpinButton,
+                "column {column}"
+            );
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|s| s.as_str().to_string()),
+                Some(name.to_string()),
+            );
+            assert_eq!(
+                info.accessibility_value.as_ref().map(|s| s.as_str().to_string()),
+                Some(value.to_string()),
+            );
+        }
+    }
+
+    #[test]
+    fn up_and_down_move_the_focused_column_by_one() {
+        use VirtualKeyCode as K;
+        for (column, key, want, display, text) in [
+            (N_HOUR_SPINNER, K::Up, (10, 30), N_HOUR_DISPLAY, "10"),
+            (N_HOUR_SPINNER, K::Down, (8, 30), N_HOUR_DISPLAY, "8"),
+            (N_MINUTE_SPINNER, K::Up, (9, 31), N_MINUTE_DISPLAY, "31"),
+            (N_MINUTE_SPINNER, K::Down, (9, 29), N_MINUTE_DISPLAY, "29"),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!((s.hour, s.minute), want, "{key:?} on column {column}");
+            assert_eq!(
+                pushed_texts(&changes),
+                vec![(node(text_leaf(display)), text.to_string())],
+                "{key:?} on column {column} retexts its readout",
+            );
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on column {column} is the column's, not spatial navigation's",
+            );
+            assert_eq!(
+                rv::focus_request(&changes),
+                None,
+                "the focus stays on the column"
+            );
+        }
+    }
+
+    #[test]
+    fn page_up_and_page_down_take_the_large_step_and_clamp() {
+        use VirtualKeyCode as K;
+        // Two hours, a quarter hour - clamped to the band like every step.
+        for (start, column, key, want) in [
+            ((9, 30), N_HOUR_SPINNER, K::PageUp, (11, 30)),
+            ((9, 30), N_HOUR_SPINNER, K::PageDown, (7, 30)),
+            ((9, 30), N_MINUTE_SPINNER, K::PageUp, (9, 45)),
+            ((9, 30), N_MINUTE_SPINNER, K::PageDown, (9, 15)),
+            ((23, 50), N_HOUR_SPINNER, K::PageUp, (23, 50)),
+            ((1, 50), N_HOUR_SPINNER, K::PageDown, (0, 50)),
+            ((9, 50), N_MINUTE_SPINNER, K::PageUp, (9, 59)),
+            ((9, 10), N_MINUTE_SPINNER, K::PageDown, (9, 0)),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(start.0, start.1));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!((s.hour, s.minute), want, "{key:?} on column {column} from {start:?}");
+            assert!(rv::prevented(&changes), "{key:?} on column {column}");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends_of_the_columns_band() {
+        use VirtualKeyCode as K;
+        for (is_24h, column, key, want_hour, want_minute) in [
+            (true, N_HOUR_SPINNER, K::Home, 0, 30),
+            (true, N_HOUR_SPINNER, K::End, 23, 30),
+            (false, N_HOUR_SPINNER, K::Home, 1, 30),
+            (false, N_HOUR_SPINNER, K::End, 12, 30),
+            (true, N_MINUTE_SPINNER, K::Home, 9, 0),
+            (true, N_MINUTE_SPINNER, K::End, 9, 59),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30).with_24h(is_24h));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!(
+                (s.hour, s.minute),
+                (want_hour, want_minute),
+                "{key:?} on column {column} (24h: {is_24h})",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on column {column}");
+        }
+        // Already at the end: the key is still the column's.
+        let (styled, shared) = laid_out(TimePicker::create(23, 59));
+        let (_, changes) = press_column(&styled, N_HOUR_SPINNER, K::End, &[]);
+        assert_eq!(read_state(&shared).hour, 23);
+        assert!(rv::prevented(&changes), "End at the end still holds the key");
+    }
+
+    /// A key is an arrow click in every other way: the host hears the new
+    /// state and its verdict is forwarded.
+    #[test]
+    fn a_key_on_a_column_notifies_the_host_like_an_arrow_click() {
+        let probe = log_refany();
+        let (styled, _) = laid_out(TimePicker::create(9, 30).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
+        let (update, _) = press_column(&styled, N_MINUTE_SPINNER, VirtualKeyCode::Up, &[]);
+        assert_eq!(
+            read_log(&probe).seen,
+            vec![TimePickerState {
+                hour: 9,
+                minute: 31,
+                is_pm: false,
+                is_24h: true,
+            }],
+        );
+        assert_eq!(update, Update::RefreshDom, "the host's verdict");
+    }
+
+    /// The spin button's value is live: whichever way the column changed - a
+    /// key, an arrow click, the wheel - the column announces the new value
+    /// without waiting for a rebuild.
+    #[test]
+    fn every_change_of_a_column_announces_its_new_value() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (_, changes) = press_column(&styled, N_HOUR_SPINNER, VirtualKeyCode::Up, &[]);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_HOUR_SPINNER), "10".to_string())],
+            "by key",
+        );
+
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (hit, payload) = wired_to(&styled, on_minute_down as usize);
+        let (_, changes) = press(styled, &payload, hit, on_minute_down);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_MINUTE_SPINNER), "29".to_string())],
+            "by arrow click",
+        );
+
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
+        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, -120.0);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_HOUR_SPINNER), "10".to_string())],
+            "by wheel",
+        );
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_column_is_not_consumed() {
+        use VirtualKeyCode as K;
+        for (key, held) in [
+            (K::Up, Some(K::LAlt)),
+            (K::Up, Some(K::RControl)),
+            (K::Down, Some(K::LWin)),
+            (K::Down, Some(K::LShift)),
+            (K::Left, None),
+            (K::Right, None),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Space, None),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_column(&styled, N_HOUR_SPINNER, key, &held);
+            assert_eq!(update, Update::DoNothing, "{held:?}+{key:?}");
+            assert_eq!(read_state(&shared).hour, 9, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -4001,16 +4279,35 @@ mod theme_tests {
     }
 
     #[test]
-    fn every_arrow_and_the_toggle_show_a_focus_ring_in_every_theme_and_mode() {
+    fn every_column_and_the_toggle_show_a_focus_ring_in_every_theme_and_mode() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
             let dom = picker(Some(theme));
-            assert_eq!(tc::focusable(&dom).len(), 5, "{theme:?}: four arrows and AM/PM");
+            // A column is ONE spin button (WAI-ARIA APG): its value is the
+            // Tab stop, the arrows are click targets only.
+            assert_eq!(
+                tc::focusable(&dom).len(),
+                3,
+                "{theme:?}: the hour, the minute and AM/PM"
+            );
             tc::assert_theme_invariants(&format!("time_picker {theme:?}"), &dom);
         }
-        let dom = picker(Some(UiTheme::Flora));
-        let arrow = tc::find(&dom, "__azul-native-time-picker-arrow").expect("arrow");
-        assert_eq!(tc::focus_ring_color(arrow, false), Some(flora::LIGHT_ACC));
-        assert_eq!(tc::focus_ring_color(arrow, true), Some(flora::DARK_GLOW));
+        let column = |dom: &Dom| -> Dom {
+            tc::find(dom, "__azul-native-time-picker-spinner")
+                .expect("column")
+                .clone()
+        };
+        let flora_column = column(&picker(Some(UiTheme::Flora)));
+        assert_eq!(tc::focus_ring_color(&flora_column, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(&flora_column, true), Some(flora::DARK_GLOW));
+        let flat_column = column(&picker(Some(UiTheme::Flat)));
+        assert_eq!(
+            tc::focus_ring_color(&flat_column, false),
+            Some(crate::widgets::themes::flat::FIELD_RING)
+        );
+        assert_eq!(
+            tc::focus_ring_color(&flat_column, true),
+            Some(crate::widgets::themes::flat::DARK_ACC)
+        );
     }
 
     #[test]

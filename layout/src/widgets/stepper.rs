@@ -4056,17 +4056,12 @@ mod autotest_generated {
             .expect("every step must carry the spin button's key handler")
     }
 
-    /// The values the change announced, per node, in emission order.
+    /// The values the change announced, per flattened node index, in
+    /// emission order (`rv::announced_values`, by index).
     fn announced(changes: &[CallbackChange]) -> Vec<(usize, String)> {
-        changes
-            .iter()
-            .filter_map(|c| match c {
-                CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => node_id
-                    .node
-                    .into_crate_internal()
-                    .map(|n| (n.index(), value.as_str().to_string())),
-                _ => None,
-            })
+        rv::announced_values(changes)
+            .into_iter()
+            .filter_map(|(node_id, value)| node_id.node.into_crate_internal().map(|n| (n.index(), value)))
             .collect()
     }
 

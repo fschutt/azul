@@ -467,6 +467,21 @@ pub(crate) mod test_support {
             .collect()
     }
 
+    /// The accessibility VALUES the callback announced live
+    /// (`CallbackInfo::set_accessibility_value`), per node, in emission
+    /// order - a spin button's new value.
+    pub(crate) fn announced_values(changes: &[CallbackChange]) -> Vec<(DomNodeId, String)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => {
+                    Some((*node_id, value.as_str().to_string()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The role and states `node` DECLARES in `styled` - what the
     /// accessibility tree is built from. `None` when it declares nothing.
     pub(crate) fn declared(
