@@ -2336,10 +2336,35 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_toast_without_a_theme_renders_flat() {
+    fn a_toast_without_a_theme_follows_the_app_theme_flat_by_default() {
         let t = Toast::create(AzString::from("x"));
         assert_eq!(t.theme, OptionUiTheme::None);
         assert!(tc::has_class(&toast(ToastKind::Info, None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            toast(ToastKind::Info, None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn an_unpinned_toast_resolves_the_card_its_render_carries() {
+        for kind in KINDS {
+            let t = Toast::with_kind(AzString::from("Saved"), kind);
+            let resolved = t.resolved_container_style();
+            let dom = t.dom();
+            let painted: alloc::vec::Vec<azul_css::dynamic_selector::CssPropertyWithConditions> =
+                dom.root
+                    .style
+                    .iter_inline_properties()
+                    .map(|(p, c)| azul_css::dynamic_selector::CssPropertyWithConditions {
+                        property: p.clone(),
+                        apply_if: c.clone(),
+                    })
+                    .collect();
+            assert_eq!(resolved.as_slice(), &painted[..], "{kind:?}");
+        }
     }
 
     #[test]

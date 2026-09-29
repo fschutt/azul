@@ -371,3 +371,29 @@ fn time_pickers_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn toasts_follow_the_app_theme() {
+    use azul_layout::widgets::toast::{Toast, ToastKind};
+    for kind in [
+        ToastKind::Info,
+        ToastKind::Success,
+        ToastKind::Warning,
+        ToastKind::Danger,
+    ] {
+        for dismissible in [true, false] {
+            assert_follows_the_app_theme(
+                &format!("toast {kind:?} dismissible={dismissible}"),
+                |t| {
+                    pinned(
+                        Toast::with_kind(AzString::from_const_str("Saved"), kind)
+                            .with_dismissible(dismissible),
+                        t,
+                        Toast::with_theme,
+                    )
+                    .dom()
+                },
+            );
+        }
+    }
+}
