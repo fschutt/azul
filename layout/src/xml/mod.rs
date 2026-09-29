@@ -616,7 +616,7 @@ fn parse_xml_to_fast_dom_with_css(
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {
-            ElementStart { local, .. } => {
+            ElementStart { prefix, local, .. } => {
                 // Flush any pending open element
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
@@ -642,7 +642,18 @@ fn parse_xml_to_fast_dom_with_css(
 
                 // Reuse the current_tag buffer — avoids ~1023 fresh String
                 // allocations per parse (one per ElementStart).
-                lowercase_into(&mut current_tag, local.as_str());
+                // A namespace prefix is part of the name: `<user:card/>` is
+                // the `card` component of library `user`
+                // (`ComponentMap::get_by_qualified_name`), `<svg:rect/>` a
+                // rect. Dropping it made every qualified tag its bare local
+                // name - a component instance an unknown element.
+                if prefix.as_str().is_empty() {
+                    lowercase_into(&mut current_tag, local.as_str());
+                } else {
+                    lowercase_into(&mut current_tag, prefix.as_str());
+                    current_tag.push(':');
+                    current_tag.push_str(&local.as_str().to_ascii_lowercase());
+                }
                 current_attrs.clear();
                 pending_open = true;
                 last_was_void = VOID_ELEMENTS.contains(&current_tag.as_str());
@@ -1004,8 +1015,13 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {
-            ElementStart { local, .. } => {
-                let tag_name = local.to_string();
+            ElementStart { prefix, local, .. } => {
+                // The prefix is part of the name (see the document parser).
+                let tag_name = if prefix.as_str().is_empty() {
+                    local.to_string()
+                } else {
+                    format!("{}:{}", prefix.as_str(), local.as_str())
+                };
                 let is_void_element = VOID_ELEMENTS.contains(&tag_name.as_str());
 
                 // HTML5-lite: If last element was a void element (like <img src="...">),
