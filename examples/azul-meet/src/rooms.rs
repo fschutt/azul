@@ -13,6 +13,13 @@ pub const APP_LINK_PREFIX: &str = "azlin://meet/";
 /// Polls without a connection after which an unanswered dial is tried again.
 pub const REDIAL_AFTER_POLLS: u32 = 5;
 
+/// The alphabet of room ids (lower-case Crockford base32), as the meet Worker mints them.
+const ID_ALPHABET: &str = "0123456789abcdefghjkmnpqrstvwxyz";
+const ID_LEN: usize = 26;
+/// The alphabet of room codes: no `0`, `1`, `i`, `l` or `o`.
+const CODE_ALPHABET: &str = "23456789abcdefghjkmnpqrstuvwxyz";
+const CODE_LEN: usize = 9;
+
 /// What a meeting link names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoomKey {
@@ -33,19 +40,58 @@ impl RoomKey {
 
 /// Reads `azlin://meet/<key>`, the landing page `http(s)://<host>/rooms/<key>`, or a bare key,
 /// where the key is a room id or a room code.
-pub fn parse_room_link(_input: &str) -> Option<RoomKey> {
-    None
+pub fn parse_room_link(input: &str) -> Option<RoomKey> {
+    let s = input.trim();
+    let s = s.split(|c: char| c == '?' || c == '#').next().unwrap_or("");
+    let s = s.trim_end_matches('/');
+    if let Some(key) = strip_prefix_ignore_case(s, APP_LINK_PREFIX) {
+        return parse_room_key(key);
+    }
+    let Some((scheme, rest)) = s.split_once("://") else {
+        return parse_room_key(s);
+    };
+    if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") {
+        return None;
+    }
+    // Everything after the host: the landing page is `/rooms/<key>`, under any base path.
+    let segments: Vec<&str> = rest.split('/').skip(1).filter(|p| !p.is_empty()).collect();
+    match segments.as_slice() {
+        [.., rooms, key] if rooms.eq_ignore_ascii_case("rooms") => parse_room_key(key),
+        _ => None,
+    }
+}
+
+fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = s.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &s[prefix.len()..])
 }
 
 /// Reads a room id or a room code in any case; a code may drop its dashes.
-pub fn parse_room_key(_key: &str) -> Option<RoomKey> {
+pub fn parse_room_key(key: &str) -> Option<RoomKey> {
+    let key = key.trim().to_ascii_lowercase();
+    if key.len() == ID_LEN && key.chars().all(|c| ID_ALPHABET.contains(c)) {
+        return Some(RoomKey::Id(key));
+    }
+    let code: String = key
+        .chars()
+        .filter(|c| *c != '-' && !c.is_whitespace())
+        .collect();
+    if code.len() == CODE_LEN && code.chars().all(|c| CODE_ALPHABET.contains(c)) {
+        return Some(RoomKey::Code(format!(
+            "{}-{}-{}",
+            &code[..3],
+            &code[3..6],
+            &code[6..]
+        )));
+    }
     None
 }
 
 /// Whether this endpoint dials `other`. The lower endpoint id dials and the higher one waits, so
 /// two peers that find each other in the same poll open one connection, not two.
-pub fn dials(_me: &str, _other: &str) -> bool {
-    false
+pub fn dials(me: &str, other: &str) -> bool {
+    !me.is_empty() && me < other
 }
 
 /// One participant as the meeting server lists it.
@@ -79,8 +125,32 @@ impl PeerDiff {
 }
 
 /// The change from `before` to `after`, leaving out this endpoint (`me`) and repeated entries.
-pub fn diff_peers(_before: &[PeerRecord], _after: &[PeerRecord], _me: &str) -> PeerDiff {
-    PeerDiff::default()
+pub fn diff_peers(before: &[PeerRecord], after: &[PeerRecord], me: &str) -> PeerDiff {
+    let earlier: BTreeMap<&str, &PeerRecord> = before
+        .iter()
+        .filter(|p| p.node_id != me)
+        .map(|p| (p.node_id.as_str(), p))
+        .collect();
+    let mut diff = PeerDiff::default();
+    let mut listed: BTreeSet<&str> = BTreeSet::new();
+    for p in after.iter().filter(|p| p.node_id != me) {
+        if !listed.insert(p.node_id.as_str()) {
+            continue;
+        }
+        match earlier.get(p.node_id.as_str()) {
+            None => diff.joined.push(p.clone()),
+            Some(prev) if prev.ticket != p.ticket => diff.moved.push(p.clone()),
+            Some(prev) if prev.name != p.name => diff.renamed.push(p.clone()),
+            Some(_) => {}
+        }
+    }
+    let mut gone: BTreeSet<&str> = BTreeSet::new();
+    for p in before.iter().filter(|p| p.node_id != me) {
+        if !listed.contains(p.node_id.as_str()) && gone.insert(p.node_id.as_str()) {
+            diff.left.push(p.clone());
+        }
+    }
+    diff
 }
 
 /// A dial this endpoint made: to which ticket, and in which poll.
@@ -94,18 +164,64 @@ pub struct Dialed {
 /// not `connected`, and that were never dialed, moved to a new ticket since, or have not answered
 /// for [`REDIAL_AFTER_POLLS`] polls.
 pub fn plan_dials(
-    _me: &str,
-    _peers: &[PeerRecord],
-    _connected: &BTreeSet<String>,
-    _dialed: &BTreeMap<String, Dialed>,
-    _poll: u32,
+    me: &str,
+    peers: &[PeerRecord],
+    connected: &BTreeSet<String>,
+    dialed: &BTreeMap<String, Dialed>,
+    poll: u32,
 ) -> Vec<PeerRecord> {
-    Vec::new()
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut plan = Vec::new();
+    for p in peers {
+        if !seen.insert(p.node_id.as_str())
+            || !dials(me, &p.node_id)
+            || connected.contains(&p.node_id)
+        {
+            continue;
+        }
+        let due = match dialed.get(&p.node_id) {
+            None => true,
+            Some(d) => d.ticket != p.ticket || poll.wrapping_sub(d.at_poll) >= REDIAL_AFTER_POLLS,
+        };
+        if due {
+            plan.push(p.clone());
+        }
+    }
+    plan
 }
 
 /// Host and port of an `http://` or `https://` address (80 and 443 by default).
-pub fn host_port(_url: &str) -> Option<(String, u16)> {
-    None
+pub fn host_port(url: &str) -> Option<(String, u16)> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let default_port: u16 = if scheme.eq_ignore_ascii_case("http") {
+        80
+    } else if scheme.eq_ignore_ascii_case("https") {
+        443
+    } else {
+        return None;
+    };
+    let authority = rest
+        .split(|c: char| c == '/' || c == '?' || c == '#')
+        .next()
+        .unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or("");
+    let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+        let (host, tail) = v6.split_once(']')?;
+        match tail.strip_prefix(':') {
+            Some(port) => (host, port.parse::<u16>().ok()?),
+            None if tail.is_empty() => (host, default_port),
+            None => return None,
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) => (host, port.parse::<u16>().ok()?),
+            None => (authority, default_port),
+        }
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some((host.to_string(), port))
 }
 
 /// Whether `host` is this machine.
@@ -124,8 +240,14 @@ pub enum Relay {
 /// The relay setting from `AZMEET_RELAY` ("off", "default" or a relay URL). Unset, a meeting
 /// server on this machine means a local test, so no relays; any other means the public relays,
 /// since the participants are on different networks.
-pub fn relay_choice(_setting: Option<&str>, _worker_host: &str) -> Relay {
-    Relay::Off
+pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
+    match setting.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) if s.eq_ignore_ascii_case("off") || s == "0" => Relay::Off,
+        Some(s) if s.eq_ignore_ascii_case("default") || s == "1" => Relay::Default,
+        Some(url) => Relay::Custom(url.to_string()),
+        None if is_loopback_host(worker_host) => Relay::Off,
+        None => Relay::Default,
+    }
 }
 
 #[cfg(test)]
