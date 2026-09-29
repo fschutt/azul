@@ -3840,7 +3840,7 @@ pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
 // field itself (the same `text_input()` above) and wires the button's click;
 // the look is the theme's.
 
-/// The clear button (`×`) of a `type=search` field, shown only while the field
+/// The clear button (a cross) of a `type=search` field, shown only while the field
 /// holds text (`visible`). The widget flips `display` live on the
 /// empty/non-empty transition; this is the state it is BUILT in.
 #[must_use]

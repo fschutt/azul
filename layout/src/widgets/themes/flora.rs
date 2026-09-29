@@ -3945,7 +3945,7 @@ const SEARCH_CLEAR_DARK_HOVER: ColorU = ColorU {
     a: 255,
 };
 
-/// The clear button (`×`) of a `type=search` field, shown only while the field
+/// The clear button (a cross) of a `type=search` field, shown only while the field
 /// holds text (`visible`). The widget flips `display` live on the
 /// empty/non-empty transition; this is the state it is BUILT in.
 #[must_use]

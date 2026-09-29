@@ -1229,7 +1229,7 @@ pub const SEARCH_CLEAR_CLASS: &str = "__azul-native-search-clear";
 ///
 /// The button is a SIBLING of the editable host, never a child: inside the host
 /// its glyph would be editable content, and a click on it would place a caret
-/// in the `×`. It is not a Tab stop (Escape clears from the keyboard, as in
+/// in the cross. It is not a Tab stop (Escape clears from the keyboard, as in
 /// every browser), and it shares the field's state, so the click handler
 /// mirrors the clear exactly like an edit.
 fn search_field(

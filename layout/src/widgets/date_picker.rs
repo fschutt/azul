@@ -1294,7 +1294,8 @@ struct MonthCellData {
     state: RefAny,
 }
 
-/// A header button (‹ / ›) that says what it does - its glyph is not a name.
+/// A header button (the previous / next arrow) that says what it does - its
+/// glyph is not a name.
 fn header_nav_button(arrow: AzString, name: &'static str, cb: usize, refany: RefAny) -> Dom {
     crate::widgets::widget_p_with_text(arrow)
         .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
@@ -1318,7 +1319,8 @@ fn header_nav_button(arrow: AzString, name: &'static str, cb: usize, refany: Ref
         })
 }
 
-/// The month calendar's header: ‹ / `YYYY` / ›, turning the YEAR.
+/// The month calendar's header: previous arrow / `YYYY` / next arrow, turning
+/// the YEAR.
 fn build_year_header(year: u32, shared: RefAny) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
