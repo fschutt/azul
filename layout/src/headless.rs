@@ -640,7 +640,7 @@ pub fn nested_dom_viewports(
     resolve_virtual_view_placements(layout_results)
         .into_iter()
         .map(|(dom_id, placement)| {
-            let viewports = placement
+            let viewports: Vec<(LogicalRect, Vec<(DomId, NodeId)>)> = placement
                 .clips
                 .iter()
                 .map(|(viewport, chain)| (*viewport, scroll_frames(chain.as_slice())))

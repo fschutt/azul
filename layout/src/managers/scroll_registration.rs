@@ -391,7 +391,7 @@ fn publish_nested_dom_placements(layout_window: &mut LayoutWindow) {
     use crate::managers::scroll_state::NestedDomPlacement;
 
     let viewports = crate::headless::nested_dom_viewports(&layout_window.layout_results);
-    let placements = viewports
+    let placements: alloc::collections::BTreeMap<DomId, NestedDomPlacement> = viewports
         .into_iter()
         .filter_map(|(nested, viewports)| {
             // The innermost viewport is this dom's own `VirtualView` box.
