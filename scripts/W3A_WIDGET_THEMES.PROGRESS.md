@@ -41,10 +41,19 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
 - label: 1e9bf0f55 (plumbing), e4c375e9c (RED), 323a262a1 (flora ink INTRO).
   API: `Label.theme` appended after `label_style`; set_theme / with_theme.
 
+- divider: a3225bdee (plumbing), ab3aad664 (RED), f682418fb (flora SEP hairline).
+  API: `Divider.theme` appended after `divider_style`; set_theme / with_theme.
+
 ## IN PROGRESS
+spinner (design: SpinnerStyle{Auto,Spokes,Ring}; color/track_color ->
+OptionColorU (None = native ink); fields reordered size, spinner_style, style,
+theme, color, track_color; spokes = 8 full-size nodes clipped to rotated
+capsules under a ViewBox container, per-spoke phase-rotated keyframes;
+ring = arc clip + rotate keyframes; all animations gated on
+PrefersReducedMotion(False); container fade in/out)
 
 ## NEXT
-divider, spinner, chip, alert, card, frame, breadcrumb,
+chip, alert, card, frame, breadcrumb,
 accordion, menubar, color_input, date_picker
 
 ## Open questions
