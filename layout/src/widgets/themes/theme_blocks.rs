@@ -134,7 +134,8 @@ impl Unit for CssRuleBlock {
             self.declarations
                 .as_slice()
                 .iter()
-                .map(CssDeclaration::get_type),
+                // A custom-property definition sets no property (R1).
+                .filter_map(CssDeclaration::get_type),
         );
     }
 
@@ -142,7 +143,7 @@ impl Unit for CssRuleBlock {
         self.declarations
             .as_slice()
             .iter()
-            .any(|d| d.get_type() == ty)
+            .any(|d| d.get_type() == Some(ty))
     }
 
     fn into_block(mut self, theme: UiTheme) -> Self {

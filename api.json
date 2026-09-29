@@ -37499,18 +37499,13 @@
                         "enum_fields": [
                             {
                                 "Static": {
-                                    "type": "CssProperty",
-                                    "doc": [
-                                        "Static key-value pair, such as `width: 500px`"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "CssProperty"
+                                },
                                 "Dynamic": {
-                                    "type": "DynamicCssProperty",
-                                    "doc": [
-                                        "Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`"
-                                    ]
+                                    "type": "DynamicCssProperty"
+                                },
+                                "CustomProperty": {
+                                    "type": "CssCustomProperty"
                                 }
                             }
                         ],
@@ -55727,6 +55722,29 @@
                                 "Auto": {},
                                 "Spokes": {},
                                 "Ring": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CssCustomProperty": {
+                        "external": "azul_css::css::CssCustomProperty",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "String"
+                                }
                             }
                         ],
                         "repr": "C"
