@@ -277,7 +277,7 @@ const fn is_ident_byte(b: u8) -> bool {
 
 /// Offset of the `)` that closes a call whose arguments start at `args`
 /// (nested parentheses and quoted strings skipped); `None` if unbalanced.
-fn closing_paren(args: &str) -> Option<usize> {
+pub(crate) fn closing_paren(args: &str) -> Option<usize> {
     let mut depth = 0usize;
     let mut quote: Option<u8> = None;
     let mut escaped = false;

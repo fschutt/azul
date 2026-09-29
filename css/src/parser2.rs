@@ -2229,6 +2229,11 @@ fn parse_declaration_resilient<'a>(
             }
             return Ok(declarations);
         }
+        // `padding: env(safe-area-inset-top, 4px) 8px`: an `env()` AMONG the
+        // shorthand's components feeds the longhands its position names.
+        if let Some(expanded) = expand_env_components(combined_key, unparsed_css_value) {
+            return expanded;
+        }
         // A `var()` on a shorthand is ambiguous (which longhand gets which
         // part of the value?) - unless the shorthand expands to ONE longhand:
         // `background` / `background-color` set `background-content` and
@@ -2395,15 +2400,21 @@ fn env_declaration(env_var: Option<EnvVariable>, fallback: CssProperty) -> CssDe
 /// computed-value time, and dropping it with a warning is the closest a
 /// parse-time decision can get.
 ///
-/// Only a value that IS the `env()` call is recognised. `env()` nested in
-/// `calc()` or alongside other tokens (`10px env(...)`) is not - it falls
-/// through to the property's ordinary parser like before.
+/// Only a value that IS the `env()` call is recognised ([`is_one_call`]).
+/// `env()` nested in `calc()` or alongside other tokens (`10px env(...)`,
+/// `env(...) 10px`) is not - it falls through to the property's ordinary
+/// parser like before; on a shorthand, [`expand_env_components`] gives
+/// each such `env()` the longhands it stands for.
 fn check_if_value_is_css_env(
     unparsed_css_value: &str,
 ) -> Option<Result<(Option<EnvVariable>, &str), CssParseErrorInner<'_>>> {
     const KNOWN_NAME_DEFAULT: &str = "0px";
 
-    let (_, brace_contents) = parse_parentheses(unparsed_css_value, &["env"]).ok()?;
+    let trimmed = unparsed_css_value.trim();
+    if !is_one_call(trimmed) {
+        return None;
+    }
+    let (_, brace_contents) = parse_parentheses(trimmed, &["env"]).ok()?;
 
     let mut parts = brace_contents.splitn(2, ',');
     let name = parts.next().unwrap_or("").trim();
@@ -2418,22 +2429,126 @@ fn check_if_value_is_css_env(
     })
 }
 
+/// A shorthand whose value has `env()` calls AMONG its other components:
+/// `padding: env(safe-area-inset-top, 4px) 8px`. Every `env()` stands for
+/// its fallback while the shorthand expands, and each longhand an `env()`
+/// component feeds becomes that variable's `Dynamic` (the rest stay
+/// static): the top and bottom padding read the inset, left and right are
+/// 8px. `None` when no component is an `env()` call.
+///
+/// Which longhands a component feeds: the value expands twice more, with
+/// two different lengths in the component's place (an `env()` value is a
+/// length), and the longhands that change are its own. Such a longhand must
+/// BE the component - the cascade swaps its whole value for the live length
+/// - so an `env()` inside a compound value (a shadow's offset) refuses the
+/// declaration instead of half-applying it.
+fn expand_env_components<'a>(
+    key: CombinedCssPropertyType,
+    value: &'a str,
+) -> Option<Result<Vec<CssDeclaration>, CssParseErrorInner<'a>>> {
+    const PROBES: [&str; 2] = ["1px", "2px"];
+
+    let components = crate::props::basic::parse::split_string_respect_whitespace(value);
+    // (component index, its variable) for every `env()` component; the
+    // value with each `env()` replaced by its fallback.
+    let mut envs: Vec<(usize, Option<EnvVariable>)> = Vec::new();
+    let mut with_fallbacks: Vec<&str> = Vec::with_capacity(components.len());
+    for (i, component) in components.iter().copied().enumerate() {
+        match check_if_value_is_css_env(component) {
+            None => with_fallbacks.push(component),
+            Some(Err(e)) => return Some(Err(e)),
+            Some(Ok((env_var, fallback))) => {
+                envs.push((i, env_var));
+                with_fallbacks.push(fallback);
+            }
+        }
+    }
+    if envs.is_empty() {
+        return None;
+    }
+
+    let refused = || {
+        CssParseErrorInner::DynamicCssParseError(DynamicCssParseError::UnexpectedValue(
+            crate::props::property::CssParsingError::InvalidValue(
+                crate::props::basic::error::InvalidValueErr(value),
+            ),
+        ))
+    };
+    let expand = |parts: &[&str]| parse_combined_css_property(key, &parts.join(" ")).ok();
+
+    let Some(longhands) = expand(&with_fallbacks[..]) else {
+        return Some(Err(refused()));
+    };
+    // The variable each longhand reads (`Some(None)`: an unknown name, the
+    // fallback statically); `None`: no `env()` feeds it.
+    let mut fed_by: Vec<Option<Option<EnvVariable>>> = alloc::vec![None; longhands.len()];
+    for &(i, env_var) in &envs {
+        let mut probed = with_fallbacks.clone();
+        probed[i] = PROBES[0];
+        let low = expand(&probed[..]);
+        probed[i] = PROBES[1];
+        let high = expand(&probed[..]);
+        let (Some(low), Some(high)) = (low, high) else {
+            return Some(Err(refused()));
+        };
+        if low.len() != longhands.len() || high.len() != longhands.len() {
+            return Some(Err(refused()));
+        }
+        let mut feeds_any = false;
+        for (slot, (l, h)) in low.iter().zip(high.iter()).enumerate() {
+            if l == h {
+                continue;
+            }
+            let whole = parse_css_property(l.get_type(), PROBES[0]).ok();
+            if whole.as_ref() != Some(l) {
+                return Some(Err(refused()));
+            }
+            fed_by[slot] = Some(env_var);
+            feeds_any = true;
+        }
+        if !feeds_any {
+            return Some(Err(refused()));
+        }
+    }
+
+    Some(Ok(longhands
+        .into_iter()
+        .zip(fed_by)
+        .map(|(property, env)| match env {
+            Some(env_var) => env_declaration(env_var, property),
+            None => CssDeclaration::Static(property),
+        })
+        .collect()))
+}
+
+/// Whether `value` (trimmed) is ONE function call whose own `)` ends it:
+/// `env(a, 4px)` is, `env(a, 4px) 8px` and `var(--a) var(--b)` are not (the
+/// first `(`'s matching `)` is not the last byte). Nested parentheses and
+/// quoted strings inside the call are skipped.
+fn is_one_call(value: &str) -> bool {
+    let Some(open) = value.find('(') else {
+        return false;
+    };
+    let args = &value[open + 1..];
+    crate::custom_properties::closing_paren(args).is_some_and(|close| close + 1 == args.len())
+}
+
 /// Recognises `var(--<name> [, <fallback>])`, returning the name (without
 /// `--`) and the fallback text, untrimmed; `None` for the fallback when the
 /// call declares none.
 ///
-/// Only a value that IS the `var()` call is recognised - `parse_parentheses`
-/// cuts at the LAST `)`, so trailing tokens (`var(--a) 1px`) would otherwise
-/// be dropped silently. A `var()` inside `calc()` or among other tokens falls
-/// through to the property's own parser.
+/// Only a value that IS the `var()` call is recognised ([`is_one_call`]) -
+/// `parse_parentheses` cuts at the LAST `)`, so trailing tokens (`var(--a)
+/// 1px`) would otherwise be dropped silently. A `var()` inside `calc()` or
+/// among other tokens falls through to the property's own parser.
 fn check_if_value_is_css_var(
     unparsed_css_value: &str,
 ) -> Option<Result<(&str, Option<&str>), CssParseErrorInner<'_>>> {
     let trimmed = unparsed_css_value.trim();
-    let (_, brace_contents) = parse_parentheses(trimmed, &["var"]).ok()?;
-    if !trimmed.ends_with(')') {
+    if !is_one_call(trimmed) {
         return None;
     }
+    let (_, brace_contents) = parse_parentheses(trimmed, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {
