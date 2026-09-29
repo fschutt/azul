@@ -1181,19 +1181,34 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         )
 }
 
+/// The flora label: the platform's label geometry, written in flora.css's
+/// quiet ink (`--color-text-light: var(--fl-intro)`), with the night value
+/// of the same token as its dark twin. A caller's `label_style` is taken as
+/// it is.
 #[must_use]
 pub fn label(l: crate::widgets::label::Label) -> Dom {
     use azul_core::dom::{IdOrClass::Class, IdOrClassVec};
     use AzString;
 
-    static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
+    static LABEL_CLASS: &[IdOrClass] = &[
+        Class(AzString::from_const_str("__azul-native-label")),
+        Class(AzString::from_const_str("__azul-theme-flora")),
+    ];
 
     // Resolved before `l.string` is moved out below.
-    let label_style = l.resolved_label_style();
+    let owns_style = l.label_style.as_ref().is_none();
+    let mut label_style: Vec<CssPropertyWithConditions> =
+        l.resolved_label_style().as_slice().to_vec();
+    if owns_style {
+        // The platform table's ink (and its system dark twin) make way for
+        // flora's: one ink per mode, not a flat grey overridden later.
+        label_style.retain(|p| p.property.get_type() != CssPropertyType::TextColor);
+        label_style.extend(super::decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    }
 
     crate::widgets::widget_p_with_text(l.string)
         .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-        .with_css_props(label_style)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
 }
 
 #[must_use]
