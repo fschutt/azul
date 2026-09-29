@@ -31,13 +31,16 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
    (selection_state_tests in layout/src/e2e/full.rs), 0f3295a9f fix. (`get_cursor_state.position`
    was already fixed on the base by E1, 7a317019f.)
 
+8. ScopeText: 7201024ab test (a_screen_reader_reads_inline_text_where_it_stands.rs), d6eabfd21 fix
+   (ScopeEntry window + nested, `BlockContent::flat_window_of`, `text_block::enclosing_block`,
+   accessible_selection host from the caret's text node).
+
 ## IN PROGRESS
 
-8. ScopeText inline host / nested block order.
+9. `TextTarget::caret_at_byte` caller switch + dead code.
 
 ## NEXT
 
-9. `TextTarget::caret_at_byte` caller switch + dead code.
 10. Re-verify review §5 #5 / #7.
 
 ## Open questions
