@@ -21,15 +21,21 @@
 //! document order, one `'\n'` between two of them. That is the text a screen
 //! reader reads as the host's value and sets its selection in.
 
+use alloc::collections::BTreeSet;
+
 use azul_core::{
-    dom::DomNodeId,
+    dom::{DomNodeId, NodeId},
     selection::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextBlock, TextCursor,
     },
+    styled_dom::NodeHierarchyItemId,
 };
 
 use crate::{
-    solver3::layout_tree::LayoutNodeId, text3::cache::InlineContent, window::LayoutWindow,
+    solver3::layout_tree::LayoutNodeId,
+    text3::cache::InlineContent,
+    text_block::{enclosing_block, BlockFilter},
+    window::LayoutWindow,
 };
 
 /// A byte offset into a FLAT text: a block's ([`BlockContent::flat_text`]) or
@@ -108,6 +114,26 @@ impl BlockContent {
     #[must_use]
     pub fn flat_len(&self) -> usize {
         self.text().iter().map(flat_len_of).sum()
+    }
+
+    /// The part of the flat text laid out from the DOM nodes `holds`
+    /// accepts: from the start of the first text run whose source node it
+    /// accepts to the end of the last. `None` when it accepts none.
+    #[must_use]
+    pub fn flat_window_of(&self, holds: impl Fn(NodeId) -> bool) -> Option<(FlatByte, FlatByte)> {
+        let mut acc = 0usize;
+        let mut window: Option<(usize, usize)> = None;
+        for item in self.text() {
+            let len = flat_len_of(item);
+            if let InlineContent::Text(run) = item {
+                if run.source_node_id.is_some_and(&holds) {
+                    let lo = window.map_or(acc, |(lo, _)| lo);
+                    window = Some((lo, acc + len));
+                }
+            }
+            acc += len;
+        }
+        window.map(|(lo, hi)| (FlatByte(lo), FlatByte(hi)))
     }
 
     /// The item `cursor`'s run is, and the byte inside it the caret stands
@@ -304,9 +330,13 @@ fn caret_in_run(run: usize, text: &str, byte: usize) -> TextCursor {
 }
 
 /// The flat text of a node that may hold several text blocks, and where each
-/// block's text starts in it: the blocks' flat texts in document order, one
+/// block's text stands in it: the blocks' flat texts in document order, one
 /// `'\n'` between two of them. A node whose own text is in ONE block (a
-/// paragraph, a flat editable, a text leaf) reads that block's text alone.
+/// paragraph, a flat editable, a text leaf) reads that block's text alone -
+/// and a node INSIDE a block (an inline editing host,
+/// `<p>Name: <span contenteditable>Bob</span></p>`) only its own part of it.
+/// A block nested in another (an inline-block's, inside its paragraph) is
+/// read where its text stands in the other's, not after it.
 ///
 /// What a screen reader reads as a host's value and indexes its selection in:
 /// the offsets the accessibility tree publishes and the ones a
@@ -315,8 +345,23 @@ fn caret_in_run(run: usize, text: &str, byte: usize) -> TextCursor {
 #[derive(Debug, Clone, Default)]
 pub struct ScopeText {
     text: String,
-    /// Each block, the [`FlatByte`] its text starts at in `text`, its content.
-    blocks: Vec<(TextBlock, FlatByte, BlockContent)>,
+    blocks: Vec<ScopeEntry>,
+}
+
+/// One block's part of a [`ScopeText`].
+#[derive(Debug, Clone)]
+struct ScopeEntry {
+    block: TextBlock,
+    /// Where the text of `lo..hi` starts in the scope's text.
+    start: FlatByte,
+    content: BlockContent,
+    /// The part of the block's flat text the scope reads (byte offsets into
+    /// [`BlockContent::flat_text`]): all of it, or an inline host's own.
+    lo: usize,
+    hi: usize,
+    /// A block nested in another of the scope's: its text stands inside
+    /// that block's, at `start`.
+    nested: bool,
 }
 
 impl ScopeText {
@@ -326,34 +371,78 @@ impl ScopeText {
         &self.text
     }
 
-    /// The blocks, in document order.
+    /// The blocks: the ones read one after the other in document order,
+    /// then the ones nested in them.
     pub fn blocks(&self) -> impl Iterator<Item = TextBlock> + '_ {
-        self.blocks.iter().map(|(block, _, _)| *block)
+        self.blocks.iter().map(|entry| entry.block)
+    }
+
+    /// Read `lo..hi` of `block`'s flat text after the text so far, one
+    /// line break after the block before it.
+    fn push_block(&mut self, block: TextBlock, content: BlockContent, lo: usize, hi: usize) {
+        if self.blocks.iter().any(|entry| !entry.nested) {
+            self.text.push('\n');
+        }
+        let start = FlatByte(self.text.len());
+        self.text
+            .push_str(content.flat_text().get(lo..hi).unwrap_or_default());
+        self.blocks.push(ScopeEntry {
+            block,
+            start,
+            content,
+            lo,
+            hi,
+            nested: false,
+        });
     }
 
     /// Where `cursor`, a caret in `block`, stands in the text. `None` when
     /// `block` is not one of this scope's.
     #[must_use]
     pub fn flat_byte_of(&self, block: TextBlock, cursor: &TextCursor) -> Option<FlatByte> {
-        let (_, start, content) = self.blocks.iter().find(|(b, _, _)| *b == block)?;
-        Some(FlatByte(start.0 + content.flat_byte_of(cursor).0))
+        let entry = self.blocks.iter().find(|entry| entry.block == block)?;
+        let at = entry
+            .content
+            .flat_byte_of(cursor)
+            .0
+            .clamp(entry.lo, entry.hi.max(entry.lo));
+        Some(FlatByte(entry.start.0 + at - entry.lo))
     }
 
-    /// The block and the caret at `at` in the text. The line break between
-    /// two blocks is the end of the first; past the end is the end of the
-    /// last. `None` for a scope that holds no block.
+    /// The block and the caret at `at` in the text. Strictly inside a
+    /// nested block's text, in that block; otherwise in the block read at
+    /// `at` - the line break between two blocks is the end of the first,
+    /// past the end is the end of the last. `None` for a scope that holds
+    /// no block.
     #[must_use]
     pub fn caret_at(&self, at: FlatByte) -> Option<(TextBlock, TextCursor)> {
-        let mut chosen = self.blocks.first()?;
-        for entry in &self.blocks {
-            if (entry.1).0 > at.0 {
-                break;
+        // The innermost: nested blocks come in document order.
+        let nested = self
+            .blocks
+            .iter()
+            .filter(|entry| {
+                entry.nested
+                    && entry.start.0 < at.0
+                    && at.0 < entry.start.0 + entry.hi.saturating_sub(entry.lo)
+            })
+            .last();
+        let entry = match nested {
+            Some(entry) => entry,
+            None => {
+                let mut read = self.blocks.iter().filter(|entry| !entry.nested);
+                let mut chosen = read.next()?;
+                for entry in read {
+                    if entry.start.0 > at.0 {
+                        break;
+                    }
+                    chosen = entry;
+                }
+                chosen
             }
-            chosen = entry;
-        }
-        let (block, start, content) = chosen;
-        let caret = content.caret_at(FlatByte(at.0.saturating_sub(start.0)))?;
-        Some((*block, caret))
+        };
+        let local = (at.0.saturating_sub(entry.start.0) + entry.lo).min(entry.hi.max(entry.lo));
+        let caret = entry.content.caret_at(FlatByte(local))?;
+        Some((entry.block, caret))
     }
 
     /// The [`FlatByte`] of CHARACTER `index` (what accessibility speaks); past
@@ -417,29 +506,94 @@ impl LayoutWindow {
         BlockContent::new(items, generated)
     }
 
-    /// `node`'s [`ScopeText`]: the block its text is in, when it is in one;
-    /// else every block inside it, in document order.
+    /// `node`'s [`ScopeText`]: its own text in the block it is in, when it
+    /// is in one (all of the block's for the block's element, an inline
+    /// host's own part of it); else every block inside it, in document
+    /// order. A block nested in one of those is read where its text stands.
     #[must_use]
     pub fn scope_text(&self, node: DomNodeId) -> ScopeText {
-        let blocks = match self.text_block_of(node) {
-            Some(block) => vec![block],
-            None => self.text_blocks_within(node),
+        let mut scope = ScopeText::default();
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return scope;
         };
-        let mut text = String::new();
-        let mut entries = Vec::with_capacity(blocks.len());
-        for (i, block) in blocks.into_iter().enumerate() {
-            if i > 0 {
-                text.push('\n');
+        let Some(tree) = self.layout_results.get(&node.dom).map(|lr| &lr.layout_tree) else {
+            return scope;
+        };
+        let inside = |of: NodeId| move |n: NodeId| self.node_is_self_or_descendant(node.dom, n, of);
+        let within = self.text_block_roots(
+            node.dom,
+            BlockFilter {
+                within: Some(node),
+                ..BlockFilter::ALL
+            },
+        );
+        let own = self.text_block_of(node);
+        // The blocks read one after the other, with their layout nodes.
+        let read: Vec<(TextBlock, Option<usize>)> = match own {
+            Some(block) => vec![(
+                block,
+                self.text_block_layout_index(block).map(LayoutNodeId::index),
+            )],
+            None => {
+                let roots: BTreeSet<usize> = within.iter().map(|(_, idx)| idx.index()).collect();
+                within
+                    .iter()
+                    .filter(|(_, idx)| {
+                        enclosing_block(tree, idx.index(), |p| roots.contains(&p)).is_none()
+                    })
+                    .map(|(block, idx)| (*block, Some(idx.index())))
+                    .collect()
             }
+        };
+        // (layout node, entry) of every block placed so far.
+        let mut placed: Vec<(usize, usize)> = Vec::new();
+        for (block, index) in read {
             let content = self.block_content(block);
-            let start = FlatByte(text.len());
-            text.push_str(&content.flat_text());
-            entries.push((block, start, content));
+            let (lo, hi) = if own.is_some() && block.element() != Some(node_id) {
+                // An inline host's own text; none laid out: an empty value.
+                content
+                    .flat_window_of(inside(node_id))
+                    .map_or((0, 0), |(lo, hi)| (lo.0, hi.0))
+            } else {
+                (0, content.flat_len())
+            };
+            if let Some(index) = index {
+                placed.push((index, scope.blocks.len()));
+            }
+            scope.push_block(block, content, lo, hi);
         }
-        ScopeText {
-            text,
-            blocks: entries,
+        // Blocks nested in those, where their text stands in the outer one's
+        // content; one whose text is not in it is read after the rest.
+        for (block, idx) in &within {
+            if scope.blocks.iter().any(|entry| entry.block == *block) {
+                continue;
+            }
+            let outer = enclosing_block(tree, idx.index(), |p| placed.iter().any(|&(i, _)| i == p))
+                .and_then(|p| placed.iter().find(|&&(i, _)| i == p).map(|&(_, e)| e));
+            let content = self.block_content(*block);
+            let len = content.flat_len();
+            let start = match (outer, block.element()) {
+                (Some(e), Some(element)) => scope.blocks.get(e).and_then(|outer| {
+                    let (lo, hi) = outer.content.flat_window_of(inside(element))?;
+                    (lo.0 >= outer.lo && hi.0 <= outer.hi)
+                        .then(|| FlatByte(outer.start.0 + lo.0 - outer.lo))
+                }),
+                _ => None,
+            };
+            placed.push((idx.index(), scope.blocks.len()));
+            match start {
+                Some(start) => scope.blocks.push(ScopeEntry {
+                    block: *block,
+                    start,
+                    content,
+                    lo: 0,
+                    hi: len,
+                    nested: true,
+                }),
+                None => scope.push_block(*block, content, 0, len),
+            }
         }
+        scope
     }
 
     /// The editing session's selection as a screen reader reads it
@@ -456,7 +610,19 @@ impl LayoutWindow {
     pub fn accessible_selection(&self) -> Option<AccessibleSelection> {
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
         let block = mc.block;
-        let host = self.find_contenteditable_host(block.container_dom_node());
+        // The host of the caret's own text: an inline host
+        // (`<p>Name: <span contenteditable>`) lies INSIDE the paragraph that
+        // is the caret's block, and asked of the block it was never found.
+        let caret_node = mc
+            .get_primary_cursor()
+            .and_then(|cursor| self.caret_text_node(block, cursor))
+            .map(|n| DomNodeId {
+                dom: block.dom(),
+                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+            });
+        let host = caret_node
+            .and_then(|n| self.find_contenteditable_host(n))
+            .or_else(|| self.find_contenteditable_host(block.container_dom_node()));
         let node = host.map_or_else(
             || block.container_dom_node(),
             crate::text_block::EditHost::dom_node,

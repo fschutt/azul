@@ -43,7 +43,10 @@ use azul_core::styled_dom::StyledDom;
 
 use crate::{
     callbacks::CallbackChange,
-    solver3::{getters, layout_tree::LayoutNodeId},
+    solver3::{
+        getters,
+        layout_tree::{LayoutNodeId, LayoutTree},
+    },
     text3::{
         cache::{ShapedItem, UnifiedLayout},
         dense::DenseText,
@@ -123,6 +126,24 @@ impl BlockFilter {
         selectable_only: true,
         within: None,
     };
+}
+
+/// The nearest layout ancestor of layout node `index` that `is_block`
+/// accepts: the text block a block nested in another (an inline-block's,
+/// inside its paragraph) lies in. `None` for an outermost one.
+pub(crate) fn enclosing_block(
+    tree: &LayoutTree,
+    index: usize,
+    is_block: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    let mut current = tree.nodes.get(index).and_then(|n| n.parent);
+    while let Some(parent) = current {
+        if is_block(parent) {
+            return Some(parent);
+        }
+        current = tree.nodes.get(parent).and_then(|n| n.parent);
+    }
+    None
 }
 
 /// Whether `user-select` lets `block`'s text be selected - read off the
@@ -603,16 +624,8 @@ impl LayoutWindow {
         };
         let tree = &self.layout_results.get(&node.dom)?.layout_tree;
         let indices: BTreeSet<usize> = roots.iter().map(|(_, idx)| idx.index()).collect();
-        let nested = |index: usize| {
-            let mut current = tree.nodes.get(index).and_then(|n| n.parent);
-            while let Some(parent) = current {
-                if indices.contains(&parent) {
-                    return true;
-                }
-                current = tree.nodes.get(parent).and_then(|n| n.parent);
-            }
-            false
-        };
+        let nested =
+            |index: usize| enclosing_block(tree, index, |parent| indices.contains(&parent)).is_some();
         let (last, _) = *roots.iter().rev().find(|(_, idx)| !nested(idx.index()))?;
         Some((first, last))
     }
