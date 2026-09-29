@@ -14,14 +14,15 @@ flora look.
 
 ## DONE
 - tree_view: 068155ead plumbing, ecd7c8b92 RED, cb2fcd9c1 flora
+- tabs: 79e0dc64e plumbing, e48d6d8bc RED, e53a85308 flora
 
 ## IN PROGRESS
-- tabs
+- titlebar
 
 ## NEXT
-- tabs: plumbing, RED, flora
-- titlebar: plumbing, RED, flora (+ pin `the_macos_titlebar_has_no_fill_and_the_system_separator`
-  to read the flat block)
+- titlebar: plumbing (TitlebarLook; flat keeps build_container_style / build_title_style /
+  build_button_container as its parts), RED, flora (+ make
+  `the_macos_titlebar_has_no_fill_and_the_system_separator` read the flat block)
 - report
 
 ## Open questions
