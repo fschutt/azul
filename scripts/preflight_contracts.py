@@ -299,6 +299,22 @@ DEMO_STATEFUL_WIDGETS = (
 )
 
 
+def _demo_sources(check: str) -> list:
+    """Every source file of the AzWidgets demo as (name, comment-free text).
+
+    The demo is split into modules (lib.rs, forms.rs, video.rs, ...); a check
+    that read only lib.rs never saw a widget built in the others.
+    """
+    src_dir = ROOT / "examples" / "azul-widgets" / "src"
+    if not (src_dir / "lib.rs").is_file():
+        fail(check, f"missing demo source {src_dir / 'lib.rs'}")
+        return []
+    return [
+        (f.name, _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace")))
+        for f in sorted(src_dir.glob("*.rs"))
+    ]
+
+
 def check_demo_state_round_trip() -> None:
     """Every stateful widget in the demo must round-trip its value to the host.
 
@@ -314,28 +330,25 @@ def check_demo_state_round_trip() -> None:
     is the reference every app is copied from, so it is the right place to pin
     the contract.
     """
-    demo = ROOT / "examples" / "azul-widgets" / "src" / "lib.rs"
-    if not demo.is_file():
-        fail("demo-round-trip", f"missing demo source {demo}")
-        return
-    src = _strip_rust_comments(demo.read_text(encoding="utf-8", errors="replace"))
-    for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
-        name = m.group(1)
-        if name not in DEMO_STATEFUL_WIDGETS:
-            continue
-        tail = src[m.end(): m.end() + 900]
-        stop = tail.find(".dom()")
-        span = tail if stop == -1 else tail[:stop]
-        if not re.search(r"\.with_on_\w+", span):
-            line = src[: m.start()].count("\n") + 1
-            fail(
-                "demo-round-trip",
-                f"{name}::create(...) near line {line} of the AzWidgets demo has "
-                f"no .with_on_* hook, so its value is never stored in Showcase. "
-                f"The widget is rebuilt from host state every layout, so the "
-                f"next RefreshDom from ANY other callback throws away whatever "
-                f"the user typed or picked.",
-            )
+    sources = _demo_sources("demo-round-trip")
+    for fname, src in sources:
+        for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+            name = m.group(1)
+            if name not in DEMO_STATEFUL_WIDGETS:
+                continue
+            tail = src[m.end(): m.end() + 900]
+            stop = tail.find(".dom()")
+            span = tail if stop == -1 else tail[:stop]
+            if not re.search(r"\.with_on_\w+", span):
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "demo-round-trip",
+                    f"{name}::create(...) near line {line} of the AzWidgets demo's {fname} has "
+                    f"no .with_on_* hook, so its value is never stored in Showcase. "
+                    f"The widget is rebuilt from host state every layout, so the "
+                    f"next RefreshDom from ANY other callback throws away whatever "
+                    f"the user typed or picked.",
+                )
 
 
 # Widgets in the reference demo that have no text of their own to derive an
@@ -356,27 +369,23 @@ def check_demo_accessibility() -> None:
     every app is copied from, so it must be silent.
     """
     src_dir = ROOT / "examples" / "azul-widgets" / "src"
-    demo = src_dir / "lib.rs"
-    if not demo.is_file():
-        fail("demo-a11y", f"missing demo source {demo}")
-        return
-    src = _strip_rust_comments(demo.read_text(encoding="utf-8", errors="replace"))
-    for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
-        name = m.group(1)
-        if name not in DEMO_NAMED_WIDGETS:
-            continue
-        tail = src[m.end(): m.end() + 900]
-        stop = tail.find(".dom()")
-        span = tail if stop == -1 else tail[:stop]
-        if ".with_accessibility_name(" not in span:
-            line = src[: m.start()].count("\n") + 1
-            fail(
-                "demo-a11y",
-                f"{name}::create(...) near line {line} of the AzWidgets demo has "
-                f"no .with_accessibility_name(..) before .dom(). It has no text "
-                f"to derive a name from, so a screen reader announces only its "
-                f"role, and the widget warns about it on every launch.",
-            )
+    for fname, src in _demo_sources("demo-a11y"):
+        for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+            name = m.group(1)
+            if name not in DEMO_NAMED_WIDGETS:
+                continue
+            tail = src[m.end(): m.end() + 900]
+            stop = tail.find(".dom()")
+            span = tail if stop == -1 else tail[:stop]
+            if ".with_accessibility_name(" not in span:
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "demo-a11y",
+                    f"{name}::create(...) near line {line} of the AzWidgets demo's {fname} has "
+                    f"no .with_accessibility_name(..) before .dom(). It has no text "
+                    f"to derive a name from, so a screen reader announces only its "
+                    f"role, and the widget warns about it on every launch.",
+                )
     for f in sorted(src_dir.glob("*.rs")):
         text = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
         for m in re.finditer(r"\bcreate_div_with_text\s*\(", text):
