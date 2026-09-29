@@ -2472,4 +2472,217 @@ mod autotest_generated {
         let size = img.get_size();
         assert_eq!((size.width as u32, size.height as u32), (8, 8));
     }
+
+    // ==================================================================
+    // paint context: currentColor and the palette remap (icon recolouring,
+    // scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md 8.1)
+    // ==================================================================
+
+    const HOST_RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const REMAP_BLUE: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
+
+    fn painted(svg: &XmlNode, paint: &SvgPaintContext) -> AzulPixmap {
+        let mut p = pixmap(8, 8);
+        p.fill(255, 255, 255, 255);
+        render_svg_group_painted(svg, &mut p, &TransAffine::new(), paint);
+        p
+    }
+
+    fn host(color: ColorU) -> SvgPaintContext {
+        SvgPaintContext {
+            current_color: Some(color),
+            palette: Vec::new(),
+        }
+    }
+
+    fn full_rect(pairs: &[(&str, &str)]) -> XmlNode {
+        let mut attrs = vec![("width", "8"), ("height", "8")];
+        attrs.extend_from_slice(pairs);
+        el_with("svg", &[], vec![el("rect", &attrs)])
+    }
+
+    #[test]
+    fn current_color_paints_the_colour_the_host_gives_it() {
+        let p = painted(&full_rect(&[("fill", "currentColor")]), &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn current_color_is_case_insensitive_and_read_from_style_too() {
+        let p = painted(&full_rect(&[("style", "fill:currentcolor")]), &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn current_color_without_a_host_colour_is_black() {
+        let p = painted(
+            &full_rect(&[("fill", "currentColor")]),
+            &SvgPaintContext::default(),
+        );
+        assert_eq!(px(&p, 4, 4), [0, 0, 0, 255], "black is the initial `color`");
+    }
+
+    #[test]
+    fn a_stroke_in_current_color_takes_the_host_colour() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el(
+                "rect",
+                &[
+                    ("x", "2"),
+                    ("y", "2"),
+                    ("width", "4"),
+                    ("height", "4"),
+                    ("fill", "none"),
+                    ("stroke", "currentColor"),
+                    ("stroke-width", "2"),
+                ],
+            )],
+        );
+        let p = painted(&svg, &host(HOST_RED));
+        assert_eq!(px(&p, 2, 4), [255, 0, 0, 255], "on the stroke");
+        assert_eq!(px(&p, 4, 4), [255, 255, 255, 255], "inside: fill none");
+    }
+
+    #[test]
+    fn the_documents_own_color_beats_the_hosts() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el_with(
+                "g",
+                &[("color", "#00ff00")],
+                vec![el(
+                    "rect",
+                    &[("width", "8"), ("height", "8"), ("fill", "currentColor")],
+                )],
+            )],
+        );
+        let p = painted(&svg, &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn a_palette_swaps_the_listed_paint_and_nothing_else() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                el(
+                    "rect",
+                    &[("width", "4"), ("height", "8"), ("fill", "#000000")],
+                ),
+                el(
+                    "rect",
+                    &[("x", "4"), ("width", "4"), ("height", "8"), ("fill", "#00ff00")],
+                ),
+            ],
+        );
+        let paint = SvgPaintContext {
+            current_color: None,
+            palette: vec![(
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                REMAP_BLUE,
+            )],
+        };
+        let p = painted(&svg, &paint);
+        assert_eq!(px(&p, 1, 4), [0, 0, 255, 255], "the listed paint is swapped");
+        assert_eq!(px(&p, 6, 4), [0, 255, 0, 255], "an unlisted paint is kept");
+    }
+
+    #[test]
+    fn a_palette_remaps_the_implicit_black_fill() {
+        // No `fill` at all is SVG's black: a literal paint the author left out.
+        let paint = SvgPaintContext {
+            current_color: None,
+            palette: vec![(
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                REMAP_BLUE,
+            )],
+        };
+        let p = painted(&full_rect(&[]), &paint);
+        assert_eq!(px(&p, 4, 4), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn a_palette_does_not_touch_current_color() {
+        let paint = SvgPaintContext {
+            current_color: Some(HOST_RED),
+            palette: vec![(HOST_RED, REMAP_BLUE)],
+        };
+        let p = painted(&full_rect(&[("fill", "currentColor")]), &paint);
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255], "currentColor is the host's colour");
+    }
+
+    #[test]
+    fn only_current_color_paint_makes_a_monochrome_document() {
+        assert!(svg_uses_only_current_color(
+            br#"<svg><path d="M0 0h4v4z" fill="currentColor"/><rect fill="none" stroke="currentColor"/></svg>"#
+        ));
+        assert!(svg_uses_only_current_color(
+            br#"<svg><g style="fill:currentColor"><path d="M0 0h4v4z"/></g></svg>"#
+        ));
+        assert!(
+            !svg_uses_only_current_color(
+                br#"<svg><path d="M0 0h4v4z" fill="currentColor"/><path d="M0 0h4v4z"/></svg>"#
+            ),
+            "a shape with no fill is black, a literal colour"
+        );
+        assert!(!svg_uses_only_current_color(
+            br#"<svg><path d="M0 0h4v4z" fill="#ff0000"/></svg>"#
+        ));
+        assert!(
+            !svg_uses_only_current_color(br#"<svg><path d="M0 0h4v4z" fill="none"/></svg>"#),
+            "nothing painted in currentColor is not a currentColor icon"
+        );
+        assert!(!svg_uses_only_current_color(b"not xml at all"));
+    }
+
+    #[test]
+    fn the_natural_size_is_width_and_height_then_the_view_box() {
+        assert_eq!(
+            svg_natural_size(br#"<svg width="24" height="16px"></svg>"#),
+            Some((24.0, 16.0))
+        );
+        assert_eq!(
+            svg_natural_size(br#"<svg viewBox="0 0 32 20"></svg>"#),
+            Some((32.0, 20.0))
+        );
+        assert_eq!(svg_natural_size(br#"<svg></svg>"#), None);
+        assert_eq!(svg_natural_size(b"garbage"), None);
+    }
+
+    #[test]
+    fn a_painted_imageref_takes_the_host_colour() {
+        let img = render_svg_to_imageref_painted(
+            br#"<svg viewBox="0 0 4 4"><rect width="4" height="4" fill="currentColor"/></svg>"#,
+            4,
+            4,
+            &host(HOST_RED),
+        )
+        .expect("render");
+        let size = img.get_size();
+        assert_eq!((size.width as u32, size.height as u32), (4, 4));
+    }
 }

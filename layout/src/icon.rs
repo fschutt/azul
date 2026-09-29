@@ -2093,6 +2093,92 @@ mod autotest_generated {
         assert_eq!(last_text_color(&out), Some(CSS_RED));
     }
 
+    // ---------------------------------------------------------------------
+    // SVG icons: registration without Rust-side rasterising
+    // ---------------------------------------------------------------------
+
+    const CURRENT_COLOR_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" fill="currentColor"/></svg>"#;
+    const FULL_COLOUR_SVG: &[u8] = br#"<svg viewBox="0 0 24 12"><rect width="12" height="12" fill="#000000"/><rect x="12" width="12" height="12" fill="#00ff00"/></svg>"#;
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_current_color_svg_defaults_to_following_the_text_colour() {
+        let meta = default_svg_icon_meta(CURRENT_COLOR_SVG);
+        assert_eq!(meta.recolor, IconRecolor::CurrentColor);
+        assert!(meta.monochrome, "every paint is currentColor: an alpha mask");
+    }
+
+    #[test]
+    fn a_full_colour_svg_defaults_to_never_recoloured() {
+        assert_eq!(default_svg_icon_meta(FULL_COLOUR_SVG), IconMeta::for_image());
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn register_svg_icon_keeps_the_document_its_natural_size_and_metadata() {
+        let mut provider = create_default_icon_provider();
+        let meta = IconMeta::for_image().with_dark_variant("logo-dark");
+        assert!(register_svg_icon(
+            &mut provider,
+            "app",
+            "Logo",
+            FULL_COLOUR_SVG,
+            meta.clone()
+        ));
+        let mut data = provider.lookup("logo").expect("registered, name folded");
+        let svg = data.downcast_ref::<SvgIconData>().expect("an SVG icon");
+        assert_eq!((svg.width, svg.height), (24.0, 12.0), "the viewBox size");
+        assert_eq!(svg.meta, meta);
+        assert_eq!(svg.svg.as_slice(), FULL_COLOUR_SVG);
+    }
+
+    #[test]
+    fn register_svg_icon_refuses_what_is_not_an_svg() {
+        let mut provider = create_default_icon_provider();
+        assert!(!register_svg_icon(
+            &mut provider,
+            "app",
+            "x",
+            b"not an svg",
+            IconMeta::for_image()
+        ));
+        let huge = [b' '; MAX_SVG_ICON_BYTES + 1];
+        assert!(!register_svg_icon(
+            &mut provider,
+            "app",
+            "y",
+            &huge,
+            IconMeta::for_image()
+        ));
+        assert!(provider.list_packs().is_empty(), "nothing registered");
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_resolved_svg_icon_is_an_image_at_its_natural_size() {
+        let mut provider = create_default_icon_provider();
+        register_svg_icon(
+            &mut provider,
+            "app",
+            "dot",
+            CURRENT_COLOR_SVG,
+            default_svg_icon_meta(CURRENT_COLOR_SVG),
+        );
+        let data = provider.lookup("dot").expect("registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert!(has_image_node(&out));
+        assert_eq!(width_px(&out), Some(16.0));
+        assert_eq!(height_px(&out), Some(16.0));
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "a monochrome currentColor document follows the node's `color` like a glyph"
+        );
+    }
+
     #[test]
     fn a_font_icon_that_refuses_recolouring_ignores_the_tint() {
         let icon = FontIconData::new(dummy_font_ref(), "x")

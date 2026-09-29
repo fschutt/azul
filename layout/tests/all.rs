@@ -564,3 +564,5 @@ mod a_theme_chain_ranks_its_blocks;
 mod rice_styles_the_window;
 #[path = "a_tinted_raster_icon_is_tinted_inside_its_own_alpha.rs"]
 mod a_tinted_raster_icon_is_tinted_inside_its_own_alpha;
+#[path = "an_svg_icon_follows_the_colour_of_its_node.rs"]
+mod an_svg_icon_follows_the_colour_of_its_node;
