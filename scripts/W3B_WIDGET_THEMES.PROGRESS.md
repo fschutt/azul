@@ -43,11 +43,14 @@ microphone, screencap, map, node_graph.
 - toast: RED d95b9bdb7, impl dc4e75e66. API: Toast.theme (last),
   set_theme / with_theme.
 
+- tooltip: RED 89d72092d, impl e686346fd. API: Tooltip.theme (last),
+  set_theme / with_theme.
+
 ## IN PROGRESS
-- tooltip
+- video
 
 ## NEXT
-tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
+video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
 (none yet)
