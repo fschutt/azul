@@ -25,7 +25,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
@@ -55,8 +55,11 @@ use crate::{
 };
 
 static STEPPER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-stepper"))];
+/// A step cell's class - what the key handler and the Tab-stop rewrite find
+/// the steps by (an inner node that reached a handler is not one).
+const STEPPER_STEP_CLASS_NAME: &str = "__azul-native-stepper-step";
 static STEPPER_STEP_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-stepper-step",
+    STEPPER_STEP_CLASS_NAME,
 ))];
 static STEPPER_ROW_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-stepper-row"))];
@@ -687,13 +690,16 @@ impl Stepper {
 
         use azul_core::{
             callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
+            dom::{EventFilter, FocusEventFilter, HoverEventFilter},
             refany::OptionRefAny,
         };
 
         let current = self.stepper_state.inner.current_step;
         let count = self.labels.as_ref().len();
         let last = count.saturating_sub(1);
+        // A spin button is ONE Tab stop: the current step (or the first, for
+        // an out-of-range step); the rest are focusable by click and code.
+        let tab_stop = crate::widgets::roving::stop_index(Some(current), count);
 
         // One shared RefAny across every step's callback (RefAny::clone shares the
         // underlying state — same pattern as segmented/pagination/map).
@@ -732,27 +738,32 @@ impl Stepper {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_STEP_CLASS))
                 .with_css_props((skin.cell)())
                 .with_callbacks(
-                    vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::Click),
-                        callback: CoreCallback {
-                            cb: on_step_click as usize,
-                            ctx: OptionRefAny::None,
+                    vec![
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::Click),
+                            callback: CoreCallback {
+                                cb: on_step_click as usize,
+                                ctx: OptionRefAny::None,
+                            },
+                            refany: state.clone(),
                         },
-                        refany: state.clone(),
-                    }]
+                        CoreCallbackData {
+                            event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                            callback: CoreCallback {
+                                cb: on_step_key as usize,
+                                ctx: OptionRefAny::None,
+                            },
+                            refany: state.clone(),
+                        },
+                    ]
                     .into(),
                 )
-                .with_tab_index(TabIndex::Auto)
+                .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
                 // A stepper is a spin button: the VALUE is which step you are
                 // on, and "step 2 of 5" is the entire content of the control.
                 .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                     role: azul_core::a11y::AccessibilityRole::SpinButton,
-                    accessibility_value: Some(AzString::from(alloc::format!(
-                        "step {} of {}",
-                        step_now.saturating_add(1),
-                        steps_total
-                    )))
-                    .into(),
+                    accessibility_value: Some(step_value(step_now, steps_total)).into(),
                     ..Default::default()
                 })
                 .with_children(
@@ -787,14 +798,82 @@ impl Default for Stepper {
     }
 }
 
-/// Click handler shared by all step cells. Resolves the clicked cell from its
-/// sibling position (= the zero-based step index), and — only if the step
-/// actually changed — updates the state, invokes the user callback, and
+/// Click handler shared by all step cells: steps to the clicked cell, see
+/// [`go_to_step_cell`].
+extern "C" fn on_step_click(data: RefAny, info: CallbackInfo) -> Update {
+    let clicked = info.get_hit_node();
+    go_to_step_cell(data, info, clicked)
+}
+
+/// The stepper is a SPIN BUTTON (its value is the current step, WAI-ARIA APG
+/// spinbutton): ONE Tab stop, and the arrow keys change the value - Up and
+/// Right to the next step, Down and Left to the previous one, Home / End to
+/// the first / last - holding at the ends. Focus and the Tab stop follow the
+/// value, and the change is a click's in every other way (the state,
+/// `on_step_change`, the live restyle, the announced value). A handled key's
+/// default (spatial navigation) is cancelled, also at an end, so the arrows
+/// never walk out of the stepper. Every other key, and every key held with
+/// Alt, Ctrl, Cmd or Shift, keeps its default.
+extern "C" fn on_step_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::{callbacks::FocusTarget, window::VirtualKeyCode as K};
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up | K::Right) => Step::Next,
+        Some(K::Down | K::Left) => Step::Previous,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let cells = roving::items_of(&info, parent, STEPPER_STEP_CLASS_NAME);
+    let Some(current) = cells.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, cells.len(), step, false) else {
+        return Update::DoNothing;
+    };
+    // Not our state (or already borrowed): leave the key alone rather than
+    // move focus onto a step the value could not follow.
+    if data.downcast_ref::<StepperStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    if target == current {
+        return Update::DoNothing;
+    }
+    // Focus moves BEFORE the user callback runs, so a focus it asks for wins.
+    info.set_focus(FocusTarget::Id(cells[target]));
+    go_to_step_cell(data, info, cells[target])
+}
+
+/// The value a stepper announces: "step N of M", 1-based.
+fn step_value(current_step: usize, total_steps: usize) -> AzString {
+    AzString::from(alloc::format!(
+        "step {} of {}",
+        current_step.saturating_add(1),
+        total_steps
+    ))
+}
+
+/// Steps to `clicked`, one of the step cells. Resolves the cell from its
+/// sibling position (= the zero-based step index), and - only if the step
+/// actually changed - updates the state, invokes the user callback, and
 /// live-restyles every circle / connector / label (the segmented pattern).
-extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The new step becomes the spin button's one Tab stop and every step
+/// announces the new value.
+fn go_to_step_cell(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    clicked: azul_core::dom::DomNodeId,
+) -> Update {
     use azul_core::dom::DomNodeId;
 
-    let clicked = info.get_hit_node();
     let Some(parent) = info.get_parent(clicked) else {
         return Update::DoNothing;
     };
@@ -892,6 +971,22 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
                 label,
                 CssProperty::const_text_color(StyleTextColor { inner: text }),
             );
+        }
+    }
+
+    // The new step is the spin button's one Tab stop, and every step
+    // announces the new value - no rebuild follows to do either. Only real
+    // step cells take part: an inner node that reached this handler has none
+    // among its siblings.
+    let items = crate::widgets::roving::items_of(&info, parent, STEPPER_STEP_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        crate::widgets::roving::set_stop(&mut info, &items, stop);
+        let total = data
+            .downcast_ref::<StepperStateWrapper>()
+            .map_or(items.len(), |st| st.inner.total_steps);
+        let value = step_value(clicked_idx, total);
+        for item in &items {
+            info.set_accessibility_value(*item, value.clone());
         }
     }
 
