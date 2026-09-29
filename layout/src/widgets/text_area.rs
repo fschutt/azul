@@ -2027,7 +2027,7 @@ mod autotest_generated {
                     let mut state_matches = false;
                     for c in conds.as_ref() {
                         match c {
-                            DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark = true,
                             DynamicSelector::PseudoState(PseudoStateType::Focus) => {
                                 state_matches = want_focus;
                             }

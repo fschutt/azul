@@ -19,28 +19,28 @@ module AzulStyles
         Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 73_u8, g: 80_u8, b: 87_u8, a: 255_u8)))] of Azul::StyleBackgroundContent),
         [
           Azul::DynamicSelector.pseudo_state(Azul::PseudoStateType::Hover),
-          Azul::DynamicSelector.theme(Azul::ThemeCondition.dark),
+          Azul::DynamicSelector.mode(Azul::ModeCondition::Dark),
         ] of Azul::DynamicSelector
       ),
       Azul::CssPropertyWithConditions.with_conditions(
         Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 73_u8, g: 80_u8, b: 87_u8, a: 255_u8)))),
         [
           Azul::DynamicSelector.pseudo_state(Azul::PseudoStateType::Hover),
-          Azul::DynamicSelector.theme(Azul::ThemeCondition.dark),
+          Azul::DynamicSelector.mode(Azul::ModeCondition::Dark),
         ] of Azul::DynamicSelector
       ),
       Azul::CssPropertyWithConditions.with_conditions(
         Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 43_u8, g: 48_u8, b: 53_u8, a: 255_u8)))] of Azul::StyleBackgroundContent),
         [
           Azul::DynamicSelector.pseudo_state(Azul::PseudoStateType::Active),
-          Azul::DynamicSelector.theme(Azul::ThemeCondition.dark),
+          Azul::DynamicSelector.mode(Azul::ModeCondition::Dark),
         ] of Azul::DynamicSelector
       ),
       Azul::CssPropertyWithConditions.with_conditions(
         Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 59_u8, g: 130_u8, b: 246_u8, a: 255_u8)))),
         [
           Azul::DynamicSelector.pseudo_state(Azul::PseudoStateType::Focus),
-          Azul::DynamicSelector.theme(Azul::ThemeCondition.dark),
+          Azul::DynamicSelector.mode(Azul::ModeCondition::Dark),
         ] of Azul::DynamicSelector
       ),
     ] of Azul::CssPropertyWithConditions

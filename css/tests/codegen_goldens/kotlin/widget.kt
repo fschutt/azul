@@ -24,7 +24,7 @@ fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
             )
         ),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -32,7 +32,7 @@ fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
             )
         ),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -40,7 +40,7 @@ fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),
-                AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
             )
         ),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -48,7 +48,7 @@ fun styleAzulNativeButton(): AzCssPropertyWithConditionsVec.ByValue {
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Focus.value),
-                AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
             )
         )
     )

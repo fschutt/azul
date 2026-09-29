@@ -34,7 +34,7 @@
           _AzDynamicSelector
           (list
             (dynamic-selector-pseudo-state AzPseudoStateType_Hover)
-            (dynamic-selector-theme (theme-condition-dark))
+            (dynamic-selector-mode AzModeCondition_Dark)
           )
         )
       )
@@ -45,7 +45,7 @@
           _AzDynamicSelector
           (list
             (dynamic-selector-pseudo-state AzPseudoStateType_Hover)
-            (dynamic-selector-theme (theme-condition-dark))
+            (dynamic-selector-mode AzModeCondition_Dark)
           )
         )
       )
@@ -56,7 +56,7 @@
           _AzDynamicSelector
           (list
             (dynamic-selector-pseudo-state AzPseudoStateType_Active)
-            (dynamic-selector-theme (theme-condition-dark))
+            (dynamic-selector-mode AzModeCondition_Dark)
           )
         )
       )
@@ -67,7 +67,7 @@
           _AzDynamicSelector
           (list
             (dynamic-selector-pseudo-state AzPseudoStateType_Focus)
-            (dynamic-selector-theme (theme-condition-dark))
+            (dynamic-selector-mode AzModeCondition_Dark)
           )
         )
       )

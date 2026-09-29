@@ -134,10 +134,7 @@ pub fn apply_env_mode_pin(
     let Some(pin) = crate::dynamic_selector::mode_pinned_by_env() else {
         return;
     };
-    let wanted = match pin {
-        ThemeCondition::Dark => DarkLightMode::Dark,
-        _ => DarkLightMode::Light,
-    };
+    let wanted = pin;
     if style.theme == wanted {
         return;
     }

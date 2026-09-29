@@ -1275,9 +1275,9 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
         }
         "prefers-color-scheme" => {
             if value.eq_ignore_ascii_case("dark") {
-                return Some(DynamicSelector::Theme(ThemeCondition::Dark));
+                return Some(DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark));
             } else if value.eq_ignore_ascii_case("light") {
-                return Some(DynamicSelector::Theme(ThemeCondition::Light));
+                return Some(DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Light));
             }
         }
         "prefers-reduced-motion" => {
@@ -1438,7 +1438,7 @@ fn parse_container_feature(feature: &str) -> Option<DynamicSelector> {
 /// Parses @theme condition from the content following "@theme"
 /// Format: @theme(dark) or @theme dark - the colour scheme; any other name,
 /// @theme(flora) or @theme flora, is an app theme
-/// ([`ThemeCondition::from_block_name`]). Before app themes existed an unknown
+/// ([`DynamicSelector::from_theme_block_name`]). Before app themes existed an unknown
 /// name gave NO condition, and a nameless @-rule block applies
 /// unconditionally - so every widget's flora block painted in every app.
 fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
@@ -1455,7 +1455,7 @@ fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
         .unwrap_or(inner)
         .trim();
 
-    ThemeCondition::from_block_name(inner).map(DynamicSelector::Theme)
+    DynamicSelector::from_theme_block_name(inner)
 }
 
 /// Parses @lang condition from the content following "@lang"
@@ -3159,7 +3159,7 @@ mod autotest_generated {
         );
         assert_eq!(
             parse_media_feature("prefers-color-scheme: dark"),
-            Some(DynamicSelector::Theme(ThemeCondition::Dark))
+            Some(DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark))
         );
         assert_eq!(
             parse_media_feature("prefers-reduced-motion: reduce"),
@@ -3452,13 +3452,13 @@ mod autotest_generated {
         ] {
             assert_eq!(
                 parse_theme_condition(input),
-                Some(DynamicSelector::Theme(ThemeCondition::Dark)),
+                Some(DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark)),
                 "theme {input:?} should resolve to Dark"
             );
         }
         assert_eq!(
             parse_theme_condition("light"),
-            Some(DynamicSelector::Theme(ThemeCondition::Light))
+            Some(DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Light))
         );
     }
 
@@ -4405,12 +4405,12 @@ mod autotest_generated {
         let rules = css.rules.as_slice();
         assert_eq!(rules.len(), 2, "{rules:?}");
         for (rule, (theme, value)) in rules.iter().zip([
-            (crate::dynamic_selector::ThemeCondition::Dark, "#272822"),
-            (crate::dynamic_selector::ThemeCondition::Light, "#fafafa"),
+            (crate::dynamic_selector::ModeCondition::Dark, "#272822"),
+            (crate::dynamic_selector::ModeCondition::Light, "#fafafa"),
         ]) {
             assert_eq!(
                 rule.conditions.as_slice(),
-                &[DynamicSelector::Theme(theme)][..],
+                &[DynamicSelector::Mode(theme)][..],
                 "both definitions survive, each under its own condition"
             );
             assert_eq!(
@@ -4538,7 +4538,7 @@ mod autotest_generated {
         // 5px` - the cascade takes the last matching declaration, so the
         // block must come after what precedes it and before what follows it.
         let dark = |c: &Vec<DynamicSelector>| {
-            c.contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+            c.contains(&DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark))
         };
         assert_eq!(rules.len(), 3, "before, block, after: got {rules:#?}");
         assert!(

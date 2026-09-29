@@ -31,7 +31,7 @@ static AzCssPropertyWithConditionsVec style_card(void) {
                 AzDynamicSelectorVec_copyFromPtr(
                     (AzDynamicSelector[]){
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     },
                     2
                 )

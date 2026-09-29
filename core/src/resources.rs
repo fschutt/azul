@@ -339,15 +339,15 @@ pub enum FontLoadingConfig {
 /// # Example
 /// ```rust
 /// # use azul_core::resources::CssMockEnvironment;
-/// use azul_css::dynamic_selector::{
-///     OptionOsCondition, OptionOsVersion, OptionThemeCondition, OsCondition, OsVersion,
-///     ThemeCondition,
+/// use azul_css::{
+///     dynamic_selector::{OptionOsCondition, OptionOsVersion, OsCondition, OsVersion},
+///     system::{DarkLightMode, OptionDarkLightMode},
 /// };
 ///
-/// // Mock a Linux dark theme environment on any platform
+/// // Mock a Linux dark-mode environment on any platform
 /// let mock = CssMockEnvironment {
 ///     os: OptionOsCondition::Some(OsCondition::Linux),
-///     theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+///     mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
 ///     ..Default::default()
 /// };
 ///
@@ -361,8 +361,8 @@ pub enum FontLoadingConfig {
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct CssMockEnvironment {
-    /// Override the current theme (light/dark)
-    pub theme: azul_css::dynamic_selector::OptionThemeCondition,
+    /// Override the current mode (light / dark)
+    pub mode: azul_css::system::OptionDarkLightMode,
     /// Override the current language (BCP 47 tag, e.g., "de-DE", "en-US")
     pub language: azul_css::OptionString,
     /// Override the detected OS version
@@ -415,24 +415,20 @@ impl CssMockEnvironment {
         }
     }
 
-    /// Create a mock for dark theme
+    /// Create a mock for the dark mode
     #[must_use]
-    pub fn dark_theme() -> Self {
+    pub fn dark_mode() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
-                azul_css::dynamic_selector::ThemeCondition::Dark,
-            ),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark),
             ..Default::default()
         }
     }
 
-    /// Create a mock for light theme
+    /// Create a mock for the light mode
     #[must_use]
-    pub fn light_theme() -> Self {
+    pub fn light_mode() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
-                azul_css::dynamic_selector::ThemeCondition::Light,
-            ),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Light),
             ..Default::default()
         }
     }
@@ -448,14 +444,14 @@ impl CssMockEnvironment {
         if let azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de) = self.desktop_env {
             ctx.desktop_env = azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de);
         }
-        if let azul_css::dynamic_selector::OptionThemeCondition::Some(ref theme) = self.theme {
-            if ctx.theme != *theme {
-                // The palette belongs to the theme being replaced: drop it,
-                // so a `system:` keyword takes the mocked theme's defaults
-                // instead of the other theme's colours.
+        if let azul_css::system::OptionDarkLightMode::Some(mode) = self.mode {
+            if ctx.mode != mode {
+                // The palette belongs to the mode being replaced: drop it,
+                // so a `system:` keyword takes the mocked mode's defaults
+                // instead of the other mode's colours.
                 ctx.system_colors = azul_css::system::SystemColors::default();
             }
-            ctx.theme = theme.clone();
+            ctx.mode = mode;
         }
         if let azul_css::OptionString::Some(ref lang) = self.language {
             ctx.language = lang.clone();
@@ -1291,11 +1287,12 @@ impl AppConfig {
     /// # Example
     /// ```rust
     /// # use azul_core::resources::{AppConfig, CssMockEnvironment};
-    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition, ThemeCondition, OptionThemeCondition};
+    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition};
+    /// # use azul_css::system::{DarkLightMode, OptionDarkLightMode};
     /// let config = AppConfig::create()
     ///     .with_mock_environment(CssMockEnvironment {
     ///         os: OptionOsCondition::Some(OsCondition::Linux),
-    ///         theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+    ///         mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
     ///         ..Default::default()
     ///     });
     /// ```

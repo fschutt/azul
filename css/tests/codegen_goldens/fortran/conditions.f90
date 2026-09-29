@@ -18,7 +18,7 @@ contains
     type(AzDynamicSelector), target :: t1(2)
     type(AzCssPropertyWithConditions), target :: t2(11)
     t1(1) = az_dynamic_selector_pseudo_state(PseudoStateType_Hover)
-    t1(2) = az_dynamic_selector_theme(az_theme_condition_dark())
+    t1(2) = az_dynamic_selector_mode(ModeCondition_Dark)
     t2(1) = az_css_property_with_conditions_simple(az_css_property_padding_top(AzLayoutPaddingTop(inner=az_pixel_value_px(8.0_c_float))))
     t2(2) = az_css_property_with_conditions_on_hover(az_css_property_padding_top(AzLayoutPaddingTop(inner=az_pixel_value_px(9.0_c_float))))
     t2(3) = az_css_property_with_conditions_on_active(az_css_property_padding_top(AzLayoutPaddingTop(inner=az_pixel_value_px(10.0_c_float))))

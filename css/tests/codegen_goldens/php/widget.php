@@ -68,7 +68,7 @@ function style_azul_native_button()
                     'AzDynamicSelector',
                     [
                         $L->AzDynamicSelector_pseudoState($L->AzPseudoStateType_Hover),
-                        $L->AzDynamicSelector_theme($L->AzThemeCondition_dark()),
+                        $L->AzDynamicSelector_mode($L->AzModeCondition_Dark),
                     ]
                 )
             ),
@@ -79,7 +79,7 @@ function style_azul_native_button()
                     'AzDynamicSelector',
                     [
                         $L->AzDynamicSelector_pseudoState($L->AzPseudoStateType_Hover),
-                        $L->AzDynamicSelector_theme($L->AzThemeCondition_dark()),
+                        $L->AzDynamicSelector_mode($L->AzModeCondition_Dark),
                     ]
                 )
             ),
@@ -90,7 +90,7 @@ function style_azul_native_button()
                     'AzDynamicSelector',
                     [
                         $L->AzDynamicSelector_pseudoState($L->AzPseudoStateType_Active),
-                        $L->AzDynamicSelector_theme($L->AzThemeCondition_dark()),
+                        $L->AzDynamicSelector_mode($L->AzModeCondition_Dark),
                     ]
                 )
             ),
@@ -101,7 +101,7 @@ function style_azul_native_button()
                     'AzDynamicSelector',
                     [
                         $L->AzDynamicSelector_pseudoState($L->AzPseudoStateType_Focus),
-                        $L->AzDynamicSelector_theme($L->AzThemeCondition_dark()),
+                        $L->AzDynamicSelector_mode($L->AzModeCondition_Dark),
                     ]
                 )
             ),

@@ -26,7 +26,7 @@ module AzulStyles
         Azul::CssProperty.text_color(Azul::StyleTextColor.__own(LibAzul::AzStyleTextColor.new(inner: LibAzul::AzColorU.new(r: 204_u8, g: 204_u8, b: 204_u8, a: 255_u8)))),
         [
           Azul::DynamicSelector.pseudo_state(Azul::PseudoStateType::Hover),
-          Azul::DynamicSelector.theme(Azul::ThemeCondition.dark),
+          Azul::DynamicSelector.mode(Azul::ModeCondition::Dark),
         ] of Azul::DynamicSelector
       ),
       Azul::CssPropertyWithConditions.with_condition(Azul::CssProperty.letter_spacing(Azul::StyleLetterSpacing.__own(LibAzul::AzStyleLetterSpacing.new(inner: Azul::PixelValue.px(1.0_f32).__take))), Azul::DynamicSelector.language(Azul::LanguageCondition.prefix("de-DE"))),

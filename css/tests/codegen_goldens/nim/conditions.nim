@@ -33,7 +33,7 @@ proc styleCard*(): AzCssPropertyWithConditionsVec =
       AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8))),
       azVec(AzDynamicSelectorVec_copyFromPtr, [
         AzDynamicSelector_pseudoState(AzPseudoStateType.Hover),
-        AzDynamicSelector_theme(AzThemeCondition_dark()),
+        AzDynamicSelector_mode(AzModeCondition.Dark),
       ])
     ),
     AzCssPropertyWithConditions_withCondition(AzCssProperty_letterSpacing(AzStyleLetterSpacing(inner: AzPixelValue_px(1.0))), AzDynamicSelector_language(AzLanguageCondition_prefix(azStr("de-DE")))),

@@ -8559,18 +8559,9 @@
                         ],
                         "enum_fields": [
                             {
-                                "Light": {}
-                            },
-                            {
-                                "Dark": {}
-                            },
-                            {
                                 "Custom": {
                                     "type": "String"
                                 }
-                            },
-                            {
-                                "SystemPreferred": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -48945,28 +48936,6 @@
                                 ],
                                 "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_os(property, os)"
                             },
-                            "dark_theme": {
-                                "doc": [
-                                    "Create a property that applies only in dark theme (const version)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "property": "CssProperty"
-                                    }
-                                ],
-                                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(property)"
-                            },
-                            "light_theme": {
-                                "doc": [
-                                    "Create a property that applies only in light theme (const version)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "property": "CssProperty"
-                                    }
-                                ],
-                                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::light_theme(property)"
-                            },
                             "on_windows": {
                                 "doc": [
                                     "Create a property for Windows only (const version)"
@@ -48999,6 +48968,28 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_linux(property)"
+                            },
+                            "dark_mode": {
+                                "doc": [
+                                    "Create a property that applies only in the dark mode (const version)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "property": "CssProperty"
+                                    }
+                                ],
+                                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::dark_mode(property)"
+                            },
+                            "light_mode": {
+                                "doc": [
+                                    "Create a property that applies only in the light mode (const version)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "property": "CssProperty"
+                                    }
+                                ],
+                                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::light_mode(property)"
                             }
                         },
                         "functions": {
@@ -49974,8 +49965,8 @@
                         ],
                         "struct_fields": [
                             {
-                                "theme": {
-                                    "type": "OptionThemeCondition"
+                                "mode": {
+                                    "type": "OptionDarkLightMode"
                                 },
                                 "language": {
                                     "type": "OptionString"
@@ -53978,6 +53969,9 @@
                                 },
                                 "Language": {
                                     "type": "LanguageCondition"
+                                },
+                                "Mode": {
+                                    "type": "ModeCondition"
                                 }
                             }
                         ],
@@ -56425,6 +56419,27 @@
                             {
                                 "Light": {},
                                 "Dark": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ModeCondition": {
+                        "external": "azul_css::dynamic_selector::ModeCondition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Light": {},
+                                "Dark": {},
+                                "SystemPreferred": {}
                             }
                         ],
                         "repr": "C"

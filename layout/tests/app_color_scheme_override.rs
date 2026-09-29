@@ -161,8 +161,8 @@ fn an_app_pinned_dark_renders_dark_on_a_light_desktop() {
     let ws = window_state(DarkLightMode::Light);
     let ctx = lw.dynamic_selector_context(&ws);
     assert_eq!(
-        ctx.theme,
-        ThemeCondition::Dark,
+        ctx.mode,
+        azul_css::system::DarkLightMode::Dark,
         "an app pinned dark must get `@theme dark` / prefers-color-scheme: dark rules"
     );
 
@@ -199,8 +199,8 @@ fn an_app_pinned_light_renders_light_on_a_dark_desktop() {
     );
     let ws = window_state(lw.window_mode_for(DarkLightMode::Dark));
     assert_eq!(
-        lw.dynamic_selector_context(&ws).theme,
-        ThemeCondition::Light
+        lw.dynamic_selector_context(&ws).mode,
+        azul_css::system::DarkLightMode::Light
     );
     lay_out(&mut lw, unstyled_text(), &ws);
     let text = painted_text(&lw);
@@ -220,13 +220,13 @@ fn switching_the_app_back_to_system_follows_the_desktop_again() {
         (
             defaults::macos_modern_light(),
             DarkLightMode::Light,
-            ThemeCondition::Light,
+            azul_css::system::DarkLightMode::Light,
             PIN_DARK,
         ),
         (
             defaults::macos_modern_dark(),
             DarkLightMode::Dark,
-            ThemeCondition::Dark,
+            azul_css::system::DarkLightMode::Dark,
             PIN_LIGHT,
         ),
     ] {
@@ -250,7 +250,7 @@ fn switching_the_app_back_to_system_follows_the_desktop_again() {
         );
         let ws = window_state(lw.window_mode_for(desktop_theme));
         let ctx = lw.dynamic_selector_context(&ws);
-        assert_eq!(ctx.theme, want, "System on a {desktop_theme:?} desktop");
+        assert_eq!(ctx.mode, want, "System on a {desktop_theme:?} desktop");
         assert_eq!(
             ctx.system_color(SystemColorRef::WindowBackground),
             desktop_bg,
@@ -288,8 +288,8 @@ fn a_desktop_flip_while_pinned_light_keeps_the_app_light() {
     lw.set_system_style(new_style);
     let ws = window_state(window_theme);
     assert_eq!(
-        lw.dynamic_selector_context(&ws).theme,
-        ThemeCondition::Light,
+        lw.dynamic_selector_context(&ws).mode,
+        azul_css::system::DarkLightMode::Light,
         "the cascade stays light"
     );
     let retained = lw
@@ -414,8 +414,8 @@ fn a_layout_that_read_the_mode_needs_a_new_dom_on_a_switch() {
 fn the_env_pin_outranks_the_app_which_outranks_the_window() {
     use DarkLightMode::{Dark, Light};
 
-    let env_light = Some(ThemeCondition::Light);
-    let env_dark = Some(ThemeCondition::Dark);
+    let env_light = Some(azul_css::system::DarkLightMode::Light);
+    let env_dark = Some(azul_css::system::DarkLightMode::Dark);
     for app in [FOLLOW, PIN_LIGHT, PIN_DARK] {
         for own in [Light, Dark] {
             assert_eq!(
@@ -453,7 +453,7 @@ fn under_az_theme_the_env_pin_wins_over_the_apps_choice() {
         let lw = window(defaults::macos_modern_light(), app);
         for own in [DarkLightMode::Light, DarkLightMode::Dark] {
             assert_eq!(
-                lw.dynamic_selector_context(&window_state(own)).theme,
+                lw.dynamic_selector_context(&window_state(own)).mode,
                 pinned,
                 "AZ_MODE outranks the app's {app:?}"
             );

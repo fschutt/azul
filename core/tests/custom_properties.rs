@@ -28,9 +28,9 @@ use azul_css::{
 
 // ------------------------------------------------------------------ helpers
 
-fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
     DynamicSelectorContext {
-        theme,
+        mode: theme,
         ..Default::default()
     }
 }
@@ -51,7 +51,7 @@ fn inline(style: &str) -> Dom {
     Dom::create_div().with_style(Css::parse_inline(style))
 }
 
-fn styled(mut dom: Dom, css: Css, theme: ThemeCondition) -> StyledDom {
+fn styled(mut dom: Dom, css: Css, theme: azul_css::system::DarkLightMode) -> StyledDom {
     StyledDom::create_with_context(&mut dom, css, Some(ctx(theme)))
 }
 
@@ -110,17 +110,17 @@ fn an_inline_var_follows_the_mode_across_two_stylesheets_without_a_dom_rebuild()
         "@theme(dark) { :root { --fg: #ffffff; } }",
         "@theme(light) { :root { --fg: #000000; } }",
     ]);
-    let mut sd = styled(dom, css, ThemeCondition::Light);
+    let mut sd = styled(dom, css, azul_css::system::DarkLightMode::Light);
     assert_eq!(color(&sd, 1), rgb(0, 0, 0), "light: the light definition");
 
-    sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+    sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
     assert_eq!(
         color(&sd, 1),
         rgb(255, 255, 255),
         "dark: the dark definition"
     );
 
-    sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+    sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
     assert_eq!(color(&sd, 1), rgb(0, 0, 0), "and back, on the same DOM");
 }
 
@@ -133,9 +133,9 @@ fn a_stylesheet_var_follows_the_mode_too() {
         ".label { color: var(--fg, #ff0000); }",
         "@theme(dark) { :root { --fg: #ffffff; } } @theme(light) { :root { --fg: #000000; } }",
     ]);
-    let mut sd = styled(dom, css, ThemeCondition::Dark);
+    let mut sd = styled(dom, css, azul_css::system::DarkLightMode::Dark);
     assert_eq!(color(&sd, 1), rgb(255, 255, 255));
-    sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+    sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
     assert_eq!(color(&sd, 1), rgb(0, 0, 0));
 }
 
@@ -150,12 +150,12 @@ fn a_root_definition_in_one_stylesheet_reaches_a_consumer_in_another() {
             ":root { --boxw: 150px; }",
             ".v { width: var(--boxw, 10px); }",
         ]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     let direct = styled(
         dom,
         sheets(&[".v { width: 150px; }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(width(&with_var, 1), width(&direct, 1));
 }
@@ -168,12 +168,12 @@ fn a_definition_in_the_same_string_still_reaches_its_consumer() {
     let with_var = styled(
         dom.clone(),
         Css::from_string(":root{--boxw:150px} .v{width:var(--boxw)}".into()),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     let direct = styled(
         dom,
         Css::from_string(".v{width:150px}".into()),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(width(&with_var, 1), width(&direct, 1));
 }
@@ -186,7 +186,7 @@ fn an_inline_definition_reaches_a_descendant_consumer_in_a_stylesheet() {
     let sd = styled(
         dom,
         sheets(&[".label { color: var(--fg, #ff0000); }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(color(&sd, 2), rgb(0, 0, 255));
 }
@@ -219,7 +219,7 @@ fn a_panel_definition_beats_root_and_a_sibling_subtree_still_sees_root() {
         ".panel { --fg: #0000ff; }",
         ".leaf { color: var(--fg, #00ff00); }",
     ]);
-    let sd = styled(dom, css, ThemeCondition::Light);
+    let sd = styled(dom, css, azul_css::system::DarkLightMode::Light);
     assert_eq!(
         color(&sd, 2),
         rgb(0, 0, 255),
@@ -237,7 +237,7 @@ fn a_panel_definition_beats_root_and_a_sibling_subtree_still_sees_root() {
 #[test]
 fn an_undefined_variable_takes_the_declared_fallback() {
     let dom = Dom::create_body().with_child(inline("color: var(--nope, #00ff00);"));
-    let sd = styled(dom, Css::empty(), ThemeCondition::Light);
+    let sd = styled(dom, Css::empty(), azul_css::system::DarkLightMode::Light);
     assert_eq!(color(&sd, 1), rgb(0, 255, 0));
 }
 
@@ -247,7 +247,7 @@ fn a_fallback_may_itself_read_a_variable() {
     let sd = styled(
         dom,
         sheets(&[":root { --accent: #0000ff; }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(
         color(&sd, 1),
@@ -256,7 +256,7 @@ fn a_fallback_may_itself_read_a_variable() {
     );
 
     let dom = Dom::create_body().with_child(inline("color: var(--nope, var(--gone, #ff0000));"));
-    let sd = styled(dom, Css::empty(), ThemeCondition::Light);
+    let sd = styled(dom, Css::empty(), azul_css::system::DarkLightMode::Light);
     assert_eq!(
         color(&sd, 1),
         rgb(255, 0, 0),
@@ -272,7 +272,7 @@ fn a_definition_may_read_another_variable() {
     let sd = styled(
         dom,
         sheets(&[":root { --base: #0000ff; --fg: var(--base); }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(color(&sd, 1), rgb(0, 0, 255));
 }
@@ -283,7 +283,7 @@ fn a_cycle_resolves_to_the_fallback_and_never_loops() {
     let sd = styled(
         dom,
         sheets(&[":root { --a: var(--b); --b: var(--a); }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(color(&sd, 1), rgb(0, 255, 0));
 }
@@ -295,12 +295,12 @@ fn a_cycle_without_a_fallback_resolves_to_the_initial_value() {
     let with_var = styled(
         Dom::create_body().with_child(inline("color: var(--a);")),
         sheets(&[":root { --a: var(--b); --b: var(--a); }"]),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     let initial = styled(
         Dom::create_body().with_child(inline("color: initial;")),
         Css::empty(),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(color(&with_var, 1), color(&initial, 1));
 }
@@ -318,7 +318,7 @@ fn a_hover_definition_recolours_a_resting_consumer_while_hovered() {
         ".b { color: var(--fg, #ff0000); }",
         ".b:hover { --fg: #00ff00; }",
     ]);
-    let sd = styled(dom, css, ThemeCondition::Light);
+    let sd = styled(dom, css, azul_css::system::DarkLightMode::Light);
     let tc = CssPropertyType::TextColor;
     assert_eq!(color(&sd, 1), rgb(255, 0, 0), "resting: the fallback");
     let hovered = StyledNodeState {
@@ -346,12 +346,12 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
         "@theme(light) { :root { --azul-button-face: #fafafa; } }",
     ]);
     let bg = CssPropertyType::BackgroundContent;
-    let mut sd = styled(dom, css, ThemeCondition::Dark);
+    let mut sd = styled(dom, css, azul_css::system::DarkLightMode::Dark);
     assert_eq!(
         slow(&sd, 1, StyledNodeState::default(), bg),
         parsed(bg, "#272822")
     );
-    sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+    sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
     assert_eq!(
         slow(&sd, 1, StyledNodeState::default(), bg),
         parsed(bg, "#fafafa")
@@ -363,7 +363,7 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
             "background: var(--azul-button-face, system:button-face);",
         )),
         Css::empty(),
-        ThemeCondition::Dark,
+        azul_css::system::DarkLightMode::Dark,
     );
     assert_eq!(
         slow(&sd, 1, StyledNodeState::default(), bg),
@@ -382,10 +382,10 @@ fn an_inline_conditional_definition_follows_the_mode_with_an_empty_stylesheet() 
     let mut sd = styled(
         Dom::create_body().with_child(dom),
         Css::empty(),
-        ThemeCondition::Light,
+        azul_css::system::DarkLightMode::Light,
     );
     assert_eq!(color(&sd, 2), rgb(0, 0, 0));
-    sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+    sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
     assert_eq!(color(&sd, 2), rgb(255, 255, 255));
 }
 
@@ -404,7 +404,7 @@ fn a_var_consumer_in_a_star_rule_resolves_per_node() {
         "* { color: var(--fg, #ff0000); }",
         ".panel { --fg: #0000ff; }",
     ]);
-    let sd = styled(dom, css, ThemeCondition::Light);
+    let sd = styled(dom, css, azul_css::system::DarkLightMode::Light);
     assert_eq!(color(&sd, 2), rgb(0, 0, 255), "inside the panel");
     assert_eq!(color(&sd, 3), rgb(255, 0, 0), "outside it");
 }

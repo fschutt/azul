@@ -71,7 +71,7 @@ module AzulStyles
           :az_dynamic_selector_vec_copy_from_ptr,
           N::AzDynamicSelector,
           N.az_dynamic_selector_pseudo_state(N::AzPseudoStateType::Hover),
-          N.az_dynamic_selector_theme(N.az_theme_condition_dark())
+          N.az_dynamic_selector_mode(N::AzModeCondition::Dark)
         )
       ),
       N.az_css_property_with_conditions_with_conditions(
@@ -80,7 +80,7 @@ module AzulStyles
           :az_dynamic_selector_vec_copy_from_ptr,
           N::AzDynamicSelector,
           N.az_dynamic_selector_pseudo_state(N::AzPseudoStateType::Hover),
-          N.az_dynamic_selector_theme(N.az_theme_condition_dark())
+          N.az_dynamic_selector_mode(N::AzModeCondition::Dark)
         )
       ),
       N.az_css_property_with_conditions_with_conditions(
@@ -89,7 +89,7 @@ module AzulStyles
           :az_dynamic_selector_vec_copy_from_ptr,
           N::AzDynamicSelector,
           N.az_dynamic_selector_pseudo_state(N::AzPseudoStateType::Active),
-          N.az_dynamic_selector_theme(N.az_theme_condition_dark())
+          N.az_dynamic_selector_mode(N::AzModeCondition::Dark)
         )
       ),
       N.az_css_property_with_conditions_with_conditions(
@@ -98,7 +98,7 @@ module AzulStyles
           :az_dynamic_selector_vec_copy_from_ptr,
           N::AzDynamicSelector,
           N.az_dynamic_selector_pseudo_state(N::AzPseudoStateType::Focus),
-          N.az_dynamic_selector_theme(N.az_theme_condition_dark())
+          N.az_dynamic_selector_mode(N::AzModeCondition::Dark)
         )
       )
     )

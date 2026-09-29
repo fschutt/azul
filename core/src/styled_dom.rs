@@ -2553,7 +2553,7 @@ impl StyledDom {
             theme_changed = cache
                 .dynamic_context
                 .as_deref()
-                .is_none_or(|c| c.theme != context.theme);
+                .is_none_or(|c| c.mode != context.mode);
             cache.dynamic_context = Some(Box::new(context));
             // A new generation even when nothing below re-runs: a context
             // change is a cascade input, and the DL cache keys on this.

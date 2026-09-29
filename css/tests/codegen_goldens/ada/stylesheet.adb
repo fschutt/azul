@@ -84,11 +84,11 @@ package body Styles is
       t20 (0) := Az_DynamicSelector_Os (Az_OsCondition'(Android));
       t21 (0) := Az_CssPathSelector_Class (To_Az_String ("card"));
       t22 (0) := Az_CssDeclaration_Static (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 255, B => 255, A => 255))));
-      t23 (0) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t23 (0) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t24 (0) := Az_CssPathSelector_Class (To_Az_String ("card"));
       t24 (1) := Az_CssPathSelector_Pseudo_Selector (Az_CssPathPseudoSelector_Hover);
       t25 (0) := Az_CssDeclaration_Static (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 204, G => 204, B => 204, A => 255))));
-      t26 (0) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t26 (0) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t27 (0) := Az_CssPathSelector_Class (To_Az_String ("card"));
       t28 (0) := Az_CssDeclaration_Static (Az_CssProperty_Letter_Spacing (Az_StyleLetterSpacing'(Inner => Az_PixelValue_Px (1.0))));
       t29 (0) := Az_DynamicSelector_Language (Az_LanguageCondition_Prefix (To_Az_String ("de-DE")));

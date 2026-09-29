@@ -1180,7 +1180,7 @@ pub fn get_ua_property_themed(
 
     use crate::dom::NodeType as NT;
 
-    let dark = ctx.is_some_and(|c| c.theme == ThemeCondition::Dark);
+    let dark = ctx.is_some_and(|c| c.mode == azul_css::system::DarkLightMode::Dark);
     if dark {
         let twin = match (node_type, property_type) {
             (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY_DARK),
@@ -1358,7 +1358,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::MacOS),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // macOS light: dark grey thumb on light semi-transparent track
@@ -1379,7 +1379,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::MacOS),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Windows dark
@@ -1400,7 +1400,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Windows),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // Windows light
@@ -1421,7 +1421,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Windows),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // iOS dark
@@ -1437,7 +1437,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::IOS),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // iOS light
@@ -1453,7 +1453,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::IOS),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Android dark
@@ -1469,7 +1469,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Android),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // Android light
@@ -1485,7 +1485,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Android),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Linux / unknown dark fallback
@@ -1504,7 +1504,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
                 a: 255,
             },
         ),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)],
     ),
     // Unconditional fallback (classic light)
     CssPropertyWithConditions::simple(scrollbar_color(
@@ -1566,7 +1566,7 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
                 },
             },
         )),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)],
     ),
     // default -> opaque black, the CSS initial value.
     CssPropertyWithConditions::simple(CssProperty::TextColor(CssPropertyValue::Exact(

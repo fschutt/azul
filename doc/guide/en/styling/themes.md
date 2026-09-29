@@ -434,7 +434,7 @@ fn main() {
     config.mock_css_environment = OptionCssMockEnvironment::Some(
         CssMockEnvironment {
             os: OptionOsCondition::Some(OsCondition::Ios),
-            theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+            mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
             language: OptionString::Some("fr-FR".into()),
             viewport_width: OptionF32::Some(360.0),
             viewport_height: OptionF32::Some(780.0),

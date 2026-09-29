@@ -28,7 +28,7 @@ CssPropertyWithConditions[] styleCard()
             CssProperty.textColor(StyleTextColor(ColorU(204, 204, 204, 255))),
             [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark()),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withCondition(CssProperty.letterSpacing(StyleLetterSpacing(PixelValue.px(1.0f))), DynamicSelector.language(LanguageCondition.prefix("de-DE"))),

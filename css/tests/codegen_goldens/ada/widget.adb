@@ -27,14 +27,14 @@ package body Styles is
       t2 (0) := Az_StyleBackgroundContent_Color (Az_ColorU'(R => 222, G => 226, B => 230, A => 255));
       t3 (0) := Az_StyleBackgroundContent_Color (Az_ColorU'(R => 73, G => 80, B => 87, A => 255));
       t4 (0) := Az_DynamicSelector_Pseudo_State (Az_PseudoStateType'(Hover));
-      t4 (1) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t4 (1) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t5 (0) := Az_DynamicSelector_Pseudo_State (Az_PseudoStateType'(Hover));
-      t5 (1) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t5 (1) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t6 (0) := Az_StyleBackgroundContent_Color (Az_ColorU'(R => 43, G => 48, B => 53, A => 255));
       t7 (0) := Az_DynamicSelector_Pseudo_State (Az_PseudoStateType'(Active));
-      t7 (1) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t7 (1) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t8 (0) := Az_DynamicSelector_Pseudo_State (Az_PseudoStateType'(Focus));
-      t8 (1) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t8 (1) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t9 (0) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t1 (0)'Address, 1)));
       t9 (1) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Border_Top_Color (Az_StyleBorderTopColor'(Inner => Az_ColorU'(R => 173, G => 181, B => 189, A => 255))));
       t9 (2) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Border_Bottom_Color (Az_StyleBorderBottomColor'(Inner => Az_ColorU'(R => 173, G => 181, B => 189, A => 255))));

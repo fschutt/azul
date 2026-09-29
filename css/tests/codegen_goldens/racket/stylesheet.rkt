@@ -82,7 +82,7 @@
         (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-size (make-AzStyleFontSize (pixel-value-px 12.0)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-os AzOsCondition_Windows))) 20)
         (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-size (make-AzStyleFontSize (pixel-value-px 11.0)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-os AzOsCondition_Linux))) 20)
         (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-size (make-AzStyleFontSize (pixel-value-px 15.0)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-os AzOsCondition_Android))) 20)
-        (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 255 255 255)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-theme (theme-condition-dark)))) 20)
+        (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 255 255 255)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-mode AzModeCondition_Dark))) 20)
         (make-AzCssRuleBlock
           (make-AzCssPath
             (css-vec
@@ -95,7 +95,7 @@
             )
           )
           (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-text-color (make-AzStyleTextColor (make-AzColorU 204 204 204 255))))))
-          (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-theme (theme-condition-dark))))
+          (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-mode AzModeCondition_Dark)))
           20
         )
         (make-AzCssRuleBlock (make-AzCssPath (css-vec css-path-selector-vec-copy-from-ptr _AzCssPathSelector (list (css-path-selector-class (string->azul-string "card"))))) (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-letter-spacing (make-AzStyleLetterSpacing (pixel-value-px 1.0)))))) (css-vec dynamic-selector-vec-copy-from-ptr _AzDynamicSelector (list (dynamic-selector-language (language-condition-prefix (string->azul-string "de-DE"))))) 20)

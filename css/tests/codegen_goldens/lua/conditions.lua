@@ -29,7 +29,7 @@ function M.style_card()
             C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 204, g = 204, b = 204, a = 255 }) })),
             C.AzDynamicSelectorVec_copyFromPtr(ffi.new('AzDynamicSelector[2]', {
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Hover),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }), 2)
         ),
         C.AzCssPropertyWithConditions_withCondition(C.AzCssProperty_letterSpacing(ffi.new('AzStyleLetterSpacing', { inner = C.AzPixelValue_px(1.0) })), C.AzDynamicSelector_language(C.AzLanguageCondition_prefix(azul._az_string("de-DE")))),

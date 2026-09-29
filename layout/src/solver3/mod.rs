@@ -1583,7 +1583,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                             b.viewport_width,
                             a.viewport_height,
                             b.viewport_height,
-                            a.theme == b.theme,
+                            a.mode == b.mode,
                             a.media_type == b.media_type,
                             a.pseudo_state == b.pseudo_state,
                             a.language == b.language,
@@ -3652,7 +3652,7 @@ mod cascade_epoch_in_the_dl_key {
     fn the_theme_still_keys_on_its_own() {
         let light = azul_css::dynamic_selector::DynamicSelectorContext::default();
         let dark = azul_css::dynamic_selector::DynamicSelectorContext {
-            theme: azul_css::dynamic_selector::ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         assert_ne!(fp(1, Some(&light)), fp(1, Some(&dark)));

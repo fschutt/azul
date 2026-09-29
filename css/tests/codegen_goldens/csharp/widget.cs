@@ -28,7 +28,7 @@ namespace AzulStyles
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(
                         NativeMethods.AzDynamicSelectorVec_copyFromPtr,
                         NativeMethods.AzDynamicSelector_pseudoState(PseudoStateType.Hover),
-                        NativeMethods.AzDynamicSelector_theme(NativeMethods.AzThemeCondition_dark())
+                        NativeMethods.AzDynamicSelector_mode(ModeCondition.Dark)
                     )
                 ),
                 NativeMethods.AzCssPropertyWithConditions_withConditions(
@@ -36,7 +36,7 @@ namespace AzulStyles
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(
                         NativeMethods.AzDynamicSelectorVec_copyFromPtr,
                         NativeMethods.AzDynamicSelector_pseudoState(PseudoStateType.Hover),
-                        NativeMethods.AzDynamicSelector_theme(NativeMethods.AzThemeCondition_dark())
+                        NativeMethods.AzDynamicSelector_mode(ModeCondition.Dark)
                     )
                 ),
                 NativeMethods.AzCssPropertyWithConditions_withConditions(
@@ -44,7 +44,7 @@ namespace AzulStyles
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(
                         NativeMethods.AzDynamicSelectorVec_copyFromPtr,
                         NativeMethods.AzDynamicSelector_pseudoState(PseudoStateType.Active),
-                        NativeMethods.AzDynamicSelector_theme(NativeMethods.AzThemeCondition_dark())
+                        NativeMethods.AzDynamicSelector_mode(ModeCondition.Dark)
                     )
                 ),
                 NativeMethods.AzCssPropertyWithConditions_withConditions(
@@ -52,7 +52,7 @@ namespace AzulStyles
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(
                         NativeMethods.AzDynamicSelectorVec_copyFromPtr,
                         NativeMethods.AzDynamicSelector_pseudoState(PseudoStateType.Focus),
-                        NativeMethods.AzDynamicSelector_theme(NativeMethods.AzThemeCondition_dark())
+                        NativeMethods.AzDynamicSelector_mode(ModeCondition.Dark)
                     )
                 )
             );

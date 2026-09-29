@@ -43,10 +43,10 @@ fn write(path: &Path, contents: &str) {
 
 fn ctx(dark: bool, chain: &[&str]) -> DynamicSelectorContext {
     let mut ctx = DynamicSelectorContext::default();
-    ctx.theme = if dark {
-        ThemeCondition::Dark
+    ctx.mode = if dark {
+        azul_css::system::DarkLightMode::Dark
     } else {
-        ThemeCondition::Light
+        azul_css::system::DarkLightMode::Light
     };
     ctx.theme_chain = azul_css::StringVec::from_vec(
         chain

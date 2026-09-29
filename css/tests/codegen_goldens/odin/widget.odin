@@ -20,28 +20,28 @@ style_azul_native_button :: proc() -> azul.AzCssPropertyWithConditionsVec {
 			azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 73, g = 80, b = 87, a = 255})}[0], 1)),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Hover),
-				azul.AzDynamicSelector_theme(azul.AzThemeCondition_dark()),
+				azul.AzDynamicSelector_mode(azul.AzModeCondition.Dark),
 			}[0], 2)
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 73, g = 80, b = 87, a = 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Hover),
-				azul.AzDynamicSelector_theme(azul.AzThemeCondition_dark()),
+				azul.AzDynamicSelector_mode(azul.AzModeCondition.Dark),
 			}[0], 2)
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 43, g = 48, b = 53, a = 255})}[0], 1)),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Active),
-				azul.AzDynamicSelector_theme(azul.AzThemeCondition_dark()),
+				azul.AzDynamicSelector_mode(azul.AzModeCondition.Dark),
 			}[0], 2)
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 59, g = 130, b = 246, a = 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Focus),
-				azul.AzDynamicSelector_theme(azul.AzThemeCondition_dark()),
+				azul.AzDynamicSelector_mode(azul.AzModeCondition.Dark),
 			}[0], 2)
 		),
 	}[0], 14)

@@ -32,7 +32,7 @@ use crate::{
 /// Dark theme: a tab's face is the desktop's recessed surface, one step away
 /// from the content panel it opens onto (`system:window-background`) - the
 /// way the light theme's grey strip sits apart from the white panel.
-const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark_theme(
+const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark_mode(
     CssProperty::const_background_content(system_palette::UNDER_PAGE_BACKGROUND),
 );
 
@@ -1779,7 +1779,7 @@ mod autotest_generated {
         conds.len() == 2
             && conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
             && conds
                 .iter()
                 .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
@@ -1787,7 +1787,7 @@ mod autotest_generated {
 
     /// Dark alone, no pseudo-state — a resting colour's dark-theme twin.
     fn is_dark_resting(conds: &[DynamicSelector]) -> bool {
-        matches!(conds, [DynamicSelector::Theme(ThemeCondition::Dark)])
+        matches!(conds, [DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)])
     }
 
     /// The style vec the widget must pair with a given class combination: the

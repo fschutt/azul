@@ -37,7 +37,7 @@ let style_azul_native_button () =
       (azCssProperty_backgroundContent (azStyleBackgroundContentVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_content [(azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 73)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 80)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 87)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ]))])) (Unsigned.Size_t.of_int 1)))
       (azDynamicSelectorVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_dynamic_selector [
         (azDynamicSelector_pseudoState (PseudoStateType.to_int PseudoStateType.Hover));
-        (azDynamicSelector_theme (azThemeCondition_dark ()))
+        (azDynamicSelector_mode (ModeCondition.to_int ModeCondition.Dark))
       ])) (Unsigned.Size_t.of_int 2))
     );
     (
@@ -45,7 +45,7 @@ let style_azul_native_button () =
       (azCssProperty_borderTopColor (az_struct az_style_border_top_color [ (fun v -> Ctypes.setf v az_style_border_top_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 73)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 80)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 87)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ]))
       (azDynamicSelectorVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_dynamic_selector [
         (azDynamicSelector_pseudoState (PseudoStateType.to_int PseudoStateType.Hover));
-        (azDynamicSelector_theme (azThemeCondition_dark ()))
+        (azDynamicSelector_mode (ModeCondition.to_int ModeCondition.Dark))
       ])) (Unsigned.Size_t.of_int 2))
     );
     (
@@ -53,7 +53,7 @@ let style_azul_native_button () =
       (azCssProperty_backgroundContent (azStyleBackgroundContentVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_content [(azStyleBackgroundContent_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 43)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 48)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 53)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ]))])) (Unsigned.Size_t.of_int 1)))
       (azDynamicSelectorVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_dynamic_selector [
         (azDynamicSelector_pseudoState (PseudoStateType.to_int PseudoStateType.Active));
-        (azDynamicSelector_theme (azThemeCondition_dark ()))
+        (azDynamicSelector_mode (ModeCondition.to_int ModeCondition.Dark))
       ])) (Unsigned.Size_t.of_int 2))
     );
     (
@@ -61,7 +61,7 @@ let style_azul_native_button () =
       (azCssProperty_borderTopColor (az_struct az_style_border_top_color [ (fun v -> Ctypes.setf v az_style_border_top_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 59)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 130)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 246)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ]))
       (azDynamicSelectorVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_dynamic_selector [
         (azDynamicSelector_pseudoState (PseudoStateType.to_int PseudoStateType.Focus));
-        (azDynamicSelector_theme (azThemeCondition_dark ()))
+        (azDynamicSelector_mode (ModeCondition.to_int ModeCondition.Dark))
       ])) (Unsigned.Size_t.of_int 2))
     )
   ])) (Unsigned.Size_t.of_int 14))

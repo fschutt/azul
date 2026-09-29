@@ -1458,9 +1458,7 @@ mod autotest_generated {
                 assert!(
                     matches!(
                         conditions.as_ref(),
-                        [azul_css::dynamic_selector::DynamicSelector::Theme(
-                            azul_css::dynamic_selector::ThemeCondition::Dark
-                        )]
+                        [azul_css::dynamic_selector::DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)]
                     ) && border_color_of(p).is_some(),
                     "node {i} gates {:?} behind a dynamic selector",
                     p.get_type(),

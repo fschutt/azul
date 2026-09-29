@@ -109,8 +109,8 @@ fn applies(conds: &DynamicSelectorVec, dark: bool, state: Option<PseudoStateType
         return false;
     };
     live.as_ref().iter().all(|c| match c {
-        DynamicSelector::Theme(ThemeCondition::Dark) => dark,
-        DynamicSelector::Theme(ThemeCondition::Light) => !dark,
+        DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark,
+        DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light) => !dark,
         DynamicSelector::PseudoState(s) => Some(*s) == state,
         _ => false,
     })

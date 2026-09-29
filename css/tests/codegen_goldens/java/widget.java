@@ -30,7 +30,7 @@ public final class AzulStyles {
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                    AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -38,7 +38,7 @@ public final class AzulStyles {
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                    AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -46,7 +46,7 @@ public final class AzulStyles {
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Active.value),
-                    AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_withConditions(
@@ -54,7 +54,7 @@ public final class AzulStyles {
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Focus.value),
-                    AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
                 )
             )
         );

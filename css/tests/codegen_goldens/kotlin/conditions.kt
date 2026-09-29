@@ -32,7 +32,7 @@ fun styleCard(): AzCssPropertyWithConditionsVec.ByValue {
             azVec(
                 AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                 AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
             )
         ),
         AzulNativeCss.AzCssPropertyWithConditions_withCondition(AzulNativeCss.AzCssProperty_letterSpacing(AzStyleLetterSpacing.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(1.0f) }), AzulNativeCss.AzDynamicSelector_language(AzulNativeCss.AzLanguageCondition_prefix(azStr("de-DE"))))

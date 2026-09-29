@@ -20,7 +20,7 @@ static AzCssPropertyWithConditionsVec style_azul_native_button(void) {
                 AzDynamicSelectorVec_copyFromPtr(
                     (AzDynamicSelector[]){
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     },
                     2
                 )
@@ -30,7 +30,7 @@ static AzCssPropertyWithConditionsVec style_azul_native_button(void) {
                 AzDynamicSelectorVec_copyFromPtr(
                     (AzDynamicSelector[]){
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     },
                     2
                 )
@@ -40,7 +40,7 @@ static AzCssPropertyWithConditionsVec style_azul_native_button(void) {
                 AzDynamicSelectorVec_copyFromPtr(
                     (AzDynamicSelector[]){
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Active),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     },
                     2
                 )
@@ -50,7 +50,7 @@ static AzCssPropertyWithConditionsVec style_azul_native_button(void) {
                 AzDynamicSelectorVec_copyFromPtr(
                     (AzDynamicSelector[]){
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Focus),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     },
                     2
                 )

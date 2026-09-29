@@ -43,7 +43,7 @@ static WIDGET_INK: &[CssPropertyWithConditions] = &[
     ),
     CssPropertyWithConditions::with_single_condition(
         ink(FLORA_NIGHT_INK),
-        azul_css::theme_conditions!("flora", DynamicSelector::Theme(ThemeCondition::Dark)),
+        azul_css::theme_conditions!("flora", DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)),
     ),
 ];
 
@@ -65,9 +65,9 @@ fn live(conditions: &[DynamicSelector], ctx: &DynamicSelectorContext) -> bool {
     conditions.iter().all(|c| c.matches(ctx))
 }
 
-fn ctx(app_theme: &str, scheme: ThemeCondition) -> DynamicSelectorContext {
+fn ctx(app_theme: &str, mode: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
     DynamicSelectorContext {
-        theme: scheme,
+        mode,
         ..Default::default()
     }
     .with_app_theme(app_theme)
@@ -139,7 +139,7 @@ fn a_flora_block_applies_only_under_flora_and_a_flat_block_only_under_flat() {
     );
     assert_eq!(blocks.len(), 2, "two rule blocks");
     let (flat, flora) = (&blocks[0], &blocks[1]);
-    for scheme in [ThemeCondition::Light, ThemeCondition::Dark] {
+    for scheme in [azul_css::system::DarkLightMode::Light, azul_css::system::DarkLightMode::Dark] {
         let under_flat = ctx("flat", scheme.clone());
         let under_flora = ctx("flora", scheme.clone());
         assert!(live(flat, &under_flat), "flat block, flat app, {scheme:?}");
@@ -149,7 +149,7 @@ fn a_flora_block_applies_only_under_flora_and_a_flat_block_only_under_flat() {
     }
     // An app theme nobody wrote a block for is the default theme's look: every chain ends in the
     // default theme, the floor (design §7.1, `[abc, <default>]`).
-    let under_other = ctx("monokai", ThemeCondition::Light);
+    let under_other = ctx("monokai", azul_css::system::DarkLightMode::Light);
     assert!(live(flat, &under_other), "an unknown theme falls back to the default theme's block");
     assert!(!live(flora, &under_other), "and to no other theme's");
 }
@@ -163,18 +163,18 @@ fn light_and_dark_still_match_the_colour_scheme_whatever_the_app_theme() {
         let blocks = conditions_of(css);
         assert_eq!(
             blocks,
-            vec![vec![DynamicSelector::Theme(ThemeCondition::Dark)]],
+            vec![vec![DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)]],
             "{css} stays the colour scheme"
         );
         for app in ["flat", "flora"] {
-            assert!(live(&blocks[0], &ctx(app, ThemeCondition::Dark)), "{css}, {app}, dark");
-            assert!(!live(&blocks[0], &ctx(app, ThemeCondition::Light)), "{css}, {app}, light");
+            assert!(live(&blocks[0], &ctx(app, azul_css::system::DarkLightMode::Dark)), "{css}, {app}, dark");
+            assert!(!live(&blocks[0], &ctx(app, azul_css::system::DarkLightMode::Light)), "{css}, {app}, light");
         }
     }
     let light = conditions_of("@theme(light) { div { color: red; } }");
-    assert_eq!(light, vec![vec![DynamicSelector::Theme(ThemeCondition::Light)]]);
-    assert!(live(&light[0], &ctx("flora", ThemeCondition::Light)));
-    assert!(!live(&light[0], &ctx("flora", ThemeCondition::Dark)));
+    assert_eq!(light, vec![vec![DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light)]]);
+    assert!(live(&light[0], &ctx("flora", azul_css::system::DarkLightMode::Light)));
+    assert!(!live(&light[0], &ctx("flora", azul_css::system::DarkLightMode::Dark)));
 }
 
 /// A theme's dark sub-mode is a colour-scheme block NESTED in the theme block: it needs both.
@@ -183,13 +183,13 @@ fn a_dark_block_nested_in_a_theme_block_needs_the_theme_and_the_dark_scheme() {
     let blocks = conditions_of("@theme(flora) { @theme(dark) { div { color: red; } } }");
     assert_eq!(
         blocks,
-        vec![vec![named("flora"), DynamicSelector::Theme(ThemeCondition::Dark)]]
+        vec![vec![named("flora"), DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)]]
     );
     let nested = &blocks[0];
-    assert!(live(nested, &ctx("flora", ThemeCondition::Dark)));
-    assert!(!live(nested, &ctx("flora", ThemeCondition::Light)));
-    assert!(!live(nested, &ctx("flat", ThemeCondition::Dark)));
-    assert!(!live(nested, &ctx("flat", ThemeCondition::Light)));
+    assert!(live(nested, &ctx("flora", azul_css::system::DarkLightMode::Dark)));
+    assert!(!live(nested, &ctx("flora", azul_css::system::DarkLightMode::Light)));
+    assert!(!live(nested, &ctx("flat", azul_css::system::DarkLightMode::Dark)));
+    assert!(!live(nested, &ctx("flat", azul_css::system::DarkLightMode::Light)));
 }
 
 /// The names of a context's theme chain, most specific first.
@@ -246,20 +246,20 @@ fn a_mode_word_as_the_app_theme_leaves_the_default_chain() {
 #[test]
 fn a_widgets_theme_blocks_resolve_to_the_active_themes_values() {
     assert_eq!(
-        resolved_ink(WIDGET_INK, &ctx("flat", ThemeCondition::Light)),
+        resolved_ink(WIDGET_INK, &ctx("flat", azul_css::system::DarkLightMode::Light)),
         Some(FLAT_INK)
     );
     assert_eq!(
-        resolved_ink(WIDGET_INK, &ctx("flat", ThemeCondition::Dark)),
+        resolved_ink(WIDGET_INK, &ctx("flat", azul_css::system::DarkLightMode::Dark)),
         Some(FLAT_INK),
         "flora's dark twin must not leak into the flat theme"
     );
     assert_eq!(
-        resolved_ink(WIDGET_INK, &ctx("flora", ThemeCondition::Light)),
+        resolved_ink(WIDGET_INK, &ctx("flora", azul_css::system::DarkLightMode::Light)),
         Some(FLORA_INK)
     );
     assert_eq!(
-        resolved_ink(WIDGET_INK, &ctx("flora", ThemeCondition::Dark)),
+        resolved_ink(WIDGET_INK, &ctx("flora", azul_css::system::DarkLightMode::Dark)),
         Some(FLORA_NIGHT_INK)
     );
 }
@@ -274,10 +274,10 @@ fn declaration_helpers_add_read_and_strip_the_theme_name() {
     assert!(light.is_light_half(), "a theme's resting light value is a light half");
     assert!(!light.is_dark_twin());
 
-    let dark = CssPropertyWithConditions::dark_theme(ink(FLORA_NIGHT_INK)).in_theme("flora");
+    let dark = CssPropertyWithConditions::dark_mode(ink(FLORA_NIGHT_INK)).in_theme("flora");
     assert_eq!(
         dark.apply_if.as_slice(),
-        &[named("flora"), DynamicSelector::Theme(ThemeCondition::Dark)][..],
+        &[named("flora"), DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)][..],
         "the theme name goes FIRST, the colour scheme and states stay"
     );
     assert!(dark.is_dark_twin());
@@ -292,7 +292,7 @@ fn declaration_helpers_add_read_and_strip_the_theme_name() {
     let pinned = dark.without_theme_names();
     assert_eq!(
         pinned.apply_if.as_slice(),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)][..]
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)][..]
     );
     assert!(pinned.theme_names().is_empty());
 }
@@ -310,6 +310,6 @@ fn the_inline_declaration_parser_reads_a_theme_name() {
     let dark = CssPropertyWithConditionsVec::parse("@theme(dark) { color: red; }");
     assert_eq!(
         dark.as_slice()[0].apply_if.as_slice(),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)][..]
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)][..]
     );
 }

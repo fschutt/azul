@@ -61,7 +61,7 @@ proc stylesheet*(): AzCss =
       AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(12.0))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_os(AzOsCondition.Windows)]), priority: 20'u8),
       AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(11.0))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_os(AzOsCondition.Linux)]), priority: 20'u8),
       AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(15.0))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_os(AzOsCondition.Android)]), priority: 20'u8),
-      AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_theme(AzThemeCondition_dark())]), priority: 20'u8),
+      AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_mode(AzModeCondition.Dark)]), priority: 20'u8),
       AzCssRuleBlock(
         path: AzCssPath(
           selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [
@@ -70,7 +70,7 @@ proc stylesheet*(): AzCss =
           ])
         ),
         declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8))))]),
-        conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_theme(AzThemeCondition_dark())]),
+        conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_mode(AzModeCondition.Dark)]),
         priority: 20'u8
       ),
       AzCssRuleBlock(path: AzCssPath(selectors: azVec(AzCssPathSelectorVec_copyFromPtr, [AzCssPathSelector_class(azStr("card"))])), declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_letterSpacing(AzStyleLetterSpacing(inner: AzPixelValue_px(1.0))))]), conditions: azVec(AzDynamicSelectorVec_copyFromPtr, [AzDynamicSelector_language(AzLanguageCondition_prefix(azStr("de-DE")))]), priority: 20'u8),

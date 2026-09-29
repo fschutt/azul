@@ -32,7 +32,7 @@ BEGIN
    inner OF t9 := AZCOLORU (REPR 255, REPR 255, REPR 255, REPR 255);
    inner OF t10 := AZCOLORU (REPR 204, REPR 204, REPR 204, REPR 255);
    t11[1] := az dynamic selector pseudo state (pseudo state type hover);
-   t11[2] := az dynamic selector theme (az theme condition dark);
+   t11[2] := az dynamic selector mode (mode condition dark);
    inner OF t12 := az pixel value px (1.0);
    t13[1] := az css property with conditions simple (az css property padding top (t1));
    t13[2] := az css property with conditions on hover (az css property padding top (t2));

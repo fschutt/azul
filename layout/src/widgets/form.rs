@@ -1994,7 +1994,7 @@ mod app_theme_tests {
         let styled = || {
             DomVec::from_vec(alloc::vec![Dom::create_div().with_css_props(
                 CssPropertyWithConditionsVec::from_vec(alloc::vec![
-                    azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(
+                    azul_css::dynamic_selector::CssPropertyWithConditions::dark_mode(
                         azul_css::props::property::CssProperty::const_display(
                             azul_css::props::layout::LayoutDisplay::Block
                         )

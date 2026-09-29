@@ -896,12 +896,12 @@ pub fn button(btn: Button) -> Dom {
                     container_style.push(CssPropertyWithConditions::simple(layers(vec![
                         RAISED_FACE_LIGHT,
                     ])));
-                    container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
                         RAISED_FACE_DARK,
                     ])));
                 }
                 ButtonType::Link => {
-                    container_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
                         StyleBackgroundContent::Color(DARK_SUR),
                     ])));
                 }
@@ -921,19 +921,19 @@ pub fn button(btn: Button) -> Dom {
         // resting face above, from the one place it lives:
         // `ButtonType::surface`.
         if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
-            container_style.push(CssPropertyWithConditions::dark_theme(
+            container_style.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
             ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
+            container_style.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
             ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
+            container_style.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
             ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
+            container_style.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
             ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
+            container_style.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
             ));
         }
@@ -972,7 +972,7 @@ pub fn check_box(cb: CheckBox) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         cb.resolved_container_style().as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
                 .into(),
@@ -982,7 +982,7 @@ pub fn check_box(cb: CheckBox) -> Dom {
     let mut content_style: Vec<CssPropertyWithConditions> =
         cb.resolved_content_style().as_slice().to_vec();
     if checked_now {
-        content_style.push(CssPropertyWithConditions::dark_theme(
+        content_style.push(CssPropertyWithConditions::dark_mode(
             CssProperty::BackgroundContent(
                 StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_INK)])
                     .into(),
@@ -1078,25 +1078,25 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
                 .into(),
         ),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
@@ -1108,7 +1108,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    label_style.push(CssPropertyWithConditions::dark_theme(
+    label_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
 
@@ -1809,7 +1809,7 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // with `.fl-orb-gloss`: laid OVER whatever colour the widget resolved for
     // the thumb — read back rather than restated, so it cannot drift from
     // slider.rs — and over the theme's accent in dark mode.
-    track_style.push(CssPropertyWithConditions::dark_theme(
+    track_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_TRACK)])
                 .into(),
@@ -1827,7 +1827,7 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         .unwrap_or_default();
     thumb_layers.push(ORB_GLOSS);
     thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
-    thumb_style.push(CssPropertyWithConditions::dark_theme(layers(vec![
+    thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
         StyleBackgroundContent::Color(DARK_ACC),
         ORB_GLOSS,
     ])));
@@ -1893,25 +1893,25 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
                 .into(),
         ),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
+    container_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
@@ -1923,7 +1923,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
         }
     };
-    label_style.push(CssPropertyWithConditions::dark_theme(
+    label_style.push(CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
 
@@ -2071,22 +2071,22 @@ const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor { inner: LIGHT_BD },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(RAISED_FACE_DARK_LAYER),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: DARK_INK,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_top_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_top_color(
         StyleBorderTopColor { inner: DARK_BD },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor { inner: DARK_BD },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_left_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_left_color(
         StyleBorderLeftColor { inner: DARK_BD },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_right_color(
         StyleBorderRightColor { inner: DARK_BD },
     )),
 ];
@@ -2099,7 +2099,7 @@ const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_INK,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: DARK_INK,
     })),
 ];
@@ -2110,7 +2110,7 @@ const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_INK,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: DARK_INK,
     })),
 ];
@@ -2560,7 +2560,7 @@ mod gradient_tests {
     /// else — a `dark_on_hover` rule is not it.
     fn dark_resting_background(dom: &Dom) -> Option<Vec<StyleBackgroundContent>> {
         backgrounds_where(dom, |c| {
-            matches!(c, [DynamicSelector::Theme(ThemeCondition::Dark)])
+            matches!(c, [DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)])
         })
         .pop()
     }
@@ -2576,7 +2576,7 @@ mod gradient_tests {
             c.iter()
                 .any(|s| matches!(s, DynamicSelector::PseudoState(st) if *st == state))
                 && c.iter()
-                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    .any(|s| matches!(s, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                     == dark
         })
         .pop()
@@ -2771,7 +2771,7 @@ mod gradient_tests {
                 CssProperty::BackgroundContent(b) => Some((
                     matches!(
                         p.apply_if.as_ref(),
-                        [DynamicSelector::Theme(ThemeCondition::Dark)]
+                        [DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)]
                     ),
                     b.get_property()?.as_ref().to_vec(),
                 )),
@@ -5105,7 +5105,12 @@ fn chrome_geometry(part: &CssPropertyWithConditionsVec) -> Vec<CssPropertyWithCo
         .filter(|p| {
             !is_chrome_paint(p.property.get_type())
                 && p.apply_if.as_ref().iter().all(|c| {
-                    !matches!(c, DynamicSelector::Theme(_) | DynamicSelector::PseudoState(_))
+                    !matches!(
+                        c,
+                        DynamicSelector::Theme(_)
+                            | DynamicSelector::Mode(_)
+                            | DynamicSelector::PseudoState(_)
+                    )
                 })
         })
         .cloned()
@@ -6032,7 +6037,7 @@ mod night_focus_ring_tests {
         ] {
             let conds = ring.apply_if.as_ref();
             assert!(
-                conds.contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+                conds.contains(&DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))
                     && conds.contains(&DynamicSelector::PseudoState(PseudoStateType::Focus)),
                 "premise: the {edge} edge is the dark :focus twin, {conds:?}"
             );

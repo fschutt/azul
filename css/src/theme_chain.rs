@@ -53,9 +53,9 @@ pub struct ThemeEnv {
     /// the app's choice. Never a mode word: those are the deprecated alias.
     pub theme: Option<String>,
     /// The mode `AZ_MODE` pins (or, deprecated, `AZ_THEME=light|dark`):
-    /// [`ThemeCondition::Light`] or [`ThemeCondition::Dark`]; `None` pins
+    /// [`ModeCondition::Light`] or [`ModeCondition::Dark`]; `None` pins
     /// nothing.
-    pub mode: Option<ThemeCondition>,
+    pub mode: Option<crate::system::DarkLightMode>,
     /// One line per value that is not taken as written (the deprecated
     /// alias, an unknown `AZ_MODE`), for the app to log once.
     pub warnings: Vec<String>,
@@ -135,10 +135,10 @@ impl ModeWord {
     }
 
     /// The pin this word asks for; `system` asks for none.
-    const fn pin(self) -> Option<ThemeCondition> {
+    const fn pin(self) -> Option<crate::system::DarkLightMode> {
         match self {
-            Self::Light => Some(ThemeCondition::Light),
-            Self::Dark => Some(ThemeCondition::Dark),
+            Self::Light => Some(crate::system::DarkLightMode::Light),
+            Self::Dark => Some(crate::system::DarkLightMode::Dark),
             Self::System | Self::NotAMode => None,
         }
     }
@@ -197,7 +197,7 @@ pub fn is_reserved_theme_name(name: &str) -> bool {
 /// `-`, `_` and `:` (the spin-off separator)?
 ///
 /// The one character rule of the `@theme(<name>)` parser
-/// (`ThemeCondition::from_block_name`) and the chain, so a chain never holds
+/// (`DynamicSelector::from_theme_block_name`) and the chain, so a chain never holds
 /// a name no block can carry.
 #[must_use]
 pub fn is_theme_name(name: &str) -> bool {
@@ -547,10 +547,10 @@ mod tests {
     #[test]
     fn az_mode_pins_the_mode() {
         for (value, mode) in [
-            ("dark", ThemeCondition::Dark),
-            ("light", ThemeCondition::Light),
-            (" Dark ", ThemeCondition::Dark),
-            ("LIGHT", ThemeCondition::Light),
+            ("dark", crate::system::DarkLightMode::Dark),
+            ("light", crate::system::DarkLightMode::Light),
+            (" Dark ", crate::system::DarkLightMode::Dark),
+            ("LIGHT", crate::system::DarkLightMode::Light),
         ] {
             let env = ThemeEnv::from_values(None, Some(value));
             assert_eq!(env.mode, Some(mode), "AZ_MODE={value:?}");
@@ -592,8 +592,8 @@ mod tests {
     #[test]
     fn az_theme_dark_still_pins_the_mode_and_points_at_az_mode() {
         for (value, mode, instead) in [
-            ("dark", ThemeCondition::Dark, "AZ_MODE=dark"),
-            ("Light", ThemeCondition::Light, "AZ_MODE=light"),
+            ("dark", crate::system::DarkLightMode::Dark, "AZ_MODE=dark"),
+            ("Light", crate::system::DarkLightMode::Light, "AZ_MODE=light"),
         ] {
             let env = ThemeEnv::from_values(Some(value), None);
             assert_eq!(env.mode, Some(mode), "AZ_THEME={value}");
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn az_mode_outranks_the_deprecated_az_theme_alias() {
         let env = ThemeEnv::from_values(Some("dark"), Some("light"));
-        assert_eq!(env.mode, Some(ThemeCondition::Light));
+        assert_eq!(env.mode, Some(crate::system::DarkLightMode::Light));
         assert_eq!(env.theme, None);
         assert_eq!(
             env.warnings.len(),
@@ -641,7 +641,7 @@ mod tests {
 
         let both = ThemeEnv::from_values(Some(" flora "), Some("dark"));
         assert_eq!(both.theme.as_deref(), Some("flora"));
-        assert_eq!(both.mode, Some(ThemeCondition::Dark));
+        assert_eq!(both.mode, Some(crate::system::DarkLightMode::Dark));
         assert!(both.warnings.is_empty(), "{:?}", both.warnings);
     }
 

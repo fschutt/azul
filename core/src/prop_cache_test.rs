@@ -1548,7 +1548,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1568,7 +1568,7 @@ mod autotest_generated {
                 .map(|c| c.inner)
         };
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         let sd = build(Some(ctx));
@@ -1581,7 +1581,7 @@ mod autotest_generated {
         assert_eq!(colour_of(&sd, 3), Some(dark), "…and so does the text");
 
         let light_ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         let sd = build(Some(light_ctx));
@@ -1616,7 +1616,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1638,7 +1638,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);
@@ -1650,7 +1650,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);

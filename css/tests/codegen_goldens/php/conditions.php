@@ -79,7 +79,7 @@ function style_card()
                     'AzDynamicSelector',
                     [
                         $L->AzDynamicSelector_pseudoState($L->AzPseudoStateType_Hover),
-                        $L->AzDynamicSelector_theme($L->AzThemeCondition_dark()),
+                        $L->AzDynamicSelector_mode($L->AzModeCondition_Dark),
                     ]
                 )
             ),

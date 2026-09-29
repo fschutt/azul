@@ -731,7 +731,7 @@ fn push_border_colors_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&Ribbon
         v.push(Cond::simple(edge_color(edge, light)));
     }
     for edge in EDGES {
-        v.push(Cond::dark_theme(edge_color(edge, dark)));
+        v.push(Cond::dark_mode(edge_color(edge, dark)));
     }
 }
 
@@ -5132,7 +5132,7 @@ mod tests {
             let Some(state) = state else { continue };
             let is_dark = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if is_dark {
                 dark.push((p.get_type(), state));
             } else {
@@ -5165,7 +5165,7 @@ mod tests {
                     .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
                 let is_dark = conds
                     .iter()
-                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
                 matches!(p, CssProperty::BackgroundContent(_))
                     && gated_on_state
                     && is_dark == want_dark
@@ -5212,7 +5212,7 @@ mod tests {
                 matches!(p, CssProperty::TextColor(_))
                     && conds
                         .iter()
-                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                        .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                     && conds
                         .iter()
                         .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
@@ -6139,7 +6139,7 @@ mod tests {
         conds
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
     }
 
     /// Invariant I8 for the ribbon's RESTING colours: every opaque colour a

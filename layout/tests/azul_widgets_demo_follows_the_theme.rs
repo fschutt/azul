@@ -134,7 +134,7 @@ fn colours_without_a_dark_twin(style: &str) -> Vec<CssPropertyType> {
     let mut dark = Vec::new();
     for rule in css.rules.as_ref() {
         let conditions = rule.conditions.as_ref();
-        let is_dark = conditions.contains(&DynamicSelector::Theme(ThemeCondition::Dark));
+        let is_dark = conditions.contains(&DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark));
         for d in rule.declarations.as_ref() {
             let CssDeclaration::Static(p) = d else {
                 continue;
@@ -410,7 +410,7 @@ fn the_demo_paints_from_the_system_palette_directly() {
             if rule
                 .conditions
                 .as_ref()
-                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+                .contains(&DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))
             {
                 twins.push(head());
             }
@@ -467,7 +467,7 @@ fn the_notifications_section_paints_from_the_system_palette_too() {
             if rule
                 .conditions
                 .as_ref()
-                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+                .contains(&DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))
             {
                 bad.push(format!("a dark-theme patch in {s:?}"));
             }
@@ -501,7 +501,7 @@ fn the_forms_section_paints_from_the_system_palette_too() {
             if rule
                 .conditions
                 .as_ref()
-                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+                .contains(&DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))
             {
                 bad.push(format!("a dark-theme patch in {s:?}"));
             }

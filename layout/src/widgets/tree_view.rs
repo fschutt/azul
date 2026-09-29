@@ -228,12 +228,12 @@ pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
             FIELD_BG_DARK,
         )]),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR_DARK,
     })),
 ];
@@ -286,7 +286,7 @@ pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: SELECTED_TEXT,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
             SELECTED_BG_DARK,
         )]),
@@ -310,7 +310,7 @@ pub(crate) static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ICON_COLOR,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: ICON_COLOR_DARK,
     })),
 ];
@@ -332,7 +332,7 @@ pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     // text, not only on the container: a CONDITIONAL inline value does not
     // reach a child through inheritance, so labels kept the light colour and
     // came out near-black on the dark surface.
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR_DARK,
     })),
 ];

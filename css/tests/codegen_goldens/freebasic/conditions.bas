@@ -11,7 +11,7 @@ Function StyleCard() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 1) As AzDynamicSelector
     Dim t2(0 To 10) As AzCssPropertyWithConditions
     t1(0) = AzDynamicSelector_pseudoState(AzPseudoStateType_Hover)
-    t1(1) = AzDynamicSelector_theme(AzThemeCondition_dark())
+    t1(1) = AzDynamicSelector_mode(AzModeCondition_Dark)
     t2(0) = AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(Type<AzLayoutPaddingTop>(AzPixelValue_px(8.0))))
     t2(1) = AzCssPropertyWithConditions_onHover(AzCssProperty_paddingTop(Type<AzLayoutPaddingTop>(AzPixelValue_px(9.0))))
     t2(2) = AzCssPropertyWithConditions_onActive(AzCssProperty_paddingTop(Type<AzLayoutPaddingTop>(AzPixelValue_px(10.0))))

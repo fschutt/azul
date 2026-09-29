@@ -291,7 +291,7 @@ fn the_pair_walk_reports_a_missing_half_and_a_reversed_pair() {
         })
     };
     let lone = Dom::create_div().with_css_props(
-        vec![CssPropertyWithConditions::dark_theme(c(1))].into(),
+        vec![CssPropertyWithConditions::dark_mode(c(1))].into(),
     );
     let mut bad = Vec::new();
     pair_findings("fixture", &lone, "root", &mut bad);
@@ -299,7 +299,7 @@ fn the_pair_walk_reports_a_missing_half_and_a_reversed_pair() {
 
     let reversed = Dom::create_div().with_css_props(
         vec![
-            CssPropertyWithConditions::dark_theme(c(1)),
+            CssPropertyWithConditions::dark_mode(c(1)),
             CssPropertyWithConditions::simple(c(2)),
         ]
         .into(),

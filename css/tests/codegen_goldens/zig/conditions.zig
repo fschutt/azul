@@ -27,7 +27,7 @@ pub fn styleCard() C.AzCssPropertyWithConditionsVec {
             C.AzCssProperty_textColor(C.AzStyleTextColor{ .inner = C.AzColorU{ .r = 204, .g = 204, .b = 204, .a = 255 } }),
             C.AzDynamicSelectorVec_copyFromPtr(&[_]C.AzDynamicSelector{
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Hover),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }, 2)
         ),
         C.AzCssPropertyWithConditions_withCondition(C.AzCssProperty_letterSpacing(C.AzStyleLetterSpacing{ .inner = C.AzPixelValue_px(1.0) }), C.AzDynamicSelector_language(C.AzLanguageCondition_prefix(C.AzString_copyFromBytes("de-DE", 0, 5)))),

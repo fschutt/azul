@@ -25,7 +25,7 @@ public func styleCard() -> [CssPropertyWithConditions] {
             CssProperty.textColor(StyleTextColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255))),
             conditions: [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withCondition(CssProperty.letterSpacing(StyleLetterSpacing(inner: PixelValue.px(1.0))), condition: DynamicSelector.language(LanguageCondition.prefix("de-DE"))),

@@ -58,10 +58,10 @@ fn resolve(
     state: Option<PseudoStateType>,
 ) -> Vec<(CssPropertyType, CssProperty)> {
     let mut ctx = DynamicSelectorContext {
-        theme: if dark {
-            ThemeCondition::Dark
+        mode: if dark {
+            azul_css::system::DarkLightMode::Dark
         } else {
-            ThemeCondition::Light
+            azul_css::system::DarkLightMode::Light
         },
         ..Default::default()
     };

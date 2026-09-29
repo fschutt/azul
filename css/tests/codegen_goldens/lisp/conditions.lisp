@@ -50,7 +50,7 @@
           'azul-internal::az-dynamic-selector
           (list
             (azul-internal::%az-dynamic-selector-pseudo-state :hover)
-            (azul-internal::%az-dynamic-selector-theme (azul-internal::%az-theme-condition-dark))
+            (azul-internal::%az-dynamic-selector-mode :dark)
           )
         )
       )

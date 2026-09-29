@@ -65,7 +65,7 @@ fn box_style(width: isize, light: ColorU, dark: ColorU) -> Css {
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(width))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
         CssPropertyWithConditions::simple(fill(light)),
-        CssPropertyWithConditions::dark_theme(fill(dark)),
+        CssPropertyWithConditions::dark_mode(fill(dark)),
     ])
     .into()
 }

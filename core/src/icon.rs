@@ -564,9 +564,9 @@ pub fn parse_icon_apply_if(apply_if: &str) -> Vec<IconRuleCondition> {
 
     let mode = |value: &str| {
         if value.eq_ignore_ascii_case("light") {
-            Some(ThemeCondition::Light)
+            Some(azul_css::dynamic_selector::ModeCondition::Light)
         } else if value.eq_ignore_ascii_case("dark") {
-            Some(ThemeCondition::Dark)
+            Some(azul_css::dynamic_selector::ModeCondition::Dark)
         } else {
             None
         }
@@ -586,11 +586,12 @@ pub fn parse_icon_apply_if(apply_if: &str) -> Vec<IconRuleCondition> {
         match key.trim().to_ascii_lowercase().as_str() {
             // `light` / `dark` are reserved for the mode (design 9.1
             // pitfall 5); any other name is an app theme in the chain.
-            "theme" => conditions.push(IconRuleCondition::Selector(DynamicSelector::Theme(
-                mode(value).unwrap_or_else(|| ThemeCondition::Custom(AzString::from(value))),
+            "theme" => conditions.push(IconRuleCondition::Selector(mode(value).map_or_else(
+                || DynamicSelector::Theme(ThemeCondition::Custom(AzString::from(value))),
+                DynamicSelector::Mode,
             ))),
             "mode" => conditions.push(mode(value).map_or_else(never, |m| {
-                IconRuleCondition::Selector(DynamicSelector::Theme(m))
+                IconRuleCondition::Selector(DynamicSelector::Mode(m))
             })),
             "os" => match parse_os_at_rule_content(value) {
                 Some(selectors) => conditions
@@ -1384,7 +1385,7 @@ fn icon_rule_context(
         rules.os_version = live.os_version;
         rules.desktop_env = live.desktop_env;
         rules.de_version = live.de_version;
-        rules.theme = live.theme.clone();
+        rules.mode = live.mode;
         rules.theme_chain = live.theme_chain.clone();
         rules.prefers_high_contrast = live.prefers_high_contrast;
         rules.system_colors = live.system_colors;
@@ -1401,11 +1402,7 @@ fn style_in_window_mode(
 ) -> Option<SystemStyle> {
     use azul_css::{dynamic_selector::ThemeCondition, system::DarkLightMode};
 
-    let mode = if context.theme == ThemeCondition::Dark {
-        DarkLightMode::Dark
-    } else {
-        DarkLightMode::Light
-    };
+    let mode = context.mode;
     if system_style.theme == mode
         && system_style.prefers_high_contrast == context.prefers_high_contrast
     {

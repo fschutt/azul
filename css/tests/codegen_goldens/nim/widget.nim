@@ -26,28 +26,28 @@ proc styleAzulNativeButton*(): AzCssPropertyWithConditionsVec =
       AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 73'u8, g: 80'u8, b: 87'u8, a: 255'u8))])),
       azVec(AzDynamicSelectorVec_copyFromPtr, [
         AzDynamicSelector_pseudoState(AzPseudoStateType.Hover),
-        AzDynamicSelector_theme(AzThemeCondition_dark()),
+        AzDynamicSelector_mode(AzModeCondition.Dark),
       ])
     ),
     AzCssPropertyWithConditions_withConditions(
       AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 73'u8, g: 80'u8, b: 87'u8, a: 255'u8))),
       azVec(AzDynamicSelectorVec_copyFromPtr, [
         AzDynamicSelector_pseudoState(AzPseudoStateType.Hover),
-        AzDynamicSelector_theme(AzThemeCondition_dark()),
+        AzDynamicSelector_mode(AzModeCondition.Dark),
       ])
     ),
     AzCssPropertyWithConditions_withConditions(
       AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 43'u8, g: 48'u8, b: 53'u8, a: 255'u8))])),
       azVec(AzDynamicSelectorVec_copyFromPtr, [
         AzDynamicSelector_pseudoState(AzPseudoStateType.Active),
-        AzDynamicSelector_theme(AzThemeCondition_dark()),
+        AzDynamicSelector_mode(AzModeCondition.Dark),
       ])
     ),
     AzCssPropertyWithConditions_withConditions(
       AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 59'u8, g: 130'u8, b: 246'u8, a: 255'u8))),
       azVec(AzDynamicSelectorVec_copyFromPtr, [
         AzDynamicSelector_pseudoState(AzPseudoStateType.Focus),
-        AzDynamicSelector_theme(AzThemeCondition_dark()),
+        AzDynamicSelector_mode(AzModeCondition.Dark),
       ])
     ),
   ])

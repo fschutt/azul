@@ -45,7 +45,7 @@ let style_card () =
       (azCssProperty_textColor (az_struct az_style_text_color [ (fun v -> Ctypes.setf v az_style_text_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ]))
       (azDynamicSelectorVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_dynamic_selector [
         (azDynamicSelector_pseudoState (PseudoStateType.to_int PseudoStateType.Hover));
-        (azDynamicSelector_theme (azThemeCondition_dark ()))
+        (azDynamicSelector_mode (ModeCondition.to_int ModeCondition.Dark))
       ])) (Unsigned.Size_t.of_int 2))
     );
     (azCssPropertyWithConditions_withCondition (azCssProperty_letterSpacing (az_struct az_style_letter_spacing [ (fun v -> Ctypes.setf v az_style_letter_spacing_field_inner (azPixelValue_px 1.0)) ])) (azDynamicSelector_language (azLanguageCondition_prefix (azul_az_string "de-DE"))))

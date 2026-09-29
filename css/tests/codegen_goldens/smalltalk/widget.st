@@ -32,19 +32,19 @@ AzulStyles class >> styleAzulNativeButton [
         (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderRightColor: (AzStyleBorderRightColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 73; g: 80; b: 87; a: 255; yourself)) })) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Hover)).
-            (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))
+            (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))
         })).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 73; g: 80; b: 87; a: 255; yourself); yourself)) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Hover)).
-            (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))
+            (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))
         })).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 43; g: 48; b: 53; a: 255; yourself)) })) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Active)).
-            (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))
+            (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))
         })).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 59; g: 130; b: 246; a: 255; yourself); yourself)) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Focus)).
-            (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))
+            (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))
         }))
     }
 ]

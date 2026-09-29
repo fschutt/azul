@@ -234,7 +234,7 @@ const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = 
     ))),
     // Same reason as the tree's label: a conditional inline value is not
     // inherited, so the cell states its own dark colour.
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -276,7 +276,7 @@ const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::dark_mode(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(ColorU {
                 r: 43,
@@ -318,7 +318,7 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -347,7 +347,7 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
     // Dark defaults. Inline CSS takes `@theme dark` conditions and the last
     // matching property wins, so each dark value sits after the light one it
     // replaces. A list is a FIELD: in a dark window it must not stay white.
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::dark_mode(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(ColorU {
                 r: 31,
@@ -357,7 +357,7 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
             }),
         ])),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -2143,7 +2143,7 @@ mod autotest_generated {
             }
             let dark_gated = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if dark_gated {
                 dark.push((p.get_type(), i));
             } else {

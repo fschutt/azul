@@ -31,7 +31,7 @@ func StyleCard() azul.AzCssPropertyWithConditionsVec {
 			azul.AzCssProperty_textColor(azul.AzStyleTextColor{Inner: azul.AzColorU{R: 204, G: 204, B: 204, A: 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_PseudoState(azul.PseudoStateType_Hover),
-				azul.AzDynamicSelector_Theme(azul.AzThemeCondition_Dark()),
+				azul.AzDynamicSelector_Mode(azul.ModeCondition_Dark),
 			}[0], 2),
 		),
 		azul.AzCssPropertyWithConditions_withCondition(azul.AzCssProperty_letterSpacing(azul.AzStyleLetterSpacing{Inner: azul.AzPixelValue_px(1.0)}), azul.AzDynamicSelector_Language(azul.AzLanguageCondition_Prefix(azul.Str("de-DE").Raw()))),

@@ -380,7 +380,7 @@ pub(crate) mod theme_probe {
         conditions
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(_)))
+            .any(|c| matches!(c, DynamicSelector::Theme(_) | DynamicSelector::Mode(_)))
     }
 
     /// The node's inline declarations that apply in EVERY theme, in declaration
@@ -418,7 +418,7 @@ pub(crate) mod theme_probe {
             .filter(|(_, c)| {
                 c.as_ref()
                     .iter()
-                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    .any(|s| matches!(s, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
             })
             .map(|(p, _)| p)
             .collect()
@@ -1457,13 +1457,13 @@ mod theme_pairs {
             })
         };
         // Missing half.
-        let bad = findings(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root");
+        let bad = findings(&[CssPropertyWithConditions::dark_mode(c(1))], "fixture", "root");
         assert_eq!(bad.len(), 1, "{bad:?}");
         assert!(bad[0].contains("NO light counterpart"), "{}", bad[0]);
         // Reversed pair.
         let bad = findings(
             &[
-                CssPropertyWithConditions::dark_theme(c(1)),
+                CssPropertyWithConditions::dark_mode(c(1)),
                 CssPropertyWithConditions::simple(c(2)),
             ],
             "fixture",

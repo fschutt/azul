@@ -127,7 +127,7 @@ static WIDGET_STYLE: &[CssPropertyWithConditions] = &[
     ),
     CssPropertyWithConditions::with_single_condition(
         BG_FLORA_NIGHT,
-        azul_css::theme_conditions!("flora", DynamicSelector::Theme(ThemeCondition::Dark)),
+        azul_css::theme_conditions!("flora", DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)),
     ),
 ];
 
@@ -156,13 +156,13 @@ fn the_window_context_carries_the_app_theme_beside_the_colour_scheme() {
     let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Light));
     assert_eq!(ctx.app_theme(), "flora");
     assert_eq!(
-        ctx.theme,
-        ThemeCondition::Light,
+        ctx.mode,
+        azul_css::system::DarkLightMode::Light,
         "the colour scheme is still the window's light"
     );
     let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Dark));
     assert_eq!(ctx.app_theme(), "flora", "a dark window keeps its app theme");
-    assert_eq!(ctx.theme, ThemeCondition::Dark);
+    assert_eq!(ctx.mode, azul_css::system::DarkLightMode::Dark);
 }
 
 #[test]

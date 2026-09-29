@@ -4,8 +4,6 @@
 use azul::css::*;
 #[allow(unused_imports)]
 use azul::vec::*;
-#[allow(unused_imports)]
-use azul::window::*;
 
 /// CSS: .card, .card:hover, .card:active, .card:focus, .card (conditional), .card:hover (conditional)
 pub fn style_card() -> CssPropertyWithConditionsVec {
@@ -31,7 +29,7 @@ pub fn style_card() -> CssPropertyWithConditionsVec {
             CssProperty::text_color(StyleTextColor { inner: ColorU { r: 204, g: 204, b: 204, a: 255 } }),
             DynamicSelectorVec::from(vec![
                 DynamicSelector::PseudoState(PseudoStateType::Hover),
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
             ])
         ),
         CssPropertyWithConditions::with_condition(CssProperty::letter_spacing(StyleLetterSpacing { inner: PixelValue::px(1.0) }), DynamicSelector::Language(LanguageCondition::Prefix(azul::str::String::from("de-DE")))),

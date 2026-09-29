@@ -57,7 +57,7 @@ function Get-StyleCard {
             [Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]204; g = [byte]204; b = [byte]204; a = [byte]255 } }),
             (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(
                 [Azul.NativeMethods]::AzDynamicSelector_pseudoState([Azul.PseudoStateType]::Hover),
-                [Azul.NativeMethods]::AzDynamicSelector_theme([Azul.NativeMethods]::AzThemeCondition_dark())
+                [Azul.NativeMethods]::AzDynamicSelector_mode([Azul.ModeCondition]::Dark)
             ))
         ),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_withCondition([Azul.NativeMethods]::AzCssProperty_letterSpacing([Azul.AzStyleLetterSpacing]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]1.0) }), [Azul.NativeMethods]::AzDynamicSelector_language([Azul.NativeMethods]::AzLanguageCondition_prefix((New-CssString 'de-DE'))))

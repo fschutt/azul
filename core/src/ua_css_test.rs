@@ -212,19 +212,19 @@ mod autotest_generated {
         ]
     }
 
-    fn all_themes() -> Vec<ThemeCondition> {
+    /// Every mode a context can be in (an app theme name or "system
+    /// preferred" is not a mode: the context holds light or dark).
+    fn all_themes() -> Vec<azul_css::system::DarkLightMode> {
         vec![
-            ThemeCondition::Light,
-            ThemeCondition::Dark,
-            ThemeCondition::Custom(AzString::from("neon")),
-            ThemeCondition::SystemPreferred,
+            azul_css::system::DarkLightMode::Light,
+            azul_css::system::DarkLightMode::Dark,
         ]
     }
 
-    fn ctx(os: OsCondition, theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(os: OsCondition, theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
             os,
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -1119,7 +1119,7 @@ mod autotest_generated {
     fn per_os_and_theme_defaults_are_what_the_table_promises() {
         let cases: Vec<(
             OsCondition,
-            ThemeCondition,
+            azul_css::system::DarkLightMode,
             LayoutScrollbarWidth,
             ScrollbarVisibilityMode,
             u32,
@@ -1128,7 +1128,7 @@ mod autotest_generated {
         )> = vec![
             (
                 OsCondition::MacOS,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1150,7 +1150,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::MacOS,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1172,7 +1172,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Windows,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1194,7 +1194,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Windows,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1216,7 +1216,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::IOS,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1233,7 +1233,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::IOS,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1250,7 +1250,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Android,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 300,
@@ -1267,7 +1267,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Android,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 300,
@@ -1286,7 +1286,7 @@ mod autotest_generated {
                 // Linux has no OS-specific colour rule: dark falls through to the
                 // generic dark entry.
                 OsCondition::Linux,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1308,7 +1308,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Linux,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1317,7 +1317,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Web,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1352,40 +1352,9 @@ mod autotest_generated {
         }
     }
 
-    /// `match_theme` compares by equality (except when the *condition* is
-    /// `SystemPreferred`), so a context theme of `Custom(..)` / `SystemPreferred`
-    /// matches no `@theme` rule at all — every such context must still resolve a
-    /// colour, via the unconditional fallback.
-    #[test]
-    fn unrecognised_context_themes_fall_back_instead_of_failing() {
-        for theme in [
-            ThemeCondition::Custom(AzString::from("")),
-            ThemeCondition::Custom(AzString::from("🎨")),
-            ThemeCondition::SystemPreferred,
-        ] {
-            // OS-conditioned properties still apply — only the theme rules miss.
-            let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::MacOS, theme.clone()));
-            assert_eq!(r.width, LayoutScrollbarWidth::Thin, "{theme:?}");
-            assert_eq!(
-                r.visibility,
-                ScrollbarVisibilityMode::WhenScrolling,
-                "{theme:?}"
-            );
-            assert_eq!(
-                unwrap_custom(r.color),
-                (CLASSIC_LIGHT_THUMB, CLASSIC_LIGHT_TRACK),
-                "{theme:?}: must fall back to the unconditional colour"
-            );
-        }
-    }
-
-    /// `OsCondition::Apple` is condition-side sugar (it *matches* MacOS/IOS); as a
-    /// *context* value it equals neither, so an `Apple` context gets the generic
-    /// defaults. `DynamicSelectorContext::from_system_style` never produces it, so
-    /// this pins down the (slightly surprising) behaviour rather than blessing it.
     #[test]
     fn apple_as_a_context_os_matches_no_macos_or_ios_rule() {
-        let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::Apple, ThemeCondition::Dark));
+        let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::Apple, azul_css::system::DarkLightMode::Dark));
         assert_eq!(r.width, LayoutScrollbarWidth::Auto);
         assert_eq!(r.visibility, ScrollbarVisibilityMode::Always);
         assert_eq!(r.fade_delay.ms, 0);
@@ -1499,7 +1468,7 @@ mod autotest_generated {
         for (w, h) in hostile {
             let c = DynamicSelectorContext {
                 os: OsCondition::MacOS,
-                theme: ThemeCondition::Dark,
+                mode: azul_css::system::DarkLightMode::Dark,
                 de_version: u32::MAX,
                 viewport_width: w,
                 viewport_height: h,
@@ -1552,10 +1521,10 @@ mod themed_ua_colours {
         ua_css::{get_ua_property, get_ua_property_themed},
     };
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
             os: OsCondition::MacOS,
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -1574,13 +1543,13 @@ mod themed_ua_colours {
         let light = get_ua_property_themed(
             &NodeType::Button,
             CssPropertyType::BorderTopColor,
-            Some(&ctx(ThemeCondition::Light)),
+            Some(&ctx(azul_css::system::DarkLightMode::Light)),
         )
         .and_then(border_top);
         let dark = get_ua_property_themed(
             &NodeType::Button,
             CssPropertyType::BorderTopColor,
-            Some(&ctx(ThemeCondition::Dark)),
+            Some(&ctx(azul_css::system::DarkLightMode::Dark)),
         )
         .and_then(border_top);
         assert_eq!(light, Some((200, 200, 200)), "the light border is #c8c8c8");
@@ -1600,8 +1569,8 @@ mod themed_ua_colours {
             (NodeType::Button, CssPropertyType::BorderRightColor),
             (NodeType::Hr, CssPropertyType::BorderTopColor),
         ] {
-            let light = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Light)));
-            let dark = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Dark)));
+            let light = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Light)));
+            let dark = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Dark)));
             assert!(
                 light.is_some() && dark.is_some(),
                 "{node:?}/{prop:?} must resolve"
@@ -1618,7 +1587,7 @@ mod themed_ua_colours {
             get_ua_property(&NodeType::Button, CssPropertyType::BorderTopColor),
         );
         // A non-colour default is untouched by the theme in either mode.
-        for theme in [ThemeCondition::Light, ThemeCondition::Dark] {
+        for theme in [azul_css::system::DarkLightMode::Light, azul_css::system::DarkLightMode::Dark] {
             assert_eq!(
                 get_ua_property_themed(&NodeType::Div, CssPropertyType::Display, Some(&ctx(theme))),
                 get_ua_property(&NodeType::Div, CssPropertyType::Display),
@@ -1639,9 +1608,9 @@ mod one_themed_ua_table {
 
     use crate::ua_css::{get_ua_root_property_themed, UA_PROPERTY_TYPES};
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -1659,11 +1628,11 @@ mod one_themed_ua_table {
     fn the_root_text_colour_follows_the_theme() {
         let light = get_ua_root_property_themed(
             CssPropertyType::TextColor,
-            Some(&ctx(ThemeCondition::Light)),
+            Some(&ctx(azul_css::system::DarkLightMode::Light)),
         );
         let dark = get_ua_root_property_themed(
             CssPropertyType::TextColor,
-            Some(&ctx(ThemeCondition::Dark)),
+            Some(&ctx(azul_css::system::DarkLightMode::Dark)),
         );
         assert_eq!(rgb(light), Some((0, 0, 0)), "light: the CSS initial value");
         assert_eq!(
@@ -1694,7 +1663,7 @@ mod one_themed_ua_table {
             CssPropertyType::FontSize,
         ] {
             assert!(
-                get_ua_root_property_themed(pt, Some(&ctx(ThemeCondition::Dark))).is_none(),
+                get_ua_root_property_themed(pt, Some(&ctx(azul_css::system::DarkLightMode::Dark))).is_none(),
                 "{pt:?} is not a document-wide default"
             );
         }

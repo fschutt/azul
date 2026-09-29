@@ -523,7 +523,7 @@ impl Titlebar {
         // default title colour: a bar built without a desktop to ask must
         // not draw a light-grey rule on a dark window.
         if line == MACOS_SEPARATOR_LIGHT {
-            props.push(CssPropertyWithConditions::dark_theme(
+            props.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::const_border_bottom_color(StyleBorderBottomColor {
                     inner: MACOS_SEPARATOR_DARK,
                 }),
@@ -683,7 +683,7 @@ impl Titlebar {
         // mode picks - a restyle-only mode switch included. A colour
         // `from_system_style` read is the desktop's own and gets no twin.
         if self.title_color == DEFAULT_TITLE_COLOR_LIGHT {
-            props.push(CssPropertyWithConditions::dark_theme(
+            props.push(CssPropertyWithConditions::dark_mode(
                 CssProperty::const_text_color(StyleTextColor {
                     inner: DEFAULT_TITLE_COLOR_DARK,
                 }),
@@ -2591,10 +2591,10 @@ mod autotest_generated {
     /// the title style whose conditions hold there, as the cascade picks it.
     fn title_colour_in(
         t: &Titlebar,
-        mode: azul_css::dynamic_selector::ThemeCondition,
+        mode: azul_css::system::DarkLightMode,
     ) -> Option<ColorU> {
         let ctx = azul_css::dynamic_selector::DynamicSelectorContext {
-            theme: mode,
+            mode: mode,
             ..azul_css::dynamic_selector::DynamicSelectorContext::default()
         };
         t.build_title_style(true)
@@ -2627,12 +2627,12 @@ mod autotest_generated {
                 Titlebar::from_system_style_csd(AzString::from("x"), &ss),
             ] {
                 assert_eq!(
-                    title_colour_in(&bar, ThemeCondition::Light),
+                    title_colour_in(&bar, azul_css::system::DarkLightMode::Light),
                     Some(DEFAULT_TITLE_COLOR_LIGHT),
                     "{desktop:?} desktop, light window",
                 );
                 assert_eq!(
-                    title_colour_in(&bar, ThemeCondition::Dark),
+                    title_colour_in(&bar, azul_css::system::DarkLightMode::Dark),
                     Some(DEFAULT_TITLE_COLOR_DARK),
                     "{desktop:?} desktop, dark window",
                 );

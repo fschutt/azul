@@ -38,7 +38,7 @@ public final class AzulStyles {
                 AzulCodegen.vec(
                     AzulNativeVec::AzDynamicSelectorVec_copyFromPtr,
                     AzulNativeCss.AzDynamicSelector_pseudoState(PseudoStateType.Hover.value),
-                    AzulNativeCss.AzDynamicSelector_theme(AzulNativeWindow.AzThemeCondition_dark())
+                    AzulNativeCss.AzDynamicSelector_mode(ModeCondition.Dark.value)
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_withCondition(AzulNativeCss.AzCssProperty_letterSpacing(AzulCodegen.with(new AzStyleLetterSpacing.ByValue(), styleLetterSpacing -> { styleLetterSpacing.inner = AzulNativeCss.AzPixelValue_px(1.0f); })), AzulNativeCss.AzDynamicSelector_language(AzulNativeCss.AzLanguageCondition_prefix(AzulCodegen.str("de-DE"))))

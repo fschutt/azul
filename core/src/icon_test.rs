@@ -1425,10 +1425,10 @@ mod remap_rules_tests {
 
     fn ctx_with(dark: bool, chain: &[&str]) -> DynamicSelectorContext {
         let mut ctx = DynamicSelectorContext::default();
-        ctx.theme = if dark {
-            ThemeCondition::Dark
+        ctx.mode = if dark {
+            azul_css::system::DarkLightMode::Dark
         } else {
-            ThemeCondition::Light
+            azul_css::system::DarkLightMode::Light
         };
         ctx.theme_chain = azul_css::StringVec::from_vec(
             chain
@@ -1450,7 +1450,7 @@ mod remap_rules_tests {
                 IconRuleCondition::Selector(DynamicSelector::Theme(ThemeCondition::Custom(
                     "monokai".into()
                 ))),
-                IconRuleCondition::Selector(DynamicSelector::Theme(ThemeCondition::Dark)),
+                IconRuleCondition::Selector(DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)),
                 IconRuleCondition::Selector(DynamicSelector::PrefersHighContrast(
                     BoolCondition::True
                 )),
@@ -1468,9 +1468,7 @@ mod remap_rules_tests {
         // `theme=light|dark` is the mode, like `@theme(dark)`.
         assert_eq!(
             parse_icon_apply_if("theme=dark"),
-            vec![IconRuleCondition::Selector(DynamicSelector::Theme(
-                ThemeCondition::Dark
-            ))]
+            vec![IconRuleCondition::Selector(DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))]
         );
     }
 

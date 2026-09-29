@@ -31,7 +31,7 @@ style_card :: proc() -> azul.AzCssPropertyWithConditionsVec {
 			azul.AzCssProperty_textColor(azul.AzStyleTextColor{inner = azul.AzColorU{r = 204, g = 204, b = 204, a = 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Hover),
-				azul.AzDynamicSelector_theme(azul.AzThemeCondition_dark()),
+				azul.AzDynamicSelector_mode(azul.AzModeCondition.Dark),
 			}[0], 2)
 		),
 		azul.AzCssPropertyWithConditions_withCondition(azul.AzCssProperty_letterSpacing(azul.AzStyleLetterSpacing{inner = azul.AzPixelValue_px(1.0)}), azul.AzDynamicSelector_language(azul.AzLanguageCondition_prefix(css_str("de-DE")))),

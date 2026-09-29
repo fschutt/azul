@@ -46,7 +46,7 @@ AzulStyles class >> styleCard [
         (AzulNative azCssPropertyWithConditionsDarkTheme: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 255; g: 255; b: 255; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 204; g: 204; b: 204; a: 255; yourself); yourself)) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Hover)).
-            (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))
+            (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))
         })).
         (AzulNative azCssPropertyWithConditionsWithCondition: (AzulNative azCssPropertyLetterSpacing: (AzStyleLetterSpacing new inner: (AzulNative azPixelValuePx: 1.0); yourself)) condition: (AzulNative azDynamicSelectorLanguage: (AzulNative azLanguageConditionPrefix: (self str: 'de-DE'))))
     }

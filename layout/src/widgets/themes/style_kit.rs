@@ -162,19 +162,19 @@ pub const fn weight(w: StyleFontWeight) -> P {
 /// A resting background, light then its dark twin.
 #[must_use]
 pub fn themed_bg(light: ColorU, dark: ColorU) -> [P; 2] {
-    [P::simple(bg(light)), P::dark_theme(bg(dark))]
+    [P::simple(bg(light)), P::dark_mode(bg(dark))]
 }
 
 /// A resting layered background (a gradient face), light then dark.
 #[must_use]
 pub fn themed_layers(light: Vec<StyleBackgroundContent>, dark: Vec<StyleBackgroundContent>) -> [P; 2] {
-    [P::simple(layers(light)), P::dark_theme(layers(dark))]
+    [P::simple(layers(light)), P::dark_mode(layers(dark))]
 }
 
 /// A resting text colour, light then its dark twin.
 #[must_use]
 pub const fn themed_ink(light: ColorU, dark: ColorU) -> [P; 2] {
-    [P::simple(ink(light)), P::dark_theme(ink(dark))]
+    [P::simple(ink(light)), P::dark_mode(ink(dark))]
 }
 
 /// Which edges a border helper draws.
@@ -226,7 +226,7 @@ pub fn border(edges: Edges, width: isize, light: ColorU, dark: ColorU) -> Vec<P>
         v.push(P::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
             inner: light,
         })));
-        v.push(P::dark_theme(CssProperty::const_border_top_color(StyleBorderTopColor {
+        v.push(P::dark_mode(CssProperty::const_border_top_color(StyleBorderTopColor {
             inner: dark,
         })));
     }
@@ -240,7 +240,7 @@ pub fn border(edges: Edges, width: isize, light: ColorU, dark: ColorU) -> Vec<P>
         v.push(P::simple(CssProperty::const_border_right_color(
             StyleBorderRightColor { inner: light },
         )));
-        v.push(P::dark_theme(CssProperty::const_border_right_color(
+        v.push(P::dark_mode(CssProperty::const_border_right_color(
             StyleBorderRightColor { inner: dark },
         )));
     }
@@ -254,7 +254,7 @@ pub fn border(edges: Edges, width: isize, light: ColorU, dark: ColorU) -> Vec<P>
         v.push(P::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor { inner: light },
         )));
-        v.push(P::dark_theme(CssProperty::const_border_bottom_color(
+        v.push(P::dark_mode(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor { inner: dark },
         )));
     }
@@ -268,7 +268,7 @@ pub fn border(edges: Edges, width: isize, light: ColorU, dark: ColorU) -> Vec<P>
         v.push(P::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
             inner: light,
         })));
-        v.push(P::dark_theme(CssProperty::const_border_left_color(
+        v.push(P::dark_mode(CssProperty::const_border_left_color(
             StyleBorderLeftColor { inner: dark },
         )));
     }
@@ -305,7 +305,7 @@ pub fn drop_shadow(offset_y: isize, blur: isize, light: ColorU, dark: ColorU) ->
     };
     [
         P::simple(CssProperty::box_shadow_bottom(shadow(light))),
-        P::dark_theme(CssProperty::box_shadow_bottom(shadow(dark))),
+        P::dark_mode(CssProperty::box_shadow_bottom(shadow(dark))),
     ]
 }
 
@@ -330,7 +330,7 @@ pub fn inset_shadow(offset_y: isize, blur: isize, light: ColorU, dark: ColorU) -
     };
     [
         P::simple(CssProperty::box_shadow_top(shadow(light))),
-        P::dark_theme(CssProperty::box_shadow_top(shadow(dark))),
+        P::dark_mode(CssProperty::box_shadow_top(shadow(dark))),
     ]
 }
 

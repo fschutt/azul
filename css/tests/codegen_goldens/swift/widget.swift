@@ -18,28 +18,28 @@ public func styleAzulNativeButton() -> [CssPropertyWithConditions] {
             CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 73, g: 80, b: 87, a: 255))]),
             conditions: [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 73, g: 80, b: 87, a: 255))),
             conditions: [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 43, g: 48, b: 53, a: 255))]),
             conditions: [
                 DynamicSelector.pseudoState(PseudoStateType.active),
-                DynamicSelector.theme(ThemeCondition.dark),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 59, g: 130, b: 246, a: 255))),
             conditions: [
                 DynamicSelector.pseudoState(PseudoStateType.focus),
-                DynamicSelector.theme(ThemeCondition.dark),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
     ]

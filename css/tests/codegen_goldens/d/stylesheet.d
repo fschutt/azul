@@ -56,7 +56,7 @@ Css stylesheet()
             CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.fontSize(StyleFontSize(PixelValue.px(12.0f))))], [DynamicSelector.os(OsCondition.windows)], 20),
             CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.fontSize(StyleFontSize(PixelValue.px(11.0f))))], [DynamicSelector.os(OsCondition.linux)], 20),
             CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.fontSize(StyleFontSize(PixelValue.px(15.0f))))], [DynamicSelector.os(OsCondition.android)], 20),
-            CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.textColor(StyleTextColor(ColorU(255, 255, 255, 255))))], [DynamicSelector.theme(ThemeCondition.dark())], 20),
+            CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.textColor(StyleTextColor(ColorU(255, 255, 255, 255))))], [DynamicSelector.mode(ModeCondition.dark)], 20),
             CssRuleBlock(
                 CssPath(
                     [
@@ -65,7 +65,7 @@ Css stylesheet()
                     ]
                 ),
                 [CssDeclaration.static_(CssProperty.textColor(StyleTextColor(ColorU(204, 204, 204, 255))))],
-                [DynamicSelector.theme(ThemeCondition.dark())],
+                [DynamicSelector.mode(ModeCondition.dark)],
                 20
             ),
             CssRuleBlock(CssPath([CssPathSelector.class_("card")]), [CssDeclaration.static_(CssProperty.letterSpacing(StyleLetterSpacing(PixelValue.px(1.0f))))], [DynamicSelector.language(LanguageCondition.prefix("de-DE"))], 20),

@@ -27,7 +27,7 @@ function styleCard() {
             lib.AzCssProperty_textColor({ inner: { r: 204, g: 204, b: 204, a: 255 } }),
             lib.AzDynamicSelectorVec_copyFromPtr([
                 lib.AzDynamicSelector_pseudoState(azul.PseudoStateType.Hover),
-                lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark()),
+                lib.AzDynamicSelector_mode(azul.ModeCondition.Dark),
             ], 2)
         ),
         lib.AzCssPropertyWithConditions_withCondition(lib.AzCssProperty_letterSpacing({ inner: lib.AzPixelValue_px(1.0) }), lib.AzDynamicSelector_language(lib.AzLanguageCondition_prefix(azul._azString("de-DE")))),

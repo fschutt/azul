@@ -33,7 +33,7 @@ inline AzCssPropertyWithConditionsVec style_card() {
                 AzDynamicSelectorVec_copyFromPtr(
                     std::vector<AzDynamicSelector>{
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     }.data(),
                     2
                 )

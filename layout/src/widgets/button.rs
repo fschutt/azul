@@ -1891,7 +1891,7 @@ mod autotest_generated {
                         && !c.as_ref().is_empty()
                         && c.as_ref()
                             .iter()
-                            .all(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                            .all(|s| matches!(s, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                 })
                 .count()
         };

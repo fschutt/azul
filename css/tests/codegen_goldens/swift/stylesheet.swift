@@ -53,7 +53,7 @@ public func stylesheet() -> Css {
             CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(12.0))))], conditions: [DynamicSelector.os(OsCondition.windows)], priority: 20),
             CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(11.0))))], conditions: [DynamicSelector.os(OsCondition.linux)], priority: 20),
             CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(15.0))))], conditions: [DynamicSelector.os(OsCondition.android)], priority: 20),
-            CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 255, b: 255, a: 255))))], conditions: [DynamicSelector.theme(ThemeCondition.dark)], priority: 20),
+            CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 255, b: 255, a: 255))))], conditions: [DynamicSelector.mode(ModeCondition.dark)], priority: 20),
             CssRuleBlock(
                 path: CssPath(
                     selectors: [
@@ -62,7 +62,7 @@ public func stylesheet() -> Css {
                     ]
                 ),
                 declarations: [CssDeclaration.`static`(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255))))],
-                conditions: [DynamicSelector.theme(ThemeCondition.dark)],
+                conditions: [DynamicSelector.mode(ModeCondition.dark)],
                 priority: 20
             ),
             CssRuleBlock(path: CssPath(selectors: [CssPathSelector.`class`("card")]), declarations: [CssDeclaration.`static`(CssProperty.letterSpacing(StyleLetterSpacing(inner: PixelValue.px(1.0))))], conditions: [DynamicSelector.language(LanguageCondition.prefix("de-DE"))], priority: 20),

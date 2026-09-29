@@ -20,28 +20,28 @@ function styleAzulNativeButton() {
             lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_color({ r: 73, g: 80, b: 87, a: 255 })], 1)),
             lib.AzDynamicSelectorVec_copyFromPtr([
                 lib.AzDynamicSelector_pseudoState(azul.PseudoStateType.Hover),
-                lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark()),
+                lib.AzDynamicSelector_mode(azul.ModeCondition.Dark),
             ], 2)
         ),
         lib.AzCssPropertyWithConditions_withConditions(
             lib.AzCssProperty_borderTopColor({ inner: { r: 73, g: 80, b: 87, a: 255 } }),
             lib.AzDynamicSelectorVec_copyFromPtr([
                 lib.AzDynamicSelector_pseudoState(azul.PseudoStateType.Hover),
-                lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark()),
+                lib.AzDynamicSelector_mode(azul.ModeCondition.Dark),
             ], 2)
         ),
         lib.AzCssPropertyWithConditions_withConditions(
             lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_color({ r: 43, g: 48, b: 53, a: 255 })], 1)),
             lib.AzDynamicSelectorVec_copyFromPtr([
                 lib.AzDynamicSelector_pseudoState(azul.PseudoStateType.Active),
-                lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark()),
+                lib.AzDynamicSelector_mode(azul.ModeCondition.Dark),
             ], 2)
         ),
         lib.AzCssPropertyWithConditions_withConditions(
             lib.AzCssProperty_borderTopColor({ inner: { r: 59, g: 130, b: 246, a: 255 } }),
             lib.AzDynamicSelectorVec_copyFromPtr([
                 lib.AzDynamicSelector_pseudoState(azul.PseudoStateType.Focus),
-                lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark()),
+                lib.AzDynamicSelector_mode(azul.ModeCondition.Dark),
             ], 2)
         ),
     ], 14));

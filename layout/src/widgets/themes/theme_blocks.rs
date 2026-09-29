@@ -788,11 +788,11 @@ mod tests {
         let white = ColorU::rgb(255, 255, 255);
         let flat = css(alloc::vec![
             P::simple(ink(white)),
-            P::dark_theme(ink(ColorU::rgb(1, 1, 1)))
+            P::dark_mode(ink(ColorU::rgb(1, 1, 1)))
         ]);
         let flora = css(alloc::vec![
             P::simple(ink(white)),
-            P::dark_theme(ink(ColorU::rgb(2, 2, 2)))
+            P::dark_mode(ink(ColorU::rgb(2, 2, 2)))
         ]);
         let merged = follow_css(UiTheme::Flat, flat, flora);
         assert!(
@@ -807,7 +807,7 @@ mod tests {
     #[test]
     fn the_tree_is_the_structural_themes_and_an_equal_subtree_stays_as_it_is() {
         let content = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(
-            alloc::vec![P::dark_theme(CssProperty::const_display(LayoutDisplay::Block))],
+            alloc::vec![P::dark_mode(CssProperty::const_display(LayoutDisplay::Block))],
         ));
         let look = |px: isize, class: &'static str| {
             classed(class)
@@ -1035,12 +1035,12 @@ mod tests {
         let white = ColorU::rgb(255, 255, 255);
         let flat = alloc::vec![
             P::simple(ink(white)),
-            P::dark_theme(ink(ColorU::rgb(1, 1, 1))),
+            P::dark_mode(ink(ColorU::rgb(1, 1, 1))),
             height(4)
         ];
         let flora = alloc::vec![
             P::simple(ink(white)),
-            P::dark_theme(ink(ColorU::rgb(1, 1, 1))),
+            P::dark_mode(ink(ColorU::rgb(1, 1, 1))),
             height(8)
         ];
         let merged = follow_css(UiTheme::Flat, css(flat.clone()), css(flora.clone()));
@@ -1106,10 +1106,10 @@ mod follow_tests {
         state: Option<PseudoStateType>,
     ) -> Vec<(CssPropertyType, CssProperty)> {
         let ctx = DynamicSelectorContext {
-            theme: if dark {
-                ThemeCondition::Dark
+            mode: if dark {
+                azul_css::system::DarkLightMode::Dark
             } else {
-                ThemeCondition::Light
+                azul_css::system::DarkLightMode::Light
             },
             ..Default::default()
         }
@@ -1165,7 +1165,7 @@ mod follow_tests {
             P::simple(pad(8)),
             P::on_hover(pad(4)),
             P::simple(style_kit::bg(c(250))),
-            P::dark_theme(style_kit::bg(c(30))),
+            P::dark_mode(style_kit::bg(c(30))),
             P::on_hover(style_kit::bg(c(240))),
             P::dark_on_hover(style_kit::bg(c(40))),
         ];
@@ -1173,7 +1173,7 @@ mod follow_tests {
             P::simple(flex()),
             P::simple(pad(8)),
             P::simple(style_kit::bg(c(200))),
-            P::dark_theme(style_kit::bg(c(60))),
+            P::dark_mode(style_kit::bg(c(60))),
             P::on_focus(style_kit::bg(c(210))),
         ];
         (flat, flora)

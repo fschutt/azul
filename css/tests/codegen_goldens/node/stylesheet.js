@@ -55,7 +55,7 @@ function stylesheet() {
             { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(12.0) }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_os(azul.OsCondition.Windows)], 1), priority: 20 },
             { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(11.0) }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_os(azul.OsCondition.Linux)], 1), priority: 20 },
             { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(15.0) }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_os(azul.OsCondition.Android)], 1), priority: 20 },
-            { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_textColor({ inner: { r: 255, g: 255, b: 255, a: 255 } }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark())], 1), priority: 20 },
+            { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_textColor({ inner: { r: 255, g: 255, b: 255, a: 255 } }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_mode(azul.ModeCondition.Dark)], 1), priority: 20 },
             {
                 path: {
                     selectors: lib.AzCssPathSelectorVec_copyFromPtr([
@@ -64,7 +64,7 @@ function stylesheet() {
                     ], 2),
                 },
                 declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_textColor({ inner: { r: 204, g: 204, b: 204, a: 255 } }))], 1),
-                conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_theme(lib.AzThemeCondition_dark())], 1),
+                conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_mode(azul.ModeCondition.Dark)], 1),
                 priority: 20,
             },
             { path: { selectors: lib.AzCssPathSelectorVec_copyFromPtr([lib.AzCssPathSelector_class(azul._azString("card"))], 1) }, declarations: lib.AzCssDeclarationVec_copyFromPtr([lib.AzCssDeclaration_static(lib.AzCssProperty_letterSpacing({ inner: lib.AzPixelValue_px(1.0) }))], 1), conditions: lib.AzDynamicSelectorVec_copyFromPtr([lib.AzDynamicSelector_language(lib.AzLanguageCondition_prefix(azul._azString("de-DE")))], 1), priority: 20 },

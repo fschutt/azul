@@ -90,7 +90,7 @@ static DIVIDER_SKIN_HORIZONTAL: &[CssPropertyWithConditions] = &[
         LayoutMarginBottom::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(DIVIDER_DARK_BG)),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
 /// Flat's vertical rule after [`DIVIDER_BASE`]: 1px wide, 4px of air.
@@ -103,7 +103,7 @@ static DIVIDER_SKIN_VERTICAL: &[CssPropertyWithConditions] = &[
         LayoutMarginRight::const_px(4),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(DIVIDER_DARK_BG)),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
 impl Divider {
@@ -1537,7 +1537,7 @@ mod app_theme_tests {
             let dom = checks::under(theme, || Divider::create().dom());
             let mut ctx = DynamicSelectorContext::default();
             if dark {
-                ctx.theme = ThemeCondition::Dark;
+                ctx.mode = azul_css::system::DarkLightMode::Dark;
             }
             let ctx = ctx.with_app_theme(theme.name());
             let sd = StyledDom::create_from_dom_with_context(

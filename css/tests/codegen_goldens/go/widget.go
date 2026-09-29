@@ -20,28 +20,28 @@ func StyleAzulNativeButton() azul.AzCssPropertyWithConditionsVec {
 			azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 73, G: 80, B: 87, A: 255})}[0], 1)),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_PseudoState(azul.PseudoStateType_Hover),
-				azul.AzDynamicSelector_Theme(azul.AzThemeCondition_Dark()),
+				azul.AzDynamicSelector_Mode(azul.ModeCondition_Dark),
 			}[0], 2),
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{Inner: azul.AzColorU{R: 73, G: 80, B: 87, A: 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_PseudoState(azul.PseudoStateType_Hover),
-				azul.AzDynamicSelector_Theme(azul.AzThemeCondition_Dark()),
+				azul.AzDynamicSelector_Mode(azul.ModeCondition_Dark),
 			}[0], 2),
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_Color(azul.AzColorU{R: 43, G: 48, B: 53, A: 255})}[0], 1)),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_PseudoState(azul.PseudoStateType_Active),
-				azul.AzDynamicSelector_Theme(azul.AzThemeCondition_Dark()),
+				azul.AzDynamicSelector_Mode(azul.ModeCondition_Dark),
 			}[0], 2),
 		),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{Inner: azul.AzColorU{R: 59, G: 130, B: 246, A: 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{
 				azul.AzDynamicSelector_PseudoState(azul.PseudoStateType_Focus),
-				azul.AzDynamicSelector_Theme(azul.AzThemeCondition_Dark()),
+				azul.AzDynamicSelector_Mode(azul.ModeCondition_Dark),
 			}[0], 2),
 		),
 	}[0], 14)

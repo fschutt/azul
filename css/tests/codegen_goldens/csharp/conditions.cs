@@ -36,7 +36,7 @@ namespace AzulStyles
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(
                         NativeMethods.AzDynamicSelectorVec_copyFromPtr,
                         NativeMethods.AzDynamicSelector_pseudoState(PseudoStateType.Hover),
-                        NativeMethods.AzDynamicSelector_theme(NativeMethods.AzThemeCondition_dark())
+                        NativeMethods.AzDynamicSelector_mode(ModeCondition.Dark)
                     )
                 ),
                 NativeMethods.AzCssPropertyWithConditions_withCondition(NativeMethods.AzCssProperty_letterSpacing(new AzStyleLetterSpacing { inner = NativeMethods.AzPixelValue_px(1.0f) }), NativeMethods.AzDynamicSelector_language(NativeMethods.AzLanguageCondition_prefix(AzulCodegen.Str("de-DE"))))

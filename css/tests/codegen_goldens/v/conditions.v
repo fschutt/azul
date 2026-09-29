@@ -12,7 +12,7 @@ fn style_card() azul.AzCssPropertyWithConditionsVec {
 	t1[0] = C.AzDynamicSelector_media(azul.AzMediaType.Screen)
 	t1[1] = C.AzDynamicSelector_viewportWidth(azul.AzMinMaxRange{ min: 1024.0, max: f32(math.nan()) })
 	t2[0] = C.AzDynamicSelector_pseudoState(azul.AzPseudoStateType.Hover)
-	t2[1] = C.AzDynamicSelector_theme(C.AzThemeCondition_dark())
+	t2[1] = C.AzDynamicSelector_mode(azul.AzModeCondition.Dark)
 	t3[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingTop(azul.AzLayoutPaddingTop{ inner: C.AzPixelValue_px(8.0) }))
 	t3[1] = C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_paddingTop(azul.AzLayoutPaddingTop{ inner: C.AzPixelValue_px(9.0) }))
 	t3[2] = C.AzCssPropertyWithConditions_onActive(C.AzCssProperty_paddingTop(azul.AzLayoutPaddingTop{ inner: C.AzPixelValue_px(10.0) }))

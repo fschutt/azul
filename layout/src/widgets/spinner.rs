@@ -537,7 +537,7 @@ fn part(
     if let Some((light, dark)) = ink {
         style.push(CssPropertyWithConditions::simple(fill(light)));
         if let Some(dark) = dark {
-            style.push(CssPropertyWithConditions::dark_theme(fill(dark)));
+            style.push(CssPropertyWithConditions::dark_mode(fill(dark)));
         }
     }
     if let Some(o) = opacity {
@@ -1098,9 +1098,9 @@ mod makeover_tests {
             .collect()
     }
 
-    fn ctx(theme: ThemeCondition, reduced_motion: bool) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode, reduced_motion: bool) -> DynamicSelectorContext {
         let mut c = DynamicSelectorContext::default();
-        c.theme = theme;
+        c.mode = theme;
         c.prefers_reduced_motion = if reduced_motion {
             BoolCondition::True
         } else {
@@ -1110,11 +1110,11 @@ mod makeover_tests {
     }
 
     fn light() -> DynamicSelectorContext {
-        ctx(ThemeCondition::Light, false)
+        ctx(azul_css::system::DarkLightMode::Light, false)
     }
 
     fn dark() -> DynamicSelectorContext {
-        ctx(ThemeCondition::Dark, false)
+        ctx(azul_css::system::DarkLightMode::Dark, false)
     }
 
     fn last_fill(props: &[CssProperty]) -> Option<Vec<StyleBackgroundContent>> {
@@ -1592,7 +1592,7 @@ mod makeover_tests {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
             for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
                 let dom = spinner(theme, style);
-                let still = ctx(ThemeCondition::Light, true);
+                let still = ctx(azul_css::system::DarkLightMode::Light, true);
                 for node in all_nodes(&dom) {
                     let props = applying(node, &still);
                     assert!(

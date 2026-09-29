@@ -627,14 +627,12 @@ mod autotest_generated {
 
     #[test]
     fn app_config_with_mock_environment_sets_the_option() {
-        let config = AppConfig::create().with_mock_environment(CssMockEnvironment::dark_theme());
+        let config = AppConfig::create().with_mock_environment(CssMockEnvironment::dark_mode());
         match config.mock_css_environment {
             OptionCssMockEnvironment::Some(env) => {
                 assert!(matches!(
-                    env.theme,
-                    azul_css::dynamic_selector::OptionThemeCondition::Some(
-                        azul_css::dynamic_selector::ThemeCondition::Dark
-                    )
+                    env.mode,
+                    azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark)
                 ));
             }
             OptionCssMockEnvironment::None => panic!("mock env must be Some"),
@@ -797,20 +795,20 @@ mod autotest_generated {
         ] {
             assert!(matches!(mock.os, OptionOsCondition::Some(o) if o == os));
             // The other overrides stay unset (auto-detect).
-            assert!(matches!(mock.theme, OptionThemeCondition::None));
+            assert!(matches!(mock.mode, azul_css::system::OptionDarkLightMode::None));
             assert!(matches!(mock.viewport_width, azul_css::OptionF32::None));
         }
 
         assert!(matches!(
-            CssMockEnvironment::dark_theme().theme,
-            OptionThemeCondition::Some(ThemeCondition::Dark)
+            CssMockEnvironment::dark_mode().mode,
+            azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark)
         ));
         assert!(matches!(
-            CssMockEnvironment::light_theme().theme,
-            OptionThemeCondition::Some(ThemeCondition::Light)
+            CssMockEnvironment::light_mode().mode,
+            azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Light)
         ));
         assert!(matches!(
-            CssMockEnvironment::dark_theme().os,
+            CssMockEnvironment::dark_mode().os,
             OptionOsCondition::None
         ));
     }
@@ -836,7 +834,7 @@ mod autotest_generated {
         // adversarial floats (NaN viewport) which must not panic.
         let mock = CssMockEnvironment {
             os: OptionOsCondition::Some(OsCondition::Windows),
-            theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark),
             language: azul_css::OptionString::Some(AzString::from_const_str("de-DE")),
             viewport_width: azul_css::OptionF32::Some(f32::NAN),
             viewport_height: azul_css::OptionF32::Some(f32::INFINITY),
@@ -847,7 +845,7 @@ mod autotest_generated {
         let mut ctx = DynamicSelectorContext::default();
         mock.apply_to(&mut ctx);
         assert_eq!(ctx.os, OsCondition::Windows);
-        assert_eq!(ctx.theme, ThemeCondition::Dark);
+        assert_eq!(ctx.mode, azul_css::system::DarkLightMode::Dark);
         assert_eq!(ctx.language.as_str(), "de-DE");
         assert!(ctx.viewport_width.is_nan());
         assert_eq!(ctx.viewport_height, f32::INFINITY);
@@ -858,7 +856,7 @@ mod autotest_generated {
         let mut ctx2 = ctx.clone();
         mock.apply_to(&mut ctx2);
         assert_eq!(ctx2.os, ctx.os);
-        assert_eq!(ctx2.theme, ctx.theme);
+        assert_eq!(ctx2.mode, ctx.mode);
     }
 
     // =====================================================================

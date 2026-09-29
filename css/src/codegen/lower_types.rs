@@ -1361,6 +1361,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ModalOnCloseCallbackType", "callbacks"),
     ("ModalState", "widgets"),
     ("ModalStateWrapper", "widgets"),
+    ("ModeCondition", "css"),
     ("Monitor", "window"),
     ("MonitorId", "window"),
     ("MonitorVec", "vec"),
@@ -2865,6 +2866,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "LayoutWritingMode",
     "LinuxDesktopEnv",
     "MediaType",
+    "ModeCondition",
     "NodeTypeTag",
     "OrientationType",
     "OsCondition",
@@ -4043,6 +4045,7 @@ impl Lower for crate::dynamic_selector::DynamicSelector {
             Self::PrefersHighContrast(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "PrefersHighContrast", vec![v.lower()]),
             Self::PseudoState(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "PseudoState", vec![v.lower()]),
             Self::Language(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "Language", vec![v.lower()]),
+            Self::Mode(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "Mode", vec![v.lower()]),
         }
     }
 }
@@ -4876,6 +4879,17 @@ impl Lower for crate::dynamic_selector::MinMaxRange {
                 ("max", self.max.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::dynamic_selector::ModeCondition {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+            Self::SystemPreferred => "SystemPreferred",
+        };
+        Expr::unit("ModeCondition", EnumShape::CLike, variant)
     }
 }
 
@@ -6925,10 +6939,7 @@ impl Lower for crate::props::style::text::TextBoxEdgeUnder {
 impl Lower for crate::dynamic_selector::ThemeCondition {
     fn lower(&self) -> Expr {
         match self {
-            Self::Light => Expr::unit("ThemeCondition", EnumShape::Tagged, "Light"),
-            Self::Dark => Expr::unit("ThemeCondition", EnumShape::Tagged, "Dark"),
             Self::Custom(v) => Expr::variant("ThemeCondition", EnumShape::Tagged, "Custom", vec![v.lower()]),
-            Self::SystemPreferred => Expr::unit("ThemeCondition", EnumShape::Tagged, "SystemPreferred"),
         }
     }
 }

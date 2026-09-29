@@ -55,7 +55,7 @@ fn hover_and_dark_style() -> Css {
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
         CssPropertyWithConditions::simple(fill(GREEN)),
-        CssPropertyWithConditions::dark_theme(fill(YELLOW)),
+        CssPropertyWithConditions::dark_mode(fill(YELLOW)),
         CssPropertyWithConditions::on_hover(fill(PURPLE)),
         CssPropertyWithConditions::dark_on_hover(fill(ORANGE)),
     ])

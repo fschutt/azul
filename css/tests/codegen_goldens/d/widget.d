@@ -21,28 +21,28 @@ CssPropertyWithConditions[] styleAzulNativeButton()
             CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(73, 80, 87, 255))]),
             [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark()),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.borderTopColor(StyleBorderTopColor(ColorU(73, 80, 87, 255))),
             [
                 DynamicSelector.pseudoState(PseudoStateType.hover),
-                DynamicSelector.theme(ThemeCondition.dark()),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(43, 48, 53, 255))]),
             [
                 DynamicSelector.pseudoState(PseudoStateType.active),
-                DynamicSelector.theme(ThemeCondition.dark()),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
         CssPropertyWithConditions.withConditions(
             CssProperty.borderTopColor(StyleBorderTopColor(ColorU(59, 130, 246, 255))),
             [
                 DynamicSelector.pseudoState(PseudoStateType.focus),
-                DynamicSelector.theme(ThemeCondition.dark()),
+                DynamicSelector.mode(ModeCondition.dark),
             ]
         ),
     ];

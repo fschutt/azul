@@ -19,28 +19,28 @@ pub fn styleAzulNativeButton() C.AzCssPropertyWithConditionsVec {
             C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(&[_]C.AzStyleBackgroundContent{ C.AzStyleBackgroundContent_color(C.AzColorU{ .r = 73, .g = 80, .b = 87, .a = 255 }) }, 1)),
             C.AzDynamicSelectorVec_copyFromPtr(&[_]C.AzDynamicSelector{
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Hover),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }, 2)
         ),
         C.AzCssPropertyWithConditions_withConditions(
             C.AzCssProperty_borderTopColor(C.AzStyleBorderTopColor{ .inner = C.AzColorU{ .r = 73, .g = 80, .b = 87, .a = 255 } }),
             C.AzDynamicSelectorVec_copyFromPtr(&[_]C.AzDynamicSelector{
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Hover),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }, 2)
         ),
         C.AzCssPropertyWithConditions_withConditions(
             C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(&[_]C.AzStyleBackgroundContent{ C.AzStyleBackgroundContent_color(C.AzColorU{ .r = 43, .g = 48, .b = 53, .a = 255 }) }, 1)),
             C.AzDynamicSelectorVec_copyFromPtr(&[_]C.AzDynamicSelector{
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Active),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }, 2)
         ),
         C.AzCssPropertyWithConditions_withConditions(
             C.AzCssProperty_borderTopColor(C.AzStyleBorderTopColor{ .inner = C.AzColorU{ .r = 59, .g = 130, .b = 246, .a = 255 } }),
             C.AzDynamicSelectorVec_copyFromPtr(&[_]C.AzDynamicSelector{
                 C.AzDynamicSelector_pseudoState(C.AzPseudoStateType_Focus),
-                C.AzDynamicSelector_theme(C.AzThemeCondition_dark()),
+                C.AzDynamicSelector_mode(C.AzModeCondition_Dark),
             }, 2)
         ),
     }, 14);

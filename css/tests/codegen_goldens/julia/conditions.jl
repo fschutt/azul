@@ -57,7 +57,7 @@ function style_card()
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
                 Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Hover),
-                Azul.AzDynamicSelector_theme(Azul.AzThemeCondition_dark())
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
             )
         ),
         Azul.AzCssPropertyWithConditions_withCondition(Azul.AzCssProperty_letterSpacing(Azul.AzStyleLetterSpacing(Azul.AzPixelValue_px(1.0f0))), Azul.AzDynamicSelector_language(Azul.AzLanguageCondition_prefix(Azul.az_string("de-DE"))))

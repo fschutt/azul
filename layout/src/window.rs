@@ -416,16 +416,13 @@ pub fn resolve_window_mode(
 /// read from the environment - the testable core of the decision.
 #[must_use]
 pub fn resolve_window_mode_with(
-    env: Option<azul_css::dynamic_selector::ThemeCondition>,
+    env: Option<azul_core::window::DarkLightMode>,
     app: azul_core::window::OptionDarkLightMode,
     window: azul_core::window::DarkLightMode,
 ) -> azul_core::window::DarkLightMode {
-    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
-    use azul_css::dynamic_selector::ThemeCondition;
-    match env {
-        Some(ThemeCondition::Dark) => return DarkLightMode::Dark,
-        Some(ThemeCondition::Light) => return DarkLightMode::Light,
-        _ => {}
+    use azul_core::window::OptionDarkLightMode;
+    if let Some(pinned) = env {
+        return pinned;
     }
     match app {
         OptionDarkLightMode::Some(pinned) => pinned,
@@ -5640,9 +5637,9 @@ impl LayoutWindow {
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
-        ctx.theme = match self.window_mode_for(window_state.theme) {
-            azul_core::window::DarkLightMode::Dark => ThemeCondition::Dark,
-            azul_core::window::DarkLightMode::Light => ThemeCondition::Light,
+        ctx.mode = match self.window_mode_for(window_state.theme) {
+            azul_core::window::DarkLightMode::Dark => azul_css::system::DarkLightMode::Dark,
+            azul_core::window::DarkLightMode::Light => azul_css::system::DarkLightMode::Light,
         };
         // The APP theme beside the mode: `@theme(<name>)` blocks match this
         // window's theme chain, `@theme(dark)` the mode above.
@@ -5651,7 +5648,7 @@ impl LayoutWindow {
         // desktop's: a window the app pins light on a dark desktop must not
         // resolve `system:window-background` to the dark desktop's colour.
         if let Some(style) = self.system_style.as_deref() {
-            ctx.system_colors = style.colors_for_theme(if ctx.theme == ThemeCondition::Dark {
+            ctx.system_colors = style.colors_for_theme(if ctx.mode == azul_css::system::DarkLightMode::Dark {
                 DarkLightMode::Dark
             } else {
                 DarkLightMode::Light
@@ -29087,14 +29084,14 @@ mod window_theme_context {
             ..Default::default()
         };
         assert_eq!(
-            lw.dynamic_selector_context(&ws).theme,
-            ThemeCondition::Dark,
+            lw.dynamic_selector_context(&ws).mode,
+            azul_css::system::DarkLightMode::Dark,
             "an app that switched its window to dark must get `@theme dark` rules"
         );
         ws.theme = DarkLightMode::Light;
         assert_eq!(
-            lw.dynamic_selector_context(&ws).theme,
-            ThemeCondition::Light
+            lw.dynamic_selector_context(&ws).mode,
+            azul_css::system::DarkLightMode::Light
         );
     }
 

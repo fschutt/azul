@@ -365,7 +365,7 @@ pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec
     v.extend([
         CssPropertyWithConditions::simple(divider_thickness(dir)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
-        CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+        CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
             DIVIDER_DARK_BG,
         )),
     ]);

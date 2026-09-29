@@ -80,7 +80,7 @@ module AzulStyles
           :az_dynamic_selector_vec_copy_from_ptr,
           N::AzDynamicSelector,
           N.az_dynamic_selector_pseudo_state(N::AzPseudoStateType::Hover),
-          N.az_dynamic_selector_theme(N.az_theme_condition_dark())
+          N.az_dynamic_selector_mode(N::AzModeCondition::Dark)
         )
       ),
       N.az_css_property_with_conditions_with_condition(N.az_css_property_letter_spacing(AzulCodegen.struct(N::AzStyleLetterSpacing, inner: N.az_pixel_value_px(1.0))), N.az_dynamic_selector_language(N.az_language_condition_prefix(Azul._az_string("de-DE"))))

@@ -15741,7 +15741,7 @@ mod initial_window_theme_tests {
             return; // only meaningful under AZ_MODE
         };
         let expected = match pin {
-            azul_css::dynamic_selector::ThemeCondition::Dark => DarkLightMode::Dark,
+            azul_css::system::DarkLightMode::Dark => DarkLightMode::Dark,
             _ => DarkLightMode::Light,
         };
         for requested in [

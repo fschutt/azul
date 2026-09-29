@@ -129,30 +129,30 @@ pub const UNDER_PAGE_BACKGROUND: StyleBackgroundContentVec =
 
 /// Dark twin: the surface is `system:window-background`.
 pub const DARK_WINDOW_BACKGROUND: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         WINDOW_BACKGROUND,
     ));
 /// Dark twin: the surface is `system:control-background`.
 pub const DARK_CONTROL_BACKGROUND: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         CONTROL_BACKGROUND,
     ));
 /// Dark twin: the surface is `system:button-face`.
 pub const DARK_BUTTON_FACE: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(BUTTON_FACE));
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(BUTTON_FACE));
 /// Dark twin: the surface is `system:accent`.
 pub const DARK_ACCENT_BACKGROUND: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         ACCENT_BACKGROUND,
     ));
 /// Dark twin: the surface is `system:selection-background`.
 pub const DARK_SELECTION_BACKGROUND: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         SELECTION_BACKGROUND,
     ));
 /// Dark twin: the surface is `system:selection-background-inactive`.
 pub const DARK_SELECTION_BACKGROUND_INACTIVE: CssPropertyWithConditions =
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         SELECTION_BACKGROUND_INACTIVE,
     ));
 
@@ -184,7 +184,7 @@ pub const DARK_SEPARATOR_BORDER_LEFT: CssPropertyWithConditions = dark_border_le
 /// Dark twin for `color`.
 #[must_use]
 pub const fn dark_text(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: color,
     }))
 }
@@ -192,7 +192,7 @@ pub const fn dark_text(color: ColorU) -> CssPropertyWithConditions {
 /// Dark twin for `border-top-color`.
 #[must_use]
 pub const fn dark_border_top(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_top_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_top_color(
         StyleBorderTopColor { inner: color },
     ))
 }
@@ -200,7 +200,7 @@ pub const fn dark_border_top(color: ColorU) -> CssPropertyWithConditions {
 /// Dark twin for `border-right-color`.
 #[must_use]
 pub const fn dark_border_right(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_right_color(
         StyleBorderRightColor { inner: color },
     ))
 }
@@ -208,7 +208,7 @@ pub const fn dark_border_right(color: ColorU) -> CssPropertyWithConditions {
 /// Dark twin for `border-bottom-color`.
 #[must_use]
 pub const fn dark_border_bottom(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor { inner: color },
     ))
 }
@@ -216,7 +216,7 @@ pub const fn dark_border_bottom(color: ColorU) -> CssPropertyWithConditions {
 /// Dark twin for `border-left-color`.
 #[must_use]
 pub const fn dark_border_left(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_left_color(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_border_left_color(
         StyleBorderLeftColor { inner: color },
     ))
 }
@@ -236,7 +236,7 @@ pub const fn dark_border(color: ColorU) -> [CssPropertyWithConditions; 4] {
 /// Dark twin for `background`, a `system:` surface picked at run time.
 #[must_use]
 pub fn dark_background(slot: SystemColorRef) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::SystemColor(
             slot,
         )]),
@@ -247,7 +247,7 @@ pub fn dark_background(slot: SystemColorRef) -> CssPropertyWithConditions {
 /// system slot (the semantic info / success / warning / danger tints).
 #[must_use]
 pub fn dark_background_color(color: ColorU) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(color)]),
     ))
 }

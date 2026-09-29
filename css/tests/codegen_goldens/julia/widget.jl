@@ -48,7 +48,7 @@ function style_azul_native_button()
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
                 Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Hover),
-                Azul.AzDynamicSelector_theme(Azul.AzThemeCondition_dark())
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
             )
         ),
         Azul.AzCssPropertyWithConditions_withConditions(
@@ -57,7 +57,7 @@ function style_azul_native_button()
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
                 Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Hover),
-                Azul.AzDynamicSelector_theme(Azul.AzThemeCondition_dark())
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
             )
         ),
         Azul.AzCssPropertyWithConditions_withConditions(
@@ -66,7 +66,7 @@ function style_azul_native_button()
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
                 Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Active),
-                Azul.AzDynamicSelector_theme(Azul.AzThemeCondition_dark())
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
             )
         ),
         Azul.AzCssPropertyWithConditions_withConditions(
@@ -75,7 +75,7 @@ function style_azul_native_button()
                 Azul.AzDynamicSelectorVec_copyFromPtr,
                 Azul.AzDynamicSelector,
                 Azul.AzDynamicSelector_pseudoState(Azul.AzPseudoStateType_Focus),
-                Azul.AzDynamicSelector_theme(Azul.AzThemeCondition_dark())
+                Azul.AzDynamicSelector_mode(Azul.AzModeCondition_Dark)
             )
         )
     )

@@ -4,8 +4,6 @@
 use azul::css::*;
 #[allow(unused_imports)]
 use azul::vec::*;
-#[allow(unused_imports)]
-use azul::window::*;
 
 /// CSS: .__azul-native-button:hover, .__azul-native-button:active, .__azul-native-button:focus, .__azul-native-button:hover (conditional), .__azul-native-button:active (conditional), .__azul-native-button:focus (conditional)
 pub fn style_azul_native_button() -> CssPropertyWithConditionsVec {
@@ -24,28 +22,28 @@ pub fn style_azul_native_button() -> CssPropertyWithConditionsVec {
             CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 73, g: 80, b: 87, a: 255 })])),
             DynamicSelectorVec::from(vec![
                 DynamicSelector::PseudoState(PseudoStateType::Hover),
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
             ])
         ),
         CssPropertyWithConditions::with_conditions(
             CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 73, g: 80, b: 87, a: 255 } }),
             DynamicSelectorVec::from(vec![
                 DynamicSelector::PseudoState(PseudoStateType::Hover),
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
             ])
         ),
         CssPropertyWithConditions::with_conditions(
             CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 43, g: 48, b: 53, a: 255 })])),
             DynamicSelectorVec::from(vec![
                 DynamicSelector::PseudoState(PseudoStateType::Active),
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
             ])
         ),
         CssPropertyWithConditions::with_conditions(
             CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 59, g: 130, b: 246, a: 255 } }),
             DynamicSelectorVec::from(vec![
                 DynamicSelector::PseudoState(PseudoStateType::Focus),
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
             ])
         ),
     ])

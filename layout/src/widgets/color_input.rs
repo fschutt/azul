@@ -797,7 +797,7 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
             CssPropertyWithConditions::simple(bg(light_mode)),
             CssPropertyWithConditions {
                 property: bg(dark_mode),
-                apply_if: vec![DynamicSelector::Theme(ThemeCondition::Dark)].into(),
+                apply_if: vec![DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)].into(),
             },
         ])
     };
@@ -4057,7 +4057,7 @@ mod theme_tests {
                 r.conditions
                     .as_ref()
                     .iter()
-                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                     == dark
             })
             .flat_map(|r| r.declarations.as_ref().iter())

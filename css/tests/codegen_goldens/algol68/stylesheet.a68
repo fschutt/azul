@@ -113,13 +113,13 @@ BEGIN
    selectors OF t38 := az css path selector vec copy from ptr (t37[1], LENG 1);
    inner OF t39 := AZCOLORU (REPR 255, REPR 255, REPR 255, REPR 255);
    t40[1] := az css declaration static (az css property text color (t39));
-   t41[1] := az dynamic selector theme (az theme condition dark);
+   t41[1] := az dynamic selector mode (mode condition dark);
    t42[1] := az css path selector class (css str ("card"));
    t42[2] := az css path selector pseudo selector (az css path pseudo selector hover);
    selectors OF t43 := az css path selector vec copy from ptr (t42[1], LENG 2);
    inner OF t44 := AZCOLORU (REPR 204, REPR 204, REPR 204, REPR 255);
    t45[1] := az css declaration static (az css property text color (t44));
-   t46[1] := az dynamic selector theme (az theme condition dark);
+   t46[1] := az dynamic selector mode (mode condition dark);
    t47[1] := az css path selector class (css str ("card"));
    selectors OF t48 := az css path selector vec copy from ptr (t47[1], LENG 1);
    inner OF t49 := az pixel value px (1.0);

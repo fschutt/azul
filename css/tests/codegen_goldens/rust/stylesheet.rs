@@ -8,8 +8,6 @@ use azul::dom::*;
 use azul::svg::*;
 #[allow(unused_imports)]
 use azul::vec::*;
-#[allow(unused_imports)]
-use azul::window::*;
 
 /// The whole stylesheet as a `Css` value.
 pub fn stylesheet() -> Css {
@@ -63,7 +61,7 @@ pub fn stylesheet() -> Css {
             CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(12.0) }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Os(OsCondition::Windows)]), priority: 20 },
             CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(11.0) }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Os(OsCondition::Linux)]), priority: 20 },
             CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(15.0) }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Os(OsCondition::Android)]), priority: 20 },
-            CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Theme(ThemeCondition::Dark)]), priority: 20 },
+            CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Mode(ModeCondition::Dark)]), priority: 20 },
             CssRuleBlock {
                 path: CssPath {
                     selectors: CssPathSelectorVec::from(vec![
@@ -72,7 +70,7 @@ pub fn stylesheet() -> Css {
                     ]),
                 },
                 declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 204, g: 204, b: 204, a: 255 } }))]),
-                conditions: DynamicSelectorVec::from(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
+                conditions: DynamicSelectorVec::from(vec![DynamicSelector::Mode(ModeCondition::Dark)]),
                 priority: 20,
             },
             CssRuleBlock { path: CssPath { selectors: CssPathSelectorVec::from(vec![CssPathSelector::Class(azul::str::String::from("card"))]) }, declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::letter_spacing(StyleLetterSpacing { inner: PixelValue::px(1.0) }))]), conditions: DynamicSelectorVec::from(vec![DynamicSelector::Language(LanguageCondition::Prefix(azul::str::String::from("de-DE")))]), priority: 20 },

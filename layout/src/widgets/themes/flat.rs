@@ -1996,9 +1996,7 @@ pub const FIELD_PLACEHOLDER_DARK: CssPropertyWithConditions =
             inner: system_palette::PLACEHOLDER_TEXT,
         }),
         &[
-            azul_css::dynamic_selector::DynamicSelector::Theme(
-                azul_css::dynamic_selector::ThemeCondition::Dark,
-            ),
+            azul_css::dynamic_selector::DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
             azul_css::dynamic_selector::DynamicSelector::PseudoState(
                 azul_css::dynamic_selector::PseudoStateType::Placeholder,
             ),

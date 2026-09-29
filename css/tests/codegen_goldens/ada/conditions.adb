@@ -29,7 +29,7 @@ package body Styles is
       t2 : aliased array (0 .. 10) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_DynamicSelector_Pseudo_State (Az_PseudoStateType'(Hover));
-      t1 (1) := Az_DynamicSelector_Theme (Az_ThemeCondition_Dark);
+      t1 (1) := Az_DynamicSelector_Mode (Az_ModeCondition'(Dark));
       t2 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Padding_Top (Az_LayoutPaddingTop'(Inner => Az_PixelValue_Px (8.0))));
       t2 (1) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Padding_Top (Az_LayoutPaddingTop'(Inner => Az_PixelValue_Px (9.0))));
       t2 (2) := Az_CssPropertyWithConditions_On_Active (Az_CssProperty_Padding_Top (Az_LayoutPaddingTop'(Inner => Az_PixelValue_Px (10.0))));

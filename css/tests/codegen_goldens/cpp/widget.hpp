@@ -22,7 +22,7 @@ inline AzCssPropertyWithConditionsVec style_azul_native_button() {
                 AzDynamicSelectorVec_copyFromPtr(
                     std::vector<AzDynamicSelector>{
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     }.data(),
                     2
                 )
@@ -32,7 +32,7 @@ inline AzCssPropertyWithConditionsVec style_azul_native_button() {
                 AzDynamicSelectorVec_copyFromPtr(
                     std::vector<AzDynamicSelector>{
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Hover),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     }.data(),
                     2
                 )
@@ -42,7 +42,7 @@ inline AzCssPropertyWithConditionsVec style_azul_native_button() {
                 AzDynamicSelectorVec_copyFromPtr(
                     std::vector<AzDynamicSelector>{
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Active),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     }.data(),
                     2
                 )
@@ -52,7 +52,7 @@ inline AzCssPropertyWithConditionsVec style_azul_native_button() {
                 AzDynamicSelectorVec_copyFromPtr(
                     std::vector<AzDynamicSelector>{
                         AzDynamicSelector_pseudoState(AzPseudoStateType_Focus),
-                        AzDynamicSelector_theme(AzThemeCondition_dark()),
+                        AzDynamicSelector_mode(AzModeCondition_Dark),
                     }.data(),
                     2
                 )
