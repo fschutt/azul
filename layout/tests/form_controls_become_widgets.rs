@@ -2417,3 +2417,114 @@ mod combobox_text {
         assert_eq!(text_under(&rebuilt, text), "Kiwi");
     }
 }
+
+// ── <input type=file accept multiple> ───────────────────────────────────────
+
+/// A file input's `accept` narrows what its dialog offers, `multiple` lets
+/// the user pick several files, and a form submits one entry per picked file
+/// (HTML). Both attributes used to be carried to the widget's root and read
+/// by nothing.
+mod file_inputs {
+    use azul_css::{AzString, OptionString, StringVec};
+    use azul_layout::widgets::{
+        file_input::{FileInput, FileInputState, FileInputStateWrapper},
+        form::collect_form_data,
+    };
+
+    use super::{
+        forms::{mount, named, owned, pairs, the_form},
+        *,
+    };
+
+    fn doc_input() -> Dom {
+        named("file", "doc")
+            .with_attribute(attr("accept", ".png, image/jpeg"))
+            .with_attribute(attr("multiple", ""))
+    }
+
+    /// The replaced file input's shared state: its button's click payload.
+    fn state_of(styled: &StyledDom) -> RefAny {
+        let root = one_with_class(styled, BUTTON_CLASS);
+        node(styled, root)
+            .get_callbacks()
+            .as_slice()
+            .iter()
+            .find(|c| c.event == EventFilter::Hover(HoverEventFilter::Click))
+            .map(|c| c.refany.clone())
+            .expect("the file input's click handler")
+    }
+
+    #[test]
+    fn a_file_inputs_accept_and_multiple_reach_its_widget() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(doc_input()));
+        let mut state = state_of(&styled);
+        let (accept, multiple) = {
+            let w = state
+                .downcast_ref::<FileInputStateWrapper>()
+                .expect("the file input's state");
+            let accept: Vec<String> = w
+                .accept
+                .as_ref()
+                .iter()
+                .map(|s| s.as_str().to_string())
+                .collect();
+            (accept, w.multiple)
+        };
+        assert_eq!(accept, vec![".png".to_string(), "image/jpeg".to_string()]);
+        assert!(multiple, "`multiple` lets the dialog pick several files");
+    }
+
+    #[test]
+    fn a_form_submits_one_entry_per_picked_file() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(page(Dom::create_form_no_a11y().with_child(doc_input())));
+        // The user picks two files: the input's change hook fires, as the
+        // dialog's answer fires it.
+        let mut state = state_of(&styled);
+        let hook = {
+            let w = state
+                .downcast_ref::<FileInputStateWrapper>()
+                .expect("the file input's state");
+            w.on_path_change.as_ref().cloned().expect("the replacement listens")
+        };
+        let root = one_with_class(&styled, BUTTON_CLASS);
+        let picked = FileInputState {
+            path: OptionString::Some(AzString::from("/tmp/a.png")),
+            paths: StringVec::from_vec(vec![
+                AzString::from("/tmp/a.png"),
+                AzString::from("/tmp/b.jpg"),
+            ]),
+        };
+        let _ = with_info(&lw, dom_node(root), |info| {
+            hook.callback.invoke(hook.refany.clone(), info, picked)
+        });
+
+        let form = the_form(&styled);
+        mount(&mut lw, styled);
+        let data = with_info(&lw, dom_node(form), |mut info| {
+            collect_form_data(&mut info, dom_node(form))
+        })
+        .0
+        .expect("the form node is in a form");
+        assert_eq!(
+            pairs(&data),
+            owned(&[("doc", "/tmp/a.png"), ("doc", "/tmp/b.jpg")]),
+            "one entry per file, under the input's one name"
+        );
+    }
+
+    #[test]
+    fn a_file_input_holding_several_files_says_how_many() {
+        let lw = styling_window();
+        let input = FileInput::create(OptionString::None)
+            .with_multiple(true)
+            .with_paths(StringVec::from_vec(vec![
+                AzString::from("/tmp/a.png"),
+                AzString::from("/tmp/b.jpg"),
+            ]));
+        let styled = lw.style_user_dom(page(input.dom()));
+        let button = one_with_class(&styled, BUTTON_CLASS);
+        assert_eq!(text_under(&styled, button), "2 files");
+    }
+}

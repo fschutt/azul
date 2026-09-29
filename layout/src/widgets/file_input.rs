@@ -1802,3 +1802,45 @@ mod theme_tests {
         assert_eq!(f.resolved_image_style(), b.resolved_image_style());
     }
 }
+
+/// HTML's `accept` - file extensions, MIME types, `image/*` - as the patterns
+/// the file dialog filters by.
+#[cfg(test)]
+mod accept_filter {
+    use azul_css::{AzString, StringVec};
+
+    use super::accept_patterns;
+
+    fn accept(tokens: &[&str]) -> StringVec {
+        StringVec::from_vec(tokens.iter().map(|t| AzString::from(*t)).collect())
+    }
+
+    #[test]
+    fn an_extension_is_its_own_pattern_whatever_its_case() {
+        assert_eq!(accept_patterns(&accept(&[".png", ".PDF"])), vec!["*.png", "*.pdf"]);
+    }
+
+    #[test]
+    fn a_mime_type_becomes_its_file_extensions() {
+        assert_eq!(accept_patterns(&accept(&["image/jpeg"])), vec!["*.jpg", "*.jpeg"]);
+        assert_eq!(accept_patterns(&accept(&["application/pdf"])), vec!["*.pdf"]);
+    }
+
+    #[test]
+    fn a_wildcard_mime_type_becomes_every_extension_of_its_kind() {
+        let images = accept_patterns(&accept(&["image/*"]));
+        assert!(images.contains(&"*.png".to_string()), "{images:?}");
+        assert!(images.contains(&"*.jpg".to_string()), "{images:?}");
+    }
+
+    #[test]
+    fn nothing_known_filters_nothing() {
+        assert!(accept_patterns(&accept(&[])).is_empty());
+        assert!(accept_patterns(&accept(&["", "  "])).is_empty());
+    }
+
+    #[test]
+    fn a_pattern_is_listed_once() {
+        assert_eq!(accept_patterns(&accept(&[".jpg", "image/jpeg"])), vec!["*.jpg", "*.jpeg"]);
+    }
+}
