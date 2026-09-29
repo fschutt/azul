@@ -1022,6 +1022,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         known_languages: _,
         // One small enum, the app's colour-scheme choice.
         color_scheme: _,
+        // One short string, the app theme's name.
+        app_theme: _,
         // A handle (Arc) plus a u64: the manager it points at is the APP's,
         // bounded by the app's accelerators, not by this window's document.
         global_hotkeys: _,
@@ -22700,6 +22702,8 @@ impl LayoutWindow {
             known_languages: _,
             // The app's colour-scheme choice, keyed by nothing.
             color_scheme: _,
+            // The app theme's name, keyed by nothing.
+            app_theme: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
