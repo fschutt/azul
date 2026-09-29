@@ -665,30 +665,62 @@ mod autotest_generated {
         // AppConfig is repr(C) and crosses the FFI by value into every
         // binding, so its field order decides its size. Interleaving the
         // 1-, 2- and 4-byte fields with the 8-aligned ones cost 8 bytes of
-        // padding. A NEW field must be added to this sum (and placed by
-        // decreasing alignment, like SystemAnimations).
+        // padding. The destructuring names EVERY field (no `..`), so a new
+        // one does not compile until it is added here - place it by
+        // decreasing alignment, like SystemAnimations.
         let c = AppConfig::create();
-        let fields = size_of_field(&c.log_level)
-            + size_of_field(&c.natural_scroll)
-            + size_of_field(&c.enable_visual_panic_hook)
-            + size_of_field(&c.enable_logging_on_panic)
-            + size_of_field(&c.synthesize_pinch_from_ctrl_wheel)
-            + size_of_field(&c.remote_control)
-            + size_of_field(&c.expose_system_media_controls)
-            + size_of_field(&c.termination_behavior)
-            + size_of_field(&c.icon_provider)
-            + size_of_field(&c.bundled_fonts)
-            + size_of_field(&c.font_loading)
-            + size_of_field(&c.mock_css_environment)
-            + size_of_field(&c.system_style)
-            + size_of_field(&c.component_libraries)
-            + size_of_field(&c.routes)
-            + size_of_field(&c.system_animations)
-            + size_of_field(&c.custom_e2e_op)
-            + size_of_field(&c.updates)
-            + size_of_field(&c.changelog_md)
-            + size_of_field(&c.report_problem)
-            + size_of_field(&c.localization);
+        let AppConfig {
+            icon_provider,
+            bundled_fonts,
+            font_loading,
+            mock_css_environment,
+            system_style,
+            component_libraries,
+            routes,
+            system_animations,
+            custom_e2e_op,
+            updates,
+            changelog_md,
+            report_problem,
+            localization,
+            fluent_locales,
+            notification_handler,
+            global_hotkeys,
+            global_hotkeys_callback,
+            log_level,
+            natural_scroll,
+            termination_behavior,
+            remote_control,
+            enable_visual_panic_hook,
+            enable_logging_on_panic,
+            synthesize_pinch_from_ctrl_wheel,
+            expose_system_media_controls,
+        } = &c;
+        let fields = size_of_field(icon_provider)
+            + size_of_field(bundled_fonts)
+            + size_of_field(font_loading)
+            + size_of_field(mock_css_environment)
+            + size_of_field(system_style)
+            + size_of_field(component_libraries)
+            + size_of_field(routes)
+            + size_of_field(system_animations)
+            + size_of_field(custom_e2e_op)
+            + size_of_field(updates)
+            + size_of_field(changelog_md)
+            + size_of_field(report_problem)
+            + size_of_field(localization)
+            + size_of_field(fluent_locales)
+            + size_of_field(notification_handler)
+            + size_of_field(global_hotkeys)
+            + size_of_field(global_hotkeys_callback)
+            + size_of_field(log_level)
+            + size_of_field(natural_scroll)
+            + size_of_field(termination_behavior)
+            + size_of_field(remote_control)
+            + size_of_field(enable_visual_panic_hook)
+            + size_of_field(enable_logging_on_panic)
+            + size_of_field(synthesize_pinch_from_ctrl_wheel)
+            + size_of_field(expose_system_media_controls);
         assert_eq!(
             core::mem::size_of::<AppConfig>(),
             fields,

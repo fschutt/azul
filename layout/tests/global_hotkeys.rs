@@ -1017,7 +1017,7 @@ fn set_enabled(data: &RefAny, enabled: bool) {
     let mut data = data.clone();
     if let Some(mut s) = data.downcast_mut::<AppHotkeyState>() {
         s.enabled = enabled;
-    }
+    };
 }
 
 fn shared_with_log() -> (SharedGlobalHotkeys, Log) {

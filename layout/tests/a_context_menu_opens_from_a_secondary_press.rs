@@ -77,9 +77,13 @@ fn hit_test(hits: &[(usize, usize, u32)]) -> FullHitTest {
 /// the card between two tall fillers, and in it the dashed box that carries
 /// the context menu, its label centred.
 fn menus_page() -> StyledDom {
+    // `flex-shrink: 0`: an EMPTY flex item may shrink to nothing (its
+    // `min-height: auto` is its content, 0), and the page would not overflow.
+    // The real page's cards have content that keeps them from shrinking.
     let filler = || {
-        Dom::create_div()
-            .with_css("height: 900px; margin-bottom: 20px; background-color: #eeeeee;")
+        Dom::create_div().with_css(
+            "height: 900px; flex-shrink: 0; margin-bottom: 20px; background-color: #eeeeee;",
+        )
     };
     let menu_box = Dom::create_div()
         .with_css(
