@@ -32,12 +32,15 @@ microphone, screencap, map, node_graph.
   set_theme / with_theme.
 - segmented: RED 3271883b5, impl ec82375ee. API: Segmented.theme (last),
   set_theme / with_theme. Selection restyle reads the marker.
+- radio_group class pin fix: 0e8f49695 (root classes now include the marker).
+- split_pane: RED ae8c11e8a, impl 7a1b01231. API: SplitPane.theme (last),
+  set_theme / with_theme.
 
 ## IN PROGRESS
-- split_pane
+- stepper
 
 ## NEXT
-split_pane -> stepper -> time_picker ->
+stepper -> time_picker ->
 toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
