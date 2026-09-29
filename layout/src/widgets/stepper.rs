@@ -5,7 +5,8 @@
 //!
 //! This is a blend of [`crate::widgets::segmented::Segmented`] (a horizontal row
 //! of clickable items whose clicked index is derived from sibling position and
-//! whose active item is live-restyled via `set_css_property`) and the filled-track
+//! whose parts are live-restyled with the style a build in the new state gives
+//! them - `CallbackInfo::set_node_inline_style`) and the filled-track
 //! look of [`crate::widgets::progressbar::ProgressBar`] (the accent connector).
 //!
 //! Steps are CLICKABLE (free navigation, like a segmented control): clicking
@@ -228,16 +229,6 @@ impl ConnFill {
             Self::Hidden => TRANSPARENT_BG,
         }
     }
-
-    /// The fill in the dark theme: the accent and the hidden ends are the same
-    /// in both; the muted line takes the desktop's quiet neutral highlight.
-    const fn dark_bg(self) -> StyleBackgroundContentVec {
-        match self {
-            Self::Accent => ACCENT_BG,
-            Self::Muted => system_palette::SELECTION_BACKGROUND_INACTIVE,
-            Self::Hidden => TRANSPARENT_BG,
-        }
-    }
 }
 
 /// Row container: a horizontal flex row whose steps spread evenly.
@@ -415,17 +406,6 @@ pub(crate) fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> 
     }]
 }
 
-/// Whether the window renders dark - the cascade's own rule
-/// (`LayoutWindow::dynamic_selector_context`): `AZ_MODE` pins it, else the
-/// window's theme. The live restyle writes plain overrides, which win over
-/// the dark twins, so it has to pick the theme's colours itself.
-fn renders_dark(info: &CallbackInfo) -> bool {
-    azul_css::dynamic_selector::mode_pinned_by_env().map_or_else(
-        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
-        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
-    )
-}
-
 /// Connector fill for the left half-line of step `i` (the gap entering circle `i`).
 const fn conn_left_fill(i: usize, current: usize) -> ConnFill {
     if i == 0 {
@@ -448,9 +428,11 @@ const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
     }
 }
 
-/// What a theme supplies for a stepper: the style of every part, and the
-/// colours a click restyles them with (by day, `false`, or by night, `true`).
-/// Built by `themes::flat::stepper_skin` / `themes::flora::stepper_skin`.
+/// What a theme supplies for a stepper: the style of every part. Built by
+/// `themes::flat::stepper_skin` / `themes::flora::stepper_skin`. A click
+/// restyles each part with the same functions
+/// (`CallbackInfo::set_node_inline_style`), so a clicked stepper is the
+/// stepper built on its new step - in every mode.
 #[derive(Clone, Copy)]
 pub(crate) struct StepperSkin {
     pub theme: UiTheme,
@@ -462,12 +444,6 @@ pub(crate) struct StepperSkin {
     pub connector: fn(ConnFill) -> CssPropertyWithConditionsVec,
     /// A step's label, reached or upcoming.
     pub label: fn(bool) -> CssPropertyWithConditionsVec,
-    /// The circle's fill and number ink the restyle writes.
-    pub circle_colours: fn(bool, bool) -> (StyleBackgroundContentVec, ColorU),
-    /// A connector's fill the restyle writes.
-    pub connector_fill: fn(ConnFill, bool) -> StyleBackgroundContentVec,
-    /// A label's ink the restyle writes.
-    pub label_ink: fn(bool, bool) -> ColorU,
 }
 
 /// The skin `theme` draws steppers with.
@@ -508,60 +484,16 @@ fn follow_label(reached: bool) -> CssPropertyWithConditionsVec {
 
 /// The skin an UNPINNED stepper is built with, so it follows the app theme:
 /// `structure`'s theme (its marker goes on the stepper, so the click restyle
-/// writes that theme's colours - `structure`'s restyle colours) and every
+/// writes that theme's parts - a theme switch rebuilds the DOM) and every
 /// part in BOTH themes' blocks.
 #[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> StepperSkin {
-    let own = skin_for(structure);
+pub(crate) const fn follow_skin(structure: UiTheme) -> StepperSkin {
     StepperSkin {
         theme: structure,
         cell: follow_cell,
         circle: follow_circle,
         connector: follow_connector,
         label: follow_label,
-        circle_colours: own.circle_colours,
-        connector_fill: own.connector_fill,
-        label_ink: own.label_ink,
-    }
-}
-
-/// The flat theme's restyle colours for a circle - the established palette
-/// (the accent in both modes, the desktop's quiet highlight by night).
-#[must_use]
-pub(crate) fn established_circle_colours(
-    reached: bool,
-    dark: bool,
-) -> (StyleBackgroundContentVec, ColorU) {
-    if reached {
-        (ACCENT_BG, WHITE)
-    } else if dark {
-        (
-            system_palette::SELECTION_BACKGROUND_INACTIVE,
-            system_palette::SECONDARY_TEXT,
-        )
-    } else {
-        (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
-    }
-}
-
-/// The flat theme's restyle fill for a connector.
-#[must_use]
-pub(crate) const fn established_connector_fill(fill: ConnFill, dark: bool) -> StyleBackgroundContentVec {
-    if dark {
-        fill.dark_bg()
-    } else {
-        fill.bg()
-    }
-}
-
-/// The flat theme's restyle ink for a label.
-#[must_use]
-pub(crate) const fn established_label_ink(reached: bool, dark: bool) -> ColorU {
-    match (reached, dark) {
-        (true, false) => DARK_TEXT_COLOR,
-        (false, false) => MUTED_TEXT_COLOR,
-        (true, true) => system_palette::TEXT,
-        (false, true) => system_palette::SECONDARY_TEXT,
     }
 }
 
@@ -922,14 +854,13 @@ fn go_to_step_cell(
     };
 
     // Live-restyle every cell: circle (reached → accent fill + white number),
-    // its two connector half-lines, and its label colour - in the theme the
-    // stepper was BUILT in (its marker class) and the mode the window renders
-    // in (the writes are plain overrides and beat the twins).
-    let dark = renders_dark(&info);
+    // its two connector half-lines, and its label - each the style the
+    // stepper BUILT on the new step gives it (light face, dark twins), in the
+    // theme it was built in (its marker class). The cascade, not this
+    // handler, picks the mode's colours - now and after a light / dark switch.
     let skin = skin_for(style_kit::theme_of_classes(
         info.get_node_classes(parent).as_ref(),
     ));
-    let fill_bg = |f: ConnFill| (skin.connector_fill)(f, dark);
     for (i, cell) in cells.iter().enumerate() {
         let reached = i <= clicked_idx;
 
@@ -942,35 +873,19 @@ fn go_to_step_cell(
         let label = info.get_next_sibling(row);
 
         if let Some(circle) = circle {
-            let (bg, text) = (skin.circle_colours)(reached, dark);
-            info.set_css_property(circle, CssProperty::const_background_content(bg));
-            info.set_css_property(
-                circle,
-                CssProperty::const_text_color(StyleTextColor { inner: text }),
-            );
+            info.set_node_inline_style(circle, (skin.circle)(reached));
         }
         if let Some(cl) = conn_left {
-            info.set_css_property(
-                cl,
-                CssProperty::const_background_content(fill_bg(conn_left_fill(i, clicked_idx))),
-            );
+            info.set_node_inline_style(cl, (skin.connector)(conn_left_fill(i, clicked_idx)));
         }
         if let Some(cr) = conn_right {
-            info.set_css_property(
+            info.set_node_inline_style(
                 cr,
-                CssProperty::const_background_content(fill_bg(conn_right_fill(
-                    i,
-                    last,
-                    clicked_idx,
-                ))),
+                (skin.connector)(conn_right_fill(i, last, clicked_idx)),
             );
         }
         if let Some(label) = label {
-            let text = (skin.label_ink)(reached, dark);
-            info.set_css_property(
-                label,
-                CssProperty::const_text_color(StyleTextColor { inner: text }),
-            );
+            info.set_node_inline_style(label, (skin.label)(reached));
         }
     }
 
@@ -1622,42 +1537,51 @@ mod autotest_generated {
     /// announced value a step change also writes are not colours and are
     /// skipped (the spin-button tests below check them).
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+        use azul_css::props::property::CssPropertyType;
         let mut out = Vec::new();
-        for change in changes {
-            if matches!(
-                change,
-                CallbackChange::SetNodeTabIndex { .. }
-                    | CallbackChange::ChangeNodeAccessibilityValue { .. }
-            ) {
-                continue;
-            }
-            let CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } = change
-            else {
-                panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
+        for (node, style) in inline_writes(changes) {
+            // The LIGHT resting face: the last unconditional declaration of
+            // each colour (the dark twins travel in the same style).
+            let resting = |ty: CssPropertyType| {
+                style
+                    .as_ref()
+                    .iter()
+                    .filter(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+                    .last()
+                    .map(|p| p.property.clone())
             };
-            for p in properties.as_ref() {
-                match p {
-                    CssProperty::BackgroundContent(v) => {
-                        let layers = v
-                            .get_property()
-                            .expect("the restyle must write an exact background");
-                        out.push((node_id.index(), "bg", only_color(layers)));
-                    }
-                    CssProperty::TextColor(v) => {
-                        let c = v
-                            .get_property()
-                            .expect("the restyle must write an exact text colour");
-                        out.push((node_id.index(), "text", c.inner));
-                    }
-                    other => panic!("unexpected restyle property: {other:?}"),
-                }
+            if let Some(CssProperty::BackgroundContent(v)) =
+                resting(CssPropertyType::BackgroundContent)
+            {
+                let layers = v
+                    .get_property()
+                    .expect("the restyle must write an exact background");
+                out.push((node, "bg", only_color(layers)));
+            }
+            if let Some(CssProperty::TextColor(v)) = resting(CssPropertyType::TextColor) {
+                let c = v
+                    .get_property()
+                    .expect("the restyle must write an exact text colour");
+                out.push((node, "text", c.inner));
             }
         }
         out
+    }
+
+    /// Every part style the live restyle wrote (`set_node_inline_style`), as
+    /// `(node index, style)` in emission order. The restyle pins no value: any
+    /// other change is a bug (a `ChangeNodeCssProperties` would outlive a light
+    /// / dark switch).
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
+        changes
+            .iter()
+            .map(|change| match change {
+                CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
+                    (node_id.index(), style.clone())
+                }
+                other => panic!("the restyle must only replace inline styles, got {other:?}"),
+            })
+            .collect()
     }
 
     /// What a correct restyle of an `n`-step stepper landing on `clicked` looks
@@ -3977,80 +3901,77 @@ mod autotest_generated {
         );
     }
 
-    /// The click restyle writes the colours of the theme the stepper was
-    /// BUILT in (read back from its marker class): a flora stepper must not
-    /// be repainted in flat's blue and grey on the first click.
+    /// The click restyle writes the parts of the theme the stepper was BUILT
+    /// in (read back from its marker class): a flora stepper must not be
+    /// repainted in flat's blue and grey on the first click. Each part takes
+    /// the whole style a flora build on the new step gives it.
     #[test]
     fn a_click_on_a_flora_stepper_restyles_in_flora_s_colours() {
         use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
 
         let (styled, state) = flatten(Stepper::create(n_labels(3)).with_theme(UiTheme::Flora));
         let (_, changes) = run_click(Some(styled), node(cell_node(1)), state);
-        let writes: Vec<(usize, CssProperty)> = changes
-            .iter()
-            .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => Some((node_id.index(), properties.as_ref()[0].clone())),
-                _ => None,
-            })
-            .collect();
-        let bg_of = |n: usize| {
-            writes
+        let written = inline_writes(&changes);
+        let skin = flora::stepper_skin();
+        let style_of = |n: usize| {
+            written
                 .iter()
-                .find(|(i, p)| *i == n && matches!(p, CssProperty::BackgroundContent(_)))
-                .map(|(_, p)| tc::bg_layers(p))
+                .find(|(i, _)| *i == n)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_else(|| panic!("node {n} is restyled"))
         };
-        let ink_of = |n: usize| {
-            writes.iter().find_map(|(i, p)| match p {
-                CssProperty::TextColor(v) if *i == n => v.get_property().map(|c| c.inner),
-                _ => None,
-            })
-        };
-
-        let reached = bg_of(circle_node(1)).expect("circle 1 is restyled");
+        assert_eq!(style_of(circle_node(1)), (skin.circle)(true), "a reached circle");
+        assert_eq!(style_of(circle_node(2)), (skin.circle)(false), "an upcoming circle");
+        assert_eq!(style_of(label_node(2)), (skin.label)(false), "an upcoming label");
         assert_eq!(
-            reached.first(),
-            Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
-            "a reached step is flora's accent stone: {reached:?}"
+            style_of(conn_right_node(0)),
+            (skin.connector)(conn_right_fill(0, 2, 1)),
+            "the walked line"
         );
-        assert_eq!(ink_of(circle_node(1)), Some(flora::LIGHT_ON_ACC));
-        let upcoming = bg_of(circle_node(2)).expect("circle 2 is restyled");
-        assert!(
-            upcoming == vec![flora::RAISED_FACE_LIGHT] || upcoming == vec![flora::RAISED_FACE_DARK],
-            "an upcoming step is flora paper: {upcoming:?}"
-        );
-        let label = ink_of(label_node(2)).expect("label 2 is restyled");
-        assert!(label == flora::LIGHT_SOFT1 || label == flora::DARK_SOFT1, "{label:?}");
+
+        // ...which is the accent stone, flora paper and soft ink, by night too.
+        let node_of = |n: usize| Dom::create_div().with_css_props(style_of(n));
+        assert_eq!(tc::text_color(&node_of(circle_node(1)), false), Some(flora::LIGHT_ON_ACC));
+        for dark in [false, true] {
+            let upcoming = tc::background(&node_of(circle_node(2)), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                upcoming,
+                Some(vec![if dark {
+                    flora::RAISED_FACE_DARK
+                } else {
+                    flora::RAISED_FACE_LIGHT
+                }]),
+                "dark={dark}: an upcoming step is flora paper"
+            );
+            assert_eq!(
+                tc::text_color(&node_of(label_node(2)), dark),
+                Some(if dark { flora::DARK_SOFT1 } else { flora::LIGHT_SOFT1 }),
+                "dark={dark}: an upcoming label is soft ink"
+            );
+        }
     }
 
     /// An UNPINNED stepper follows the app theme, and so does its click
-    /// restyle: built for flora, it repaints in flora's colours.
+    /// restyle: built for flora, it repaints in flora's parts.
     #[test]
     fn a_click_on_an_unpinned_stepper_built_for_flora_restyles_in_flora_s_colours() {
-        use crate::widgets::themes::flora;
+        use crate::widgets::themes::{flora, theme_checks as tc};
 
         let (styled, state) = {
             let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
             flatten(Stepper::create(n_labels(3)))
         };
         let (_, changes) = run_click(Some(styled), node(cell_node(1)), state);
-        let ink = changes.iter().find_map(|c| match c {
-            CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } if node_id.index() == circle_node(1) => {
-                properties.as_ref().iter().find_map(|p| match p {
-                    CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
-                    _ => None,
-                })
-            }
-            _ => None,
-        });
-        assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "a reached step wears flora's stone ink");
+        let circle = inline_writes(&changes)
+            .into_iter()
+            .find(|(n, _)| *n == circle_node(1))
+            .map(|(_, style)| style)
+            .expect("circle 1 is restyled");
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_css_props(circle), false),
+            Some(flora::LIGHT_ON_ACC),
+            "a reached step wears flora's stone ink"
+        );
     }
 
     // ------------------------------------------------------------------

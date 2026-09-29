@@ -3698,9 +3698,6 @@ pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
         circle: stepper_circle,
         connector: stepper_connector,
         label: stepper_label,
-        circle_colours: s::established_circle_colours,
-        connector_fill: s::established_connector_fill,
-        label_ink: s::established_label_ink,
     }
 }
 

@@ -3465,9 +3465,6 @@ pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
         circle: stepper_circle,
         connector: stepper_connector,
         label: stepper_label,
-        circle_colours: stepper_circle_colours,
-        connector_fill: stepper_connector_fill,
-        label_ink: stepper_label_ink,
     }
 }
 
@@ -3553,46 +3550,6 @@ fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
         v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     }
     CssPropertyWithConditionsVec::from_vec(v)
-}
-
-fn stepper_circle_colours(reached: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
-    match (reached, dark) {
-        (true, _) => (
-            StyleBackgroundContentVec::from_vec(stone_face(LIGHT_ACC, STONE_STREAK)),
-            LIGHT_ON_ACC,
-        ),
-        (false, false) => (
-            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_LIGHT]),
-            LIGHT_SOFT1,
-        ),
-        (false, true) => (
-            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_DARK]),
-            DARK_SOFT1,
-        ),
-    }
-}
-
-fn stepper_connector_fill(
-    fill: crate::widgets::stepper::ConnFill,
-    dark: bool,
-) -> StyleBackgroundContentVec {
-    use crate::widgets::stepper::ConnFill;
-    let color = match (fill, dark) {
-        (ConnFill::Accent, _) => LIGHT_ACC,
-        (ConnFill::Muted, false) => LIGHT_BD,
-        (ConnFill::Muted, true) => DARK_BD,
-        (ConnFill::Hidden, _) => ColorU::TRANSPARENT,
-    };
-    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(color)])
-}
-
-const fn stepper_label_ink(reached: bool, dark: bool) -> ColorU {
-    match (reached, dark) {
-        (true, false) => LIGHT_INK,
-        (true, true) => DARK_INK,
-        (false, false) => LIGHT_SOFT1,
-        (false, true) => DARK_SOFT1,
-    }
 }
 
 /// Renders a [`crate::widgets::stepper::Stepper`] in the flora theme.
