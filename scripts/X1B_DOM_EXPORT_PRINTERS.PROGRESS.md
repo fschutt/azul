@@ -11,17 +11,19 @@ set them by field name (F1 pads every variant in the bindings).
 - d8da7de4f test(css): crystal and odin export the DOM (RED: hand-written dom_card goldens)
 - 149adf4a5 feat(css): crystal and odin export the DOM (functions, params, concat, app,
   registration)
+- 5560953f5 test(css): ten more printers export the DOM (RED, structure-test list)
+- f21ac11a2 feat(css): linear.rs DOM hooks; v, ada, fortran, freebasic
+- fbb4abd56 feat(css): lisp, racket, powershell, smalltalk
+- bc23d95ba fix(css): perl, red, vb6, cobol, algol68 say why (precise dom_limitation)
 
 ## IN PROGRESS
-- v (C-like, linear printer): needs DOM hooks in lang/linear.rs
+- review pass (read every new format string once more), report
 
 ## NEXT
-- linear printers: shared DOM hooks in lang/linear.rs, then v, ada, fortran, freebasic
-- expression printers: lisp, racket, perl, powershell, smalltalk
-- limitations: algol68, cobol, red, vb6 (precise reasons)
-- final: structure-test list, report
+- report `scripts/X1B_DOM_EXPORT_PRINTERS_2026_09_29.md`
 
 ## Open questions
-- X1a also needs DOM in a linear printer (pascal): the linear.rs hooks are shared.
+- X1a adds the same `is_dom_item` / `one_line` / `registration_note` to dom.rs and the same
+  `call_param_names` hunk to mod.rs: on merge keep one copy (text is identical).
 - Syntax check without cargo: `rustfmt --edition 2021 --check <file>` (only parse errors matter;
   the formatting diffs come from the nightly-only rustfmt.toml).
