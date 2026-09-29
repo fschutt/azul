@@ -235,8 +235,11 @@ fn a_glide_after_an_idle_period_starts_from_a_fresh_frame() {
 
     let shown = margin_left(&lw, knob).expect("the knob resolves a margin-left");
     azul_core::task::reset_test_clock();
+    // On its way: MOVED off 16px (an eased 16 ms of a 150 ms glide is well
+    // under a pixel - the spring's ease-in-out stand-in is 2.4% in), and
+    // not already at 0 (the 2 s idle must not count as elapsed glide time).
     assert!(
-        !lw.css_transitions.is_empty() && shown > 0.5 && shown < 15.5,
+        !lw.css_transitions.is_empty() && shown > 0.5 && shown < 15.95,
         "one frame into the second glide the knob must be on its way from 16px to 0px, but it \
          shows {shown}px with {} transition(s) left",
         lw.css_transitions.len()
