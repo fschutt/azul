@@ -12,6 +12,7 @@ prerequisites: [styling]
 tracked_files:
   - css/src/system.rs
   - css/src/dynamic_selector.rs
+  - css/src/theme_chain.rs
   - css/src/props/basic/color.rs
   - css/src/props/basic/font.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
@@ -152,13 +153,28 @@ The variants follow `ThemeCondition`:
 - `@theme light`: system reports light theme.
 - `@theme dark`: system reports dark theme.
 - `@theme <name>` / `@theme(<name>)`: the APP THEME, a name such as `flat`
-  (the default) or `flora`. The block applies only while the app runs in
-  that theme: `AppConfig::with_theme("flora")` at startup,
-  `CallbackInfo::set_theme("flat")` at runtime. Widgets carry one block per
-  theme they know, so one switch restyles all of them. A theme switch
-  rebuilds every window's DOM (a theme may change a widget's structure),
-  while a light / dark switch only repaints. Nest `@theme dark` inside a
-  theme block for that theme's dark mode.
+  (the default) or `flora`. The block applies only while that theme is in
+  the app's theme chain: `AppConfig::with_theme("flora")` at startup,
+  `CallbackInfo::set_theme("flat")` at runtime, or the user's `AZ_THEME`
+  (see [Choosing the theme and the mode from the
+  environment](#choosing-the-theme-and-the-mode-from-the-environment)).
+  Widgets carry one block per theme they know, so one switch restyles all
+  of them. A theme switch rebuilds every window's DOM (a theme may change a
+  widget's structure), while a light / dark switch only repaints. Nest
+  `@theme dark` inside a theme block for that theme's dark mode.
+
+The app theme is the head of a *theme chain*, most specific first, like a
+locale fallback list (`fr-CA`, then `fr`, then `en`). A spin-off theme
+names its base before a colon: `xyz:pink` expands to `xyz:pink`, then
+`xyz`, and every chain ends in the default theme, `flat`. So
+`AppConfig::with_theme("xyz:pink")` makes the chain
+`[xyz:pink, xyz, flat]`: `@theme(xyz:pink)` blocks apply, `@theme(xyz)`
+blocks apply where the spin-off says nothing, and an app theme nobody wrote
+a block for looks like the default theme. A theme's file header can name
+further fallbacks (`fallback: native`); they are appended in chain order,
+each theme once, and a cycle is cut with a warning. The mode's words -
+`light`, `dark`, `system`, `auto` - are never theme names: in a chain they
+are an error, logged and dropped.
 
 For typical apps, define the base style for light mode and override
 selected properties under `@theme dark`. Combine with `@os` for
@@ -336,11 +352,49 @@ when `XDG_CURRENT_DESKTOP` still reports `gnome` but the actual
 session is a tiling WM with a custom palette. The user CSS file
 still loads in this mode.
 
-There is no env var that forces dark/light mode. The platform's own
-facilities (macOS *General > Appearance*, Windows *Personalization >
-Colors > Choose your mode*, GNOME *Settings > Appearance*) drive the
-`prefers-color-scheme` discovery and azul re-evaluates `@theme` on
-the next frame.
+## Choosing the theme and the mode from the environment
+
+Two variables choose the look of every Azul app a user runs. Both are read
+once, at startup.
+
+"Theme" and "mode" are separate axes. The THEME is the app theme (`flat`,
+`flora`, a user's `xyz:pink`); the MODE is light / dark / system.
+
+- `AZ_THEME=<theme>` names the head of the theme chain, and outranks the
+  app's own choice:
+
+  ```text
+  AZ_THEME  >  AppConfig::with_theme / CallbackInfo::set_theme  >  flat
+  ```
+
+  `AZ_THEME=xyz:pink` gives every window the chain `[xyz:pink, xyz, flat]`,
+  whatever theme the app asked for; a `set_theme` call while it is set
+  changes nothing.
+- `AZ_MODE=light|dark|system` pins the mode, for deterministic rendering
+  (screenshots, reftests, CI):
+
+  ```text
+  AZ_MODE  >  AppConfig::color_scheme / CallbackInfo::set_color_scheme  >  the window's  >  the desktop's
+  ```
+
+  It reaches everything that has a light / dark polarity: `@theme dark` and
+  `prefers-color-scheme` blocks, the `system:*` palette, the window
+  background. `system` (or `auto`) pins nothing: the app and the desktop
+  decide, and azul re-evaluates `@theme` on the next frame when the user
+  toggles the platform's own setting (macOS *General > Appearance*, Windows
+  *Personalization > Colors > Choose your mode*, GNOME *Settings >
+  Appearance*).
+
+`AZ_THEME=light` and `AZ_THEME=dark` were the mode pin before `AZ_THEME`
+named the theme. For one release they still pin the mode, and the app logs
+once at startup that the spelling is deprecated and `AZ_MODE` replaces it.
+When both are set, `AZ_MODE` decides the mode.
+
+```bash
+AZ_MODE=dark ./my_app              # dark, whatever the desktop says
+AZ_THEME=xyz:pink ./my_app         # the xyz:pink theme, over xyz, over flat
+AZ_THEME=flora AZ_MODE=light ./my_app
+```
 
 ## Previewing on a different platform
 

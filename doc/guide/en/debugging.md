@@ -51,6 +51,8 @@ Every flag is read once at process start. Unset means off — **except `AZ_LOG`,
 - `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](debugging/e2e-testing.md).
 - `AZ_PROFILE=<tokens>`. Comma-separated profiler tokens for per-frame instrumentation. See [Memory and Profiling](debugging/profiling.md).
 - `AZ_PROFILE_OUT=<path>`. JSONL output destination paired with `AZ_PROFILE=heap,jsonl`.
+- `AZ_MODE=<light|dark|system>`. Pins light or dark mode over the app's choice, the window's and the desktop's, so a screenshot run renders the same on every machine. `system` pins nothing. See [Choosing the theme and the mode from the environment](styling/themes.md#choosing-the-theme-and-the-mode-from-the-environment).
+- `AZ_THEME=<theme>`. The app theme (`flat`, `flora`, a spin-off such as `xyz:pink`), outranking the app's own `AppConfig::with_theme` / `CallbackInfo::set_theme`. `AZ_THEME=light|dark` is the deprecated spelling of `AZ_MODE` and still pins the mode for one release, with a warning at startup.
 - `RUST_LOG=<filter>`. Standard `log` crate filter (env_logger syntax).
 
 `AZ_DEBUG` and `AZUL_HEADLESS` compose: a CI run with `AZUL_HEADLESS=1 AZ_DEBUG=8765 ./my_app` boots a windowless process you can drive over HTTP. This is the supported configuration for screenshot diffing in CI.
