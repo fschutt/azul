@@ -610,3 +610,5 @@ mod a_reveal_scrolls_only_the_boxes_that_move_its_target;
 mod an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in;
 #[path = "a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in.rs"]
 mod a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in;
+#[path = "the_ime_caret_rect_is_where_the_raster_paints_the_caret.rs"]
+mod the_ime_caret_rect_is_where_the_raster_paints_the_caret;
