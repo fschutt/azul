@@ -552,3 +552,5 @@ mod form_controls_become_widgets;
 mod flat_and_flora_widgets_follow_the_light_and_dark_theme;
 #[path = "app_color_scheme_override.rs"]
 mod app_color_scheme_override;
+#[path = "app_theme_override.rs"]
+mod app_theme_override;

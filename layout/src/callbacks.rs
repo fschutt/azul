@@ -7915,6 +7915,35 @@ mod autotest_generated {
         assert_eq!(resolved, WindowTheme::LightMode);
     }
 
+    /// `set_theme` queues ONE app-wide change (every window's DOM is rebuilt
+    /// after the callback returns); `get_theme` reads the theme the window's
+    /// DOM was built under - the switch is not visible in the same callback.
+    #[test]
+    fn set_theme_queues_the_name_and_get_theme_reads_the_windows() {
+        let queued = with_info(node_none(), |info| {
+            info.set_theme(AzString::from_const_str("flora"));
+            info.take_changes()
+        });
+        assert_eq!(queued.len(), 1, "expected exactly one queued change");
+        assert!(
+            matches!(
+                &queued[0],
+                CallbackChange::SetTheme { theme } if theme.as_str() == "flora"
+            ),
+            "queued the wrong CallbackChange: {:?}",
+            queued[0]
+        );
+
+        let lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let theme = with_info_on(lw, node0(), |info| info.get_theme());
+        assert_eq!(theme.as_str(), "flat", "a new window is in the default theme");
+
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.app_theme = AzString::from_const_str("flora");
+        let theme = with_info_on(lw, node0(), |info| info.get_theme());
+        assert_eq!(theme.as_str(), "flora");
+    }
+
     /// `DomNodeId` pointing at node 0 of the root DOM.
     fn node0() -> DomNodeId {
         DomNodeId {
