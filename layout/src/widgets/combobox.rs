@@ -861,9 +861,12 @@ impl ComboBox {
         Self::list_style_on(skin_of(self.theme).list, self.list_style.as_ref(), open)
     }
 
-    /// `base` (a theme's panel) with the caller's `extra` appended. The
-    /// panel is `display: block` open or closed - the popup WINDOW is what
-    /// opens and closes (`build_list_style`) - so `open` changes nothing.
+    /// `base` (a theme's panel) with the caller's `extra` stacked on it, so
+    /// the extras win under every app theme (`theme_blocks::stack_parts`: a
+    /// panel that follows the app theme carries themed declarations, which
+    /// would otherwise outrank a plain extra). The panel is `display: block`
+    /// open or closed - the popup WINDOW is what opens and closes
+    /// (`build_list_style`) - so `open` changes nothing.
     fn list_style_on(
         base: CssPropertyWithConditionsVec,
         extra: Option<&CssPropertyWithConditionsVec>,
@@ -871,11 +874,7 @@ impl ComboBox {
     ) -> CssPropertyWithConditionsVec {
         match extra {
             None => base,
-            Some(extra) => {
-                let mut merged = base.into_library_owned_vec();
-                merged.extend(extra.as_ref().iter().cloned());
-                CssPropertyWithConditionsVec::from_vec(merged)
-            }
+            Some(extra) => crate::widgets::themes::theme_blocks::stack_parts(&base, extra),
         }
     }
 

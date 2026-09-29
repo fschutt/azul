@@ -1351,7 +1351,8 @@ fn themes_of(conditions: &DynamicSelectorVec) -> Vec<&str> {
 
 /// `units` - one node's declarations, in source order - with every one
 /// outside the theme blocks that comes AFTER a themed one of the same
-/// property also written into that theme's block, at its own place.
+/// property written into EVERY widget theme's block instead, at its own
+/// place: on one node a property is shared or themed, never both.
 ///
 /// The cascade ranks a declaration in the live theme's block above one
 /// outside every block, whatever their order (`@layer` semantics,
@@ -1360,10 +1361,9 @@ fn themes_of(conditions: &DynamicSelectorVec) -> Vec<&str> {
 /// gap) can get a property themed by the first part (the two looks' margins
 /// differ) and shared by a later one (both gaps are 22px). Outside the
 /// blocks, the later declaration lost to the earlier themed one; in the
-/// theme's block it wins by source order, as it does on the pinned widget.
-/// The declaration outside the blocks stays too, for a theme that themes
-/// nothing before it. Declarations without theme blocks come back as they
-/// are.
+/// theme's block it wins by source order, as it does on the pinned widget,
+/// and the live declarations under each theme ARE the pinned widget's.
+/// Declarations without theme blocks come back as they are.
 fn settle<T: Unit>(units: Vec<T>) -> Vec<T> {
     if units.iter().all(|u| themes_of(u.conditions()).is_empty()) {
         return units;
@@ -1383,8 +1383,11 @@ fn settle<T: Unit>(units: Vec<T>) -> Vec<T> {
                     }
                 }
             }
-            for theme in earlier.into_iter().filter_map(UiTheme::from_name) {
-                out.push(unit.clone().into_block(theme));
+            if earlier.iter().any(|n| UiTheme::from_name(n).is_some()) {
+                for theme in UiTheme::ALL {
+                    out.push(unit.clone().into_block(theme));
+                }
+                continue;
             }
         }
         out.push(unit.clone());

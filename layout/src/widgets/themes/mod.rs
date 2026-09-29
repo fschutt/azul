@@ -37,6 +37,9 @@ impl UiTheme {
     /// places instead (`None`: they follow the app theme with it).
     pub(crate) const SINGLE_LOOK: Self = Self::Flat;
 
+    /// Every widget theme, in `@theme` block order.
+    pub(crate) const ALL: [Self; 2] = [Self::Flat, Self::Flora];
+
     /// The app-theme name this widget theme answers to (`@theme(<name>)`).
     #[must_use]
     pub const fn name(self) -> &'static str {
