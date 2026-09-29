@@ -4955,3 +4955,11 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
         },
     )
 }
+
+// ==== menubar ====
+
+/// The flora menu bar.
+#[must_use]
+pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
+    super::flat::menubar(m)
+}

@@ -56,33 +56,108 @@ const MENUBAR_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items:
                                 cursor: pointer; :hover { background: \
                                 system:selection-background; color: system:selection-text; }";
 
-/// Build the software menu-bar DOM from a [`Menu`].
+/// The software menu bar as a widget: a [`Menu`] and the theme to draw it in.
+///
+/// The window's own bar (`Dom::with_menu_bar`) is injected through
+/// [`build_menubar_dom`], which draws it flat; an application that draws a
+/// bar itself (in a custom titlebar, say) picks its look here.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct Menubar {
+    /// The menu whose top-level items the bar shows.
+    pub menu: Menu,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+impl Menubar {
+    /// A bar for `menu`, in the default theme.
+    #[must_use]
+    pub const fn create(menu: Menu) -> Self {
+        Self {
+            menu,
+            theme: crate::widgets::themes::OptionUiTheme::None,
+        }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the bar renders in the default
+    /// theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// The bar's DOM. The look comes from the theme module
+    /// (`themes::flat::menubar` / `themes::flora::menubar`); `None` renders
+    /// flat.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::menubar(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::menubar(self),
+        }
+    }
+}
+
+/// Build the software menu-bar DOM from a [`Menu`], in the flat look.
 ///
 /// The bar is a flex row of one item per top-level `MenuItem::String`
 /// (separators / break-lines are not rendered in the bar). Inject the returned
 /// `Dom` at the Dom level so its `with_css` rules are scoped in the main flatten.
 #[must_use]
 pub fn build_menubar_dom(menu: &Menu) -> Dom {
-    let mut bar = Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![
-            Class(MENUBAR_CLASS.into()),
-            Class("azul-menubar".into()),
-        ]))
-        .with_css(MENUBAR_CSS);
+    Menubar::create(menu.clone()).dom()
+}
+
+/// The bar's DOM with the look applied by `style_bar` (to the bar) and
+/// `style_item` (to each top-level item): the structure and the click
+/// behaviour are the same in every theme.
+pub(crate) fn build(
+    menu: &Menu,
+    marker: Option<&'static str>,
+    style_bar: impl Fn(Dom) -> Dom,
+    style_item: impl Fn(Dom) -> Dom,
+) -> Dom {
+    let mut classes = vec![Class(MENUBAR_CLASS.into()), Class("azul-menubar".into())];
+    if let Some(marker) = marker {
+        classes.push(Class(marker.into()));
+    }
+    let mut bar = style_bar(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(classes)));
 
     for item in menu.items.as_slice() {
         if let MenuItem::String(s) = item {
-            bar = bar.with_child(build_menubar_item(s));
+            bar = bar.with_child(build_item(s, &style_item));
         }
     }
 
     bar
 }
 
+/// The flat bar: the `system:`-coloured inline CSS the bar has always had.
+pub(crate) fn build_flat(menu: &Menu) -> Dom {
+    build(menu, None, |bar| bar.with_css(MENUBAR_CSS), |item| {
+        item.with_css(MENUBAR_ITEM_CSS)
+    })
+}
+
+/// One clickable top-level bar item, in the flat look.
+#[cfg(test)]
+fn build_menubar_item(item: &StringMenuItem) -> Dom {
+    build_item(item, &|dom: Dom| dom.with_css(MENUBAR_ITEM_CSS))
+}
+
 /// One clickable top-level bar item. Its `MouseUp` callback opens the item's
 /// submenu (its children, or — for a top-level leaf — a one-item menu of itself
 /// so the leaf's own callback still fires) below the item.
-fn build_menubar_item(item: &StringMenuItem) -> Dom {
+fn build_item(item: &StringMenuItem, style: &impl Fn(Dom) -> Dom) -> Dom {
     // The submenu carried (by value) into the click callback as its RefAny.
     let submenu = if item.children.as_slice().is_empty() {
         Menu::create(MenuItemVec::from_vec(vec![MenuItem::String(item.clone())]))
@@ -90,12 +165,10 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
         Menu::create(item.children.clone())
     };
 
-    Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
-            MENUBAR_ITEM_CLASS.into(),
-        )]))
-        .with_css(MENUBAR_ITEM_CSS)
-        .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
+    style(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+        MENUBAR_ITEM_CLASS.into(),
+    )])))
+    .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),

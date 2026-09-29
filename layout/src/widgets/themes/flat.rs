@@ -4342,3 +4342,18 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
         },
     )
 }
+
+// ==== menubar ====
+//
+// The flat menu bar is the widget's established bar, styled with the
+// desktop's own `system:` colours (window background, text, and the selection
+// colours under the pointer) - which resolve in whichever theme paints them,
+// so the bar needs no dark twins. Its items are pointer targets, not keyboard
+// stops (the keyboard reaches a menu through the platform), so there is no
+// focus ring to draw.
+
+/// The flat menu bar.
+#[must_use]
+pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
+    crate::widgets::menubar::build_flat(&m.menu)
+}
