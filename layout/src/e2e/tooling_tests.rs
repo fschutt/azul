@@ -572,3 +572,30 @@ fn escape_tells_the_widget_its_popup_was_dismissed_so_space_opens_it_again() {
         "the Dismissed handler cleared the widget's open flag, so Space opens the picker again"
     );
 }
+
+// ==== `get_cursor_state` reads the caret like `get_selection_state` ====
+
+/// `get_selection_state` reports byte offsets with the caret's affinity
+/// resolved (selection leftovers), but `get_cursor_state.position` still
+/// read the raw `start_byte_in_run` of the caret's cluster: a caret at the
+/// END of "hello" (Trailing on the 'o' at byte 4) read 4, one short of
+/// where it stands.
+#[test]
+fn get_cursor_state_reports_the_caret_after_the_last_character_as_the_text_length() {
+    let result = run_e2e_test(&every_step(
+        "cursor_at_the_end",
+        serde_json::json!([
+            { "op": "mount",
+              "html": ["<div id=\"ed\" contenteditable=\"true\">hello</div>"],
+              "css": ["html, body { margin: 0; padding: 0; } body { font-size: 24px; }"] },
+            { "op": "wait_frame" },
+            { "op": "focus_node", "selector": "#ed" },
+            { "op": "wait_frame" },
+            { "op": "get_cursor_state" },
+            { "op": "assert_response", "type": "cursor_state", "contains": "\"has_cursor\":true" },
+            { "op": "assert_response", "type": "cursor_state", "contains": "\"position\":5" }
+        ]),
+    ));
+
+    assert_eq!(result.status, "pass", "{:#?}", step_errors(&result));
+}
