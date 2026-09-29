@@ -21,8 +21,11 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `b691e355f` RED: rank-ordered lookup (core icon_test.rs, layout icon.rs)
 - `29b5b631b` impl: pack_order / pack_ranks / set_pack_rank / insert_icon / remove_pack
 
+- `044a79ec8` RED: remap rules / apply-if at lookup / window mode (core icon_test.rs remap_rules_tests)
+- `063c8c62a` impl: IconRemapRule, parse_icon_apply_if, lookup_spec_in_context, resolve_icons_in_dom_with_context
+
 ## IN PROGRESS
-- step 5: remap rules (core matcher + context threading), then the loader (layout, feature json)
+- step 5b: the remap.json loader (layout, feature json), injectable root, traversal checks
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
