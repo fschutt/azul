@@ -15,8 +15,12 @@
   create_month/create_week; ISO week math; Monday-first week grid; month grid + year nav; new
   datetime_local.rs DateTimeLocalPicker composing DatePicker+TimePicker; flat/flora datetime_local rows)
 
+- 5 reset/submit/image + Form/FormData: RED 901832389, impl 32504b223 (widgets/form.rs: Form, FormData,
+  FormEntry, FormStateWrapper, submit_form/reset_form, default_on_form_*; Button.form_action + Button.alt +
+  create_submit/create_reset/create_image; TextInput Enter = implicit submission; restore_text_input)
+
 ## IN PROGRESS
-- 5 reset/submit/image + Form/FormData (new layout/src/widgets/form.rs)
+- 6 hidden (HiddenInput in widgets/form.rs)
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
