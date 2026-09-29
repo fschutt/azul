@@ -616,3 +616,5 @@ mod the_ime_caret_rect_is_where_the_raster_paints_the_caret;
 mod a_layout_blit_repaints_what_is_painted_over_its_mover;
 #[path = "a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted.rs"]
 mod a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted;
+#[path = "a_nodes_own_hover_block_applies_only_when_hovered.rs"]
+mod a_nodes_own_hover_block_applies_only_when_hovered;
