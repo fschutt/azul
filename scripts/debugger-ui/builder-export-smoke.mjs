@@ -8,7 +8,9 @@
 // own and drives the page with synthetic events:
 //
 //   Export menu -> "Compile CSS to…" (source, rule ticks, language, Copy,
-//   Download), "Subtree -> code" from the Document toolbar and from a row's
+//   Download), "HTML -> DOM (code)" (paste, language, function / app, its CSS,
+//   a parse error with its line and column), "Subtree -> code" from the
+//   Document toolbar and from a row's
 //   context menu (mode, language, function name), "Component -> code", the
 //   focus trap, Escape closing with focus back on the opener, a Delete key
 //   inside a dialog NOT deleting a node, and Export > Code downloading the zip
@@ -172,6 +174,26 @@ function exportOp(msg) {
             }
             return { language: msg.language, file_name: name + '.' + ext, code, files: [], warnings: [] };
         }
+        case 'html_to_code': {
+            // `class=big` (no quotes) stands for markup that does not parse.
+            if (/class=big/.test(msg.html)) {
+                return { language: msg.language, file_name: '', code: '', files: [], warnings: [],
+                    errors: [{ message: 'Invalid attribute: Invalid quote: got b', line: 2, column: 10 }] };
+            }
+            const ext = { rust: 'rs', c: 'h', cpp: 'hpp', python: 'py' }[msg.language];
+            const name = msg.function_name || 'render_card';
+            const code = `// html ${msg.language} ${msg.mode || 'function'} ${name}${msg.css ? ' css' : ''}\n`;
+            if (msg.mode === 'app') {
+                const main = msg.language === 'c' ? 'main.c' : 'main.' + ext;
+                const files = [{ path: 'ui.' + ext, contents: `// ui ${msg.language}\n` },
+                    { path: main, contents: code }];
+                if (msg.css) files.push({ path: 'styles.' + ext, contents: '// styles\n' });
+                return { language: msg.language, file_name: main, code, files, warnings: [], errors: [] };
+            }
+            const file = name + '.' + ext;
+            const files = msg.css ? [{ path: file, contents: code }, { path: 'styles.' + ext, contents: '// styles\n' }] : [];
+            return { language: msg.language, file_name: file, code, files, warnings: [], errors: [] };
+        }
         case 'export_component_code':
             return {
                 language: msg.language, file_name: `${msg.library}_${msg.name}.rs`,
@@ -310,6 +332,15 @@ async function waitFor(cdp, expr, timeoutMs = 5000) {
 }
 
 const lastSent = (op) => [...mock.sent].reverse().find((m) => m.op === op);
+/** Wait until what the page SENT satisfies `pred` (node side). */
+async function waitSent(pred, timeoutMs = 5000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        if (pred()) return true;
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+}
 const countSent = (op) => mock.sent.filter((m) => m.op === op).length;
 
 const HELPERS = `
@@ -363,8 +394,11 @@ async function main() {
         if (!ready) throw new Error('page not ready');
         await cdp.eval(HELPERS);
 
-        check('the Export menu offers the three quick exports',
-            await cdp.eval(`['css','subtree','component'].every(a => !!document.querySelector('.menu-dropdown-item[data-azx="' + a + '"]'))`));
+        check('the Export menu offers the four quick exports',
+            await cdp.eval(`['css','html','subtree','component'].every(a => !!document.querySelector('.menu-dropdown-item[data-azx="' + a + '"]'))`));
+        check('..."HTML \u2192 DOM (code)" right after "Compile CSS to…"',
+            await cdp.eval(`(() => { const items = [...document.querySelectorAll('.menu-dropdown-item[data-azx]')].map(i => i.dataset.azx);
+                return items.indexOf('html') === items.indexOf('css') + 1; })()`));
         check('the Document toolbar has an "export as code" button',
             await waitFor(cdp, `!!document.querySelector('#azb-toolbar [data-azx-act="export"]')`));
 
@@ -511,6 +545,59 @@ async function main() {
             s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
         await waitFor(cdp, `/component builtin:p/.test(__t.code() || '')`);
         check('...and another component can be picked', lastSent('export_component_code').name === 'p');
+
+        // ── HTML -> DOM (code) ──
+        await cdp.eval(`__t.key('Escape')`);
+        await waitFor(cdp, `!__t.dlg()`);
+        await cdp.eval(`document.getElementById('terminal-cmd').focus(); true`);
+        await cdp.eval(`__t.menu('html')`);
+        await waitFor(cdp, `__t.kind() === 'html' && /html \\w+ function render_card/.test(__t.code() || '')`);
+        check('"HTML \u2192 DOM (code)" opens with a paste area and converts what is in it',
+            await cdp.eval(`!!document.querySelector('.azx-dialog textarea.azx-html')`)
+            && !!lastSent('html_to_code') && lastSent('html_to_code').html.length > 0,
+            lastSent('html_to_code'));
+        check('...from the ONE language list, the languages without DOM export disabled',
+            await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'java'));
+                const j = s && [...s.options].find(o => o.value === 'java');
+                return !!j && j.disabled && s.options.length === 5; })()`));
+        await cdp.eval(`(() => { const t = document.querySelector('.azx-html'); t.value = '<div class="card"><p>Hi</p></div>';
+            t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+        const pasted = await waitSent(() => (lastSent('html_to_code') || {}).html === '<div class="card"><p>Hi</p></div>');
+        check('pasting converts the new markup (debounced)', pasted, lastSent('html_to_code'));
+        await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'java'));
+            s.value = 'python'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/html python function/.test(__t.code() || '')`);
+        check('picking another language converts with it', lastSent('html_to_code').language === 'python');
+        await cdp.eval(`(() => { const i = document.querySelector('.azx-dialog .azx-input'); i.value = 'build_card';
+            i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/build_card/.test(__t.code() || '')`);
+        check('a function name goes along', lastSent('html_to_code').function_name === 'build_card');
+        await cdp.eval(`(() => { const c = document.querySelector('.azx-dialog input[type=checkbox]'); c.checked = true;
+            c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/ css/.test(__t.code() || '')`);
+        check('"with its CSS" asks for the styles and lists both files',
+            lastSent('html_to_code').css === true
+            && await cdp.eval(`(() => { const f = document.querySelector('.azx-out-files');
+                return !!f && f.getClientRects().length > 0 && [...f.options].map(o => o.textContent).join(',') === 'build_card.py,styles.py'; })()`),
+            await cdp.eval(`(() => { const f = document.querySelector('.azx-out-files'); return f && [...f.options].map(o => o.textContent); })()`));
+        await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'app'));
+            s.value = 'app'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/html python app/.test(__t.code() || '')`);
+        check('"A runnable app" answers a project with its main file first and hides the function name',
+            lastSent('html_to_code').mode === 'app' && lastSent('html_to_code').function_name === undefined
+            && await cdp.eval(`document.querySelector('.azx-dialog .azx-input').getClientRects().length === 0`)
+            && await cdp.eval(`[...document.querySelector('.azx-out-files').options].map(o => o.textContent)[0] === 'main.py'`),
+            lastSent('html_to_code'));
+        await cdp.eval(`(() => { const t = document.querySelector('.azx-html'); t.value = '<div>\\n<p class=big>x</p></div>';
+            t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/line 2, column 10/.test(__t.status() || '')`);
+        check('markup that does not parse shows its line and column, and no code',
+            await cdp.eval(`/line 2, column 10: Invalid attribute/.test(__t.status())
+                && document.querySelector('.azx-status').classList.contains('azx-error') && !__t.code()`),
+            await cdp.eval(`__t.status()`));
+        await cdp.eval(`__t.key('Escape')`);
+        check('Escape closes it and focus returns to what had it',
+            await waitFor(cdp, `!__t.dlg() && document.activeElement === document.getElementById('terminal-cmd')`));
 
         // A refusal shows as an error in the dialog, not as a crash.
         await cdp.eval(`__t.key('Escape')`);

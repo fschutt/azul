@@ -1,8 +1,9 @@
 //! AzBuilder's quick exports and Export > Code, driven end to end through the
 //! REAL op dispatcher on a headless window: every message the export dialogs
 //! (`debugger-export.js`) send — `get_codegen_languages`, `get_css_rules`,
-//! `compile_css`, `export_subtree_code`, `export_component_code` — and the
-//! project behind Export > Code (`export_code`, `export_code_zip`).
+//! `compile_css`, `html_to_code`, `export_subtree_code`,
+//! `export_component_code` — and the project behind Export > Code
+//! (`export_code`, `export_code_zip`).
 //!
 //! Each scenario reads the op's answer from the step results (`response` is
 //! the `ResponseData` JSON, `{type, value}`) and checks the generated code
@@ -558,4 +559,142 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
         .filter_map(|p| p.as_str())
         .collect();
     assert!(!only_app.iter().any(|p| p.contains("components/")), "{only_app:?}");
+}
+
+// ── HTML → DOM (code): pasted markup, `html_to_code` ──
+
+const PASTED: &str = "<style>.card { padding-top: 4px; }</style>\n\
+                      <div class=\"card\">\n  <h2>Hello</h2>\n  \
+                      <a href=\"https://azul.rs\">Docs</a>\n</div>";
+
+#[test]
+fn pasted_html_becomes_a_render_function_in_rust_c_and_python() {
+    let result = run(
+        "html_to_code_function",
+        vec![
+            /* 0 */ serde_json::json!({ "op": "html_to_code", "html": PASTED, "language": "rust" }),
+            /* 1 */ serde_json::json!({ "op": "html_to_code", "html": PASTED, "language": "c" }),
+            /* 2 */
+            serde_json::json!({ "op": "html_to_code", "html": PASTED, "language": "python" }),
+            /* 3 */
+            serde_json::json!({ "op": "html_to_code", "html": PASTED, "language": "rust",
+                                "function_name": "build_card" }),
+            /* 4 */
+            serde_json::json!({ "op": "html_to_code", "html": PASTED, "language": "klingon" }),
+        ],
+    );
+    let rust = value(&result, 0);
+    assert_eq!(rust["file_name"], "render_card.rs");
+    assert!(rust["errors"].as_array().is_some_and(Vec::is_empty), "{rust}");
+    let rs = rust["code"].as_str().expect("code");
+    has(rs, "pub fn render_card() -> Dom {");
+    // The `<style>` block became the node's `with_css`.
+    has(rs, ".with_css(azul::str::String::from(\"padding-top: 4px;\"))");
+    has(rs, "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))");
+    has(
+        rs,
+        "Dom::create_a(azul::str::String::from(\"https://azul.rs\"), \
+         azul::str::String::from(\"Docs\"), \
+         SmallAriaInfo::label(azul::str::String::from(\"Docs\")))",
+    );
+
+    let c = code(&result, 1);
+    has(&c, "static AzDom render_card(void) {");
+    has(
+        &c,
+        "AzDom_createH2WithText(AzString_copyFromBytes((const uint8_t*)\"Hello\", 0, 5))",
+    );
+    has(&code(&result, 2), "def render_card():");
+    has(&code(&result, 3), "pub fn build_card() -> Dom {");
+    has(&refusal(&result, 4), "no code generator for \"klingon\"");
+}
+
+#[test]
+fn a_pasted_document_is_its_body_and_an_app_is_a_project_with_its_styles() {
+    let doc = "<!DOCTYPE html>\n<html><head><style>h1 { margin-top: 3px; }</style></head>\n\
+               <body><h1>Title</h1></body></html>";
+    let result = run(
+        "html_to_code_app",
+        vec![
+            /* 0 */ serde_json::json!({ "op": "html_to_code", "html": doc, "language": "rust" }),
+            /* 1 */
+            serde_json::json!({ "op": "html_to_code", "html": doc, "language": "rust",
+                                "mode": "app", "css": true }),
+        ],
+    );
+    let f = code(&result, 0);
+    has(&f, "pub fn render_ui() -> Dom {");
+    has(&f, "Dom::create_body()");
+    has(&f, "margin-top: 3px;");
+
+    let app = value(&result, 1);
+    assert_eq!(app["file_name"], "main.rs");
+    let paths: Vec<&str> = app["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .filter_map(|f| f["path"].as_str())
+        .collect();
+    for want in ["Cargo.toml", "src/ui.rs", "src/main.rs", "src/styles.rs"] {
+        assert!(paths.contains(&want), "{want} in {paths:?}");
+    }
+    let main = app["files"]
+        .as_array()
+        .and_then(|fs| fs.iter().find(|f| f["path"] == "src/main.rs"))
+        .and_then(|f| f["contents"].as_str())
+        .expect("main.rs");
+    has(main, "mod styles;");
+}
+
+#[test]
+fn a_parse_error_comes_back_with_the_line_and_column_of_the_pasted_text() {
+    // Two blank lines and a doctype before the broken tag: the position is in
+    // the text as pasted, not in what the parser kept of it.
+    let broken = "\n\n<!DOCTYPE html>\n<p class=big>x</p>";
+    let result = run(
+        "html_to_code_parse_error",
+        vec![serde_json::json!({ "op": "html_to_code", "html": broken, "language": "rust" })],
+    );
+    let v = value(&result, 0);
+    let errors = v["errors"].as_array().expect("structured errors");
+    assert_eq!(errors.len(), 1, "{v}");
+    assert_eq!(errors[0]["line"], 4, "{v}");
+    assert!(errors[0]["column"].as_u64().is_some_and(|c| c > 1), "{v}");
+    assert!(
+        errors[0]["message"].as_str().is_some_and(|m| !m.is_empty()),
+        "{v}"
+    );
+    assert_eq!(v["code"], "", "no code for markup that does not parse");
+}
+
+#[test]
+fn a_language_without_dom_export_answers_with_its_reason() {
+    let result = run(
+        "html_to_code_no_dom",
+        vec![serde_json::json!({ "op": "html_to_code", "html": "<p>x</p>", "language": "perl" })],
+    );
+    let v = value(&result, 0);
+    assert!(
+        v["warnings"]
+            .as_array()
+            .is_some_and(|w| w.iter().any(|w| w.as_str().is_some_and(|s| s.contains("does not print DOM")))),
+        "{v}"
+    );
+}
+
+#[test]
+fn a_component_instance_in_pasted_html_is_a_call_of_the_apps_component() {
+    let mut steps = card_steps();
+    steps.extend([
+        /* 3 */
+        serde_json::json!({ "op": "builder_convert_to_component", "node": 1,
+                            "library": "user", "name": "my-card" }),
+        /* 4 */
+        serde_json::json!({ "op": "html_to_code", "language": "rust",
+                            "html": "<user:my-card text=\"Hi\" href=\"/x\" text_2=\"Go\"/>" }),
+    ]);
+    let result = run("html_to_code_component", steps);
+    let rust = code(&result, 4);
+    has(&rust, "render_my_card(\"Hi\", \"/x\", \"Go\")");
+    has(&rust, "pub fn render_my_card(text: &str, href: &str, text_2: &str) -> Dom {");
 }

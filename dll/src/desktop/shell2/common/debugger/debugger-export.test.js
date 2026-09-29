@@ -4,8 +4,10 @@
 //     node dll/src/desktop/shell2/common/debugger/debugger-export.test.js
 //
 // No dependencies. Under node the module exports only its logic: which
-// language a dialog opens on, which message each dialog sends, which
-// component "Component → code" starts from, and the focus trap.
+// language a dialog opens on, which message each dialog sends (the four
+// dialogs: Compile CSS to…, HTML → DOM (code), Subtree → code, Component →
+// code), which component "Component → code" starts from, how a parse error
+// reads, and the focus trap.
 'use strict';
 
 const assert = require('assert');
@@ -114,6 +116,26 @@ test('Subtree -> code sends the node, and the mode / name only when they are not
           function_name: 'ignored_by_the_server_for_apps' });
     assert.deepStrictEqual(L.subtreeMessage(5, 'python', 'function', ' build_card '),
         { op: 'export_subtree_code', node: 5, language: 'python', function_name: 'build_card' });
+});
+
+test('HTML -> code sends the pasted text, and the mode / name / CSS only when they are not the default', () => {
+    assert.deepStrictEqual(L.htmlMessage('<p>x</p>', 'rust', 'function', '  ', false),
+        { op: 'html_to_code', html: '<p>x</p>', language: 'rust' });
+    assert.deepStrictEqual(L.htmlMessage('<p>x</p>', 'c', 'function', ' build ', true),
+        { op: 'html_to_code', html: '<p>x</p>', language: 'c', function_name: 'build', css: true });
+    assert.deepStrictEqual(L.htmlMessage('<p>x</p>', 'python', 'app', 'not for an app', false),
+        { op: 'html_to_code', html: '<p>x</p>', language: 'python', mode: 'app' });
+    assert.strictEqual(L.htmlMessage('  \n ', 'rust', 'function', '', false), null,
+        'nothing pasted: nothing to send');
+});
+
+test('a parse error names its line and column', () => {
+    assert.strictEqual(L.parseErrorText({ message: 'Invalid attribute', line: 4, column: 10 }),
+        'line 4, column 10: Invalid attribute');
+    assert.strictEqual(L.parseErrorText({ message: 'unclosed root node', line: null, column: null }),
+        'unclosed root node');
+    assert.strictEqual(L.parseErrorText({ line: 2 }), 'line 2: the markup does not parse');
+    assert.strictEqual(L.parseErrorText(null), '');
 });
 
 test('Component -> code lists user components first and opens on the selected instance', () => {
