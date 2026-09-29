@@ -7507,29 +7507,28 @@ pub fn compile_body_node_to_rust_code<'a>(
 
     let matcher_hash = matcher.get_hash();
     let css_blocks_for_this_node = get_css_blocks(css, &matcher);
-    if !css_blocks_for_this_node.is_empty() {
-        // Track property types for the helper-const machinery, then emit the
-        // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
-        for css_block in &css_blocks_for_this_node {
-            for declaration in css_block.block.declarations.as_ref() {
-                let prop = match declaration {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(d) => &d.default_value,
-                };
-                extra_blocks.insert_from_css_property(prop);
-            }
+    // Track property types for the helper-const machinery, then emit the
+    // matched declarations as an inline CSS string. (The old path emitted a
+    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
+    // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
+    // current equivalent and parses pseudo blocks too.)
+    for css_block in &css_blocks_for_this_node {
+        for declaration in css_block.block.declarations.as_ref() {
+            let prop = match declaration {
+                CssDeclaration::Static(s) => s,
+                CssDeclaration::Dynamic(d) => &d.default_value,
+            };
+            extra_blocks.insert_from_css_property(prop);
         }
-
-        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
-        if !inline_css.is_empty() {
-            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
-        }
-        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
+    // The node's own `style` attribute counts too (the live-page export
+    // carries every node's computed style there).
+    let inline_css = node_inline_css(&css_blocks_for_this_node, body_node);
+    if !inline_css.is_empty() {
+        let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
+    }
+    let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
 
     if !body_node.children.as_ref().is_empty() {
         use azul_css::codegen::format::GetHash;
@@ -7620,6 +7619,25 @@ fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
     let mut parts = normal;
     parts.extend(pseudo);
     parts.join(" ")
+}
+
+/// The inline CSS of an exported node: the stylesheet rules that match it
+/// (`css_blocks_to_inline_string`), then its own `style` attribute — last, so
+/// it wins like an inline style does. The attribute's whitespace is collapsed
+/// to single spaces: a newline inside a C / C++ / Python string literal would
+/// not compile.
+fn node_inline_css(blocks: &[CssBlock], node: &XmlNode) -> String {
+    let mut css = css_blocks_to_inline_string(blocks);
+    if let Some(style) = node.attributes.get_key("style") {
+        let style = style.as_str().split_whitespace().collect::<Vec<_>>().join(" ");
+        if !style.is_empty() {
+            if !css.is_empty() {
+                css.push(' ');
+            }
+            css.push_str(&style);
+        }
+    }
+    css
 }
 
 fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
@@ -7767,29 +7785,28 @@ fn compile_node_to_rust_code_inner(
 
     let matcher_hash = matcher.get_hash();
     let css_blocks_for_this_node = get_css_blocks(css, &matcher);
-    if !css_blocks_for_this_node.is_empty() {
-        // Track property types for the helper-const machinery, then emit the
-        // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
-        for css_block in &css_blocks_for_this_node {
-            for declaration in css_block.block.declarations.as_ref() {
-                let prop = match declaration {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(d) => &d.default_value,
-                };
-                extra_blocks.insert_from_css_property(prop);
-            }
+    // Track property types for the helper-const machinery, then emit the
+    // matched declarations as an inline CSS string. (The old path emitted a
+    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
+    // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
+    // current equivalent and parses pseudo blocks too.)
+    for css_block in &css_blocks_for_this_node {
+        for declaration in css_block.block.declarations.as_ref() {
+            let prop = match declaration {
+                CssDeclaration::Static(s) => s,
+                CssDeclaration::Dynamic(d) => &d.default_value,
+            };
+            extra_blocks.insert_from_css_property(prop);
         }
-
-        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
-        if !inline_css.is_empty() {
-            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
-        }
-        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
     }
+    // The node's own `style` attribute counts too (the live-page export
+    // carries every node's computed style there).
+    let inline_css = node_inline_css(&css_blocks_for_this_node, node);
+    if !inline_css.is_empty() {
+        let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
+    }
+    let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
 
     set_stringified_attributes(
         &mut dom_string,
@@ -8522,6 +8539,23 @@ impl NodeCtor {
     fn render_fluent(&self, target: &CompileTarget) -> Option<String> {
         match self {
             Self::Plain => None,
+            // Python cannot build an `OptionString` (its binding only has
+            // `OptionString.None()`, which is not even valid syntax), so a
+            // link without `aria-label` becomes `create_a` with its text as
+            // the accessible name: `azul.OptionString.some(..)` raised an
+            // AttributeError at run time.
+            Self::Semantic { suffix, args, .. }
+                if matches!(target, CompileTarget::Python) && suffix == "ANoA11y" =>
+            {
+                let href = args.first().map_or_else(|| "\"\"".to_string(), CtorArg::render_python);
+                let text = match args.get(1) {
+                    Some(CtorArg::OptSome(s)) => format!("\"{}\"", esc_lit(s)),
+                    _ => href.clone(),
+                };
+                Some(format!(
+                    "azul.Dom.create_a({href}, {text}, azul.SmallAriaInfo.label({text}))"
+                ))
+            }
             Self::Semantic { suffix, args, .. } => {
                 let snake = camel_to_snake(suffix);
                 let (prefix, rendered) = match target {
@@ -8648,12 +8682,10 @@ fn compile_node_fluent(
 
     // Inline CSS (matched rules -> `.with_css("..")`, pseudo blocks included).
     let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&(syntax.with_css)(&esc));
-        }
+    let inline_css = node_inline_css(&blocks, node);
+    if !inline_css.is_empty() {
+        let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        s.push_str(&(syntax.with_css)(&esc));
     }
     for id in &ids {
         s.push_str(&(syntax.with_id)(
@@ -8733,12 +8765,10 @@ fn compile_body_fluent<'a>(
     );
 
     let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&(syntax.with_css)(&esc));
-        }
+    let inline_css = node_inline_css(&blocks, body_node);
+    if !inline_css.is_empty() {
+        let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        s.push_str(&(syntax.with_css)(&esc));
     }
     for class in &classes {
         s.push_str(&(syntax.with_class)(
@@ -8820,8 +8850,9 @@ pub fn str_to_cpp_code<'a>(
     Ok(alloc::format!(
         "// Auto-generated UI source code (C++). Build:\n//   clang++ -std=c++20 -I \
          <azul>/target/codegen main.cpp -lazul\n#include \"azul20.hpp\"\nusing namespace \
-         azul;\n\nstruct Data {{}};\n\nAzDom render(AzRefAny data, AzLayoutCallbackInfo info) \
-         {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
+         azul;\n\nstruct Data {{}};\n\nffi::Dom render(ffi::RefAny data, ffi::LayoutCallbackInfo \
+         info) {{\n    RefAny adopted(data); // the callback owns its RefAny: release it\n    \
+         (void)info;\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
          RefAny::create(Data{{}});\n    WindowCreateOptions window = \
          WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
          AppConfig::create());\n    app.run(std::move(window));\n    return 0;\n}}\n"
@@ -8938,12 +8969,10 @@ fn compile_node_c(
     );
 
     let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));");
-        }
+    let inline_css = node_inline_css(&blocks, node);
+    if !inline_css.is_empty() {
+        let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = writeln!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));");
     }
     for id in &ids {
         let esc = id.replace('\\', "\\\\").replace('"', "\\\"");
@@ -9033,15 +9062,13 @@ pub fn str_to_c_code<'a>(
             .map(|c| CssPathSelector::Class(c.clone().into())),
     );
     let blocks = get_css_blocks(&global_style, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(
-                body,
-                "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));"
-            );
-        }
+    let inline_css = node_inline_css(&blocks, body_node);
+    if !inline_css.is_empty() {
+        let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = writeln!(
+            body,
+            "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));"
+        );
     }
     for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
         match child {
@@ -9074,18 +9101,31 @@ pub fn str_to_c_code<'a>(
         }
     }
 
+    // The app data is a reflected struct (`AZ_REFLECT`, like
+    // examples/c/hello-world.c): a RefAny built with `AzRefAny_newC(…, NULL
+    // destructor, …)` crashes when the app exits, because the last reference
+    // calls its destructor unconditionally (core/src/refany.rs).
     Ok(alloc::format!(
         "/* Auto-generated UI source code (C). Build:\n*   clang -I <azul>/target/codegen main.c \
          -lazul\n */\n#include \"azul.h\"\n#include <string.h>\n#define AZ_STR(s) \
-         AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\nAzDom render(AzRefAny data, \
+         AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\ntypedef struct {{ int \
+         unused; }} AppData;\nstatic void AppData_destructor(void* p) {{ (void)p; \
+         }}\nAZ_REFLECT(AppData, AppData_destructor);\n\nAzDom render(AzRefAny data, \
          AzLayoutCallbackInfo info) {{\n{body}    return {root};\n}}\n\nint main(void) {{\n    \
-         AzString data_type = AZ_STR(\"Data\");\n    AzRefAny data = \
-         AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);\n    \
-         AzApp app = AzApp_create(data, AzAppConfig_create());\n    AzWindowCreateOptions window \
-         = AzWindowCreateOptions_create(render);\n    AzApp_run(&app, window);\n    \
+         AppData model = {{ 0 }};\n    AzRefAny data = AppData_upcast(model);\n    AzApp app = \
+         AzApp_create(data, AzAppConfig_create());\n    AzWindowCreateOptions window = \
+         AzWindowCreateOptions_create(render);\n    AzApp_run(&app, window);\n    \
          AzApp_delete(&app);\n    return 0;\n}}\n"
     ))
 }
+
+// A DOM FRAGMENT (a builder subtree, a component template) → a render
+// function per language: AzBuilder's "Subtree → code" / "Component → code".
+#[path = "xml_fragment_codegen.rs"]
+mod fragment_codegen;
+pub use fragment_codegen::{
+    compile_xml_fragment, compile_xml_fragment_app, CompiledFragment, FragmentParam,
+};
 
 #[cfg(test)]
 #[path = "xml_test.rs"]
