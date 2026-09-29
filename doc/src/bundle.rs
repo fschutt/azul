@@ -15,14 +15,38 @@
 //!   registered but refused; `~/Applications` works.
 //!
 //! What it does, in this order: copy the binary to `X.app/Contents/MacOS/`,
-//! write `Info.plist`, copy the dylibs the build produced into
-//! `Contents/Frameworks/` and point the binary at the copies, sign the dylibs
-//! and then the bundle ad-hoc (inside out, never `--deep`), and register it
-//! with `lsregister`.
+//! write `Info.plist`, write the icon to `Contents/Resources/AppIcon.icns`,
+//! copy the dylibs the build produced - and THEIR dylibs, walked with
+//! `otool -L` ([`plan_dylib_tree`]) - into `Contents/Frameworks/`, give each
+//! copy its bundle install name (`install_name_tool -id`) and point every
+//! reference at the copies (`-change`, in the binary and in the dylibs),
+//! sign the dylibs and then the bundle ad-hoc (inside out, never `--deep`),
+//! and register it with `lsregister`.
 //!
-//! Not done (yet): an `.icns` icon, entitlements (local notifications need
-//! none), a Developer ID signature / notarization for distribution, and the
-//! dylibs' own non-system dependencies.
+//! * **The icon** comes from `--icon <path>` or the crate's `[package.metadata.bundle] icon`
+//!   (the `cargo-bundle` key, [`configured_icons`]): an `.icns` is copied, square PNGs of the
+//!   sizes an `.icns` holds are wrapped into one as they are ([`icns_from_pngs`]; no `iconutil`,
+//!   no resampling).
+//! * **The libraries**: by default the build's own ([`DylibScope::Build`]); `--portable` also
+//!   takes Homebrew's and MacPorts' - everything outside `/usr/lib` and `/System`
+//!   ([`DylibScope::NonSystem`]) - for a Mac that does not have them.
+//!
+//! Not done: entitlements (local notifications need none) and a signature for
+//! DISTRIBUTION. The ad-hoc signature is enough on the Mac that built the
+//! bundle; Gatekeeper on any other Mac refuses it. Distribution needs a paid
+//! Apple Developer account and, by hand:
+//!
+//! 1. Sign inside out with the "Developer ID Application" certificate and the hardened runtime:
+//!    `codesign --force --options runtime --timestamp --sign "Developer ID Application: <Name>
+//!    (<TEAMID>)"` on each `Contents/Frameworks/*.dylib`, then on `X.app`.
+//! 2. Zip it (`ditto -c -k --keepParent X.app X.zip`) and submit it:
+//!    `xcrun notarytool submit X.zip --apple-id <id> --team-id <TEAMID> --password
+//!    <app-specific password> --wait` (or `--keychain-profile <name>` after `xcrun notarytool
+//!    store-credentials`).
+//! 3. Staple the ticket to the bundle: `xcrun stapler staple X.app`; check with
+//!    `spctl --assess --type execute -vv X.app` ("source=Notarized Developer ID").
+//!
+//! These need credentials this command does not have, so it stops at the ad-hoc signature.
 
 use std::path::{Path, PathBuf};
 
@@ -49,6 +73,8 @@ pub struct BundlePaths {
     pub contents: PathBuf,
     pub macos: PathBuf,
     pub frameworks: PathBuf,
+    /// `Contents/Resources/`: the icon.
+    pub resources: PathBuf,
     pub info_plist: PathBuf,
     pub executable: PathBuf,
 }
@@ -89,6 +115,12 @@ pub fn info_plist(spec: &MacBundleSpec) -> String {
     let executable = xml_escape(&spec.executable);
     let id = xml_escape(&spec.bundle_id);
     let version = xml_escape(&bundle_version(&spec.version));
+    let icon = spec.icon_file.as_deref().map_or_else(String::new, |file| {
+        format!(
+            "    <key>CFBundleIconFile</key>\n    <string>{}</string>\n",
+            xml_escape(file)
+        )
+    });
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -100,7 +132,7 @@ pub fn info_plist(spec: &MacBundleSpec) -> String {
     <string>{name}</string>
     <key>CFBundleExecutable</key>
     <string>{executable}</string>
-    <key>CFBundleIdentifier</key>
+{icon}    <key>CFBundleIdentifier</key>
     <string>{id}</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
@@ -180,6 +212,17 @@ pub fn package_version(cargo_toml: &str) -> Option<String> {
 /// absolute one inside the build's `target_dir`. The system's libraries and
 /// anything installed elsewhere stay where they are.
 pub fn plan_dylibs(otool_l: &str, target_dir: &Path) -> Vec<BundledDylib> {
+    plan_dylibs_in(otool_l, target_dir, DylibScope::Build)
+}
+
+/// A library of the system - never bundled: `/usr/lib/` and `/System/`.
+fn is_system_library(reference: &str) -> bool {
+    reference.starts_with("/usr/lib/") || reference.starts_with("/System/")
+}
+
+/// [`plan_dylibs`] for a [`DylibScope`]: `NonSystem` also takes every
+/// absolute reference outside the system's directories.
+pub fn plan_dylibs_in(otool_l: &str, target_dir: &Path, scope: DylibScope) -> Vec<BundledDylib> {
     let mut out: Vec<BundledDylib> = Vec::new();
     for line in otool_l.lines() {
         // Dependencies are indented; an unindented line names the file (or,
@@ -201,7 +244,11 @@ pub fn plan_dylibs(otool_l: &str, target_dir: &Path) -> Vec<BundledDylib> {
             .any(|prefix| reference.starts_with(prefix));
         let source = if relative {
             None
-        } else if Path::new(reference).starts_with(target_dir) {
+        } else if Path::new(reference).starts_with(target_dir)
+            || (scope == DylibScope::NonSystem
+                && reference.starts_with('/')
+                && !is_system_library(reference))
+        {
             Some(PathBuf::from(reference))
         } else {
             continue;
@@ -258,42 +305,180 @@ pub struct DylibTree {
     pub relinks: Vec<Relink>,
 }
 
-/// Walk the binary's dylibs and theirs.
+/// Walk the binary's dylibs and theirs, breadth first: `exe_otool_l` is
+/// `otool -L` of the binary, `listing_of` answers `otool -L` of a planned
+/// dylib (`None` when it cannot be read - it is then bundled without its own
+/// dependencies). Each dylib is bundled once, however many others link it,
+/// and a cycle ends at the first repeat. A dylib's listing names its own
+/// install name too; that is no dependency (the bundle sets it with
+/// `install_name_tool -id`).
 pub fn plan_dylib_tree(
     exe_otool_l: &str,
     target_dir: &Path,
     scope: DylibScope,
-    listing_of: impl FnMut(&BundledDylib) -> Option<String>,
+    mut listing_of: impl FnMut(&BundledDylib) -> Option<String>,
 ) -> DylibTree {
-    let _ = (exe_otool_l, target_dir, scope, listing_of);
-    DylibTree::default()
+    let mut tree = DylibTree::default();
+    let mut queue: std::collections::VecDeque<(RelinkFile, Vec<BundledDylib>)> =
+        std::collections::VecDeque::new();
+    queue.push_back((
+        RelinkFile::Executable,
+        plan_dylibs_in(exe_otool_l, target_dir, scope),
+    ));
+    while let Some((file, dependencies)) = queue.pop_front() {
+        for dependency in dependencies {
+            tree.relinks.push(Relink {
+                file: file.clone(),
+                from: dependency.reference.clone(),
+                to: relinked_reference(&dependency.name),
+            });
+            if tree.dylibs.iter().any(|d| d.name == dependency.name) {
+                continue;
+            }
+            let own: Vec<BundledDylib> = listing_of(&dependency)
+                .map(|listing| {
+                    plan_dylibs_in(&listing, target_dir, scope)
+                        .into_iter()
+                        .filter(|d| d.name != dependency.name)
+                        .collect()
+                })
+                .unwrap_or_default();
+            queue.push_back((RelinkFile::Dylib(dependency.name.clone()), own));
+            tree.dylibs.push(dependency);
+        }
+    }
+    tree
 }
 
 // ────────── The icon ───────────────────────────────────────────────────
 
-/// The icon files a crate configures: `icon` of `[package.metadata.bundle]`.
+/// The icon files a crate configures: `icon` of `[package.metadata.bundle]`,
+/// the table and key `cargo-bundle` reads, so a crate set up for it needs
+/// nothing more. A list of paths (PNGs of the sizes an `.icns` holds, and/or
+/// an `.icns`) or one path, relative to the crate's directory.
+///
+/// A line scan, like [`package_version`]: the array may span lines.
 pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
-    let _ = cargo_toml;
-    Vec::new()
+    let mut in_table = false;
+    let mut collecting = false;
+    let mut value = String::new();
+    for line in cargo_toml.lines() {
+        let t = line.trim();
+        if collecting {
+            value.push_str(t);
+            if t.contains(']') {
+                break;
+            }
+            continue;
+        }
+        if t.starts_with('[') {
+            in_table = t == "[package.metadata.bundle]";
+            continue;
+        }
+        if !in_table {
+            continue;
+        }
+        // `icon = ...`, not `icons = ...` or `icon_x = ...`.
+        let Some(rest) = t.strip_prefix("icon") else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim();
+        value.push_str(rest);
+        if rest.starts_with('[') && !rest.contains(']') {
+            collecting = true;
+            continue;
+        }
+        break;
+    }
+    // Every quoted string: the pieces between the 1st and 2nd quote, the
+    // 3rd and 4th, ...
+    value
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
-/// A PNG's pixel size, from its `IHDR` chunk.
+/// A PNG's pixel size `(width, height)`, from its `IHDR` chunk; `None` for
+/// anything that is not a PNG.
 pub fn png_size(png: &[u8]) -> Option<(u32, u32)> {
-    let _ = png;
-    None
+    const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    if png.len() < 24 || png[..8] != SIGNATURE || &png[12..16] != b"IHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let height = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    Some((width, height))
 }
 
-/// The ICNS element type that holds a PNG of this square size.
+/// The ICNS element type that holds a PNG of this square size (the
+/// PNG-encoded types macOS 10.7 and later read).
 pub fn icns_type_for(size: u32) -> Option<&'static [u8; 4]> {
-    let _ = size;
-    None
+    Some(match size {
+        16 => b"icp4",
+        32 => b"icp5",
+        64 => b"icp6",
+        128 => b"ic07",
+        256 => b"ic08",
+        512 => b"ic09",
+        1024 => b"ic10",
+        _ => return None,
+    })
 }
 
-/// An `.icns` holding these PNGs.
+/// An `.icns` holding these PNGs as they are, each under the element type
+/// for its size ([`icns_type_for`]) - no image conversion, no `iconutil`.
+/// A size it already holds is kept once (the first). `Err` names a PNG that
+/// is not square or not a size an `.icns` holds, or says there is none.
+///
+/// The format: `icns` + the file's length, then per element its type, its
+/// length (with its own 8-byte header) and its data; lengths big-endian.
 pub fn icns_from_pngs(pngs: &[Vec<u8>]) -> Result<Vec<u8>, String> {
-    let _ = pngs;
-    Err("not implemented".to_string())
+    let mut elements: Vec<(&'static [u8; 4], &[u8])> = Vec::new();
+    for (i, png) in pngs.iter().enumerate() {
+        let number = i + 1;
+        let (width, height) =
+            png_size(png).ok_or_else(|| format!("icon {number} is not a PNG"))?;
+        if width != height {
+            return Err(format!(
+                "icon {number} is {width}x{height} px: an .icns holds square icons"
+            ));
+        }
+        let ty = icns_type_for(width).ok_or_else(|| {
+            format!(
+                "icon {number} is {width} px: an .icns holds 16, 32, 64, 128, 256, 512 or \
+                 1024 px"
+            )
+        })?;
+        if elements.iter().any(|(t, _)| *t == ty) {
+            continue;
+        }
+        elements.push((ty, png.as_slice()));
+    }
+    if elements.is_empty() {
+        return Err("there is no icon to put into the .icns".to_string());
+    }
+    let total = 8 + elements.iter().map(|(_, d)| 8 + d.len()).sum::<usize>();
+    let total_u32 = u32::try_from(total)
+        .map_err(|_| "the icons are larger than an .icns can hold".to_string())?;
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(b"icns");
+    out.extend_from_slice(&total_u32.to_be_bytes());
+    for (ty, data) in elements {
+        out.extend_from_slice(ty);
+        out.extend_from_slice(&((8 + data.len()) as u32).to_be_bytes());
+        out.extend_from_slice(data);
+    }
+    Ok(out)
 }
+
+/// The icon's file name in `Contents/Resources/` (`CFBundleIconFile`).
+pub const ICON_FILE: &str = "AppIcon.icns";
 
 /// LaunchServices registers a bundle under `/var/folders` (the per-user
 /// temporary directory) but UN refuses it there.
@@ -310,6 +495,7 @@ pub fn bundle_paths(out_dir: &Path, spec: &MacBundleSpec) -> BundlePaths {
         executable: macos.join(&spec.executable),
         info_plist: contents.join("Info.plist"),
         frameworks: contents.join("Frameworks"),
+        resources: contents.join("Resources"),
         macos,
         contents,
         app,
@@ -339,9 +525,16 @@ fn print_usage() {
     println!("  --bundle-id <id>     CFBundleIdentifier (default com.azul.<binary>, the id the");
     println!("                       app gives itself unbundled and on Windows)");
     println!("  --name <name>        the app's name (default: the binary's)");
+    println!("  --icon <path>        an .icns, or a square PNG of 16..1024 px (default: `icon` of");
+    println!("                       [package.metadata.bundle] in the crate's Cargo.toml)");
+    println!("  --portable           also bundle Homebrew / MacPorts libraries (every non-system");
+    println!("                       one), for a Mac that does not have them");
     println!("  --out <dir>          where the .app goes (default ~/Applications)");
     println!("  --no-register        skip the LaunchServices registration");
     println!("  --dry-run            print the plan, write nothing");
+    println!();
+    println!("  The signature is ad hoc: fine on this Mac. Distribution needs a Developer ID");
+    println!("  signature and notarization - see the module docs of doc/src/bundle.rs.");
 }
 
 #[derive(Debug, Default)]
@@ -352,7 +545,9 @@ struct BundleArgs {
     exe: Option<PathBuf>,
     bundle_id: Option<String>,
     name: Option<String>,
+    icon: Option<PathBuf>,
     out: Option<PathBuf>,
+    portable: bool,
     no_register: bool,
     dry_run: bool,
 }
@@ -391,10 +586,15 @@ fn parse_args(args: &[&str]) -> anyhow::Result<BundleArgs> {
                 a.name = Some(value(i, "--name")?);
                 i += 1;
             }
+            "--icon" => {
+                a.icon = Some(PathBuf::from(value(i, "--icon")?));
+                i += 1;
+            }
             "--out" => {
                 a.out = Some(PathBuf::from(value(i, "--out")?));
                 i += 1;
             }
+            "--portable" => a.portable = true,
             "--no-register" => a.no_register = true,
             "--dry-run" | "-n" => a.dry_run = true,
             flag if flag.starts_with('-') => anyhow::bail!("unknown option {flag}"),
@@ -456,6 +656,100 @@ fn run(cmd: &mut std::process::Command) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `otool -L <file>`.
+fn otool_l(file: &Path) -> anyhow::Result<String> {
+    let listing = std::process::Command::new("otool")
+        .arg("-L")
+        .arg(file)
+        .output()
+        .map_err(|e| anyhow::anyhow!("otool (Xcode command line tools) could not run: {e}"))?;
+    if !listing.status.success() {
+        anyhow::bail!("otool -L {} failed", file.display());
+    }
+    Ok(String::from_utf8_lossy(&listing.stdout).into_owned())
+}
+
+/// The file a planned dylib is copied from: its absolute reference, or - for
+/// an `@rpath/` one - the build's output directory.
+fn dylib_source(dylib: &BundledDylib, target_dir: &Path, profile: &str) -> Option<PathBuf> {
+    dylib
+        .source
+        .clone()
+        .or_else(|| {
+            [
+                target_dir.join(profile).join(&dylib.name),
+                target_dir.join(profile).join("deps").join(&dylib.name),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+        })
+        .filter(|p| p.is_file())
+}
+
+/// A copied library keeps its mode, and Homebrew's are read-only (0444):
+/// `install_name_tool` and `codesign` must write the copy.
+#[cfg(unix)]
+fn make_writable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(permissions.mode() | 0o200);
+    std::fs::set_permissions(path, permissions)
+}
+
+#[cfg(not(unix))]
+fn make_writable(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// The bundle's `.icns`: an `.icns` among `sources` as it is, else the PNGs
+/// wrapped into one ([`icns_from_pngs`]). Files that cannot be used are
+/// named and skipped - an app without an icon still runs.
+fn icon_bytes(sources: &[PathBuf]) -> Option<Vec<u8>> {
+    fn is_icns(p: &Path) -> bool {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("icns"))
+    }
+    if let Some(icns) = sources.iter().find(|p| is_icns(p)) {
+        match std::fs::read(icns) {
+            Ok(bytes) => return Some(bytes),
+            Err(e) => println!("[bundle] WARN icon {} not read: {e}", icns.display()),
+        }
+    }
+    let mut pngs: Vec<Vec<u8>> = Vec::new();
+    for path in sources.iter().filter(|p| !is_icns(p)) {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                println!("[bundle] WARN icon {} not read: {e}", path.display());
+                continue;
+            }
+        };
+        match png_size(&bytes) {
+            Some((w, h)) if w == h && icns_type_for(w).is_some() => pngs.push(bytes),
+            Some((w, h)) => println!(
+                "[bundle] WARN icon {} is {w}x{h} px: an .icns holds square PNGs of 16, 32, 64, \
+                 128, 256, 512 or 1024 px - skipped",
+                path.display()
+            ),
+            None => println!(
+                "[bundle] WARN icon {} is not a PNG (or an .icns) - skipped",
+                path.display()
+            ),
+        }
+    }
+    if pngs.is_empty() {
+        return None;
+    }
+    match icns_from_pngs(&pngs) {
+        Ok(icns) => Some(icns),
+        Err(e) => {
+            println!("[bundle] WARN no icon: {e}");
+            None
+        }
+    }
+}
+
 fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
     use std::{fs, process::Command};
 
@@ -477,10 +771,23 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
         &crate::mobile::Opts::default(),
     )?;
     let manifest = target.manifest_dir.join("Cargo.toml");
-    let version = fs::read_to_string(&manifest)
-        .ok()
-        .and_then(|text| package_version(&text))
+    let manifest_text = fs::read_to_string(&manifest).ok();
+    let version = manifest_text
+        .as_deref()
+        .and_then(package_version)
         .unwrap_or_else(|| "0.1.0".to_string());
+    // `--icon`, else the crate's `[package.metadata.bundle] icon`.
+    let icon_sources: Vec<PathBuf> = match &a.icon {
+        Some(p) => vec![user_path(project_root, p)],
+        None => manifest_text
+            .as_deref()
+            .map(configured_icons)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| target.manifest_dir.join(p))
+            .collect(),
+    };
+    let icon = icon_bytes(&icon_sources);
     let target_dir = cargo_target_dir(&target.workspace_root);
     let profile = a.profile.clone().unwrap_or_else(|| "release".to_string());
     let bin = a.bin.clone().unwrap_or_else(|| target.crate_name.clone());
@@ -515,7 +822,7 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
             .unwrap_or_else(|| bundle_id_for(&executable)),
         executable,
         version,
-        icon_file: None,
+        icon_file: icon.as_ref().map(|_| ICON_FILE.to_string()),
     };
     let out_dir = match &a.out {
         Some(p) => user_path(project_root, p),
@@ -535,26 +842,32 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
     }
     let paths = bundle_paths(&out_dir, &spec);
 
-    // Which of the binary's libraries travel with it.
-    let dylibs = if cfg!(target_os = "macos") {
-        let listing = Command::new("otool")
-            .arg("-L")
-            .arg(&exe_src)
-            .output()
-            .map_err(|e| {
-                anyhow::anyhow!("otool (Xcode command line tools) could not run: {e}")
-            })?;
-        if !listing.status.success() {
-            anyhow::bail!("otool -L {} failed", exe_src.display());
-        }
-        plan_dylibs(&String::from_utf8_lossy(&listing.stdout), &target_dir)
+    // Which libraries travel with it: the binary's, and theirs, and theirs.
+    let scope = if a.portable {
+        DylibScope::NonSystem
     } else {
-        Vec::new()
+        DylibScope::Build
+    };
+    let tree = if cfg!(target_os = "macos") {
+        let listing = otool_l(&exe_src)?;
+        plan_dylib_tree(&listing, &target_dir, scope, |dylib| {
+            dylib_source(dylib, &target_dir, &profile).and_then(|p| otool_l(&p).ok())
+        })
+    } else {
+        DylibTree::default()
     };
 
     println!("[bundle] {} -> {}", exe_src.display(), paths.app.display());
     println!("[bundle]   CFBundleIdentifier {}", spec.bundle_id);
-    for dylib in &dylibs {
+    if icon.is_some() {
+        println!("[bundle]   icon -> Contents/Resources/{ICON_FILE}");
+    } else if icon_sources.is_empty() {
+        println!(
+            "[bundle]   no icon (--icon <path>, or `icon` in [package.metadata.bundle] of {})",
+            manifest.display()
+        );
+    }
+    for dylib in &tree.dylibs {
         println!(
             "[bundle]   {} -> Contents/Frameworks/{}",
             dylib.reference, dylib.name
@@ -574,19 +887,15 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
     fs::copy(&exe_src, &paths.executable)?;
     fs::write(&paths.info_plist, info_plist(&spec))?;
     fs::write(paths.contents.join("PkgInfo"), "APPL????")?;
+    if let Some(icns) = &icon {
+        fs::create_dir_all(&paths.resources)?;
+        fs::write(paths.resources.join(ICON_FILE), icns)?;
+    }
 
-    // The dylibs, and the binary pointed at the copies.
-    let mut bundled: Vec<PathBuf> = Vec::new();
-    for dylib in &dylibs {
-        let source = dylib.source.clone().or_else(|| {
-            [
-                target_dir.join(&profile).join(&dylib.name),
-                target_dir.join(&profile).join("deps").join(&dylib.name),
-            ]
-            .into_iter()
-            .find(|p| p.is_file())
-        });
-        let Some(source) = source.filter(|p| p.is_file()) else {
+    // The dylibs, each under the install name it has in the bundle.
+    let mut bundled: Vec<String> = Vec::new();
+    for dylib in &tree.dylibs {
+        let Some(source) = dylib_source(dylib, &target_dir, &profile) else {
             println!(
                 "[bundle] WARN {} is not in the build output; left as {} (it must be found \
                  there at run time)",
@@ -597,30 +906,52 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
         fs::create_dir_all(&paths.frameworks)?;
         let dest = paths.frameworks.join(&dylib.name);
         fs::copy(&source, &dest)?;
-        // Can fail when the new reference is longer than the old one and
-        // the binary has no header padding left; it then keeps loading the
-        // original, which works on this machine.
+        make_writable(&dest)?;
+        if let Err(e) = run(Command::new("install_name_tool")
+            .arg("-id")
+            .arg(relinked_reference(&dylib.name))
+            .arg(&dest))
+        {
+            println!("[bundle] WARN could not set the install name of {} ({e})", dylib.name);
+        }
+        bundled.push(dylib.name.clone());
+    }
+
+    // Every reference to a bundled dylib - the binary's and the dylibs'
+    // own - pointed at the copy. Can fail when the new reference is longer
+    // than the old one and the file has no header padding left; it then
+    // keeps loading the original, which works on this machine.
+    for relink in &tree.relinks {
+        let target_name = relink.to.rsplit('/').next().unwrap_or("");
+        if !bundled.iter().any(|name| name == target_name) {
+            continue;
+        }
+        let file = match &relink.file {
+            RelinkFile::Executable => paths.executable.clone(),
+            RelinkFile::Dylib(name) if bundled.contains(name) => paths.frameworks.join(name),
+            RelinkFile::Dylib(_) => continue,
+        };
         if let Err(e) = run(Command::new("install_name_tool")
             .arg("-change")
-            .arg(&dylib.reference)
-            .arg(relinked_reference(&dylib.name))
-            .arg(&paths.executable))
+            .arg(&relink.from)
+            .arg(&relink.to)
+            .arg(&file))
         {
             println!(
-                "[bundle] WARN could not point the binary at the bundled {} ({e}); it keeps \
+                "[bundle] WARN could not point {} at the bundled {target_name} ({e}); it keeps \
                  loading {}",
-                dylib.name, dylib.reference
+                file.display(),
+                relink.from
             );
         }
-        bundled.push(dest);
     }
 
     // Ad-hoc signatures, inside out: every dylib, then the bundle (which
     // signs the main executable). Never --deep (deprecated for signing).
-    for dylib in &bundled {
+    for name in &bundled {
         run(Command::new("codesign")
             .args(["--force", "--sign", "-"])
-            .arg(dylib))?;
+            .arg(paths.frameworks.join(name)))?;
     }
     run(Command::new("codesign")
         .args(["--force", "--sign", "-"])

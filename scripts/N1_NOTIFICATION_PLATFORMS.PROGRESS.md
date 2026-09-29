@@ -38,12 +38,16 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   `dbus_pending_call_{get_completed,steal_reply,cancel,unref}`, `dbus_message_get_type`,
   `dbus_set_error_from_message`) + `DBusPendingCall`.
 
+- F. Bundle step (item 5): RED `a162726cf`, fix = the commit after it. `configured_icons`
+  (`[package.metadata.bundle] icon`, the cargo-bundle key) / `--icon`, `png_size`,
+  `icns_type_for`, `icns_from_pngs` (PNG elements as they are), `MacBundleSpec::icon_file` ->
+  `CFBundleIconFile`, `BundlePaths::resources`; `DylibScope`, `plan_dylibs_in`,
+  `plan_dylib_tree` (BFS, own install name skipped, dedupe, cycles end), `Relink`,
+  `RelinkFile`, `DylibTree`; command: `-id` + `-change` in binary and dylibs, `make_writable`,
+  `--portable`. Notarization: documented in the module docs + usage.
+
 ## IN PROGRESS
 
-- F. Bundle step (item 5): `.icns` from `[package.metadata.bundle] icon` / `--icon`
-  (PNG -> ICNS container in pure Rust, or an `.icns` copied), `CFBundleIconFile`; recursive
-  dylib walk (`plan_dylib_tree`, own-id skip, `install_name_tool -id/-change`), `--portable`.
-  Notarization: documented only.
 - G. Report `scripts/N1_NOTIFICATION_PLATFORMS_2026_09_29.md`.
 
 ## Open questions
