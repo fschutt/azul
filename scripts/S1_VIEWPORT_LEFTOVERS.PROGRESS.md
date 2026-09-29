@@ -39,13 +39,19 @@ Nothing is compiled here (house rule). The parent compiles once.
   `CallbackInfo::find_scroll_container`, `scroll_box_of_layout_node` on it; `ScrollManager::find_scroll_parent`
   + 4 unit tests deleted).
 
+- item 3: guard 1f7917a63 (`layout/tests/a_thin_scrollbar_is_pressed_where_it_is_painted.rs`, expected GREEN).
+- item 8 (D): RED 6b0984e4b (selection handles, added to `ime_geometry_follows_the_fields_scroll.rs`),
+  REFACTOR 86d0c4116 (`TextLayoutRect` / `WindowRect`, `TextTarget::{rect_to_window, caret_rect_on_screen,
+  point_from_window}`), FIX 6186093cc (`selection_handle_geometry` in window space; twin `rect_for_cursor_in`
+  removed).
+
 ## IN PROGRESS
 
-- item 3 guard test
+- self-review of every diff for compile risks
 
 ## NEXT
 
-3 (guard), 8 (implement small or plan), report.
+report `scripts/S1_VIEWPORT_LEFTOVERS_2026_09_29.md`.
 
 ## Open questions
 
