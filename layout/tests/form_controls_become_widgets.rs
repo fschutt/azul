@@ -103,7 +103,16 @@ fn attr(name: &str, value: &str) -> AttributeType {
 }
 
 fn node(styled: &StyledDom, id: NodeId) -> &NodeData {
-    &styled.node_data.as_container()[id]
+    &styled.node_data.as_ref()[id.index()]
+}
+
+/// The class name the check box's container wears (the widget exports it as
+/// an `IdOrClass` slice).
+fn checkbox_container() -> &'static str {
+    match &CHECKBOX_CONTAINER_CLASS[0] {
+        azul_core::dom::IdOrClass::Class(c) => c.as_str(),
+        azul_core::dom::IdOrClass::Id(i) => i.as_str(),
+    }
 }
 
 fn all_nodes(styled: &StyledDom) -> Vec<NodeId> {
@@ -299,8 +308,8 @@ fn an_input_of_type_checkbox_becomes_a_check_box_that_is_checked_when_the_input_
     let checked = lw.style_user_dom(page(input("checkbox").with_attribute(AttributeType::CheckedTrue)));
     let unchecked = lw.style_user_dom(page(input("checkbox")));
     assert_eq!(raw_form_nodes(&checked), vec![]);
-    let on = one_with_class(&checked, CHECKBOX_CONTAINER_CLASS);
-    let off = one_with_class(&unchecked, CHECKBOX_CONTAINER_CLASS);
+    let on = one_with_class(&checked, checkbox_container());
+    let off = one_with_class(&unchecked, checkbox_container());
     assert_eq!(a11y_states(&checked, on), vec![AccessibilityState::CheckedTrue]);
     assert_eq!(a11y_states(&unchecked, off), vec![AccessibilityState::CheckedFalse]);
 }
@@ -570,7 +579,7 @@ fn a_disabled_input_becomes_a_widget_nothing_can_activate_or_focus() {
     let styled = lw.style_user_dom(page(
         input("checkbox").with_attribute(AttributeType::Disabled),
     ));
-    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let root = one_with_class(&styled, checkbox_container());
     assert!(node(&styled, root).attributes().as_slice().contains(&AttributeType::Disabled));
     for id in subtree(&styled, root) {
         let n = node(&styled, id);
@@ -628,7 +637,7 @@ fn the_apps_callbacks_on_the_input_fire_on_the_widget_root() {
         RefAny::new(0u32),
         Callback::from_ptr(app_click).to_core(),
     )));
-    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let root = one_with_class(&styled, checkbox_container());
     let callbacks = node(&styled, root).get_callbacks().as_slice().to_vec();
     let app_cb = Callback::from_ptr(app_click).to_core().cb;
     let app_at = callbacks
@@ -678,7 +687,7 @@ fn xml_form_controls_become_the_same_widgets() {
     assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
     let slider = one_with_class(&styled, SLIDER_CLASS);
     assert_eq!(a11y_value(&styled, slider).as_deref(), Some("5"));
-    let check = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let check = one_with_class(&styled, checkbox_container());
     assert_eq!(a11y_states(&styled, check), vec![AccessibilityState::CheckedTrue]);
     let drop_down = one_with_class(&styled, DROP_DOWN_CLASS);
     assert_eq!(
@@ -780,7 +789,7 @@ fn typing_into_a_replaced_text_input_keeps_its_text_across_a_rebuild() {
 fn a_clicked_checkbox_stays_checked_across_a_rebuild() {
     let mut lw = text_window();
     let styled = lw.style_user_dom(page(input("checkbox")));
-    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let root = one_with_class(&styled, checkbox_container());
     let state = node(&styled, root).get_callbacks().as_slice()[0].refany.clone();
     lay_out(&mut lw, styled);
 
@@ -793,7 +802,7 @@ fn a_clicked_checkbox_stays_checked_across_a_rebuild() {
     // Any later rebuild (another control's RefreshDom) starts from the raw
     // input again - which still says "unchecked".
     let rebuilt = lw.style_user_dom(page(input("checkbox")));
-    let root = one_with_class(&rebuilt, CHECKBOX_CONTAINER_CLASS);
+    let root = one_with_class(&rebuilt, checkbox_container());
     assert_eq!(
         a11y_states(&rebuilt, root),
         vec![AccessibilityState::CheckedTrue],
