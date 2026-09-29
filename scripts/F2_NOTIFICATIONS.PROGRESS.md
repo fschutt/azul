@@ -50,10 +50,12 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 - `0d5f2c94b` fix (item 5): `app_events::deliver_to_linux_windows` takes the token after
   `collect()`, spends it on a Wayland target before the callbacks
 
+- `a33e1365d` RED (item 1): `doc/src/bundle.rs` pure half stubbed + 11 unit tests, `pub mod bundle` in main.rs
+
 ## 4. IN PROGRESS
 
-- 1: `azul-doc bundle macos` - RED unit tests in a new `doc/src/bundle.rs` (plist keys, layout, dylib
-  pick, version scan), then the command; the unbundled reason names it
+- 1 fix: implement the pure half + the `bundle macos` command (dispatch + help in main.rs); the
+  unbundled reason in `apple.rs` names the command
 
 ## 5. Open questions
 
