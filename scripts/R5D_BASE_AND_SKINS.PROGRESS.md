@@ -13,6 +13,8 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
 - 55902f260 RED text_input: `the_clear_button_shows_with_the_display_a_filled_field_builds_it_with`.
 - 59a6d3ada GREEN text_input: `SEARCH_FIELD_BASE`, `search_clear_base`, `SEARCH_CLEAR_SHOWN` (flex, also
   the live show).
+- 889b90705 GREEN time_picker: `CONTAINER_BASE` / `CLICKABLE_BASE` / `READOUT_BASE`; `flat::on_base`
+  (end of flat.rs) replaces the tabs' `tab_part`.
 
 ## IN PROGRESS
 
