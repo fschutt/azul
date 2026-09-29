@@ -1925,7 +1925,8 @@ mod autotest_generated {
     fn dom_renders_one_row_per_option_with_the_documented_structure() {
         let dom = group(&["a", "b", "c"]).dom();
 
-        assert_eq!(classes(&dom), vec!["__azul-native-radio-group"]);
+        // The group class and the marker of the theme that drew it (flat).
+        assert_eq!(classes(&dom), vec!["__azul-native-radio-group", "__azul-theme-flat"]);
         assert_eq!(dom.children.as_ref().len(), 3, "one row per option");
 
         for i in 0..3 {
@@ -2034,7 +2035,8 @@ mod autotest_generated {
             "a group with no options invented a row",
         );
         assert!(dom.root.get_callbacks().as_ref().is_empty());
-        assert_eq!(classes(&dom), vec!["__azul-native-radio-group"]);
+        // The group class and the marker of the theme that drew it (flat).
+        assert_eq!(classes(&dom), vec!["__azul-native-radio-group", "__azul-theme-flat"]);
     }
 
     #[test]
