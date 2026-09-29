@@ -4436,13 +4436,11 @@ mod autotest_generated {
         );
     }
 
-    /// `--empty: ;` is a valid (empty) custom property. The azul-simplecss
-    /// 0.2.1 tokenizer reports "Unclosed blocks at end of file" on an empty
-    /// declaration value and the WHOLE stylesheet is lost - one stray
-    /// `x: ;` in a rice file drops every rule in it. Fixing it needs an
-    /// azul-simplecss release (upstream crate).
+    /// `--empty: ;` is a valid (empty) custom property. Up to azul-simplecss
+    /// 0.2.1 the tokenizer failed on an empty declaration value and the
+    /// WHOLE stylesheet was lost - one stray `x: ;` in a rice file dropped
+    /// every rule in it (fixed in 0.2.2).
     #[test]
-    #[ignore = "azul-simplecss 0.2.1: an empty declaration value loses the whole sheet - fix upstream"]
     fn an_empty_declaration_value_does_not_lose_the_stylesheet() {
         let (css, warnings) = new_from_str(".a { --empty: ; } .b { color: red; }");
         assert_eq!(css.rules.as_slice().len(), 2, "{warnings:?}");
