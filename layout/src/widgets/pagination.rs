@@ -55,7 +55,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::system_palette,
+    widgets::themes::{style_kit, system_palette, OptionUiTheme, UiTheme},
 };
 
 static PAGINATION_CLASS: &[IdOrClass] =
@@ -106,6 +106,11 @@ pub struct Pagination {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the buttons are built
+    /// from (and the colours a click restyles them with), so switching it
+    /// rebuilds the bar.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -371,8 +376,9 @@ fn build_button_dark_twins(
     v
 }
 
-/// One button's full style: the light face, then its dark twins.
-fn button_style(
+/// One button's full style: the light face, then its dark twins. The flat
+/// theme's resting button.
+pub(crate) fn button_style(
     active: bool,
     disabled: bool,
     is_first: bool,
@@ -394,6 +400,70 @@ fn renders_dark(info: &CallbackInfo) -> bool {
     )
 }
 
+/// What a pagination button shows, for its colours: the current page, a
+/// `Prev` / `Next` at the end it cannot go past, or any other button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PageFace {
+    /// A page that is not current, or a `Prev` / `Next` that can move.
+    Neutral,
+    /// The current page.
+    Current,
+    /// `Prev` on the first page, `Next` on the last (style only).
+    Disabled,
+}
+
+impl PageFace {
+    const fn of(active: bool, disabled: bool) -> Self {
+        if active {
+            Self::Current
+        } else if disabled {
+            Self::Disabled
+        } else {
+            Self::Neutral
+        }
+    }
+}
+
+/// What a theme supplies for a pagination bar: every button's style, and
+/// the fill and ink a click restyle writes. Built by
+/// `themes::flat::pagination_skin` / `themes::flora::pagination_skin`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PaginationSkin {
+    pub theme: UiTheme,
+    /// One button's full style - resting light face, its dark twins, then
+    /// the states - for its face and whether it is the first (`Prev`,
+    /// left-rounded) or last (`Next`, right-rounded) of the bar.
+    pub button: fn(PageFace, bool, bool) -> CssPropertyWithConditionsVec,
+    /// The fill and ink the click restyle writes for a face, by day
+    /// (`false`) or by night (`true`). A `set_css_property` override outranks
+    /// every inline declaration, dark twins included, so the restyle picks the
+    /// mode's colours itself.
+    pub restyle: fn(PageFace, bool) -> (StyleBackgroundContentVec, ColorU),
+}
+
+/// The skin `theme` draws pagination bars with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> PaginationSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::pagination_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::pagination_skin(),
+    }
+}
+
+/// The flat theme's restyle colours - the established palette: white paper
+/// and the fixed accent by day, the desktop's button face by night (the
+/// accent page keeps its accent).
+#[must_use]
+pub(crate) fn established_colours(face: PageFace, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+    match (face, dark) {
+        (PageFace::Current, _) => (ACCENT_BG, ACTIVE_TEXT),
+        (PageFace::Neutral, false) => (NEUTRAL_BG, NEUTRAL_TEXT),
+        (PageFace::Disabled, false) => (NEUTRAL_BG, DISABLED_TEXT),
+        (PageFace::Neutral, true) => (system_palette::BUTTON_FACE, system_palette::BUTTON_TEXT),
+        (PageFace::Disabled, true) => (system_palette::BUTTON_FACE, system_palette::SECONDARY_TEXT),
+    }
+}
+
 impl Pagination {
     /// Creates a pager for `total_pages` pages with `current_page` (1-based)
     /// selected. `current_page` is clamped into `[1, total_pages.max(1)]`.
@@ -410,7 +480,23 @@ impl Pagination {
                 ..Default::default()
             },
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the bar renders in the default
+    /// theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this pagination row renders with.
@@ -474,8 +560,21 @@ impl Pagination {
         self
     }
 
+    /// Renders the bar. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::pagination(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::pagination(self),
+        }
+    }
+
+    /// Renders the bar with `skin` styling its buttons - what
+    /// `themes::flat::pagination` / `themes::flora::pagination` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: PaginationSkin) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -523,7 +622,7 @@ impl Pagination {
         children.push(make_button(
             PREV_LABEL,
             PAGINATION_NAV_CLASS,
-            button_style(false, current <= 1, true, false),
+            (skin.button)(PageFace::of(false, current <= 1), true, false),
         ));
 
         // Page-number buttons 1..=total.
@@ -531,7 +630,7 @@ impl Pagination {
             children.push(make_button(
                 AzString::from(format!("{page}").as_str()),
                 PAGINATION_PAGE_CLASS,
-                button_style(page == current, false, false, false),
+                (skin.button)(PageFace::of(page == current, false), false, false),
             ));
         }
 
@@ -539,11 +638,15 @@ impl Pagination {
         children.push(make_button(
             NEXT_LABEL,
             PAGINATION_NAV_CLASS,
-            button_style(false, current >= total, false, true),
+            (skin.button)(PageFace::of(false, current >= total), false, true),
         ));
 
+        // The bar carries the theme's marker: the click restyle reads it back
+        // to write the colours of the theme the bar was built in.
+        let mut classes: Vec<IdOrClass> = PAGINATION_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(PAGINATION_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -631,47 +734,24 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
     };
 
-    // Live-restyle: active page gets the accent fill + light text; Prev/Next show
-    // the muted disabled text at their bounds; everything else is neutral -
-    // in the theme the window renders in.
+    // Live-restyle: active page gets the accent face; Prev/Next show the
+    // muted disabled look at their bounds; everything else is neutral - in the
+    // theme the bar was BUILT in (its marker class) and the mode the window
+    // renders in.
     let dark = renders_dark(&info);
-    let (neutral_bg, neutral_text, disabled_text) = if dark {
-        (
-            system_palette::BUTTON_FACE,
-            system_palette::BUTTON_TEXT,
-            system_palette::SECONDARY_TEXT,
-        )
-    } else {
-        (NEUTRAL_BG, NEUTRAL_TEXT, DISABLED_TEXT)
-    };
+    let theme = style_kit::theme_of_classes(info.get_node_classes(parent).as_ref());
+    let skin = skin_for(theme);
     for (i, node) in buttons.iter().enumerate() {
-        let (bg, text) = if i == 0 {
+        let face = if i == 0 {
             // Prev
-            let disabled = new_page <= 1;
-            (
-                neutral_bg.clone(),
-                if disabled {
-                    disabled_text
-                } else {
-                    neutral_text
-                },
-            )
+            PageFace::of(false, new_page <= 1)
         } else if i == n - 1 {
             // Next
-            let disabled = new_page >= total;
-            (
-                neutral_bg.clone(),
-                if disabled {
-                    disabled_text
-                } else {
-                    neutral_text
-                },
-            )
-        } else if i == new_page {
-            (ACCENT_BG, ACTIVE_TEXT)
+            PageFace::of(false, new_page >= total)
         } else {
-            (neutral_bg.clone(), neutral_text)
+            PageFace::of(i == new_page, false)
         };
+        let (bg, text) = (skin.restyle)(face, dark);
         info.set_css_property(*node, CssProperty::const_background_content(bg));
         info.set_css_property(
             *node,
@@ -771,10 +851,18 @@ mod autotest_generated {
                 })
                 .collect();
             let light = all.iter().filter(|p| p.apply_if.as_ref().is_empty()).count();
+            let twins = build_button_dark_twins(active, disabled, first);
+            // The flat theme's interactive states (hover, press, focus ring)
+            // come after the twins: a resting twin matches in every state, so
+            // it has to be declared before them.
             assert_eq!(
-                &all[light..],
-                build_button_dark_twins(active, disabled, first).as_slice(),
+                &all[light..light + twins.len()],
+                twins.as_slice(),
                 "button {i}: the dark twins follow the whole light face"
+            );
+            assert!(
+                all[light + twins.len()..].iter().all(|p| !p.pseudo_state_conditions().is_empty()),
+                "button {i}: only state rules follow the twins"
             );
         }
     }

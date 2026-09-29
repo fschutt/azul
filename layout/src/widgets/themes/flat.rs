@@ -3492,3 +3492,59 @@ pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
     dom.add_class(AzString::from_const_str(super::style_kit::FLAT_CLASS));
     dom
 }
+
+// ==== pagination ====
+//
+// Flat is the established bar: white paper pages under a #ced4da hairline, the
+// accent page in the fixed accent blue, the desktop's button face and separator
+// in the dark. What it adds are the states the bar never had: a neutral page
+// hovers to `LIGHT_HT` / `DARK_HT` and presses to `LIGHT_PT` / `DARK_PT`, and
+// every button is ringed on focus - an inset 2px ring, because the inner
+// buttons share their side borders and a border ring would miss an edge
+// (`FIELD_RING` / `DARK_ACC`; white on the accent page, where blue would vanish).
+
+/// Flat's pagination skin.
+#[must_use]
+pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
+    crate::widgets::pagination::PaginationSkin {
+        theme: super::UiTheme::Flat,
+        button: pagination_button,
+        restyle: crate::widgets::pagination::established_colours,
+    }
+}
+
+/// One flat pagination button: the established face and dark twins, then the
+/// states.
+fn pagination_button(
+    face: crate::widgets::pagination::PageFace,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    use crate::widgets::pagination::{button_style, PageFace};
+
+    let mut v = button_style(
+        face == PageFace::Current,
+        face == PageFace::Disabled,
+        is_first,
+        is_last,
+    )
+    .into_library_owned_vec();
+    if face == PageFace::Neutral {
+        v.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
+        v.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+    }
+    let (ring, ring_dark) = if face == PageFace::Current {
+        (LIGHT_ON_ACC, DARK_ON_ACC)
+    } else {
+        (FIELD_RING, DARK_ACC)
+    };
+    v.extend(kit::focus_shadow_ring(ring, ring_dark));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::pagination::Pagination`] in the flat theme.
+#[must_use]
+pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
+    p.build(pagination_skin())
+}

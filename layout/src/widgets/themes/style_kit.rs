@@ -354,6 +354,36 @@ pub const fn focus_ring(light: ColorU, dark: ColorU) -> [P; 8] {
     ]
 }
 
+/// The focus ring of an item in a joined bar (a pagination button, a
+/// segment), whose inner items share their side borders so a border ring
+/// would miss an edge: a 2px inset shadow ring on `:focus`, light then dark.
+/// One edge slot carries it (each edge's shadow paints the whole box): the
+/// LEFT one, so it adds to a resting drop / inset shadow ([`drop_shadow`]
+/// uses the bottom slot, [`inset_shadow`] the top) instead of replacing it.
+#[must_use]
+pub fn focus_shadow_ring(light: ColorU, dark: ColorU) -> [P; 2] {
+    let ring = |color: ColorU| StyleBoxShadow {
+        offset_x: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        offset_y: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        blur_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        spread_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(2),
+        },
+        clip_mode: BoxShadowClipMode::Inset,
+        color,
+    };
+    [
+        P::on_focus(CssProperty::box_shadow_left(ring(light))),
+        P::dark_on_focus(CssProperty::box_shadow_left(ring(dark))),
+    ]
+}
+
 /// A hover fill, light then dark.
 #[must_use]
 pub fn hover_bg(light: ColorU, dark: ColorU) -> [P; 2] {

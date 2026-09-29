@@ -3056,3 +3056,158 @@ pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
     dom.add_class(AzString::from_const_str(kit::FLORA_CLASS));
     dom
 }
+
+// ==== pagination ====
+//
+// A flora pager is a row of raised paper (`.btn-secondary`: `--fl-rT` over
+// `--fl-rB`, a `--fl-bd2` hairline, flora ink) joined into one bar with the
+// house radius (`--fl-r`, 3px) on its outer corners. The current page is the
+// SUNKEN accent stone flora cuts a selected item as (`.nav-links a.active`,
+// `.lang-grid button.active`: `--fl-gem-sunken` under the sunken rig, written
+// in `--fl-on-acc`) - its own colour by day and by night. The end the pager
+// cannot go past is disabled paper (`--fl-disBg` / `--fl-disTx`). A page hovers
+// and presses on flora's faces, and every button is ringed on focus: an inset
+// ring (the inner pages share their side borders) in the accent by day, the
+// stone's glow by night and on the stone itself.
+//
+// The selected stone is shared by the W3b widgets below (segmented, radio,
+// stepper), which is why it is not named after the pager.
+
+const SELECTED_STONE_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
+
+/// `--fl-gem-sunken`: `linear-gradient(175deg, var(--fl-deep) 0%,
+/// var(--fl-acc) 96%)` - a stone pressed into its well.
+pub const SELECTED_STONE_GEM: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(175),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SELECTED_STONE_STOPS),
+    });
+
+/// The selected item of a flora group: the sunken accent stone under the
+/// sunken rig (lit from below the near edge). The same in both modes - a
+/// stone is its own colour.
+#[must_use]
+pub fn selected_stone() -> Vec<StyleBackgroundContent> {
+    vec![
+        SELECTED_STONE_GEM,
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_LEFT,
+        SUNKEN_RIG_BOTTOM,
+    ]
+}
+
+/// Flora's pagination skin.
+#[must_use]
+pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
+    crate::widgets::pagination::PaginationSkin {
+        theme: super::UiTheme::Flora,
+        button: pagination_button,
+        restyle: pagination_colours,
+    }
+}
+
+/// One flora pagination button: box, joined hairline, face, then states.
+fn pagination_button(
+    face: crate::widgets::pagination::PageFace,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    use crate::widgets::pagination::PageFace;
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(36))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        kit::font_size(13),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    v.extend(kit::padding(6, 12, 6, 12));
+    // Joined: every button draws top, bottom and right; only the first draws
+    // a left edge, so neighbours share one hairline.
+    let edges = kit::Edges {
+        top: true,
+        right: true,
+        bottom: true,
+        left: is_first,
+    };
+    v.extend(kit::border(edges, 1, LIGHT_BD2, DARK_BD2));
+    if is_first {
+        v.extend(kit::radius_corners(3, 0, 0, 3));
+    }
+    if is_last {
+        v.extend(kit::radius_corners(0, 3, 3, 0));
+    }
+    match face {
+        PageFace::Neutral => {
+            v.extend(kit::themed_layers(
+                vec![RAISED_FACE_LIGHT],
+                vec![RAISED_FACE_DARK],
+            ));
+            v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+        }
+        PageFace::Disabled => {
+            v.extend(kit::themed_bg(LIGHT_DISBG, DARK_DISBG));
+            v.extend(kit::themed_ink(LIGHT_DISTX, DARK_DISTX));
+        }
+        PageFace::Current => {
+            v.push(P::simple(kit::layers(selected_stone())));
+            v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+        }
+    }
+    // States last: a resting dark twin matches in every state.
+    if face == PageFace::Neutral {
+        v.extend(kit::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(kit::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+    }
+    let ring = if face == PageFace::Current {
+        LIGHT_GLOW
+    } else {
+        LIGHT_ACC
+    };
+    v.extend(kit::focus_shadow_ring(ring, DARK_GLOW));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The fill and ink a click restyles a flora pagination button with.
+fn pagination_colours(
+    face: crate::widgets::pagination::PageFace,
+    dark: bool,
+) -> (StyleBackgroundContentVec, ColorU) {
+    use crate::widgets::pagination::PageFace;
+    let fill = |list: Vec<StyleBackgroundContent>| StyleBackgroundContentVec::from_vec(list);
+    match (face, dark) {
+        (PageFace::Current, _) => (fill(selected_stone()), LIGHT_ON_ACC),
+        (PageFace::Neutral, false) => (fill(vec![RAISED_FACE_LIGHT]), LIGHT_INK),
+        (PageFace::Neutral, true) => (fill(vec![RAISED_FACE_DARK]), DARK_INK),
+        (PageFace::Disabled, false) => (
+            fill(vec![StyleBackgroundContent::Color(LIGHT_DISBG)]),
+            LIGHT_DISTX,
+        ),
+        (PageFace::Disabled, true) => (
+            fill(vec![StyleBackgroundContent::Color(DARK_DISBG)]),
+            DARK_DISTX,
+        ),
+    }
+}
+
+/// Renders a [`crate::widgets::pagination::Pagination`] in the flora theme.
+#[must_use]
+pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
+    p.build(pagination_skin())
+}
