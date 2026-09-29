@@ -4779,6 +4779,11 @@ impl LayoutWindow {
     /// it is snapshotted, never diffed against another node's text.
     ///
     /// The same run-count limit as U3-a applies (see `run_text_changes`).
+    ///
+    /// Both texts are in the carets' own numbering ([`Self::element_content`],
+    /// the layout's generated items in front): diffed as the edit model, a
+    /// list item's text was run 0 while its carets name run 1, and the shift
+    /// went to a run no caret was in.
     fn shift_carets_across_generation(&mut self) {
         let Some((key, dom_id, node_id)) =
             self.text_edit_manager.multi_cursor.as_ref().and_then(|mc| {
@@ -4788,7 +4793,7 @@ impl LayoutWindow {
             self.caret_text_snapshot = None;
             return;
         };
-        let now = self.get_text_before_textinput(dom_id, node_id);
+        let (now, _) = self.element_content(dom_id, node_id).into_parts();
         if let Some((snapshot_key, before)) = self.caret_text_snapshot.as_ref() {
             if *snapshot_key == key {
                 let changes = crate::text3::edit::run_text_diff(before, &now);
@@ -19421,12 +19426,18 @@ impl LayoutWindow {
             },
         );
         // An ENGINE edit placed its carets itself; the generation diff must
-        // not shift them again for it (U3-b).
-        if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
-            if mc.block.dom() == dom_id && mc.block.element() == Some(node_id) {
-                self.caret_text_snapshot =
-                    Some((mc.contenteditable_key, new_inline_content.clone()));
-            }
+        // not shift them again for it (U3-b). The snapshot is in the carets'
+        // numbering, as the diff reads it: the text just stored behind the
+        // layout's generated items ([`Self::element_content`]).
+        let snapshot_key = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.block.dom() == dom_id && mc.block.element() == Some(node_id))
+            .map(|mc| mc.contenteditable_key);
+        if let Some(key) = snapshot_key {
+            let (numbered, _) = self.element_content(dom_id, node_id).into_parts();
+            self.caret_text_snapshot = Some((key, numbered));
         }
 
         self.reshape_text_node(dom_id, node_id, new_inline_content);
