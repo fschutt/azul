@@ -9,8 +9,15 @@
 //!   the rim. A wave of opacity travels clockwise, one revolution per 0.8 s: 0.55 at the head,
 //!   0.07 less per spoke behind it, down to 0.06 just ahead of it.
 //! * [`SpinnerStyle::Ring`] - the Windows 11 `ProgressRing`: a round-capped arc on a ring of
-//!   centre-line radius 0.4375 D and stroke 0.09375 D, turning at 450 degrees a second. The native
-//!   arc also grows and shrinks; a fixed 135-degree arc is what one clip shape can hold.
+//!   centre-line radius 0.4375 D and stroke 0.09375 D, turning at 450 degrees a second. Over a 2 s
+//!   loop the arc grows from nothing to half the ring at its head, then shrinks from its tail back
+//!   to nothing (reference section 3.2).
+//!
+//! The ring's sweep is nested clip paths. Inside the spinning frame, a WINDOW clipped to half the
+//! ring turns with the arc's tail and holds the BODY, an inked half ring turned with its head:
+//! the two clips intersect in exactly the arc from tail to head, 0 to 180 degrees long. Two round
+//! CAPS ride the ends. Every part only turns - no shape changes over time - so the whole sweep is
+//! four `rotate` tracks.
 //!
 //! Flat draws the ring and Flora the spokes ([`SpinnerStyle::Auto`]); either theme draws either
 //! shape when asked.
@@ -80,7 +87,8 @@ pub enum SpinnerStyle {
     /// Eight capsule spokes with an opacity wave travelling clockwise - the
     /// macOS and iOS activity indicator.
     Spokes,
-    /// A round-capped arc spinning on a ring - the Windows 11 `ProgressRing`.
+    /// A round-capped arc spinning on a ring, growing to half the ring and
+    /// shrinking again - the Windows 11 `ProgressRing`.
     Ring,
 }
 
@@ -88,15 +96,27 @@ pub enum SpinnerStyle {
 /// 11 `ProgressRing` are both 32 (small 16, mini 10).
 const DEFAULT_SIZE: isize = 32;
 
-/// One revolution, in ms: macOS's 0.8 s per turn for the spoke wave, and
-/// Windows 11's 450 degrees a second for the ring.
+/// One revolution of the spoke wave, in ms: macOS's 0.8 s per turn.
 const CYCLE_MS: u32 = 800;
+
+/// The ring's loop, in ms: Windows 11's arc grows over the first second and
+/// shrinks over the second.
+const RING_LOOP_MS: u32 = 2000;
+
+/// How far the ring turns per loop: 450 degrees a second.
+const RING_TURN_PER_LOOP_DEG: isize = 900;
 
 /// Number of spokes (macOS 11+ and iOS; the 12-spoke look is pre-Big Sur).
 const SPOKES: usize = 8;
 
-/// How much of the ring the arc covers, in degrees.
-const ARC_SWEEP_DEG: f32 = 135.0;
+/// How much of the ring the arc covers AT REST (no motion, or reduced
+/// motion), in degrees - the picture the moving parts are turned from.
+const ARC_REST_DEG: isize = 135;
+#[allow(clippy::cast_precision_loss)] // 135
+const ARC_SWEEP_DEG: f32 = ARC_REST_DEG as f32;
+
+/// How long the arc grows to, in degrees: half the ring.
+const ARC_MAX_DEG: isize = 180;
 
 /// Segments per half-circle cap and per 45 degrees of arc: fine enough that
 /// the mask, rasterised at 2x, shows no facets at any native size.
@@ -116,6 +136,12 @@ const SPOKE_TRACKS: [&str; SPOKES] = [
     "__azul-spinner-spoke-7",
 ];
 const SPIN_TRACK: &str = "__azul-spinner-spin";
+/// The arc's tail (the window and the tail cap turn with it).
+const TAIL_TRACK: &str = "__azul-spinner-arc-tail";
+/// The arc's body, turned inside the window so its leading edge is the head.
+const BODY_TRACK: &str = "__azul-spinner-arc-body";
+/// The arc's head cap.
+const HEAD_TRACK: &str = "__azul-spinner-arc-head";
 const FADE_IN_TRACK: &str = "__azul-spinner-fade-in";
 const FADE_OUT_TRACK: &str = "__azul-spinner-fade-out";
 
@@ -387,38 +413,35 @@ pub(crate) fn build(s: Spinner, look: &SpinnerLook) -> Dom {
                 parts.push(part(
                     "__azul-spinner-spoke",
                     s.size,
-                    ink.clone(),
+                    Some(ink.clone()),
                     Some(spoke_opacity(k, 0)),
-                    Some(SPOKE_TRACKS[k]),
-                    spoke_shape(d, k),
+                    Some(Motion {
+                        track: SPOKE_TRACKS[k],
+                        millis: CYCLE_MS,
+                        timing: AnimationTiming::Linear,
+                    }),
+                    Some(spoke_shape(d, k)),
                 ));
             }
             "__azul-spinner-spokes"
         }
         SpinnerStyle::Ring | SpinnerStyle::Auto => {
-            tracks.push(spin_track());
+            tracks.extend(ring_tracks());
             if let Some(track) = s.track_color.into_option() {
                 parts.push(part(
                     "__azul-spinner-track",
                     s.size,
-                    (StyleBackgroundContent::Color(track), None),
+                    Some((StyleBackgroundContent::Color(track), None)),
                     None,
                     None,
-                    track_shape(d),
+                    Some(track_shape(d)),
                 ));
             }
             let ink = match s.color.into_option() {
                 Some(c) => (StyleBackgroundContent::Color(c), None),
                 None => look.arc_ink.clone(),
             };
-            parts.push(part(
-                "__azul-spinner-arc",
-                s.size,
-                ink,
-                None,
-                Some(SPIN_TRACK),
-                arc_shape(d),
-            ));
+            parts.push(ring_arc(s.size, d, &ink));
             "__azul-spinner-ring"
         }
     };
@@ -474,16 +497,30 @@ fn animation(
     }]))
 }
 
-/// One full-size part of the indicator: absolutely placed over the
-/// container, painted in `ink` (with its dark twin), clipped to `shape`, at a
-/// resting `opacity` and running `track` (both optional).
+/// An ink: the light layer, and its dark twin if it has one.
+type Ink = (StyleBackgroundContent, Option<StyleBackgroundContent>);
+
+/// What a moving part runs: its `@keyframes` track, forever, one pass per
+/// `millis`, eased by `timing` (per segment, CSS-style).
+#[derive(Debug, Clone, Copy)]
+struct Motion {
+    track: &'static str,
+    millis: u32,
+    timing: AnimationTiming,
+}
+
+/// One full-size part of the indicator: absolutely placed over its parent
+/// (the container, or the part it is nested in), painted in `ink` (with its
+/// dark twin), clipped to `shape`, at a resting `opacity` and running
+/// `motion` - each optional. A part without ink paints nothing of its own:
+/// it only turns and clips what it holds.
 fn part(
     class: &'static str,
     size: isize,
-    ink: (StyleBackgroundContent, Option<StyleBackgroundContent>),
+    ink: Option<Ink>,
     opacity: Option<f32>,
-    track: Option<&'static str>,
-    shape: SvgMultiPolygon,
+    motion_of: Option<Motion>,
+    shape: Option<SvgMultiPolygon>,
 ) -> Dom {
     let fill = |layer: StyleBackgroundContent| {
         CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
@@ -496,28 +533,103 @@ fn part(
         CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
-        CssPropertyWithConditions::simple(fill(ink.0)),
     ];
-    if let Some(dark) = ink.1 {
-        style.push(CssPropertyWithConditions::dark_theme(fill(dark)));
+    if let Some((light, dark)) = ink {
+        style.push(CssPropertyWithConditions::simple(fill(light)));
+        if let Some(dark) = dark {
+            style.push(CssPropertyWithConditions::dark_theme(fill(dark)));
+        }
     }
     if let Some(o) = opacity {
         style.push(CssPropertyWithConditions::simple(opacity_property(o)));
     }
-    if let Some(track) = track {
+    if let Some(m) = motion_of {
         style.push(motion(CssProperty::AnimationIn(animation(
-            track,
-            CYCLE_MS,
+            m.track,
+            m.millis,
             AnimationIterationCount::Infinite,
-            AnimationTiming::Linear,
+            m.timing,
         ))));
     }
-    Dom::create_div()
+    let node = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
             AzString::from_const_str(class)
         )]))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
-        .with_svg_clip_path(shape)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style));
+    match shape {
+        Some(shape) => node.with_svg_clip_path(shape),
+        None => node,
+    }
+}
+
+/// The Windows ring's arc, `size` px (`d` in user space), in `ink`:
+///
+/// ```text
+/// arc     the spinning frame                 turns 0 -> 900deg per loop, linear
+///   window  clipped to half the ring         turns with the TAIL
+///     body  the inked half ring [-45, 135]   turns with the HEAD, inside the window
+///   cap   round, at the head                 turns with the head
+///   cap   round, at the tail                 turns with the tail
+/// ```
+///
+/// The window shows [tail, tail + 180] and the body [head - 180, head]; the
+/// nested clips intersect in [tail, head] - the arc, 0 to 180 degrees long
+/// while the head leads the tail by at most half a turn. At rest every part
+/// is unturned and the picture is the 135-degree arc from 12 o'clock.
+fn ring_arc(size: isize, d: f32, ink: &Ink) -> Dom {
+    let ring = |track: &'static str| {
+        Some(Motion {
+            track,
+            millis: RING_LOOP_MS,
+            timing: AnimationTiming::EaseInOut,
+        })
+    };
+    let body = part(
+        "__azul-spinner-arc-body",
+        size,
+        Some(ink.clone()),
+        None,
+        ring(BODY_TRACK),
+        Some(arc_body_shape(d)),
+    );
+    let window = part(
+        "__azul-spinner-arc-window",
+        size,
+        None,
+        None,
+        ring(TAIL_TRACK),
+        Some(ring_window_shape(d)),
+    )
+    .with_child(body);
+    let head = part(
+        "__azul-spinner-arc-cap",
+        size,
+        Some(ink.clone()),
+        None,
+        ring(HEAD_TRACK),
+        Some(cap_shape(d, ARC_SWEEP_DEG)),
+    );
+    let tail = part(
+        "__azul-spinner-arc-cap",
+        size,
+        Some(ink.clone()),
+        None,
+        ring(TAIL_TRACK),
+        Some(cap_shape(d, 0.0)),
+    );
+    part(
+        "__azul-spinner-arc",
+        size,
+        None,
+        None,
+        Some(Motion {
+            track: SPIN_TRACK,
+            millis: RING_LOOP_MS,
+            timing: AnimationTiming::Linear,
+        }),
+        None,
+    )
+    .with_children(alloc::vec![window, head, tail].into())
 }
 
 // ---------------------------------------------------------------------------
@@ -583,20 +695,42 @@ fn spoke_track(k: usize) -> Keyframes {
     }
 }
 
-/// One clockwise turn.
-fn spin_track() -> Keyframes {
+/// A `rotate` track through `stops` - `(permille, degrees clockwise)`.
+fn rotate_track(name: &'static str, stops: &[(u16, isize)]) -> Keyframes {
     let rotate = |deg: isize| {
         CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
             StyleTransform::Rotate(AngleValue::const_deg(deg))
         ]))
     };
     Keyframes {
-        name: AzString::from_const_str(SPIN_TRACK),
-        stops: KeyframeStopVec::from_vec(alloc::vec![
-            stop(0, alloc::vec![rotate(0)]),
-            stop(1000, alloc::vec![rotate(360)]),
-        ]),
+        name: AzString::from_const_str(name),
+        stops: KeyframeStopVec::from_vec(
+            stops
+                .iter()
+                .map(|(permille, deg)| stop(*permille, alloc::vec![rotate(*deg)]))
+                .collect(),
+        ),
     }
+}
+
+/// The ring's four tracks, one 2 s loop each (reference section 3.2).
+///
+/// With `T` the tail's and `H` the head's angle on the turning ring: `H`
+/// runs 0 -> 180 over the first second while `T` holds (the arc grows at its
+/// head), then `T` runs 0 -> 180 over the second while `H` holds (it shrinks
+/// from its tail) - each half eased in and out, and the arc is `H - T` long.
+/// The tracks are TURNS from the rest picture (the 135-degree arc): the
+/// window and the tail cap turn by `T`, the body by `H - T - 135` inside the
+/// window, the head cap by `H - 135`. Every track ends where it starts, up to
+/// whole turns of the ring, so the loop is seamless.
+fn ring_tracks() -> [Keyframes; 4] {
+    let (rest, max) = (ARC_REST_DEG, ARC_MAX_DEG);
+    [
+        rotate_track(SPIN_TRACK, &[(0, 0), (1000, RING_TURN_PER_LOOP_DEG)]),
+        rotate_track(TAIL_TRACK, &[(0, 0), (500, 0), (1000, max)]),
+        rotate_track(BODY_TRACK, &[(0, -rest), (500, max - rest), (1000, -rest)]),
+        rotate_track(HEAD_TRACK, &[(0, -rest), (500, max - rest), (1000, max - rest)]),
+    ]
 }
 
 /// An opacity ramp from `from` to `to`.
@@ -671,27 +805,59 @@ fn ring_metrics(d: f32) -> (f32, f32) {
     (d * 0.4375, d * 0.093_75 / 2.0)
 }
 
-/// The arc: [`ARC_SWEEP_DEG`] of the ring from 12 o'clock clockwise, with
-/// round caps at both ends.
-pub(crate) fn arc_shape(d: f32) -> SvgMultiPolygon {
+/// The arc's body: HALF the ring, ending at the rest head
+/// ([`ARC_SWEEP_DEG`], clockwise from 12 o'clock) - from 45 degrees before
+/// 12 o'clock to it. Square ends: its trailing edge always lies outside the
+/// window, and the head's cap rounds its leading edge.
+pub(crate) fn arc_body_shape(d: f32) -> SvgMultiPolygon {
     let c = d / 2.0;
     let (rc, h) = ring_metrics(d);
-    let steps = ARC_STEPS_PER_45_DEG * 3;
+    let steps = ARC_STEPS_PER_45_DEG * 4;
+    #[allow(clippy::cast_precision_loss)] // 180
+    let from = ARC_SWEEP_DEG - ARC_MAX_DEG as f32;
     #[allow(clippy::cast_precision_loss)] // small counts
-    let angle = |i: usize| ARC_SWEEP_DEG * i as f32 / steps as f32;
-    let mut points = Vec::with_capacity(2 * (steps + CAP_STEPS + 2));
+    let angle = |i: usize| from + 180.0 * i as f32 / steps as f32;
+    let mut points = Vec::with_capacity(2 * (steps + 1));
     for i in 0..=steps {
         points.push(polar(c, rc + h, angle(i)));
     }
-    // The leading cap: from the outer edge, forward, to the inner edge.
-    let end = ARC_SWEEP_DEG.to_radians();
-    let (se, ce) = end.sin_cos();
-    half_circle(polar(c, rc, ARC_SWEEP_DEG), h, (se, -ce), (ce, se), &mut points);
     for i in (0..=steps).rev() {
         points.push(polar(c, rc - h, angle(i)));
     }
-    // The trailing cap at 12 o'clock: from the inner edge, back, to the outer.
-    half_circle(polar(c, rc, 0.0), h, (0.0, 1.0), (-1.0, 0.0), &mut points);
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
+}
+
+/// The window the body is seen through: the right half of the box - every
+/// angle from 12 o'clock clockwise to 6 o'clock. Turned with the arc's tail,
+/// its leading edge IS the tail.
+pub(crate) fn ring_window_shape(d: f32) -> SvgMultiPolygon {
+    let c = d / 2.0;
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&[
+        SvgPoint { x: c, y: 0.0 },
+        SvgPoint { x: d, y: 0.0 },
+        SvgPoint { x: d, y: d },
+        SvgPoint { x: c, y: d },
+    ])]))
+}
+
+/// A round cap: a disc as wide as the stroke, centred on the ring's centre
+/// line `deg` degrees clockwise from 12 o'clock.
+pub(crate) fn cap_shape(d: f32, deg: f32) -> SvgMultiPolygon {
+    let c = d / 2.0;
+    let (rc, h) = ring_metrics(d);
+    let centre = polar(c, rc, deg);
+    let n = 4 * CAP_STEPS;
+    let points: Vec<SvgPoint> = (0..n)
+        .map(|i| {
+            #[allow(clippy::cast_precision_loss)] // i < 32
+            let phi = core::f32::consts::TAU * i as f32 / n as f32;
+            let (s, co) = phi.sin_cos();
+            SvgPoint {
+                x: centre.x + h * co,
+                y: centre.y + h * s,
+            }
+        })
+        .collect();
     SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
 }
 
@@ -827,7 +993,10 @@ mod api_tests {
     fn the_shapes_stay_inside_the_box() {
         let d = 32.0_f32;
         let mut shapes: Vec<SvgMultiPolygon> = (0..SPOKES).map(|k| spoke_shape(d, k)).collect();
-        shapes.push(arc_shape(d));
+        shapes.push(arc_body_shape(d));
+        shapes.push(ring_window_shape(d));
+        shapes.push(cap_shape(d, 0.0));
+        shapes.push(cap_shape(d, ARC_SWEEP_DEG));
         shapes.push(track_shape(d));
         for (i, shape) in shapes.iter().enumerate() {
             let b = shape.get_bounds();
