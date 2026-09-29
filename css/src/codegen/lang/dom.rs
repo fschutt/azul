@@ -1,17 +1,26 @@
 //! What the DOM-exporting printers share (see the DOM section of
 //! [`crate::codegen::ir`]): which parameters an item never reads, the C
-//! string joiner, and the component-library registration of the two
-//! printers that write C API code (C and C++).
+//! string joiner, the component-library registration of the two printers
+//! that write C API code (C and C++), the DOM syntax of the printers that
+//! build a DOM through their binding's wrapper layer ([`WrapperDom`]), and
+//! the note of a printer that cannot register a library
+//! ([`registration_note`]).
 //!
 //! Everything language-specific stays in the printer files; this module only
 //! holds text that is identical for the languages that use it.
 
-use alloc::{format, string::String, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::fmt::Write;
 
 use crate::codegen::{
-    ir::{Expr, Ident, Item, ItemParam, LibrarySpec, Module},
-    lang::block_comment_safe,
+    doc::Doc,
+    ir::{EnumShape, Expr, Ident, Item, ItemParam, LibrarySpec, Module, Prim},
+    lang::{block_comment_safe, ConcatPart, ExprSyntax, MethodLayout},
 };
 
 /// The parameters of `item` its value never reads (a placeholder in an
@@ -280,4 +289,154 @@ pub fn c_family_registration(
     s.push_str("    lib.data_models = AzComponentDataModelVec_create();\n");
     s.push_str("    lib.enum_models = AzComponentEnumModelVec_create();\n    return lib;\n}\n");
     s
+}
+
+// ── DOM items through a binding's wrapper layer ──
+
+/// `true` if `item` is DOM construction (it takes parameters or builds a
+/// `Dom`) rather than a CSS value. A printer whose binding builds a DOM
+/// through another layer than CSS values picks its DOM syntax by it.
+#[must_use]
+pub fn is_dom_item(item: &Item) -> bool {
+    !item.params.is_empty() || item.ty == "Dom"
+}
+
+/// The api.json classes the DOM lowering (`azul_core::xml`) constructs.
+pub const DOM_CLASSES: &[&str] = &["Dom", "SmallAriaInfo"];
+
+/// How a printer spells DOM items through its binding's WRAPPER layer (the
+/// managed classes: native strings, `dom.withChild(..)` chains) when its
+/// CSS values go through the raw C layer (`AzulNativeCss.Az..`, `azul.C`,
+/// ...). [`WrapperDom`] makes it the [`ExprSyntax`] of the printer's DOM
+/// items.
+pub trait WrapperDomSyntax {
+    /// The printer's own syntax (number and boolean literals).
+    fn base(&self) -> &dyn ExprSyntax;
+    /// A native string literal (what the wrapper methods take).
+    fn native_string(&self, s: &str) -> Doc;
+    /// The wrapper's static factory `class::method(args)`.
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc;
+    /// The wrapper's by-value `self` method `recv.method(args)`.
+    fn method(
+        &self,
+        recv: Doc,
+        class: &str,
+        method: &str,
+        args: Vec<Doc>,
+        layout: MethodLayout,
+    ) -> Doc;
+    /// Item parameter `name` (a native string).
+    fn param(&self, name: &Ident) -> Doc;
+    /// A native string joined from `parts`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc;
+}
+
+/// The [`ExprSyntax`] of a [`WrapperDomSyntax`]: literals come from its
+/// base syntax, and a node the wrapper classes do not take (see
+/// [`wrapper_dom_limitation`]) is a limitation instead of wrong code.
+#[derive(Debug, Copy, Clone, Default)]
+pub struct WrapperDom<W>(pub W);
+
+impl<W: WrapperDomSyntax> ExprSyntax for WrapperDom<W> {
+    fn int(&self, value: i128, ty: Prim) -> String {
+        self.0.base().int(value, ty)
+    }
+
+    fn float(&self, text: &str, ty: Prim) -> String {
+        self.0.base().float(text, ty)
+    }
+
+    fn boolean(&self, b: bool) -> String {
+        self.0.base().boolean(b)
+    }
+
+    fn string(&self, s: &str) -> Doc {
+        self.0.native_string(s)
+    }
+
+    fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        self.0.factory(class, method, args, broken)
+    }
+
+    // The next three are never reached: `limitation` rejects their nodes.
+    fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        self.0.base().variant(ty, shape, variant, args, broken)
+    }
+
+    fn strukt(&self, ty: &str, fields: Vec<(String, Doc)>, broken: bool) -> Doc {
+        self.0.base().strukt(ty, fields, broken)
+    }
+
+    fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
+        self.0.base().vec(ty, elem, items, broken)
+    }
+
+    fn unsupported(&self, what: &str) -> Doc {
+        self.0.base().unsupported(what)
+    }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        wrapper_dom_limitation(e)
+    }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        self.0.method(recv, class, method, args, layout)
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        self.0.param(name)
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        self.0.concat(parts)
+    }
+}
+
+/// Why node `e` has no spelling in a DOM built through wrapper classes: a
+/// raw struct, variant or Vec value, or a class the DOM lowering does not
+/// construct (see [`DOM_CLASSES`]).
+#[must_use]
+pub fn wrapper_dom_limitation(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Call { class, method, .. } | Expr::Method { class, method, .. }
+            if !DOM_CLASSES.contains(&class.as_str()) =>
+        {
+            Some(format!(
+                "{class}.{method}: this DOM export builds through the wrapper classes of {}",
+                DOM_CLASSES.join(" / ")
+            ))
+        }
+        Expr::Variant { ty, .. } | Expr::Struct { ty, .. } | Expr::Vec { ty, .. } => Some(format!(
+            "a raw {ty} value: this DOM export builds through the wrapper classes, which take \
+             native values"
+        )),
+        _ => None,
+    }
+}
+
+/// `s` on one line (a window title or a library name in a comment).
+#[must_use]
+pub fn one_line(s: &str) -> String {
+    s.replace(|c: char| c == '\n' || c == '\r', " ")
+}
+
+/// The comment lines (without comment markers) a printer writes instead of
+/// the registration of `lib` when its binding cannot build one; `reason`
+/// (one clause, no final period) says why.
+#[must_use]
+pub fn registration_note(lib: &LibrarySpec, reason: &str) -> Vec<String> {
+    vec![
+        format!(
+            "The component library `{}` is not registered here: AppConfig.add_component_library",
+            one_line(&lib.name)
+        ),
+        "needs a ComponentDef whose render_fn is a C function pointer, and".to_string(),
+        format!("{reason}."),
+        "Register the library from the Rust, C or C++ export; the functions above".to_string(),
+        "build its components.".to_string(),
+    ]
 }

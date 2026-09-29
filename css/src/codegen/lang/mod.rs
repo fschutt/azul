@@ -298,7 +298,7 @@ pub fn item_doc(s: &dyn ExprSyntax, item: &super::ir::Item) -> Result<Doc, Strin
 /// printer does not do DOM export: why it is not printed.
 #[must_use]
 pub fn item_dom_blocker(s: &dyn ExprSyntax, item: &super::ir::Item) -> Option<String> {
-    if item.params.is_empty() && item.ty != "Dom" {
+    if !dom::is_dom_item(item) {
         return None;
     }
     s.dom_limitation().map(ToString::to_string)
@@ -564,8 +564,10 @@ pub fn simple_snake(s: &str) -> String {
 }
 
 /// The api.json parameter names of the multi-argument constructors the
-/// lowering emits (for languages with argument labels / keywords). Every
-/// other constructor it emits takes exactly one argument.
+/// lowerings emit (for languages with argument labels / keywords): the CSS
+/// lowering's and the DOM lowering's (`azul_core::xml`'s semantic `Dom`
+/// constructors). Every other constructor they emit takes at most one
+/// argument.
 #[must_use]
 pub fn call_param_names(class: &str, method: &str) -> &'static [&'static str] {
     match (class, method) {
@@ -573,6 +575,21 @@ pub fn call_param_names(class: &str, method: &str) -> &'static [&'static str] {
         ("CssPropertyWithConditions", "with_condition") => &["property", "condition"],
         ("CssPropertyWithConditions", "with_conditions") => &["property", "conditions"],
         ("CssPropertyWithConditions", "on_os") => &["property", "os"],
+        ("Dom", "create_a") => &["href", "text", "aria"],
+        ("Dom", "create_a_no_a11y") => &["href", "label"],
+        ("Dom", "create_button" | "create_summary_with_text") => &["text", "aria"],
+        ("Dom", "create_label") => &["for_id", "text", "aria"],
+        ("Dom", "create_label_no_a11y") => &["for_id", "text"],
+        ("Dom", "create_input") => &["input_type", "name", "label", "aria"],
+        ("Dom", "create_input_no_a11y") => &["input_type", "name", "label"],
+        ("Dom", "create_textarea" | "create_select") => &["name", "label", "aria"],
+        ("Dom", "create_textarea_no_a11y" | "create_select_no_a11y") => &["name", "label"],
+        ("Dom", "create_option") => &["value", "text", "aria"],
+        ("Dom", "create_option_no_a11y") => &["value", "text"],
+        ("Dom", "create_optgroup") => &["label", "aria"],
+        ("Dom", "create_table") => &["caption", "aria"],
+        ("Dom", "create_progress_no_a11y") => &["value", "max"],
+        ("Dom", "create_meter_no_a11y") => &["value", "min", "max"],
         _ => &[],
     }
 }

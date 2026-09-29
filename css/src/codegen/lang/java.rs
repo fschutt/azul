@@ -11,6 +11,14 @@
 //! v -> { .. })` helper turns them into an expression (a union also needs
 //! `setType("Variant")`). A Vec is built by `AzulCodegen.vec`, which copies
 //! the items into native `Memory` and calls `AzulNativeVec.AzXxxVec_copyFromPtr`.
+//!
+//! A DOM goes through the wrapper classes instead (`lang_java/wrappers.rs`):
+//! static factories keep the lowerCamel api name (`Dom.createDiv()`,
+//! `SmallAriaInfo.label(..)`), a by-value `self` method consumes its
+//! receiver and returns a new `Dom` (`.withChild(..)`, chained), and string
+//! arguments are `java.lang.String`s. An app is `App.create(data,
+//! AppMain::layout)` with a typed layout method
+//! (`AzulHostInvoker.LayoutCallbackWithData`).
 
 use alloc::{
     format,
@@ -21,9 +29,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{capitalize, lower_first, snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{capitalize, lower_first, snake_to_lower_camel, EnumShape, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, item_comments, item_doc, unicode_u4, variant_ctor_method, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        escape_quoted, item_comments, item_doc, unicode_u4, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
     },
     lower_types::{api_module, is_c_like_enum},
     CodegenBackend, GeneratedFile,
@@ -170,6 +180,124 @@ impl ExprSyntax for Java {
     }
 }
 
+/// A parameter's Java name.
+fn java_param(name: &Ident) -> String {
+    field(&name.lower_camel())
+}
+
+/// A `java.lang.String` literal.
+fn java_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
+/// The DOM through the wrapper classes (`Dom`, `SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct JavaDom;
+
+impl WrapperDomSyntax for JavaDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &Java
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(java_str(s))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(format!("{class}.{}", snake_to_lower_camel(method)), args, broken)
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(
+            recv,
+            Doc::call(format!(".{}", snake_to_lower_camel(method)), args, layout.args_tall),
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(java_param(name))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ConcatPart::Lit(s) => java_str(s),
+                    ConcatPart::Param(i) => java_param(i),
+                })
+                .collect::<Vec<_>>()
+                .join(" + "),
+        )
+    }
+}
+
+/// A DOM item: a static method taking its parameters as `String`s.
+fn dom_item_method(item: &Item) -> String {
+    let syntax = WrapperDom(JavaDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("    // {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| format!("String {}", java_param(&p.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "    public static Dom {name}({params}) {{\n        return {};\n    }}\n",
+            render(&doc, "    ", 2)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "    // not expressible with the Java bindings: {reason}\n    public static Dom \
+             {name}({params}) {{\n        return null;\n    }}\n"
+        )),
+    }
+    out
+}
+
+/// Why the Java bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Java bindings build neither: ComponentDef and \
+                               ComponentLibrary have no public factory, and the host-invoker \
+                               callbacks do not cover ComponentRenderFn, a raw function pointer \
+                               that returns its ResultStyledDomRenderDomError by value";
+
+/// The class a module's functions live in.
+fn module_class(m: &Module) -> &'static str {
+    if m.is_dom() {
+        "AzulUi"
+    } else {
+        "AzulStyles"
+    }
+}
+
+/// The app's `main` around a DOM module (`m.app`). The wrapper layer sets
+/// no window title (it is a raw `window_state` field).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}.{}()", module_class(m), app.root.lower_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Dom.createBody().withChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, Java).\npackage com.azul;\n\npublic \
+         final class AppMain {{\n    private AppMain() {{}}\n\n    // The app's data: the layout \
+         callback gets it back.\n    static final class AppData {{}}\n\n    static Dom \
+         layout(AppData data, LayoutCallbackInfo info) {{\n        return {body};\n    }}\n\n    \
+         public static void main(String[] args) {{\n        try (App app = App.create(new \
+         AppData(), AppMain::layout)) {{\n            \
+         app.run(WindowCreateOptions.create());\n        }}\n    }}\n}}\n",
+        one_line(&app.title)
+    )
+}
+
 /// The helpers every generated file carries.
 const HELPERS: &str = r"final class AzulCodegen {
     private AzulCodegen() {}
@@ -250,24 +378,65 @@ impl CodegenBackend for Java {
         "java"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "// Generated by azul-css codegen (Java). Do not edit by hand.\npackage \
-             com.azul;\n\nimport com.sun.jna.Memory;\nimport com.sun.jna.Pointer;\nimport \
-             com.sun.jna.Structure;\nimport java.nio.charset.StandardCharsets;\nimport \
-             java.util.function.BiFunction;\nimport java.util.function.Consumer;\n\npublic final \
-             class AzulStyles {\n    private AzulStyles() {}\n",
-        );
+        // The raw-layer helpers (and their imports) serve CSS values only.
+        let css = m.items.iter().any(|i| !is_dom_item(i));
+        let class = module_class(m);
+        let mut out =
+            String::from("// Generated by azul-css codegen (Java). Do not edit by hand.\npackage com.azul;\n");
+        if css {
+            out.push_str(
+                "\nimport com.sun.jna.Memory;\nimport com.sun.jna.Pointer;\nimport \
+                 com.sun.jna.Structure;\nimport java.nio.charset.StandardCharsets;\nimport \
+                 java.util.function.BiFunction;\nimport java.util.function.Consumer;\n",
+            );
+        }
+        out.push_str(&format!(
+            "\npublic final class {class} {{\n    private {class}() {{}}\n"
+        ));
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_method(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_method(item));
+            } else {
+                out.push_str(&item_method(item));
+            }
         }
-        out.push_str("}\n\n");
-        out.push_str(HELPERS);
+        out.push_str("}\n");
+        if css {
+            out.push('\n');
+            out.push_str(HELPERS);
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "pom.xml".to_string(),
+                    contents: pom("azul-app", "AppMain"),
+                },
+                GeneratedFile {
+                    path: format!("com/azul/{}.java", module_class(m)),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "com/azul/AppMain.java".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "package com.azul;\n\npublic final class StylesMain {\n    public static void \
              main(String[] args) {\n",
@@ -283,7 +452,7 @@ impl CodegenBackend for Java {
         vec![
             GeneratedFile {
                 path: "pom.xml".to_string(),
-                contents: POM.to_string(),
+                contents: pom("azul-styles", "StylesMain"),
             },
             GeneratedFile {
                 path: "com/azul/AzulStyles.java".to_string(),
@@ -297,15 +466,21 @@ impl CodegenBackend for Java {
     }
 }
 
+/// The Maven build of a project whose jar is `artifact` and whose `main` is
+/// `com.azul.<main>`.
+fn pom(artifact: &str, main: &str) -> String {
+    POM.replace("{artifact}", artifact).replace("{main}", main)
+}
+
 const POM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!-- Build: copy target/codegen/java/*.java into com/azul/, then
-     mvn -q package && java -Djna.library.path=<dir of libazul> -cp target/azul-styles-1.0.0.jar:<jna.jar> com.azul.StylesMain -->
+     mvn -q package && java -Djna.library.path=<dir of libazul> -cp target/{artifact}-1.0.0.jar:<jna.jar> com.azul.{main} -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.azul.generated</groupId>
-    <artifactId>azul-styles</artifactId>
+    <artifactId>{artifact}</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
     <properties>
