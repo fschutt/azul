@@ -58,10 +58,16 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   borderless -> decl::focus_halo (2px spread shadow). Flat colours FIELD_RING /
   flat DARK_ACC; flora LIGHT_ACC / DARK_GLOW.
 
+- alert: dd14ba85c (plumbing: AlertLook + alert::build), 3db7709e5 (RED),
+  889aaf031 (flat close halo + flora leaf banner w/ stone thread).
+  API: `Alert.theme` appended after `container_style`; set_theme / with_theme.
+  flora.rs consts LEAF_SHADOW_LIGHT/DARK (= --fl-shadow-1) live in the alert
+  section; reuse for card/frame.
+
 ## IN PROGRESS
 
 ## NEXT
-alert, card, frame, breadcrumb,
+card, frame, breadcrumb,
 accordion, menubar, color_input, date_picker
 
 ## Open questions
