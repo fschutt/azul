@@ -3447,6 +3447,27 @@ impl LayoutWindow {
         })
     }
 
+    /// Whether `node` is - or edits inside - a password field: the node or
+    /// the contenteditable host it sits in says `type=password` (the
+    /// attribute the soft keyboard reads, `crate::form::input_purpose`).
+    fn is_password_field(&self, node: DomNodeId) -> bool {
+        #[cfg(feature = "std")]
+        {
+            use crate::form::{input_purpose, InputPurpose};
+            let host = self
+                .find_contenteditable_host(node)
+                .map(crate::text_block::EditHost::dom_node);
+            core::iter::once(node)
+                .chain(host)
+                .any(|n| input_purpose(n, &self.layout_results) == InputPurpose::Password)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = node;
+            false
+        }
+    }
+
     /// The ONE commit point for a text-mutating edit: stores the styled
     /// pre/post content snapshots, records the operation in the undo history
     /// under a single monotonic id (shared by typing, deletion and
@@ -3482,10 +3503,17 @@ impl LayoutWindow {
             operation,
             timestamp,
         };
-        self.undo_redo_manager
-            .store_content_snapshot(changeset_id, pre_content, post_content);
-        self.undo_redo_manager
-            .record_operation_for_seat(changeset, pre_state, seat_id);
+        // A PASSWORD field keeps no history (GTK, Qt): its buffer holds the
+        // mask, so an undo would restore bullets its widget cannot map back
+        // onto the real value - screen and value would part ways - and a
+        // history of a secret is a leak waiting to happen. With nothing
+        // recorded, the undo shortcut finds nothing to undo there.
+        if !self.is_password_field(target) {
+            self.undo_redo_manager
+                .store_content_snapshot(changeset_id, pre_content, post_content);
+            self.undo_redo_manager
+                .record_operation_for_seat(changeset, pre_state, seat_id);
+        }
         if matches!(notify, TextEditNotify::QueueInput) {
             self.text_edit_manager
                 .pending_edit_notifications

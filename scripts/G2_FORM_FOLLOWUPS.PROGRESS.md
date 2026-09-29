@@ -26,11 +26,15 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   (`LayoutWindow::set_node_text` shared by shell + runner; `DirtyTextNode::typed_over` +
   `ContentOverlay::gc_app_set_text` at a new generation; `reset_form` walks every text field)
 
+- item 1 fix `4488f5066`
+- item 6: RED `42d80d0a9`, fix = next commit (`record_text_edit_undo` records nothing for a
+  `type=password` host, `LayoutWindow::is_password_field`)
+
 ## IN PROGRESS
-- item 6 (password undo)
+- item 2 (XML mount memory)
 
 ## NEXT
-- items 6, 2, 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 2, 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
 
 ## Open questions
 - none yet
