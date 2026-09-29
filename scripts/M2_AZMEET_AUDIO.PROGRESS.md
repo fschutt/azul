@@ -13,12 +13,19 @@ Branch `wt/m2-azmeet-audio` (base d9ce25179). Worker: `/Users/fschutt/Developmen
 ## DONE
 - `916764657` test(azmeet): audio.rs tests, stubs (RED).
 - `6aa0ba788` feat(azmeet): audio.rs pure logic (GREEN; type-checked alone with rustc --emit=metadata --test).
+- azul-apps `97aced2` test(meet): DELETE /rooms/<id>/peers/<node_id> (RED).
+- azul-apps `1b8ef59` feat(meet): the leave route; `node --test`: 50 pass.
+- `0379cf912` test(azmeet): two-clients.mjs hears audio, sees a mute, one leaves (RED; dry run vs a Node
+  stand-in: PASS).
+- `6b2843642` feat(azmeet): audio over iroh, mute/deafen, Leave (lib.rs; new glue type-checked in a stub
+  harness, see the report).
 
 ## IN PROGRESS
-- worker DELETE /rooms/<id>/peers/<node_id> (RED first)
+- guide rewrite (doc/guide/en/system/realtime-media.md)
 
 ## NEXT
-- worker DELETE GREEN; two-clients.mjs audio + leave (RED); lib.rs audio, mute/deafen,
-  Leave; guide; report.
+- report scripts/M2_AZMEET_AUDIO_2026_09_29.md
 
 ## Open questions
+- AudioSink / MicrophoneWidget are not mocked under headless (the app guards itself); should the library mock
+  them like AudioDeviceList?
