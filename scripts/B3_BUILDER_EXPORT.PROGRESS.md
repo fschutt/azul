@@ -102,8 +102,15 @@ UI (`debugger-export.js`) stays as is.
   disabled in the DOM dialogs) and pages through an app's files.
   node 13/13, export smoke 32/32, B1 dnd smoke 25/25.
 
+- `56dcb9187` docs(b3): progress
+- `096ba79b7` test(css): two exported C / C++ headers can be included together (RED; clang
+  confirmed `redefinition of az_concat` without a guard)
+- `ad9ce1b24` fix(css): C / C++ DOM helpers behind `AZ_CODEGEN_{CONCAT,REGISTRATION,STRING}`
+- report `scripts/B3_BUILDER_EXPORT_2026_09_29.md` (audit before/after, commits, API changes,
+  remaining old walkers with file:line, least-sure spots, commands).
+
 ## IN PROGRESS
-- the final report `scripts/B3_BUILDER_EXPORT_2026_09_29.md`.
+- nothing (B3 done, pending the parent's build).
 
 ## NEXT
 - (parent) build + run: see the report's command list; bless the 31 "to bless" DOM goldens.
