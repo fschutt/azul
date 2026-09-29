@@ -3102,6 +3102,138 @@ fn a_focus_taking_popup_survives_its_parent_resigning_the_keyboard() {
 }
 
 // ---------------------------------------------------------------------------
+// The date grid across months (roving-tabindex leftover, 2026-09-28)
+// ---------------------------------------------------------------------------
+
+use azul_layout::widgets::date_picker::{DatePicker, DatePickerState};
+
+/// The app's own date, which the picker's `on_change` keeps - the host
+/// rebuild that turns the calendar to another month.
+struct DateApp {
+    date: DatePickerState,
+}
+
+extern "C" fn date_app_changed(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
+    if let Some(mut app) = data.downcast_mut::<DateApp>() {
+        app.date = state;
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn date_app_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::date_picker::DatePickerOnChangeCallbackType;
+    let date = data
+        .downcast_ref::<DateApp>()
+        .map(|a| a.date)
+        .expect("the app data is a DateApp");
+    let on_change: DatePickerOnChangeCallbackType = date_app_changed;
+    Dom::create_body().with_child(
+        DatePicker::create(date.year, date.month, date.day)
+            .with_on_change(data.clone(), on_change)
+            .dom(),
+    )
+}
+
+/// The node of `window`'s root dom that asks for focus (`autofocus`).
+fn autofocus_node(window: &HeadlessWindow) -> Option<DomNodeId> {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    nodes
+        .linear_iter()
+        .find(|n| nodes.get(*n).is_some_and(NodeData::has_autofocus))
+        .map(|n| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+        })
+}
+
+/// The accessibility name `node` declares in `window`.
+fn a11y_name_of(window: &HeadlessWindow, node: DomNodeId) -> String {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    root.styled_dom
+        .node_data
+        .as_container()
+        .get(node.node.into_crate_internal().unwrap())
+        .and_then(|nd| nd.get_accessibility_info())
+        .and_then(|a| a.accessibility_name.as_ref().map(|s| s.as_str().to_string()))
+        .unwrap_or_default()
+}
+
+/// WAI-ARIA APG date grid, end to end: Right on the last day of the shown
+/// month turns the calendar to the next month (the app keeps the date and
+/// rebuilds) and focus lands on that month's first day - the day the arrow
+/// aimed at - not on whatever cell sat in the old day's slot. The arrow used
+/// to be swallowed at the edge of the month.
+#[test]
+fn an_arrow_off_the_last_day_turns_the_month_and_focus_lands_on_the_day_it_aimed_at() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(DateApp {
+        date: DatePickerState {
+            year: 2024,
+            month: 2,
+            day: 29,
+        },
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = date_app_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let field = rect_of_class(&parent, "__azul-native-date-picker");
+    click_at(
+        &mut parent,
+        LogicalPosition::new(
+            field.origin.x + field.size.width / 2.0,
+            field.origin.y + field.size.height / 2.0,
+        ),
+    );
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+    let feb29 = autofocus_node(&popup).expect("the calendar asks focus for its selected day");
+    assert_eq!(focused(&popup), Some(feb29), "premise: the calendar opened on the 29th");
+
+    key_down(&mut popup, VirtualKeyCode::Right, &[], "t.right");
+    keys_up(&mut popup, "t.right.up");
+    let date = {
+        let mut app = app_data.borrow().clone();
+        let a = app.downcast_ref::<DateApp>().expect("DateApp");
+        a.date
+    };
+    assert_eq!(
+        date,
+        DatePickerState {
+            year: 2024,
+            month: 3,
+            day: 1
+        },
+        "Right on February 29th turned the calendar to March 1st"
+    );
+
+    // The host rebuilds onto March; the popup adopts the new content.
+    parent.regenerate_layout().expect("the parent rebuilds onto March");
+    popup.regenerate_layout().expect("the popup adopts March");
+    let march1 = autofocus_node(&popup).expect("March's calendar asks focus for the 1st");
+    assert!(
+        a11y_name_of(&popup, march1).contains("1 March 2024"),
+        "premise: the Tab-stop day is March 1st, got {:?}",
+        a11y_name_of(&popup, march1)
+    );
+    assert_eq!(
+        focused(&popup),
+        Some(march1),
+        "focus followed the arrow into the new month"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // The widgets demo's Popover (device report 2026-09-28: "the popover cannot
 // be closed again")
 // ---------------------------------------------------------------------------

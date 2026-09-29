@@ -4903,19 +4903,98 @@ mod autotest_generated {
         }
     }
 
+    /// WAI-ARIA APG date grid: an arrow past the displayed month CROSSES into
+    /// the neighbouring month - the calendar turns to it, like ‹ / ›, with
+    /// the day the arrow aimed at as its day, so the rebuilt grid's one Tab
+    /// stop is that day. It used to be swallowed and go nowhere. February
+    /// 2024 (`[_ _ _ _ 1 2 3] .. [25..29 _ _]`): Left from the 1st is January
+    /// 31st, Up from the 3rd January 27th, Right from the 29th March 1st,
+    /// Down from the 27th March 5th.
     #[test]
-    fn an_arrow_past_the_displayed_month_stays_on_the_grid_and_goes_nowhere() {
+    fn an_arrow_past_the_displayed_month_crosses_into_the_neighbouring_month() {
         use azul_core::window::VirtualKeyCode as K;
 
-        for (from, key) in [(1, K::Left), (3, K::Up), (29, K::Right), (27, K::Down)] {
-            let (styled, _) = calendar(2024, 2, 14);
+        for (from, key, (year, month, day)) in [
+            (1, K::Left, (2024, 1, 31)),
+            (3, K::Up, (2024, 1, 27)),
+            (29, K::Right, (2024, 3, 1)),
+            (27, K::Down, (2024, 3, 5)),
+        ] {
+            let (styled, shared) = calendar(2024, 2, 14);
             let (_, changes) = press_day(&styled, from, key, &[]);
             assert!(
                 rv::prevented(&changes),
                 "{key:?} on the {from}th must not let spatial navigation leave the grid",
             );
-            assert_eq!(rv::focus_request(&changes), None, "{key:?} on the {from}th");
+            assert_eq!(
+                read_state(&shared),
+                DatePickerState { year, month, day },
+                "{key:?} on the {from}th turns the calendar to the day it aimed at",
+            );
+            assert!(
+                transient_writes(&changes).is_empty(),
+                "{key:?} on the {from}th: turning the month does not close the calendar",
+            );
         }
+
+        // Across a year, both ways.
+        let (styled, shared) = calendar(2024, 1, 1);
+        let _ = press_day(&styled, 1, K::Left, &[]);
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2023,
+                month: 12,
+                day: 31
+            }
+        );
+        let (styled, shared) = calendar(2023, 12, 31);
+        let _ = press_day(&styled, 31, K::Right, &[]);
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2024,
+                month: 1,
+                day: 1
+            }
+        );
+    }
+
+    /// What makes the crossing LAND: every day is keyed by its date, so the
+    /// rebuild onto another month unmounts the focused day instead of handing
+    /// its focus to whatever day sits in the same slot; and the grid's Tab-stop
+    /// day asks for focus (`autofocus`), which the popup gives it when it
+    /// opens and when a rebuild took its focused node away.
+    #[test]
+    fn every_day_is_keyed_by_its_date_and_the_tab_stop_day_asks_for_focus() {
+        let key_of = |styled: &StyledDom, day: u32| {
+            let cell = cell_of(styled, day).node.into_crate_internal().unwrap();
+            styled.node_data.as_container()[cell].get_key()
+        };
+        let (feb, _) = calendar(2024, 2, 14);
+        for day in 1..=29 {
+            let cell = cell_of(&feb, day).node.into_crate_internal().unwrap();
+            let nd = &feb.node_data.as_container()[cell];
+            assert!(key_of(&feb, day).is_some(), "the {day}th carries its date as a key");
+            assert_eq!(
+                nd.has_autofocus(),
+                day == 14,
+                "only the Tab-stop day asks for focus (the {day}th)"
+            );
+        }
+        assert_ne!(key_of(&feb, 14), key_of(&feb, 15), "two days, two keys");
+        let (again, _) = calendar(2024, 2, 20);
+        assert_eq!(
+            key_of(&feb, 14),
+            key_of(&again, 14),
+            "a date keeps its key across rebuilds"
+        );
+        let (march, _) = calendar(2024, 3, 14);
+        assert_ne!(
+            key_of(&feb, 14),
+            key_of(&march, 14),
+            "the same day number in another month is another day"
+        );
     }
 
     #[test]
