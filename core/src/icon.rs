@@ -767,13 +767,27 @@ pub fn styled_dom_resolving_icons(
 /// so the funnel's later context offer is a no-op rather than a re-cascade.
 #[must_use]
 pub fn styled_dom_resolving_icons_with_context(
-    mut dom: Dom,
+    dom: Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
     context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
 ) -> StyledDom {
+    styled_dom_resolving_icons_with_user_sheets(dom, provider, system_style, context, &[])
+}
+
+/// [`styled_dom_resolving_icons_with_context`] with USER-origin stylesheets -
+/// the end user's rice - cascaded over the whole window
+/// (`StyledDom::create_from_dom_with_user_sheets`).
+#[must_use]
+pub fn styled_dom_resolving_icons_with_user_sheets(
+    mut dom: Dom,
+    provider: &SharedIconProvider,
+    system_style: &SystemStyle,
+    context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    user_sheets: &[azul_css::css::Css],
+) -> StyledDom {
     resolve_icons_in_dom(&mut dom, provider, system_style);
-    StyledDom::create_from_dom_with_context(dom, context)
+    StyledDom::create_from_dom_with_user_sheets(dom, context, user_sheets)
 }
 
 /// The private dataset behind [`Dom::create_icon_view`]: the spec that view

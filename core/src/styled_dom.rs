@@ -1497,8 +1497,24 @@ impl StyledDom {
     /// the first pass — see [`Self::create_with_context`].
     #[must_use]
     pub fn create_from_dom_with_context(
+        dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    ) -> Self {
+        Self::create_from_dom_with_user_sheets(dom, context, &[])
+    }
+
+    /// [`Self::create_from_dom_with_context`] with USER-origin stylesheets:
+    /// the end user's rice (`azul_css::rice`), which addresses the whole
+    /// window rather than the subtree of a node. They are appended after the
+    /// DOM's own sheets and never scoped - hung on the root `Dom` instead, a
+    /// rice's `* { ... }` at or above `rule_priority::INLINE` would be scoped
+    /// to the root node alone (`scope_inline_css`). Their rules carry their
+    /// own priorities and conditions (`@theme(<theme>)`).
+    #[must_use]
+    pub fn create_from_dom_with_user_sheets(
         mut dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[azul_css::css::Css],
     ) -> Self {
         use azul_css::css::Css;
 
@@ -1513,6 +1529,9 @@ impl StyledDom {
         // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
         let mut all_css = Vec::new();
         collect_css_from_dom(&dom, &mut all_css);
+        // ... and the user-origin sheets after them, unscoped (already past
+        // `scope_inline_css`, which only walks the DOM's own sheets).
+        all_css.extend(user_sheets.iter().cloned());
 
         // 2. Merge all CSS objects into one combined Css
         let mut combined_css = if all_css.is_empty() {

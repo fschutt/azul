@@ -130,7 +130,8 @@ fn a_rice_for_a_theme_that_is_not_live_is_inert() {
 /// DOM's sheets are scoped (a `* {}` at or above INLINE hung on the root would be node-only).
 #[test]
 fn a_universal_rice_rule_reaches_every_node() {
-    let rice = Rice::new("r4star", "// priority: widgets\n* { color: #0000ff; }");
+    // `background-color` does not inherit: only a rule that MATCHES node 2 paints it.
+    let rice = Rice::new("r4star", "// priority: widgets\n* { background-color: #0000ff; }");
     let env = RiceEnv::with_root(rice.0.clone(), "rice-window-test");
     let loaded = load_rice(&env, &["r4star".to_string()]);
     let dom = Dom::create_body().with_child(Dom::create_div().with_child(Dom::create_div()));
@@ -143,8 +144,9 @@ fn a_universal_rice_rule_reaches_every_node() {
         Some(ctx),
         core::slice::from_ref(&loaded.css),
     );
-    let size = PhysicalSize::new(800.0, 600.0);
-    assert_eq!(getters::get_style_properties(&sd, NodeId::new(2), None, size).color, BLUE);
+    let inner = NodeId::new(2);
+    let state = sd.styled_nodes.as_container()[inner].styled_node_state;
+    assert_eq!(getters::get_background_color(&sd, inner, &state), BLUE);
 }
 
 /// The design's `widgets` slot "beats widget inline": a widget's static inline properties

@@ -1024,6 +1024,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         color_scheme: _,
         // One short string, the app theme's name.
         app_theme: _,
+        // One counter.
+        rice_generation: _,
         // A handle (Arc) plus a u64: the manager it points at is the APP's,
         // bounded by the app's accelerators, not by this window's document.
         global_hotkeys: _,
@@ -1463,6 +1465,13 @@ pub struct LayoutWindow {
     /// A theme change is never a restyle: a theme may change a widget's
     /// structure. Tests set it per window without publishing the choice.
     pub app_theme: AzString,
+    /// The rice generation (`azul_css::rice::generation`) this window's DOM
+    /// was last built under - the `AZ_RICING=watch` counterpart of
+    /// [`Self::app_theme`]: brought up to the loader's by the shells'
+    /// `regenerate_layout`, and a window whose value lags owes a rebuild
+    /// (`RelayoutReason::AppThemeChange`), because a rice reload goes through
+    /// the app-theme rebuild path.
+    pub rice_generation: u64,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -2267,6 +2276,8 @@ impl LayoutWindow {
             // The app's theme as it stands NOW: a window opened after a
             // runtime switch builds for it from its first layout.
             app_theme: azul_core::app_theme::app_theme(),
+            // Likewise the rice as it stands NOW.
+            rice_generation: azul_css::rice::generation(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -16418,7 +16429,8 @@ impl LayoutWindow {
     ///    here on, so they are localized and icon-resolved like the rest;
     /// 2. Fluent translation;
     /// 3. `<icon>` resolution (the widgets contain icons);
-    /// 4. the cascade.
+    /// 4. the cascade, with the end user's rice for this window's app theme
+    ///    (`azul_css::rice::rice_for_theme`) as a user-origin sheet.
     #[must_use]
     pub fn style_user_dom_in_scope(
         &self,
@@ -16447,8 +16459,15 @@ impl LayoutWindow {
             translate_texts_in_dom(&mut dom, localizer, language.id.as_str());
         }
         let context = Some(self.dynamic_selector_context(window_state));
+        // The rice of this window's app theme. `None` until the app installed
+        // the loader (`App::create`) and under `AZ_RICING=off`, so a test or a
+        // headless tool that never installs it never reads the home directory.
+        let rice = azul_css::rice::rice_for_theme(self.app_theme.as_str());
+        let user_sheets = rice
+            .as_deref()
+            .map_or(&[][..], |loaded| core::slice::from_ref(&loaded.css));
         let Some(provider) = self.icon_provider.as_ref() else {
-            return StyledDom::create_from_dom_with_context(dom, context);
+            return StyledDom::create_from_dom_with_user_sheets(dom, context, user_sheets);
         };
         // The shell sets style and provider together, so the fallback only
         // covers a DOM styled before the first `regenerate_layout`. Resolving
@@ -16462,11 +16481,12 @@ impl LayoutWindow {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
-        azul_core::icon::styled_dom_resolving_icons_with_context(
+        azul_core::icon::styled_dom_resolving_icons_with_user_sheets(
             dom,
             provider,
             system_style,
             context,
+            user_sheets,
         )
     }
 }
@@ -22704,6 +22724,8 @@ impl LayoutWindow {
             color_scheme: _,
             // The app theme's name, keyed by nothing.
             app_theme: _,
+            // A counter, keyed by nothing.
+            rice_generation: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,
