@@ -1228,9 +1228,14 @@ mod autotest_generated {
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
         let mut out = Vec::new();
         for change in changes {
-            // The click also moves the control's roving Tab stop; that is not
-            // part of the restyle (the roving tests below check it).
-            if matches!(change, CallbackChange::SetNodeTabIndex { .. }) {
+            // The click also moves the control's roving Tab stop and announces
+            // the selection; neither is part of the restyle (the roving and
+            // accessibility tests below check them).
+            if matches!(
+                change,
+                CallbackChange::SetNodeTabIndex { .. }
+                    | CallbackChange::ChangeNodeAccessibilityState { .. }
+            ) {
                 continue;
             }
             let CallbackChange::ChangeNodeCssProperties {
@@ -2906,6 +2911,66 @@ mod autotest_generated {
         rv::apply_tab_index_writes(&mut styled, &changes);
         let stop = page_node(seg_node(2));
         assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
+    }
+
+    // ------------------------------------------------------------------
+    // Accessibility: a segmented control is a radio group (the key handler's
+    // own model), so every segment is a RADIO that says whether it is the
+    // selected one - and says it live, since a selection restyles without a
+    // rebuild. Each segment used to declare the LIST role (`PageTabList`)
+    // and no state at all.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_segment_is_a_radio_that_says_whether_it_is_selected() {
+        use azul_core::a11y::{
+            AccessibilityRole::RadioButton,
+            AccessibilityState::{CheckedFalse, CheckedTrue},
+        };
+
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(1));
+        for i in 0..3 {
+            assert_eq!(
+                rv::declared(&styled, page_segment(i)),
+                Some((
+                    RadioButton,
+                    vec![if i == 1 { CheckedTrue } else { CheckedFalse }]
+                )),
+                "segment {i}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_newly_selected_segment() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_segment(0), vec![CheckedFalse]),
+                (page_segment(1), vec![CheckedTrue]),
+                (page_segment(2), vec![CheckedFalse]),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_click_announces_the_selected_segment_too() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, state) = flatten(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_node(seg_node(0)), vec![CheckedFalse]),
+                (page_node(seg_node(1)), vec![CheckedFalse]),
+                (page_node(seg_node(2)), vec![CheckedTrue]),
+            ],
+        );
     }
 
     /// The click restyle writes the colours of the theme the control was BUILT

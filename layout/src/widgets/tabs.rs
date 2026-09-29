@@ -3413,6 +3413,60 @@ mod autotest_generated {
             );
         }
     }
+
+    // ------------------------------------------------------------------
+    // Accessibility: a tab says it is a tab, the header that it is a tab
+    // list, and the active tab that it is the selected one - also LIVE when
+    // an arrow activates another tab, before any rebuild. The header and its
+    // tabs declared nothing at all.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_tab_is_a_page_tab_and_the_active_one_says_it_is_selected() {
+        use azul_core::a11y::{AccessibilityRole, AccessibilityState::Selected};
+
+        for with_on_click in [true, false] {
+            let user = RefAny::new(ClickLog::default());
+            let header = if with_on_click {
+                three_tabs(1, &user)
+            } else {
+                TabHeader::create(strings(&["one", "two", "three"])).with_active_tab(1)
+            };
+            let styled = tab_page(header);
+            assert_eq!(
+                rv::declared(&styled, page_node(2)).map(|(role, _)| role),
+                Some(AccessibilityRole::PageTabList),
+                "on_click={with_on_click}: the header is a tab list",
+            );
+            for i in 0..3 {
+                assert_eq!(
+                    rv::declared(&styled, page_tab(i)),
+                    Some((
+                        AccessibilityRole::PageTab,
+                        if i == 1 { vec![Selected] } else { Vec::new() }
+                    )),
+                    "on_click={with_on_click}: tab {i}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_tab_it_activates() {
+        use azul_core::a11y::AccessibilityState::Selected;
+
+        let user = RefAny::new(ClickLog::default());
+        let styled = tab_page(three_tabs(0, &user));
+        let (_, changes) = press_tab(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_tab(0), Vec::new()),
+                (page_tab(1), vec![Selected]),
+                (page_tab(2), Vec::new()),
+            ],
+        );
+    }
 }
 
 /// The tab bar's two looks (W5b). Flat is the Windows-native control. Flora

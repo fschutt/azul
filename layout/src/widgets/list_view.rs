@@ -2444,4 +2444,41 @@ mod roving_tabindex_tests {
             );
         }
     }
+
+    // ------------------------------------------------------------------
+    // Accessibility: every row is an ITEM of the list (each row declared the
+    // `List` role itself) and the selected one says so - also LIVE when an
+    // arrow moves the selection, before the app rebuilds.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_row_is_a_list_item_and_the_selected_one_says_so() {
+        use azul_core::a11y::{AccessibilityRole::ListItem, AccessibilityState::Selected};
+
+        let styled = page(list(3, None).with_selected_row(Some(1_usize).into()));
+        for i in 0..3 {
+            assert_eq!(
+                rv::declared(&styled, row(i)),
+                Some((ListItem, if i == 1 { vec![Selected] } else { Vec::new() })),
+                "row {i}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_row_it_selects() {
+        use azul_core::a11y::AccessibilityState::Selected;
+
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(3, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (row(0), Vec::new()),
+                (row(1), vec![Selected]),
+                (row(2), Vec::new()),
+            ],
+        );
+    }
 }

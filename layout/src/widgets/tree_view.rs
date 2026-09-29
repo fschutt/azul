@@ -2557,6 +2557,38 @@ mod autotest_generated {
         tv.set_on_node_toggle(RefAny::new(log), toggle_cb(record_toggle));
         assert!(tv.on_node_toggle.is_some());
     }
+
+    /// A row is a tree ITEM (each row declared the whole tree's `Outline`
+    /// role) that says whether it is open - a parent only - and whether it
+    /// is selected. The tree's shape lives in the app, which rebuilds on every
+    /// open, close and pick, so the build publishes it afresh each time.
+    #[test]
+    fn tree_rows_say_whether_they_are_open_and_selected() {
+        use azul_core::a11y::{
+            AccessibilityRole::{Outline, OutlineItem},
+            AccessibilityState::{Collapsed, Expanded, Selected},
+        };
+
+        let styled = tree_page(TreeView::new(keyboard_tree()));
+        assert_eq!(
+            rv::declared(&styled, page_node(2)).map(|(role, _)| role),
+            Some(Outline),
+            "the tree itself is the outline",
+        );
+        for (label, states) in [
+            ("root", vec![Expanded]),
+            ("a", vec![Collapsed]),
+            ("b", vec![Selected]),
+            ("c", vec![Expanded]),
+            ("c1", Vec::new()),
+        ] {
+            assert_eq!(
+                rv::declared(&styled, row_labelled(&styled, label)),
+                Some((OutlineItem, states)),
+                "row {label}",
+            );
+        }
+    }
 }
 
 /// The tree's two looks (W5b). Flat is the established field; flora is a

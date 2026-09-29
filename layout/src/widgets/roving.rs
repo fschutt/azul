@@ -423,4 +423,35 @@ pub(crate) mod test_support {
             .iter()
             .any(|c| matches!(c, CallbackChange::PreventDefault))
     }
+
+    /// The accessibility states the callback announced live
+    /// (`CallbackInfo::set_accessibility_state`), per node, in emission order.
+    pub(crate) fn announced_states(
+        changes: &[CallbackChange],
+    ) -> Vec<(DomNodeId, Vec<azul_core::a11y::AccessibilityState>)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeAccessibilityState { node_id, states } => {
+                    Some((*node_id, states.as_ref().to_vec()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The role and states `node` DECLARES in `styled` - what the
+    /// accessibility tree is built from. `None` when it declares nothing.
+    pub(crate) fn declared(
+        styled: &StyledDom,
+        node: DomNodeId,
+    ) -> Option<(
+        azul_core::a11y::AccessibilityRole,
+        Vec<azul_core::a11y::AccessibilityState>,
+    )> {
+        let id = node.node.into_crate_internal()?;
+        let nodes = styled.node_data.as_container();
+        let info = nodes.get(id)?.get_accessibility_info()?;
+        Some((info.role, info.states.as_ref().to_vec()))
+    }
 }

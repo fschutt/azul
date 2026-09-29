@@ -2630,6 +2630,44 @@ mod autotest_generated {
             "after the click the clicked radio is the group's only stop",
         );
     }
+
+    // ------------------------------------------------------------------
+    // The check is announced LIVE: an arrow or a click moves it without a
+    // rebuild, so the CheckedTrue / CheckedFalse published at build time kept
+    // telling a screen reader about the option the user had just left.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn an_arrow_announces_the_newly_checked_radio_and_unchecks_the_others() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, _) = page(group(&["a", "b", "c"]));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_row(0), vec![CheckedFalse]),
+                (page_row(1), vec![CheckedTrue]),
+                (page_row(2), vec![CheckedFalse]),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_click_announces_the_checked_radio_too() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, state) = flatten(group(&["a", "b", "c"]));
+        let (_, changes) = run_click(Some(styled), row_node(2), state);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (row_node(0), vec![CheckedFalse]),
+                (row_node(1), vec![CheckedFalse]),
+                (row_node(2), vec![CheckedTrue]),
+            ],
+        );
+    }
 }
 
 #[cfg(test)]
