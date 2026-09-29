@@ -9,6 +9,13 @@
 //! api `create` constructors as `init(_:)` (`FloatValue(1.0)`), first
 //! argument unlabelled and the rest labelled (`PixelValue.fromMetric(.., value:)`),
 //! native `String`s, and native arrays wherever a Vec is expected.
+//!
+//! A DOM uses the same native API: a static `create_x` is `x`
+//! (`Dom.div()`, `Dom.a(href, text: .., aria: ..)`, the generator's rule in
+//! `lang_swift/wrappers.rs`), a by-value `self` method mutates its receiver
+//! and returns it (`.withChild(..)`, chained). An app is
+//! `WindowCreateOptions(layout)` with a typed layout function over any
+//! class, `App(AppData(), AppConfig())` and `app.run(window)`.
 
 use alloc::{
     format,
@@ -19,10 +26,12 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{EnumShape, Item, Module, Prim},
+    ir::{EnumShape, Ident, Item, Module, Prim},
     lang::{
-        call_param_names, escape_quoted, is_droppable_vec, item_comments, item_doc,
-        unicode_braced, ExprSyntax,
+        call_param_names,
+        dom::{is_dom_item, one_line, registration_note},
+        escape_quoted, expr_doc, is_droppable_vec, item_comments, item_doc, unicode_braced,
+        ConcatPart, ExprSyntax, MethodLayout,
     },
     CodegenBackend, GeneratedFile,
 };
@@ -78,6 +87,16 @@ const KEYWORDS: &[&str] = &[
     "is", "true", "nil", "self", "super", "throw", "throws", "try",
 ];
 
+/// A parameter's Swift name (a keyword or reserved member gets a `_`).
+fn swift_param(name: &Ident) -> String {
+    let n = name.lower_camel();
+    if KEYWORDS.contains(&n.as_str()) || RESERVED_MEMBERS.contains(&n.as_str()) {
+        format!("{n}_")
+    } else {
+        n
+    }
+}
+
 /// A member / case name as the Swift generator spells it.
 fn member(name: &str) -> String {
     let mut n = swift_camel(name);
@@ -126,6 +145,10 @@ impl ExprSyntax for Swift {
             .collect();
         if method == "create" {
             Doc::call(class.to_string(), args, broken)
+        } else if let Some(rest) = method.strip_prefix("create_") {
+            // A static `create_x` is `x` (`Dom.div()`); the CSS lowering
+            // emits none of these.
+            Doc::call(format!("{class}.{}", member(rest)), args, broken)
         } else {
             Doc::call(format!("{class}.{}", member(method)), args, broken)
         }
@@ -161,9 +184,100 @@ impl ExprSyntax for Swift {
     fn unsupported(&self, what: &str) -> Doc {
         Doc::text(format!("fatalError({:?})", format!("not expressible: {what}")))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `.withChild(..)`: the first argument unlabelled (every builder
+    /// method the DOM lowering emits takes one).
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(recv, Doc::call(format!(".{}", member(method)), args, layout.args_tall))
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(swift_param(name))
+    }
+
+    /// String interpolation.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut out = String::from("\"");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &[], &unicode_braced)),
+                ConcatPart::Param(i) => out.push_str(&format!("\\({})", swift_param(i))),
+            }
+        }
+        out.push('"');
+        Doc::text(out)
+    }
+}
+
+/// A DOM item: a function with labelled `String` parameters that default
+/// to the values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let mut out = String::new();
+    for line in &item_comments(&Swift, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("{}: String = {}", swift_param(&p.name), expr_doc(&Swift, d).flat()),
+            None => format!("{}: String", swift_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&Swift, item) {
+        Ok(doc) => out.push_str(&format!(
+            "public func {name}({params}) -> {} {{\n    return {}\n}}\n",
+            item.ty,
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "// not expressible with the Swift bindings: {reason}\npublic func {name}({params}) -> \
+             {}? {{\n    return nil\n}}\n",
+            item.ty
+        )),
+    }
+    out
+}
+
+/// Why the Swift bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Swift bindings cannot fill one: ComponentDef and \
+                               ComponentLibrary have no public initializer, and no wrapper class \
+                               hands out its raw value (`_take` is internal), so a render_fn \
+                               cannot pass the Dom a render function builds to \
+                               AzStyledDom_createFromDom";
+
+/// The app's `main.swift` around a DOM module (`m.app`).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.lower_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Dom.body().withChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, Swift).\nimport Azul\n\n// The app's \
+         data: the layout callback gets it back.\nfinal class AppData {{}}\n\nfunc layout(_ data: \
+         AppData, _ info: LayoutCallbackInfo) -> Dom {{\n    return {body}\n}}\n\nlet window = \
+         WindowCreateOptions(layout)\nwindow.windowState.title = {}\nlet app = App(AppData(), \
+         AppConfig())\napp.run(window)\n",
+        one_line(&app.title),
+        Swift.string(&app.title).flat()
+    )
 }
 
 fn item_fn(item: &Item) -> String {
+    if is_dom_item(item) {
+        return dom_item_fn(item);
+    }
     let mut out = String::new();
     for line in &item_comments(&Swift, item) {
         out.push_str(&format!("// {line}\n"));
@@ -200,6 +314,10 @@ impl CodegenBackend for Swift {
         "swift"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out =
             String::from("// Generated by azul-css codegen (Swift). Do not edit by hand.\nimport Azul\n");
@@ -207,10 +325,32 @@ impl CodegenBackend for Swift {
             out.push('\n');
             out.push_str(&item_fn(item));
         }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "Package.swift".to_string(),
+                    contents: package("AzulApp"),
+                },
+                GeneratedFile {
+                    path: "Sources/AzulApp/UI.swift".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "Sources/AzulApp/main.swift".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::new();
         for item in &m.items {
             let name = item.name.lower_camel();
@@ -221,7 +361,7 @@ impl CodegenBackend for Swift {
         vec![
             GeneratedFile {
                 path: "Package.swift".to_string(),
-                contents: PACKAGE.to_string(),
+                contents: package("AzulStyles"),
             },
             GeneratedFile {
                 path: "Sources/AzulStyles/Styles.swift".to_string(),
@@ -233,6 +373,12 @@ impl CodegenBackend for Swift {
             },
         ]
     }
+}
+
+/// The SwiftPM manifest of an executable named `name` (its sources in
+/// `Sources/<name>`).
+fn package(name: &str) -> String {
+    PACKAGE.replace("AzulStyles", name)
 }
 
 const PACKAGE: &str = r#"// swift-tools-version:5.7

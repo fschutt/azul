@@ -12,6 +12,15 @@
 //! (`azul.AzXxxVec_copyFromPtr(&[]azul.AzXxx{..}[0], n)`); strings come from
 //! `azul.Str("..").Raw()`. `azul.LoadLibrary("")` must run before any call,
 //! so styles are functions, never package-level variables.
+//!
+//! A DOM goes through the wrapper layer (`lang_go/wrappers.rs`): factories
+//! `azul.<Class><Method>` (`azul.DomCreateDiv()`, `azul.SmallAriaInfoLabel(..)`),
+//! by-value `self` methods that consume the receiver and return a new
+//! `*azul.Dom` (`.WithChild(..)`), `*azul.String` arguments from
+//! `azul.Str(..)`. A chain puts the dot at the END of a line: Go inserts a
+//! semicolon after a line that ends in `)`. An app is
+//! `azul.AppCreate(&appData{}, azul.AppConfigCreate())` +
+//! `azul.WindowCreateOptionsCreate(azul.Bind(layout))`.
 
 use alloc::{
     format,
@@ -22,9 +31,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, snake_to_upper_camel, EnumShape, Item, Module, Prim},
+    ir::{snake_to_lower_camel, snake_to_upper_camel, EnumShape, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, item_comments, item_doc, unicode_u4, uses_nonfinite_float, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        escape_quoted, item_comments, item_doc, unicode_u4, uses_nonfinite_float, ConcatPart,
+        ExprSyntax, MethodLayout,
     },
     CodegenBackend, GeneratedFile,
 };
@@ -118,6 +129,160 @@ impl ExprSyntax for Go {
     }
 }
 
+/// Go keywords, and the names a parameter must not shadow (`azul` is the
+/// bindings' package, `string` the parameter type).
+const RESERVED: &[&str] = &[
+    "break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough",
+    "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range",
+    "return", "select", "struct", "switch", "type", "var", "azul", "string",
+];
+
+/// A parameter's Go name.
+fn go_param(name: &Ident) -> String {
+    let n = name.lower_camel();
+    if RESERVED.contains(&n.as_str()) {
+        format!("{n}_")
+    } else {
+        n
+    }
+}
+
+/// A Go string literal.
+fn go_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
+/// `recv.link` in a chain whose links break with the dot at the END of the
+/// line (`azul.DomCreateDiv().\n\tWithCss(..)`): Go ends a statement at a
+/// line that ends in `)`, so a line may not start with `.`.
+fn go_chained(recv: Doc, link: Doc) -> Doc {
+    match recv {
+        Doc::Chain {
+            head, mut links, ..
+        } => {
+            if let Some(last) = links.pop() {
+                links.push(Doc::cat(vec![last, Doc::text(".")]));
+            }
+            links.push(link);
+            let broken = links.len() >= 2;
+            Doc::Chain {
+                head,
+                links,
+                broken,
+            }
+        }
+        other => Doc::Chain {
+            head: alloc::boxed::Box::new(Doc::cat(vec![other, Doc::text(".")])),
+            links: vec![link],
+            broken: false,
+        },
+    }
+}
+
+/// The DOM through the wrapper layer (`*azul.Dom`, `*azul.SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct GoDom;
+
+impl WrapperDomSyntax for GoDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &Go
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(format!("azul.Str({})", go_str(s)))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        go_call(format!("azul.{class}{}", snake_to_upper_camel(method)), args, broken)
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        go_chained(recv, go_call(snake_to_upper_camel(method), args, layout.args_tall))
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("azul.Str({})", go_param(name)))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let joined = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => go_str(s),
+                ConcatPart::Param(i) => go_param(i),
+            })
+            .collect::<Vec<_>>()
+            .join(" + ");
+        Doc::text(format!("azul.Str({joined})"))
+    }
+}
+
+/// A DOM item: a function taking its parameters as Go strings.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(GoDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.upper_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| format!("{} string", go_param(&p.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "func {name}({params}) *azul.Dom {{\n\treturn {}\n}}\n",
+            render(&doc, "\t", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "// not expressible with the Go bindings: {reason}\nfunc {name}({params}) *azul.Dom \
+             {{\n\treturn nil\n}}\n"
+        )),
+    }
+    out
+}
+
+/// Why the Go bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Go bindings cannot make one: a purego callback returns only \
+                               an integer, a pointer or a bool (never a \
+                               ResultStyledDomRenderDomError by value), and ComponentDef / \
+                               ComponentLibrary have no constructor";
+
+/// The app's `main` around a DOM module (`m.app`) in package `ui`. The
+/// wrapper layer sets no window title (it is a raw `window_state` field).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("ui.{}()", app.root.upper_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("azul.DomCreateBody().WithChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, Go).\npackage main\n\nimport (\n\tazul \
+         \"azul.rs/ui/go\"\n\n\t\"azul-app/ui\"\n)\n\n// The app's data: the layout callback gets \
+         it back.\ntype appData struct{{}}\n\nfunc layout(_ *appData, _ *azul.LayoutCallbackInfo) \
+         *azul.Dom {{\n\treturn {body}\n}}\n\nfunc main() {{\n\tif err := azul.LoadLibrary(\"\"); \
+         err != nil {{\n\t\tpanic(err)\n\t}}\n\twindow := \
+         azul.WindowCreateOptionsCreate(azul.Bind(layout))\n\tapp := azul.AppCreate(&appData{{}}, \
+         azul.AppConfigCreate())\n\tapp.Run(window)\n}}\n",
+        one_line(&app.title)
+    )
+}
+
+/// The `go.mod` of a project named `module`.
+fn go_mod(module: &str) -> String {
+    format!(
+        "module {module}\n\ngo 1.21\n\nrequire azul.rs/ui/go v0.0.0\n\nrequire \
+         github.com/ebitengine/purego v0.10.2 // indirect\n\n// Copy target/codegen/go/ to \
+         ./azul-go (and libazul next to the binary).\nreplace azul.rs/ui/go => ./azul-go\n"
+    )
+}
+
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Go, item) {
@@ -156,9 +321,14 @@ impl CodegenBackend for Go {
         "go"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "// Generated by azul-css codegen (Go). Do not edit by hand.\npackage styles\n\n",
+        let package = if m.is_dom() { "ui" } else { "styles" };
+        let mut out = format!(
+            "// Generated by azul-css codegen (Go). Do not edit by hand.\npackage {package}\n\n"
         );
         if uses_nonfinite_float(m) {
             out.push_str("import (\n\t\"math\"\n\n\tazul \"azul.rs/ui/go\"\n)\n");
@@ -167,12 +337,38 @@ impl CodegenBackend for Go {
         }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "go.mod".to_string(),
+                    contents: go_mod("azul-app"),
+                },
+                GeneratedFile {
+                    path: "ui/ui.go".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.go".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "package main\n\nimport (\n\t\"fmt\"\n\n\tazul \"azul.rs/ui/go\"\n\n\t\
              \"azul-styles/styles\"\n)\n\nfunc main() {\n\tif err := azul.LoadLibrary(\"\"); err \
@@ -189,11 +385,7 @@ impl CodegenBackend for Go {
         vec![
             GeneratedFile {
                 path: "go.mod".to_string(),
-                contents: "module azul-styles\n\ngo 1.21\n\nrequire azul.rs/ui/go v0.0.0\n\n\
-                           require github.com/ebitengine/purego v0.10.2 // indirect\n\n// Copy \
-                           target/codegen/go/ to ./azul-go (and libazul next to the binary).\n\
-                           replace azul.rs/ui/go => ./azul-go\n"
-                    .to_string(),
+                contents: go_mod("azul-styles"),
             },
             GeneratedFile {
                 path: "styles/styles.go".to_string(),
