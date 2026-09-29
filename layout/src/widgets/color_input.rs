@@ -3948,6 +3948,28 @@ mod theme_tests {
         (light, dark)
     }
 
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state). `theme_probe::dark` would also return the
+    /// `:hover` / `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
     fn shadow(p: &CssProperty) -> Option<ColorU> {
         match p {
             CssProperty::BoxShadowTop(v)
@@ -4057,10 +4079,15 @@ mod theme_tests {
             Some(vec![StyleBackgroundContent::Color(RED)]),
             "the swatch is its colour"
         );
-        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD2), "a --fl-bd2 hairline");
         assert_eq!(
-            last(&theme_probe::dark(&dom), top_edge),
-            Some(flora::DARK_BD2)
+            at_rest(&dom, top_edge),
+            (Some(flora::LIGHT_BD2), Some(flora::DARK_BD2)),
+            "a --fl-bd2 hairline (#4A4A4A at night)"
+        );
+        assert_eq!(
+            in_state(&dom, PseudoStateType::Hover, top_edge),
+            (Some(flora::LIGHT_BD3), Some(flora::DARK_BD3)),
+            "--fl-bd3 under the pointer"
         );
         assert_eq!(
             in_state(&dom, PseudoStateType::Focus, top_edge),
