@@ -604,3 +604,5 @@ mod typing_after_collapsed_spaces_lands_at_the_caret;
 mod a_list_item_caret_moves_with_the_apps_text;
 #[path = "a_screen_reader_reads_inline_text_where_it_stands.rs"]
 mod a_screen_reader_reads_inline_text_where_it_stands;
+#[path = "a_reveal_scrolls_only_the_boxes_that_move_its_target.rs"]
+mod a_reveal_scrolls_only_the_boxes_that_move_its_target;
