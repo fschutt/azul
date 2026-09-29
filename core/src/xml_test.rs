@@ -2823,9 +2823,17 @@ mod autotest_generated {
     fn builtin_elements_are_elements_and_the_structural_builtins_render_functions() {
         let map = ComponentMap::with_builtin();
         for def in map.all_components() {
-            let want = match def.id.name.as_str() {
-                "if" | "for" | "map" => ComponentCodegen::RenderFunction,
-                _ => ComponentCodegen::Element,
+            // `builtin:map` names two builtins: HTML's image map (an element)
+            // and the structural map (a render function).
+            let structural = match def.id.name.as_str() {
+                "if" | "for" => true,
+                "map" => def.display_name.as_str() != "Image Map",
+                _ => false,
+            };
+            let want = if structural {
+                ComponentCodegen::RenderFunction
+            } else {
+                ComponentCodegen::Element
             };
             assert_eq!(def.codegen, want, "{}", def.id.qualified_name());
         }

@@ -448,9 +448,17 @@ fn a_library_is_one_module_of_its_components_and_what_they_use() {
 fn every_builtin_component_says_how_code_builds_it() {
     let map = ComponentMap::with_builtin();
     for d in map.all_components() {
-        let want = match d.id.name.as_str() {
-            "if" | "for" | "map" => ComponentCodegen::RenderFunction,
-            _ => ComponentCodegen::Element,
+        // `builtin:map` names two builtins: HTML's image map (an element)
+        // and the structural map (a render function).
+        let structural = match d.id.name.as_str() {
+            "if" | "for" => true,
+            "map" => d.display_name.as_str() != "Image Map",
+            _ => false,
+        };
+        let want = if structural {
+            ComponentCodegen::RenderFunction
+        } else {
+            ComponentCodegen::Element
         };
         assert_eq!(d.codegen, want, "{}", d.id.qualified_name());
     }
