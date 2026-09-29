@@ -1277,7 +1277,8 @@ mod autotest_generated {
         let dom = ProgressBar::create(25.0)
             .with_bar_background(bar_bg)
             .with_container_background(container_bg)
-            .with_theme(FLAT).render_bar();
+            .with_theme(FLAT)
+            .render_bar();
 
         assert_eq!(
             background_of(&dom).map(|v| v.len()),
@@ -1348,7 +1349,8 @@ mod autotest_generated {
     fn render_bar_declares_the_expected_style_blocks_and_no_property_twice() {
         let dom = ProgressBar::create(50.0)
             .with_bar_background(solid(1))
-            .with_theme(FLAT).render_bar();
+            .with_theme(FLAT)
+            .render_bar();
 
         // `render_bar()` is the percentage-sized entry point (`bounds_px: None`),
         // so the container declares no `width` — the VirtualView path, which
@@ -1479,7 +1481,8 @@ mod autotest_generated {
                     .with_bar_background(solid(layers))
                     .with_container_background(solid(layers))
                     .with_height(PixelValue::px(f32::MAX))
-                    .with_theme(FLAT).render_bar();
+                    .with_theme(FLAT)
+                    .render_bar();
 
                 assert_eq!(
                     kids(&dom).len(),

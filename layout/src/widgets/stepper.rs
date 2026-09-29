@@ -2925,7 +2925,8 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .with_theme(UiTheme::Flat).dom();
+                    .with_theme(UiTheme::Flat)
+                    .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let reached = i <= current;
                     assert_eq!(
@@ -2950,7 +2951,8 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .with_theme(UiTheme::Flat).dom();
+                    .with_theme(UiTheme::Flat)
+                    .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let row = row_of(cell);
                     assert_eq!(
@@ -2974,7 +2976,8 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .with_theme(UiTheme::Flat).dom();
+                    .with_theme(UiTheme::Flat)
+                    .dom();
                 let children = dom.children.as_ref();
 
                 let first_row = row_of(&children[0]);
@@ -3021,7 +3024,8 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .with_theme(UiTheme::Flat).dom();
+                    .with_theme(UiTheme::Flat)
+                    .dom();
                 let accent: Vec<usize> = dom
                     .children
                     .as_ref()
@@ -3334,7 +3338,8 @@ mod autotest_generated {
         // Position, not caption, decides reached-ness.
         let dom = stepper(&["same", "same", "same"])
             .with_current_step(1)
-            .with_theme(UiTheme::Flat).dom();
+            .with_theme(UiTheme::Flat)
+            .dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             assert_eq!(text_of(label_of(cell)), Some("same"));
             assert_eq!(
@@ -3426,7 +3431,8 @@ mod autotest_generated {
 
             let rebuilt = Stepper::create(n_labels(n))
                 .with_current_step(clicked)
-                .with_theme(UiTheme::Flat).dom();
+                .with_theme(UiTheme::Flat)
+                .dom();
             for i in 0..n {
                 let cell = step_cell(&rebuilt, i);
                 let row = row_of(cell);
