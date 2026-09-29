@@ -37,16 +37,16 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 
 ## DONE
 
-(none yet)
+- 1430889fe audit (this file).
+- Item 6: a74bcd02e RED (3 focus_return_tests + 1 guard), 370f9c0d8 fix.
+- Item 5c: ce6b04250 widgets.c sets `AzTreeView_setOnNodeToggle`.
 
 ## IN PROGRESS
 
-- Item 6.
+- Item 3.
 
 ## NEXT
 
-1. Item 6: RED `a_torn_off_palette_owes_no_focus_back_to_its_swatch` (transient.rs manager_tests), fix in `recreate` / `reconcile` / `remember_focus_for_opened`.
-2. Item 5c: widgets.c `on_node_toggle`.
 3. Item 3: stylesheet `:backdrop` (prop_cache collection + resolver tier), layout test.
 4. Item 4: stepper one tab stop + arrows (roving); decide on the time-picker columns.
 5. Item 5a: a11y live states in radio / segmented / tabs / list / tree.
