@@ -8,12 +8,16 @@ Touches only `examples/azul-widgets/` (+ this file and the final report). Nothin
 - `6417fbf9a` step 1: `.with_theme(theme)` on every themed widget (+ Spinner row auto/spokes/ring,
   Frame, video poster theme, TextArea text round trip)
 
+- `97ddb2be9` checkpoint
+- `3d29a3808` step 2: `forms.rs` - "Every input type, in a Form" (FormData label, Reset via app
+  state + text-revision ack)
+
 ## IN PROGRESS
-- step 2: new module `forms.rs` - a `Form` with every HTML input type, FormData label, Reset
+- step 3: "Raw HTML inputs" - `Dom::create_input(..)` + an XML snippet inside a Form
+  (full version of forms.rs/lib.rs kept in the scratchpad as forms_full.rs / lib_full.rs)
 
 ## NEXT
-1. step 3: "Raw HTML inputs" - `Dom::create_input(..)` + an XML snippet inside a Form
-2. step 4: e2e scenario check (`e2e/global_hotkey.json`), report
+1. step 4: e2e scenario check (`e2e/global_hotkey.json`), report
 
 ## Open questions
 - (none yet)
