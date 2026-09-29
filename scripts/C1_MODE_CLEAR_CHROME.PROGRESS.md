@@ -3,16 +3,16 @@
 W4 open items 6.3 (window clear colour under a pin) and 6.4 (native chrome under a pin).
 
 ## DONE
-- (none yet)
+- d00a083a9 RED: clear-colour tests in `dll/tests/color_scheme_headless.rs`
+- c818f932e fix: `common::window_clear_color` (CPU per frame, WR creation, WR per frame via
+  `CommonWindowState::sync_renderer_clear_color`, Wayland backbuffer clear), `common::scheme_background`,
+  `CommonWindowState::{write_shown_mode, move_scheme_background, clear_color}`, creation seed by resolved mode
 
 ## IN PROGRESS
-- RED tests in `dll/tests/color_scheme_headless.rs` (clear colour, creation seed, app background survives)
+- RED: `native_chrome_mode` decision test (the fn body is parked in the scratchpad:
+  `c1_native_chrome_mode.rs`, goes back after `adopt_desktop_theme` in event.rs)
 
 ## NEXT
-1. fix: ONE clear-colour function `common::window_clear_color` (CPU compositor, WebRender creation,
-   WebRender per frame via `CommonWindowState::sync_renderer_clear_color`, Wayland backbuffer clear)
-2. fix: ONE derivation `common::scheme_background` + ONE mover `CommonWindowState::move_scheme_background`
-   (creation seed, SetColorScheme, ModifyWindowState, adopt_app_color_scheme(_deferred), adopt_system_style)
 3. RED + fix: `CommonWindowState::native_chrome_mode` + macOS `NSWindow.appearance`
 4. RED + fix: Linux CSD default title colour follows the window's mode (titlebar.rs)
 5. report `scripts/C1_MODE_CLEAR_CHROME_2026_09_29.md`
