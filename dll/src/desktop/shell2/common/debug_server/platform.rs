@@ -194,20 +194,84 @@ fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
     }
 }
 
+/// Largest request the debug server reads (an imported component library or
+/// a project with many snapshots is a few MB).
+#[cfg(feature = "std")]
+const MAX_HTTP_REQUEST: usize = 64 * 1024 * 1024;
+
+/// Read ONE whole HTTP request: the head up to its blank line, then as many
+/// body bytes as `Content-Length` announces.
+///
+/// This used to be a single `read()` into a 16 KiB buffer, which cut every
+/// larger body (an imported component library, the builder's `render_tree`,
+/// a big `set_app_state`) and could cut even a small one that the client
+/// wrote in two TCP segments — the JSON then failed to parse and the UI got
+/// an error for a request it sent correctly. Stops early (with what it has)
+/// when the peer closes or the read timeout (set by the accept loop) fires.
+#[cfg(feature = "std")]
+fn read_http_request(stream: &mut std::net::TcpStream) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+        hay.windows(needle.len()).position(|w| w == needle)
+    }
+    fn content_length(head: &str) -> usize {
+        head.lines()
+            .find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                if key.trim().eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    }
+
+    let mut buf: Vec<u8> = Vec::with_capacity(16384);
+    let mut chunk = [0u8; 16384];
+    // (end of the head, body length) once the head is complete.
+    let mut expected: Option<(usize, usize)> = None;
+    loop {
+        if let Some((head_end, body_len)) = expected {
+            if buf.len() >= head_end.saturating_add(body_len) {
+                break;
+            }
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+        if buf.len() > MAX_HTTP_REQUEST {
+            return None;
+        }
+        if expected.is_none() {
+            let head_end = find(&buf, b"\r\n\r\n")
+                .map(|p| p + 4)
+                .or_else(|| find(&buf, b"\n\n").map(|p| p + 2));
+            if let Some(head_end) = head_end {
+                let body_len = content_length(&String::from_utf8_lossy(&buf[..head_end]));
+                expected = Some((head_end, body_len));
+            }
+        }
+    }
+    if buf.is_empty() {
+        None
+    } else {
+        Some(buf)
+    }
+}
+
 #[cfg(feature = "std")]
 fn handle_http_connection(
     stream: &mut std::net::TcpStream,
     request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
 ) {
-    use std::io::{Read, Write};
-
-    let mut buffer = [0u8; 16384];
-    let bytes_read = match stream.read(&mut buffer) {
-        Ok(n) if n > 0 => n,
-        _ => return,
+    let Some(raw) = read_http_request(stream) else {
+        return;
     };
 
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request = String::from_utf8_lossy(&raw);
 
     // Parse HTTP request
     let lines: Vec<&str> = request.lines().collect();
