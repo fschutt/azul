@@ -2060,3 +2060,78 @@ mod datalist {
         );
     }
 }
+
+// ── An XML document mounted in a window ─────────────────────────────────────
+
+/// The E2E `mount` op installs an XML document instead of the app's DOM
+/// (`LayoutWindow::style_xml_document`). Its raw controls are replaced like
+/// every app DOM's - with the WINDOW's memory: that is where a form reads a
+/// replaced checkbox's or slider's value, where a reset forgets the user's,
+/// and what a re-mount (a theme switch re-mounts the document) restores the
+/// user's values from. A throw-away memory lost all three.
+mod xml_mount {
+    use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+    use azul_layout::widgets::{
+        check_box::{CheckBoxState, CheckBoxStateWrapper},
+        form::collect_form_data,
+    };
+
+    use super::{
+        forms::{mount, owned, pairs, the_form},
+        *,
+    };
+
+    const DOCUMENT: &str = r#"<html><body><form>
+        <input type="checkbox" name="news" />
+        <input type="range" name="vol" min="0" max="10" value="4" />
+    </form></body></html>"#;
+
+    fn mounted(lw: &LayoutWindow) -> StyledDom {
+        let provider = SharedIconProvider::from_handle(IconProviderHandle::new());
+        lw.style_xml_document(DOCUMENT, &provider, &SystemStyle::default())
+            .expect("the document parses")
+    }
+
+    /// The user checks the replaced checkbox: its toggle hook fires, as its
+    /// click handler does.
+    fn check(lw: &LayoutWindow, styled: &StyledDom) {
+        let root = one_with_class(styled, checkbox_container());
+        let mut data = node(styled, root).get_callbacks().as_slice()[0].refany.clone();
+        let hook = {
+            let cb = data
+                .downcast_ref::<CheckBoxStateWrapper>()
+                .expect("the check box's state");
+            cb.on_toggle.as_ref().cloned().expect("the replacement listens")
+        };
+        let _ = with_info(lw, dom_node(root), |info| {
+            hook.callback
+                .invoke(hook.refany.clone(), info, CheckBoxState { checked: true })
+        });
+    }
+
+    #[test]
+    fn a_mounted_documents_controls_keep_their_values_in_the_windows_memory() {
+        let mut lw = styling_window();
+        let styled = mounted(&lw);
+        assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
+        check(&lw, &styled);
+
+        let form = the_form(&styled);
+        mount(&mut lw, styled);
+        let data = with_info(&lw, dom_node(form), |mut info| {
+            collect_form_data(&mut info, dom_node(form))
+        })
+        .0
+        .expect("the form node is in a form");
+        assert_eq!(
+            pairs(&data),
+            owned(&[("news", "on"), ("vol", "4")]),
+            "the form reads the replaced controls from the window's memory"
+        );
+
+        // The document is mounted again: the user's check survives it.
+        let again = mounted(&lw);
+        let root = one_with_class(&again, checkbox_container());
+        assert_eq!(a11y_states(&again, root), vec![AccessibilityState::CheckedTrue]);
+    }
+}
