@@ -4651,4 +4651,219 @@ mod autotest_generated {
             assert!(displays_pushed_to(&changes, CLEAR).is_empty());
         }
     }
+
+    // ==================================================================
+    // type=email / tel / url and `pattern`: validity the app can read
+    // ==================================================================
+
+    mod validation {
+        use azul_core::form::ValidityReason;
+
+        use super::*;
+
+        /// Every override the handler pushed onto the field host, one entry
+        /// per push.
+        fn ring_writes(changes: &[CallbackChange]) -> Vec<Vec<CssProperty>> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::OverrideNodeCssProperties {
+                        node_id,
+                        properties,
+                        ..
+                    } if *node_id == NodeId::new(CONTAINER) => {
+                        Some(properties.as_ref().to_vec())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn is_border_colour(p: &CssProperty) -> bool {
+            matches!(
+                p,
+                CssProperty::BorderTopColor(_)
+                    | CssProperty::BorderRightColor(_)
+                    | CssProperty::BorderBottomColor(_)
+                    | CssProperty::BorderLeftColor(_)
+            )
+        }
+
+        #[test]
+        fn an_email_field_with_a_malformed_value_reports_a_type_mismatch() {
+            let dom = TextInput::create_email().with_text("not-an-email".into()).dom();
+            let validity = dataset_state(&dom).validity;
+            assert!(validity.has(ValidityReason::TypeMismatch));
+            assert!(!validity.is_valid());
+
+            let dom = TextInput::create_email()
+                .with_text("someone@example.com".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn an_empty_email_or_url_field_is_valid() {
+            for input in [TextInput::create_email(), TextInput::create_url()] {
+                assert!(dataset_state(&input.dom()).validity.is_valid());
+            }
+        }
+
+        #[test]
+        fn a_url_field_accepts_only_absolute_urls() {
+            let bad = TextInput::create_url().with_text("example.com".into()).dom();
+            assert!(dataset_state(&bad).validity.has(ValidityReason::TypeMismatch));
+            let good = TextInput::create_url()
+                .with_text("https://example.com/a?b#c".into())
+                .dom();
+            assert!(dataset_state(&good).validity.is_valid());
+        }
+
+        #[test]
+        fn a_tel_field_accepts_any_text_and_declares_its_type() {
+            let dom = TextInput::create_tel().with_text("call me maybe".into()).dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "tel")
+            ));
+        }
+
+        #[test]
+        fn email_and_url_fields_declare_their_type_for_the_soft_keyboard() {
+            for (input, ty) in [
+                (TextInput::create_email(), "email"),
+                (TextInput::create_url(), "url"),
+            ] {
+                let dom = input.dom();
+                assert!(
+                    dom.root.attributes().as_ref().iter().any(
+                        |a| matches!(a, AttributeType::InputType(t) if t.as_str() == ty)
+                    ),
+                    "no type={ty} attribute"
+                );
+            }
+        }
+
+        #[test]
+        fn a_pattern_must_match_the_whole_value() {
+            let three_digits = |text: &str| {
+                dataset_state(
+                    &TextInput::create()
+                        .with_pattern("[0-9]{3}".into())
+                        .with_text(text.into())
+                        .dom(),
+                )
+                .validity
+            };
+            assert!(three_digits("123").is_valid());
+            assert!(three_digits("1234").has(ValidityReason::PatternMismatch));
+            assert!(three_digits("12a").has(ValidityReason::PatternMismatch));
+            // Empty is exempt: that is `required`'s job, not `pattern`'s.
+            assert!(three_digits("").is_valid());
+        }
+
+        #[test]
+        fn an_uncompilable_pattern_is_ignored() {
+            let dom = TextInput::create()
+                .with_pattern("([unclosed".into())
+                .with_text("anything".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn a_password_is_checked_against_its_pattern_not_its_bullets() {
+            let dom = TextInput::create_password()
+                .with_pattern("[a-z]+[0-9]".into())
+                .with_text("hunter2".into())
+                .dom();
+            assert!(dataset_state(&dom).validity.is_valid());
+        }
+
+        #[test]
+        fn typing_updates_the_validity_the_hook_and_the_state_see() {
+            let probe = recorder(Update::DoNothing, TextInputValid::Yes);
+            let (styled_dom, state) = rendered(
+                TextInput::create_email()
+                    .with_text("a@b".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let _ = run(Env::new(styled_dom).insert("@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert!(seen[0].validity.has(ValidityReason::TypeMismatch));
+            assert!(state_of(&state).validity.has(ValidityReason::TypeMismatch));
+        }
+
+        #[test]
+        fn typing_an_email_field_into_an_invalid_value_paints_the_invalid_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("a@b".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            let writes = ring_writes(&changes);
+            assert_eq!(writes.len(), 1, "one ring write expected: {changes:?}");
+            assert_eq!(writes[0].len(), 4, "all four edges take the ring");
+            assert!(writes[0].iter().all(is_border_colour));
+            assert!(
+                writes[0].iter().all(|p| !p.is_initial()),
+                "the ring must paint a colour, not remove one"
+            );
+        }
+
+        #[test]
+        fn fixing_an_invalid_value_removes_the_invalid_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("ab".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(state_of(&state).validity.is_valid());
+            let writes = ring_writes(&changes);
+            assert_eq!(writes.len(), 1, "one ring removal expected: {changes:?}");
+            assert_eq!(writes[0].len(), 4);
+            assert!(
+                writes[0].iter().all(|p| is_border_colour(p) && p.is_initial()),
+                "the ring must be REMOVED (initial), so hover/focus/dark come back"
+            );
+        }
+
+        #[test]
+        fn a_valid_edit_of_a_valid_field_writes_no_ring() {
+            let (styled_dom, state) = rendered(TextInput::create_email().with_text("a@b".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(ring_writes(&changes).is_empty(), "{changes:?}");
+
+            let (styled_dom, state) = rendered(TextInput::create().with_text("x".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("@@"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert!(ring_writes(&changes).is_empty(), "a plain field has no constraints");
+        }
+
+        #[test]
+        fn the_two_themes_paint_their_own_invalid_ring_in_both_modes() {
+            use crate::widgets::themes::{flat, flora};
+            for dark in [false, true] {
+                assert_eq!(flat::text_input_invalid_ring(dark).len(), 4);
+                assert_eq!(flora::text_input_invalid_ring(dark).len(), 4);
+            }
+            assert_ne!(
+                flat::text_input_invalid_ring(false),
+                flat::text_input_invalid_ring(true),
+                "flat: the dark ring must differ from the light one"
+            );
+            assert_ne!(
+                flora::text_input_invalid_ring(false),
+                flora::text_input_invalid_ring(true),
+                "flora: the dark ring must differ from the light one"
+            );
+        }
+    }
 }

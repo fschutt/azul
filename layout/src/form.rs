@@ -694,4 +694,81 @@ mod tests {
         assert_eq!(pattern_matches(".{2}", "\u{e9}a"), Some(true));
         assert_eq!(pattern_matches(".{3}", "\u{e9}a"), Some(false));
     }
+
+    // -----------------------------------------------------------------
+    // type=email / type=url: HTML's own syntax checks (typeMismatch)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn an_email_address_is_checked_by_htmls_own_rule() {
+        for good in [
+            "a@b",
+            "first.last+tag@sub.example.com",
+            "x_y!#$%&'*/=?^`{|}~-@a-b.c",
+            "UPPER@EXAMPLE.COM",
+        ] {
+            assert!(is_valid_email(good), "{good:?} is a valid e-mail address");
+        }
+        for bad in [
+            "",
+            "plain",
+            "@example.com",
+            "a@",
+            "a@b@c",
+            "a@-bad.com",
+            "a@bad-.com",
+            "a b@c.com",
+            "a@b..com",
+            "a@.com",
+            "\u{fc}@example.com",
+        ] {
+            assert!(!is_valid_email(bad), "{bad:?} is NOT a valid e-mail address");
+        }
+    }
+
+    #[test]
+    fn a_url_must_be_absolute() {
+        for good in [
+            "https://example.com",
+            "http://localhost:8080/x?y#z",
+            "HTTPS://EXAMPLE.COM",
+            "mailto:someone@example.com",
+            "file:///tmp/x",
+            "custom+scheme.v2-x://anything",
+        ] {
+            assert!(is_valid_absolute_url(good), "{good:?} is an absolute URL");
+        }
+        for bad in [
+            "",
+            "example.com",
+            "/relative/path",
+            "1http://x",
+            "https://",
+            "http://exa mple.com",
+            "://x",
+            "https://user@",
+        ] {
+            assert!(!is_valid_absolute_url(bad), "{bad:?} is NOT an absolute URL");
+        }
+    }
+
+    #[test]
+    fn a_typed_control_with_a_malformed_value_fails_with_type_mismatch() {
+        for (ty, bad, good) in [
+            ("email", "nope", "a@b.c"),
+            ("url", "nope", "https://x.y"),
+            ("EMAIL", "nope", "a@b.c"),
+        ] {
+            let layouts = form_with(vec![vec![AttributeType::InputType(ty.into())]]);
+            let got = validate_form(node(FORM), &layouts, &|_| Some(bad.into()));
+            assert_eq!(got.len(), 1, "type={ty} accepted {bad:?}");
+            assert!(got[0].state.has(ValidityReason::TypeMismatch));
+            assert!(validate_form(node(FORM), &layouts, &|_| Some(good.into())).is_empty());
+            // Empty is exempt: that is `required`'s job.
+            assert!(validate_form(node(FORM), &layouts, &|_| Some(String::new())).is_empty());
+        }
+        // `tel` constrains nothing: only the keyboard changes.
+        let layouts = form_with(vec![vec![AttributeType::InputType("tel".into())]]);
+        assert!(validate_form(node(FORM), &layouts, &|_| Some("call me".into())).is_empty());
+    }
 }

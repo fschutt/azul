@@ -215,4 +215,18 @@ mod tests {
         assert!(m.state_of(node(1)).is_valid());
         assert!(m.state_of(node(2)).has(ValidityReason::ValueMissing));
     }
+
+    /// `TypeMismatch` (a malformed `type=email` / `type=url` value) was
+    /// APPENDED: every earlier discriminant - and so every stored state -
+    /// keeps its meaning.
+    #[test]
+    fn type_mismatch_is_appended_after_pattern_mismatch() {
+        assert_eq!(ValidityReason::PatternMismatch as u32, 5);
+        assert_eq!(ValidityReason::TypeMismatch as u32, 6);
+        assert_eq!(ValidityReason::TypeMismatch.bit(), 1 << 6);
+        let mut s = ValidityState::valid();
+        s.insert(ValidityReason::TypeMismatch);
+        assert!(s.has(ValidityReason::TypeMismatch));
+        assert!(!s.has(ValidityReason::PatternMismatch));
+    }
 }
