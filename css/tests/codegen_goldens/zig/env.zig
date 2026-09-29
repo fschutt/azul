@@ -3,13 +3,13 @@ const azul = @import("azul.zig");
 const C = azul.C;
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 pub fn styleBar() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_borderTopColor(C.AzStyleBorderTopColor{ .inner = C.AzColorU{ .r = 204, .g = 204, .b = 204, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(C.AzStyleTextColor{ .inner = C.AzColorU{ .r = 255, .g = 102, .b = 0, .a = 255 } })),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingBottom(C.AzLayoutPaddingBottom{ .inner = C.AzPixelValue_px(0.0) })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_borderTopColor(C.AzStyleBorderTopColor{ .inner = C.AzColorU{ .r = 204, .g = 204, .b = 204, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingTop(C.AzLayoutPaddingTop{ .inner = C.AzPixelValue_px(8.0) })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingBottom(C.AzLayoutPaddingBottom{ .inner = C.AzPixelValue_px(0.0) })),
     }, 4);
 }

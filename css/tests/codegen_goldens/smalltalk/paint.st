@@ -83,9 +83,9 @@ AzulStyles class >> styleDial [
 AzulStyles class >> stylePhoto [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentImage: (self str: 'images/photo.png')) }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundSize: (self vec: [ :p :n | AzulNative azStyleBackgroundSizeVecCopyFromPtr: p len: n ] of: AzStyleBackgroundSize items: { (AzulNative azStyleBackgroundSizeCover) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundPosition: (self vec: [ :p :n | AzulNative azStyleBackgroundPositionVecCopyFromPtr: p len: n ] of: AzStyleBackgroundPosition items: { (AzStyleBackgroundPosition new horizontal: (AzulNative azBackgroundPositionHorizontalCenter); vertical: (AzulNative azBackgroundPositionVerticalCenter); yourself) }))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundRepeat: (self vec: [ :p :n | AzulNative azStyleBackgroundRepeatVecCopyFromPtr: p len: n ] of: AzStyleBackgroundRepeat items: { (AzStyleBackgroundRepeat NoRepeat) }))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundSize: (self vec: [ :p :n | AzulNative azStyleBackgroundSizeVecCopyFromPtr: p len: n ] of: AzStyleBackgroundSize items: { (AzulNative azStyleBackgroundSizeCover) })))
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundRepeat: (self vec: [ :p :n | AzulNative azStyleBackgroundRepeatVecCopyFromPtr: p len: n ] of: AzStyleBackgroundRepeat items: { (AzStyleBackgroundRepeat NoRepeat) })))
     }
 ]
 
@@ -93,10 +93,10 @@ AzulStyles class >> stylePhoto [
 { #category : 'styles' }
 AzulStyles class >> styleCaption [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyContent: (AzContent new inner: (self str: '"say \"hi\" \\ bye"'); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontFamily: (self vec: [ :p :n | AzulNative azStyleFontFamilyVecCopyFromPtr: p len: n ] of: AzStyleFontFamily items: {
             (AzulNative azStyleFontFamilySystem: (self str: 'Fira Code')).
             (AzulNative azStyleFontFamilySystem: (self str: 'monospace'))
-        })))
+        }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyContent: (AzContent new inner: (self str: '"say \"hi\" \\ bye"'); yourself)))
     }
 ]

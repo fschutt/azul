@@ -15,12 +15,12 @@ public final class AzulStyles {
     public static AzCssPropertyWithConditionsVec.ByValue styleBtn() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_width(AzulNativeCss.AzLayoutWidth_px(AzulNativeCss.AzPixelValue_px(100.0f)))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textColor(AzulCodegen.with(new AzStyleTextColor.ByValue(), styleTextColor -> { styleTextColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 255; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_display(LayoutDisplay.Flex.value)),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flexGrow(AzulCodegen.with(new AzLayoutFlexGrow.ByValue(), layoutFlexGrow -> { layoutFlexGrow.inner = AzulNativeCss.AzFloatValue_create(1.0f); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_inherit(CssPropertyType.MinWidth.value)),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_whiteSpace(AzulCodegen.with(new AzStyleWhiteSpaceValue.ByValue(), styleWhiteSpaceValue -> { styleWhiteSpaceValue.Exact.tag = (byte) AzStyleWhiteSpaceValue_Tag.Exact.value; styleWhiteSpaceValue.Exact.payload = StyleWhiteSpace.Nowrap.value; styleWhiteSpaceValue.setType("Exact"); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_width(AzulNativeCss.AzLayoutWidth_px(AzulNativeCss.AzPixelValue_px(100.0f)))),
             AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
         );
     }

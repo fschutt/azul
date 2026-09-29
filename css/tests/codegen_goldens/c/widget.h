@@ -6,15 +6,15 @@ static AzCssPropertyWithConditionsVec style_azul_native_button(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
             AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 241, .g = 243, .b = 245, .a = 255 }) }, 1))),
+            AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 173, .g = 181, .b = 189, .a = 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderBottomColor((AzStyleBorderBottomColor){ .inner = (AzColorU){ .r = 173, .g = 181, .b = 189, .a = 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderLeftColor((AzStyleBorderLeftColor){ .inner = (AzColorU){ .r = 173, .g = 181, .b = 189, .a = 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderRightColor((AzStyleBorderRightColor){ .inner = (AzColorU){ .r = 173, .g = 181, .b = 189, .a = 255 } })),
-            AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 173, .g = 181, .b = 189, .a = 255 } })),
             AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 222, .g = 226, .b = 230, .a = 255 }) }, 1))),
+            AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 13, .g = 110, .b = 253, .a = 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderBottomColor((AzStyleBorderBottomColor){ .inner = (AzColorU){ .r = 13, .g = 110, .b = 253, .a = 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderLeftColor((AzStyleBorderLeftColor){ .inner = (AzColorU){ .r = 13, .g = 110, .b = 253, .a = 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderRightColor((AzStyleBorderRightColor){ .inner = (AzColorU){ .r = 13, .g = 110, .b = 253, .a = 255 } })),
-            AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 13, .g = 110, .b = 253, .a = 255 } })),
             AzCssPropertyWithConditions_withConditions(
                 AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 73, .g = 80, .b = 87, .a = 255 }) }, 1)),
                 AzDynamicSelectorVec_copyFromPtr(

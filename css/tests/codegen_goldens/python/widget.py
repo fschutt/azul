@@ -14,13 +14,13 @@ def _with(value, **fields):
 def style_azul_native_button():
     return [
         CssPropertyWithConditions.on_hover(CssProperty.background_content(StyleBackgroundContentVec.from_item(StyleBackgroundContent.Color(_with(ColorU.default(), r=241, g=243, b=245, a=255))))),
+        CssPropertyWithConditions.on_hover(CssProperty.border_top_color(_with(StyleBorderTopColor.default(), inner=_with(ColorU.default(), r=173, g=181, b=189, a=255)))),
         CssPropertyWithConditions.on_hover(CssProperty.border_bottom_color(_with(StyleBorderBottomColor.default(), inner=_with(ColorU.default(), r=173, g=181, b=189, a=255)))),
         CssPropertyWithConditions.on_hover(CssProperty.border_left_color(_with(StyleBorderLeftColor.default(), inner=_with(ColorU.default(), r=173, g=181, b=189, a=255)))),
         CssPropertyWithConditions.on_hover(CssProperty.border_right_color(_with(StyleBorderRightColor.default(), inner=_with(ColorU.default(), r=173, g=181, b=189, a=255)))),
-        CssPropertyWithConditions.on_hover(CssProperty.border_top_color(_with(StyleBorderTopColor.default(), inner=_with(ColorU.default(), r=173, g=181, b=189, a=255)))),
         CssPropertyWithConditions.on_active(CssProperty.background_content(StyleBackgroundContentVec.from_item(StyleBackgroundContent.Color(_with(ColorU.default(), r=222, g=226, b=230, a=255))))),
+        CssPropertyWithConditions.on_focus(CssProperty.border_top_color(_with(StyleBorderTopColor.default(), inner=_with(ColorU.default(), r=13, g=110, b=253, a=255)))),
         CssPropertyWithConditions.on_focus(CssProperty.border_bottom_color(_with(StyleBorderBottomColor.default(), inner=_with(ColorU.default(), r=13, g=110, b=253, a=255)))),
         CssPropertyWithConditions.on_focus(CssProperty.border_left_color(_with(StyleBorderLeftColor.default(), inner=_with(ColorU.default(), r=13, g=110, b=253, a=255)))),
         CssPropertyWithConditions.on_focus(CssProperty.border_right_color(_with(StyleBorderRightColor.default(), inner=_with(ColorU.default(), r=13, g=110, b=253, a=255)))),
-        CssPropertyWithConditions.on_focus(CssProperty.border_top_color(_with(StyleBorderTopColor.default(), inner=_with(ColorU.default(), r=13, g=110, b=253, a=255)))),
     ]

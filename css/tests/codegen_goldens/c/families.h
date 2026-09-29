@@ -5,30 +5,8 @@
 static AzCssPropertyWithConditionsVec style_text(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_caretWidth((AzCaretWidthValue){ .Exact = { .tag = AzCaretWidthValue_Tag_Exact, .payload = (AzCaretWidth){ .inner = AzPixelValue_px(2.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin((AzStyleExclusionMarginValue){ .Exact = { .tag = AzStyleExclusionMarginValue_Tag_Exact, .payload = (AzStyleExclusionMargin){ .inner = AzFloatValue_create(10.5f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage((AzStyleHyphenationLanguageValue){ .Exact = { .tag = AzStyleHyphenationLanguageValue_Tag_Exact, .payload = (AzStyleHyphenationLanguage){ .inner = AzString_copyFromBytes((const uint8_t*)"en-US", 0, 5) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor((AzSelectionBackgroundColor){ .inner = (AzColorU){ .r = 51, .g = 153, .b = 255, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor((AzSelectionColor){ .inner = (AzColorU){ .r = 255, .g = 255, .b = 255, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius((AzSelectionRadiusValue){ .Exact = { .tag = AzSelectionRadiusValue_Tag_Exact, .payload = (AzSelectionRadius){ .inner = AzPixelValue_px(3.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_alignmentBaseline((AzStyleAlignmentBaselineValue){ .Exact = { .tag = AzStyleAlignmentBaselineValue_Tag_Exact, .payload = AzStyleAlignmentBaseline_Middle } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_baselineSource((AzStyleBaselineSourceValue){ .Exact = { .tag = AzStyleBaselineSourceValue_Tag_Exact, .payload = AzStyleBaselineSource_Last } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration((AzCaretAnimationDuration){ .inner = (AzCssDuration){ .inner = 500, .unit = AzCssDurationUnit_Milliseconds } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_caretColor((AzCaretColor){ .inner = (AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_textColor((AzStyleTextColor){ .inner = (AzColorU){ .r = 51, .g = 102, .b = 153, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_direction((AzStyleDirectionValue){ .Exact = { .tag = AzStyleDirectionValue_Tag_Exact, .payload = AzStyleDirection_Rtl } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_dominantBaseline((AzStyleDominantBaselineValue){ .Exact = { .tag = AzStyleDominantBaselineValue_Tag_Exact, .payload = AzStyleDominantBaseline_Central } })),
-            AzCssPropertyWithConditions_simple(
-                AzCssProperty_font(
-                    AzStyleFontFamilyVec_copyFromPtr(
-                        (AzStyleFontFamily[]){
-                            AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"Georgia", 0, 7)),
-                            AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"serif", 0, 5)),
-                        },
-                        2
-                    )
-                )
-            ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSize((AzStyleFontSize){ .inner = AzPixelValue_px(14.0f) })),
             AzCssPropertyWithConditions_simple(
                 AzCssProperty_fontFamily(
                     AzStyleFontFamilyVec_copyFromPtr(
@@ -40,38 +18,60 @@ static AzCssPropertyWithConditionsVec style_text(void) {
                     )
                 )
             ),
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontSize((AzStyleFontSize){ .inner = AzPixelValue_px(14.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_hangingPunctuation((AzStyleHangingPunctuationValue){ .Exact = { .tag = AzStyleHangingPunctuationValue_Tag_Exact, .payload = (AzStyleHangingPunctuation){ .first = true, .force_end = false, .allow_end = false, .last = false } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_hyphens((AzStyleHyphensValue){ .Exact = { .tag = AzStyleHyphensValue_Tag_Exact, .payload = AzStyleHyphens_Auto } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_letterSpacing((AzStyleLetterSpacing){ .inner = AzPixelValue_px(0.5f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textIndent((AzStyleTextIndent){ .inner = AzPixelValue_em(2.0f), .each_line = false, .hanging = false })),
             AzCssPropertyWithConditions_simple(AzCssProperty_initialLetter((AzStyleInitialLetterValue){ .Exact = { .tag = AzStyleInitialLetterValue_Tag_Exact, .payload = (AzStyleInitialLetter){ .size = 3, .sink = AzOptionU32_none() } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_lineClamp((AzStyleLineClampValue){ .Exact = { .tag = AzStyleLineClampValue_Tag_Exact, .payload = (AzStyleLineClamp){ .max_lines = 3 } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_hangingPunctuation((AzStyleHangingPunctuationValue){ .Exact = { .tag = AzStyleHangingPunctuationValue_Tag_Exact, .payload = (AzStyleHangingPunctuation){ .first = true, .force_end = false, .allow_end = false, .last = false } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textCombineUpright((AzStyleTextCombineUprightValue){ .Exact = { .tag = AzStyleTextCombineUprightValue_Tag_Exact, .payload = AzStyleTextCombineUpright_digits(2) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_unicodeBidi((AzStyleUnicodeBidiValue){ .Exact = { .tag = AzStyleUnicodeBidiValue_Tag_Exact, .payload = AzStyleUnicodeBidi_Isolate } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textBoxTrim((AzStyleTextBoxTrimValue){ .Exact = { .tag = AzStyleTextBoxTrimValue_Tag_Exact, .payload = AzStyleTextBoxTrim_TrimBoth } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textBoxEdge((AzStyleTextBoxEdgeValue){ .Exact = { .tag = AzStyleTextBoxEdgeValue_Tag_Exact, .payload = (AzStyleTextBoxEdge){ .over = AzTextBoxEdgeOver_Cap, .under = AzTextBoxEdgeUnder_Alphabetic } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_dominantBaseline((AzStyleDominantBaselineValue){ .Exact = { .tag = AzStyleDominantBaselineValue_Tag_Exact, .payload = AzStyleDominantBaseline_Central } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_alignmentBaseline((AzStyleAlignmentBaselineValue){ .Exact = { .tag = AzStyleAlignmentBaselineValue_Tag_Exact, .payload = AzStyleAlignmentBaseline_Middle } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_baselineSource((AzStyleBaselineSourceValue){ .Exact = { .tag = AzStyleBaselineSourceValue_Tag_Exact, .payload = AzStyleBaselineSource_Last } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge((AzStyleLineFitEdgeValue){ .Exact = { .tag = AzStyleLineFitEdgeValue_Tag_Exact, .payload = AzStyleLineFitEdge_Leading } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterAlign((AzStyleInitialLetterAlignValue){ .Exact = { .tag = AzStyleInitialLetterAlignValue_Tag_Exact, .payload = AzStyleInitialLetterAlign_Alphabetic } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterWrap((AzStyleInitialLetterWrapValue){ .Exact = { .tag = AzStyleInitialLetterWrapValue_Tag_Exact, .payload = AzStyleInitialLetterWrap_First } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_letterSpacing((AzStyleLetterSpacing){ .inner = AzPixelValue_px(0.5f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_lineBreak((AzStyleLineBreakValue){ .Exact = { .tag = AzStyleLineBreakValue_Tag_Exact, .payload = AzStyleLineBreak_Strict } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_lineClamp((AzStyleLineClampValue){ .Exact = { .tag = AzStyleLineClampValue_Tag_Exact, .payload = (AzStyleLineClamp){ .max_lines = 3 } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge((AzStyleLineFitEdgeValue){ .Exact = { .tag = AzStyleLineFitEdgeValue_Tag_Exact, .payload = AzStyleLineFitEdge_Leading } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight((AzStyleLineHeight){ .inner = (AzPercentageValue){ .number = AzFloatValue_create(150.0f) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_overflowWrap((AzStyleOverflowWrapValue){ .Exact = { .tag = AzStyleOverflowWrapValue_Tag_Exact, .payload = AzStyleOverflowWrap_Anywhere } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_tabSize((AzStyleTabSize){ .inner = AzPixelValue_em(4.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textAlignLast((AzStyleTextAlignLastValue){ .Exact = { .tag = AzStyleTextAlignLastValue_Tag_Exact, .payload = AzStyleTextAlignLast_Justify } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textBoxEdge((AzStyleTextBoxEdgeValue){ .Exact = { .tag = AzStyleTextBoxEdgeValue_Tag_Exact, .payload = (AzStyleTextBoxEdge){ .over = AzTextBoxEdgeOver_Cap, .under = AzTextBoxEdgeUnder_Alphabetic } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textBoxTrim((AzStyleTextBoxTrimValue){ .Exact = { .tag = AzStyleTextBoxTrimValue_Tag_Exact, .payload = AzStyleTextBoxTrim_TrimBoth } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textCombineUpright((AzStyleTextCombineUprightValue){ .Exact = { .tag = AzStyleTextCombineUprightValue_Tag_Exact, .payload = AzStyleTextCombineUpright_digits(2) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textIndent((AzStyleTextIndent){ .inner = AzPixelValue_em(2.0f), .each_line = false, .hanging = false })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textOrientation((AzStyleTextOrientationValue){ .Exact = { .tag = AzStyleTextOrientationValue_Tag_Exact, .payload = AzStyleTextOrientation_Upright } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textOverflow((AzStyleTextOverflowValue){ .Exact = { .tag = AzStyleTextOverflowValue_Tag_Exact, .payload = AzStyleTextOverflow_Ellipsis } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_textTransform((AzStyleTextTransformValue){ .Exact = { .tag = AzStyleTextTransformValue_Tag_Exact, .payload = AzStyleTextTransform_Uppercase } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_unicodeBidi((AzStyleUnicodeBidiValue){ .Exact = { .tag = AzStyleUnicodeBidiValue_Tag_Exact, .payload = AzStyleUnicodeBidi_Isolate } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
-            AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace((AzStyleWhiteSpaceValue){ .Exact = { .tag = AzStyleWhiteSpaceValue_Tag_Exact, .payload = AzStyleWhiteSpace_PreWrap } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_wordBreak((AzStyleWordBreakValue){ .Exact = { .tag = AzStyleWordBreakValue_Tag_Exact, .payload = AzStyleWordBreak_BreakAll } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_wordSpacing((AzStyleWordSpacing){ .inner = AzPixelValue_px(4.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_tabSize((AzStyleTabSize){ .inner = AzPixelValue_em(4.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace((AzStyleWhiteSpaceValue){ .Exact = { .tag = AzStyleWhiteSpaceValue_Tag_Exact, .payload = AzStyleWhiteSpace_PreWrap } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_hyphens((AzStyleHyphensValue){ .Exact = { .tag = AzStyleHyphensValue_Tag_Exact, .payload = AzStyleHyphens_Auto } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_wordBreak((AzStyleWordBreakValue){ .Exact = { .tag = AzStyleWordBreakValue_Tag_Exact, .payload = AzStyleWordBreak_BreakAll } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_overflowWrap((AzStyleOverflowWrapValue){ .Exact = { .tag = AzStyleOverflowWrapValue_Tag_Exact, .payload = AzStyleOverflowWrap_Anywhere } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_lineBreak((AzStyleLineBreakValue){ .Exact = { .tag = AzStyleLineBreakValue_Tag_Exact, .payload = AzStyleLineBreak_Strict } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textOverflow((AzStyleTextOverflowValue){ .Exact = { .tag = AzStyleTextOverflowValue_Tag_Exact, .payload = AzStyleTextOverflow_Ellipsis } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textOrientation((AzStyleTextOrientationValue){ .Exact = { .tag = AzStyleTextOrientationValue_Tag_Exact, .payload = AzStyleTextOrientation_Upright } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textAlignLast((AzStyleTextAlignLastValue){ .Exact = { .tag = AzStyleTextAlignLastValue_Tag_Exact, .payload = AzStyleTextAlignLast_Justify } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textTransform((AzStyleTextTransformValue){ .Exact = { .tag = AzStyleTextTransformValue_Tag_Exact, .payload = AzStyleTextTransform_Uppercase } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_direction((AzStyleDirectionValue){ .Exact = { .tag = AzStyleDirectionValue_Tag_Exact, .payload = AzStyleDirection_Rtl } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage((AzStyleHyphenationLanguageValue){ .Exact = { .tag = AzStyleHyphenationLanguageValue_Tag_Exact, .payload = (AzStyleHyphenationLanguage){ .inner = AzString_copyFromBytes((const uint8_t*)"en-US", 0, 5) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin((AzStyleExclusionMarginValue){ .Exact = { .tag = AzStyleExclusionMarginValue_Tag_Exact, .payload = (AzStyleExclusionMargin){ .inner = AzFloatValue_create(10.5f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_caretColor((AzCaretColor){ .inner = (AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration((AzCaretAnimationDuration){ .inner = (AzCssDuration){ .inner = 500, .unit = AzCssDurationUnit_Milliseconds } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_caretWidth((AzCaretWidthValue){ .Exact = { .tag = AzCaretWidthValue_Tag_Exact, .payload = (AzCaretWidth){ .inner = AzPixelValue_px(2.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor((AzSelectionBackgroundColor){ .inner = (AzColorU){ .r = 51, .g = 153, .b = 255, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor((AzSelectionColor){ .inner = (AzColorU){ .r = 255, .g = 255, .b = 255, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius((AzSelectionRadiusValue){ .Exact = { .tag = AzSelectionRadiusValue_Tag_Exact, .payload = (AzSelectionRadius){ .inner = AzPixelValue_px(3.0f) } } })),
+            AzCssPropertyWithConditions_simple(
+                AzCssProperty_font(
+                    AzStyleFontFamilyVec_copyFromPtr(
+                        (AzStyleFontFamily[]){
+                            AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"Georgia", 0, 7)),
+                            AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"serif", 0, 5)),
+                        },
+                        2
+                    )
+                )
+            ),
         },
         47
     );
@@ -81,46 +81,46 @@ static AzCssPropertyWithConditionsVec style_text(void) {
 static AzCssPropertyWithConditionsVec style_box(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_aspectRatio((AzStyleAspectRatioValue){ .Exact = { .tag = AzStyleAspectRatioValue_Tag_Exact, .payload = AzStyleAspectRatio_ratio((AzAspectRatioValue){ .width = 16000, .height = 9000 }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_bottom((AzLayoutInsetBottom){ .inner = AzPixelValue_pt(5.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_boxSizing(AzLayoutBoxSizing_BorderBox)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_clear((AzLayoutClearValue){ .Exact = { .tag = AzLayoutClearValue_Tag_Exact, .payload = AzLayoutClear_Both } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_clip((AzStyleClipRectValue){ .Exact = { .tag = AzStyleClipRectValue_Tag_Exact, .payload = (AzStyleClipRect){ .top = AzOptionF32_some(0.0f), .right = AzOptionF32_some(10.0f), .bottom = AzOptionF32_some(10.0f), .left = AzOptionF32_some(0.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_cursor(AzStyleCursor_Pointer)),
             AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Block)),
             AzCssPropertyWithConditions_simple(AzCssProperty_float((AzLayoutFloatValue){ .Exact = { .tag = AzLayoutFloatValue_Tag_Exact, .payload = AzLayoutFloat_Left } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_boxSizing(AzLayoutBoxSizing_BorderBox)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_percent(50.0f)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(200.0f)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_minWidth((AzLayoutMinWidth){ .inner = AzPixelValue_em(10.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_minHeight((AzLayoutMinHeight){ .inner = AzPixelValue_rem(1.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_maxWidth((AzLayoutMaxWidth){ .inner = AzPixelValue_px(800.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_maxHeight((AzLayoutMaxHeight){ .inner = AzPixelValue_fromMetric(AzSizeMetric_Vh, 90.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_position(AzLayoutPosition_Absolute)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_top((AzLayoutTop){ .inner = AzPixelValue_px(0.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_right((AzLayoutRight){ .inner = AzPixelValue_px(10.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_bottom((AzLayoutInsetBottom){ .inner = AzPixelValue_pt(5.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_left((AzLayoutLeft){ .inner = AzPixelValue_fromMetric(AzSizeMetric_In, 1.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_zIndex(AzLayoutZIndex_integer(10))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop((AzLayoutPaddingTop){ .inner = AzPixelValue_px(1.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingRight((AzLayoutPaddingRight){ .inner = AzPixelValue_px(2.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom((AzLayoutPaddingBottom){ .inner = AzPixelValue_px(3.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingLeft((AzLayoutPaddingLeft){ .inner = AzPixelValue_px(4.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineStart((AzLayoutPaddingInlineStartValue){ .Exact = { .tag = AzLayoutPaddingInlineStartValue_Tag_Exact, .payload = (AzLayoutPaddingInlineStart){ .inner = AzPixelValue_px(5.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineEnd((AzLayoutPaddingInlineEndValue){ .Exact = { .tag = AzLayoutPaddingInlineEndValue_Tag_Exact, .payload = (AzLayoutPaddingInlineEnd){ .inner = AzPixelValue_px(6.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_marginTop((AzLayoutMarginTop){ .inner = AzPixelValue_px(7.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_marginRight((AzLayoutMarginRight){ .inner = AzPixelValue_px(8.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_marginBottom((AzLayoutMarginBottom){ .inner = AzPixelValue_px(9.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_auto(AzCssPropertyType_MarginLeft)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_marginRight((AzLayoutMarginRight){ .inner = AzPixelValue_px(8.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_marginTop((AzLayoutMarginTop){ .inner = AzPixelValue_px(7.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_maxHeight((AzLayoutMaxHeight){ .inner = AzPixelValue_fromMetric(AzSizeMetric_Vh, 90.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_maxWidth((AzLayoutMaxWidth){ .inner = AzPixelValue_px(800.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_minHeight((AzLayoutMinHeight){ .inner = AzPixelValue_rem(1.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_minWidth((AzLayoutMinWidth){ .inner = AzPixelValue_em(10.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_objectFit((AzStyleObjectFitValue){ .Exact = { .tag = AzStyleObjectFitValue_Tag_Exact, .payload = AzStyleObjectFit_Cover } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_objectPosition((AzStyleObjectPositionValue){ .Exact = { .tag = AzStyleObjectPositionValue_Tag_Exact, .payload = (AzStyleObjectPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_top() } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_opacity((AzStyleOpacity){ .inner = (AzPercentageValue){ .number = AzFloatValue_create(50.0f) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_overflowBlock((AzLayoutOverflowValue){ .Exact = { .tag = AzLayoutOverflowValue_Tag_Exact, .payload = AzLayoutOverflow_Clip } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_overflowClipMargin((AzStyleOverflowClipMarginValue){ .Exact = { .tag = AzStyleOverflowClipMarginValue_Tag_Exact, .payload = (AzStyleOverflowClipMargin){ .clip_edge = AzVisualBox_ContentBox, .inner = AzPixelValue_px(0.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_overflowInline((AzLayoutOverflowValue){ .Exact = { .tag = AzLayoutOverflowValue_Tag_Exact, .payload = AzLayoutOverflow_Auto } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_overflowX(AzLayoutOverflow_Hidden)),
             AzCssPropertyWithConditions_simple(AzCssProperty_overflowY(AzLayoutOverflow_Scroll)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom((AzLayoutPaddingBottom){ .inner = AzPixelValue_px(3.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineEnd((AzLayoutPaddingInlineEndValue){ .Exact = { .tag = AzLayoutPaddingInlineEndValue_Tag_Exact, .payload = (AzLayoutPaddingInlineEnd){ .inner = AzPixelValue_px(6.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineStart((AzLayoutPaddingInlineStartValue){ .Exact = { .tag = AzLayoutPaddingInlineStartValue_Tag_Exact, .payload = (AzLayoutPaddingInlineStart){ .inner = AzPixelValue_px(5.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingLeft((AzLayoutPaddingLeft){ .inner = AzPixelValue_px(4.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingRight((AzLayoutPaddingRight){ .inner = AzPixelValue_px(2.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop((AzLayoutPaddingTop){ .inner = AzPixelValue_px(1.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_position(AzLayoutPosition_Absolute)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_right((AzLayoutRight){ .inner = AzPixelValue_px(10.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_overflowBlock((AzLayoutOverflowValue){ .Exact = { .tag = AzLayoutOverflowValue_Tag_Exact, .payload = AzLayoutOverflow_Clip } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_overflowInline((AzLayoutOverflowValue){ .Exact = { .tag = AzLayoutOverflowValue_Tag_Exact, .payload = AzLayoutOverflow_Auto } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarGutter((AzStyleScrollbarGutterValue){ .Exact = { .tag = AzStyleScrollbarGutterValue_Tag_Exact, .payload = AzStyleScrollbarGutter_StableBothEdges } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_top((AzLayoutTop){ .inner = AzPixelValue_px(0.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_visibility(AzStyleVisibility_Hidden)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_percent(50.0f)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_overflowClipMargin((AzStyleOverflowClipMarginValue){ .Exact = { .tag = AzStyleOverflowClipMarginValue_Tag_Exact, .payload = (AzStyleOverflowClipMargin){ .clip_edge = AzVisualBox_ContentBox, .inner = AzPixelValue_px(0.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_clip((AzStyleClipRectValue){ .Exact = { .tag = AzStyleClipRectValue_Tag_Exact, .payload = (AzStyleClipRect){ .top = AzOptionF32_some(0.0f), .right = AzOptionF32_some(10.0f), .bottom = AzOptionF32_some(10.0f), .left = AzOptionF32_some(0.0f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_writingMode((AzLayoutWritingModeValue){ .Exact = { .tag = AzLayoutWritingModeValue_Tag_Exact, .payload = AzLayoutWritingMode_VerticalRl } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_zIndex(AzLayoutZIndex_integer(10))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_clear((AzLayoutClearValue){ .Exact = { .tag = AzLayoutClearValue_Tag_Exact, .payload = AzLayoutClear_Both } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_visibility(AzStyleVisibility_Hidden)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_opacity((AzStyleOpacity){ .inner = (AzPercentageValue){ .number = AzFloatValue_create(50.0f) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_cursor(AzStyleCursor_Pointer)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_objectFit((AzStyleObjectFitValue){ .Exact = { .tag = AzStyleObjectFitValue_Tag_Exact, .payload = AzStyleObjectFit_Cover } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_objectPosition((AzStyleObjectPositionValue){ .Exact = { .tag = AzStyleObjectPositionValue_Tag_Exact, .payload = (AzStyleObjectPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_top() } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_aspectRatio((AzStyleAspectRatioValue){ .Exact = { .tag = AzStyleAspectRatioValue_Tag_Exact, .payload = AzStyleAspectRatio_ratio((AzAspectRatioValue){ .width = 16000, .height = 9000 }) } })),
         },
         40
     );
@@ -130,19 +130,19 @@ static AzCssPropertyWithConditionsVec style_box(void) {
 static AzCssPropertyWithConditionsVec style_flex(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_alignContent(AzLayoutAlignContent_Stretch)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_alignItems(AzLayoutAlignItems_Center)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_alignSelf(AzLayoutAlignSelf_End)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnGap((AzLayoutColumnGapValue){ .Exact = { .tag = AzLayoutColumnGapValue_Tag_Exact, .payload = (AzLayoutColumnGap){ .inner = AzPixelValue_px(8.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_flexBasis((AzLayoutFlexBasisValue){ .Exact = { .tag = AzLayoutFlexBasisValue_Tag_Exact, .payload = AzLayoutFlexBasis_exact(AzPixelValue_percent(30.0f)) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_flexWrap(AzLayoutFlexWrap_Wrap)),
             AzCssPropertyWithConditions_simple(AzCssProperty_flexDirection(AzLayoutFlexDirection_Column)),
             AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow((AzLayoutFlexGrow){ .inner = AzFloatValue_create(2.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_flexShrink((AzLayoutFlexShrink){ .inner = AzFloatValue_create(0.5f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_flexWrap(AzLayoutFlexWrap_Wrap)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_flexBasis((AzLayoutFlexBasisValue){ .Exact = { .tag = AzLayoutFlexBasisValue_Tag_Exact, .payload = AzLayoutFlexBasis_exact(AzPixelValue_percent(30.0f)) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_justifyContent(AzLayoutJustifyContent_SpaceBetween)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_alignItems(AzLayoutAlignItems_Center)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_alignContent(AzLayoutAlignContent_Stretch)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_alignSelf(AzLayoutAlignSelf_End)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnGap((AzLayoutColumnGapValue){ .Exact = { .tag = AzLayoutColumnGapValue_Tag_Exact, .payload = (AzLayoutColumnGap){ .inner = AzPixelValue_px(8.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_rowGap((AzLayoutRowGapValue){ .Exact = { .tag = AzLayoutRowGapValue_Tag_Exact, .payload = (AzLayoutRowGap){ .inner = AzPixelValue_px(4.0f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_rowGap((AzLayoutRowGapValue){ .Exact = { .tag = AzLayoutRowGapValue_Tag_Exact, .payload = (AzLayoutRowGap){ .inner = AzPixelValue_px(6.0f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_columnGap((AzLayoutColumnGapValue){ .Exact = { .tag = AzLayoutColumnGapValue_Tag_Exact, .payload = (AzLayoutColumnGap){ .inner = AzPixelValue_px(6.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_justifyContent(AzLayoutJustifyContent_SpaceBetween)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_rowGap((AzLayoutRowGapValue){ .Exact = { .tag = AzLayoutRowGapValue_Tag_Exact, .payload = (AzLayoutRowGap){ .inner = AzPixelValue_px(4.0f) } } })),
         },
         13
     );
@@ -153,31 +153,6 @@ static AzCssPropertyWithConditionsVec style_flex(void) {
 static AzCssPropertyWithConditionsVec style_grid(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoColumns((AzLayoutGridAutoColumnsValue){ .Exact = { .tag = AzLayoutGridAutoColumnsValue_Tag_Exact, .payload = (AzGridAutoTracks){ .tracks = AzGridTrackSizingVec_copyFromPtr((AzGridTrackSizing[]){ AzGridTrackSizing_fixed(AzPixelValue_px(50.0f)) }, 1) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoFlow(AzLayoutGridAutoFlow_Column)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_gridColumn((AzLayoutGridColumnValue){ .Exact = { .tag = AzLayoutGridColumnValue_Tag_Exact, .payload = (AzGridPlacement){ .grid_start = AzGridLine_line(1), .grid_end = AzGridLine_line(3) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_rowGap((AzLayoutRowGapValue){ .Exact = { .tag = AzLayoutRowGapValue_Tag_Exact, .payload = (AzLayoutRowGap){ .inner = AzPixelValue_px(10.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnGap((AzLayoutColumnGapValue){ .Exact = { .tag = AzLayoutColumnGapValue_Tag_Exact, .payload = (AzLayoutColumnGap){ .inner = AzPixelValue_px(10.0f) } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_gridRow((AzLayoutGridRowValue){ .Exact = { .tag = AzLayoutGridRowValue_Tag_Exact, .payload = (AzGridPlacement){ .grid_start = AzGridLine_span(2), .grid_end = AzGridLine_auto() } } })),
-            AzCssPropertyWithConditions_simple(
-                AzCssProperty_gridTemplateAreas(
-                    (AzLayoutGridTemplateAreasValue){
-                        .Exact = {
-                            .tag = AzLayoutGridTemplateAreasValue_Tag_Exact,
-                            .payload = (AzGridTemplateAreas){
-                                .areas = AzGridAreaDefinitionVec_copyFromPtr(
-                                    (AzGridAreaDefinition[]){
-                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"header", 0, 6), .row_start = 1, .row_end = 2, .column_start = 1, .column_end = 3 },
-                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"main", 0, 4), .row_start = 2, .row_end = 3, .column_start = 2, .column_end = 3 },
-                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"sidebar", 0, 7), .row_start = 2, .row_end = 3, .column_start = 1, .column_end = 2 },
-                                    },
-                                    3
-                                ),
-                            }
-                        }
-                    }
-                )
-            ),
             AzCssPropertyWithConditions_simple(
                 AzCssProperty_gridTemplateColumns(
                     (AzLayoutGridTemplateColumnsValue){
@@ -215,8 +190,33 @@ static AzCssPropertyWithConditionsVec style_grid(void) {
                     }
                 )
             ),
-            AzCssPropertyWithConditions_simple(AzCssProperty_justifyItems(AzLayoutJustifyItems_Start)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoColumns((AzLayoutGridAutoColumnsValue){ .Exact = { .tag = AzLayoutGridAutoColumnsValue_Tag_Exact, .payload = (AzGridAutoTracks){ .tracks = AzGridTrackSizingVec_copyFromPtr((AzGridTrackSizing[]){ AzGridTrackSizing_fixed(AzPixelValue_px(50.0f)) }, 1) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_gridColumn((AzLayoutGridColumnValue){ .Exact = { .tag = AzLayoutGridColumnValue_Tag_Exact, .payload = (AzGridPlacement){ .grid_start = AzGridLine_line(1), .grid_end = AzGridLine_line(3) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_gridRow((AzLayoutGridRowValue){ .Exact = { .tag = AzLayoutGridRowValue_Tag_Exact, .payload = (AzGridPlacement){ .grid_start = AzGridLine_span(2), .grid_end = AzGridLine_auto() } } })),
+            AzCssPropertyWithConditions_simple(
+                AzCssProperty_gridTemplateAreas(
+                    (AzLayoutGridTemplateAreasValue){
+                        .Exact = {
+                            .tag = AzLayoutGridTemplateAreasValue_Tag_Exact,
+                            .payload = (AzGridTemplateAreas){
+                                .areas = AzGridAreaDefinitionVec_copyFromPtr(
+                                    (AzGridAreaDefinition[]){
+                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"header", 0, 6), .row_start = 1, .row_end = 2, .column_start = 1, .column_end = 3 },
+                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"main", 0, 4), .row_start = 2, .row_end = 3, .column_start = 2, .column_end = 3 },
+                                        (AzGridAreaDefinition){ .name = AzString_copyFromBytes((const uint8_t*)"sidebar", 0, 7), .row_start = 2, .row_end = 3, .column_start = 1, .column_end = 2 },
+                                    },
+                                    3
+                                ),
+                            }
+                        }
+                    }
+                )
+            ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoFlow(AzLayoutGridAutoFlow_Column)),
             AzCssPropertyWithConditions_simple(AzCssProperty_justifySelf(AzLayoutJustifySelf_Center)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_justifyItems(AzLayoutJustifyItems_Start)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_rowGap((AzLayoutRowGapValue){ .Exact = { .tag = AzLayoutRowGapValue_Tag_Exact, .payload = (AzLayoutRowGap){ .inner = AzPixelValue_px(10.0f) } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnGap((AzLayoutColumnGapValue){ .Exact = { .tag = AzLayoutColumnGapValue_Tag_Exact, .payload = (AzLayoutColumnGap){ .inner = AzPixelValue_px(10.0f) } } })),
         },
         11
     );
@@ -226,22 +226,22 @@ static AzCssPropertyWithConditionsVec style_grid(void) {
 static AzCssPropertyWithConditionsVec style_borders(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomColor((AzStyleBorderBottomColor){ .inner = (AzColorU){ .r = 51, .g = 51, .b = 51, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomLeftRadius((AzStyleBorderBottomLeftRadius){ .inner = AzPixelValue_px(6.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomRightRadius((AzStyleBorderBottomRightRadius){ .inner = AzPixelValue_px(7.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomStyle((AzStyleBorderBottomStyle){ .inner = AzBorderStyle_Dotted })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomWidth((AzLayoutBorderBottomWidth){ .inner = AzPixelValue_px(3.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftColor((AzStyleBorderLeftColor){ .inner = (AzColorU){ .r = 68, .g = 68, .b = 68, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftStyle((AzStyleBorderLeftStyle){ .inner = AzBorderStyle_Double })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftWidth((AzLayoutBorderLeftWidth){ .inner = AzPixelValue_px(4.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightColor((AzStyleBorderRightColor){ .inner = (AzColorU){ .r = 34, .g = 34, .b = 34, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightStyle((AzStyleBorderRightStyle){ .inner = AzBorderStyle_Dashed })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightWidth((AzLayoutBorderRightWidth){ .inner = AzPixelValue_px(2.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 17, .g = 17, .b = 17, .a = 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderTopLeftRadius((AzStyleBorderTopLeftRadius){ .inner = AzPixelValue_px(4.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderTopRightRadius((AzStyleBorderTopRightRadius){ .inner = AzPixelValue_px(5.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomLeftRadius((AzStyleBorderBottomLeftRadius){ .inner = AzPixelValue_px(6.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomRightRadius((AzStyleBorderBottomRightRadius){ .inner = AzPixelValue_px(7.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor((AzStyleBorderTopColor){ .inner = (AzColorU){ .r = 17, .g = 17, .b = 17, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightColor((AzStyleBorderRightColor){ .inner = (AzColorU){ .r = 34, .g = 34, .b = 34, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomColor((AzStyleBorderBottomColor){ .inner = (AzColorU){ .r = 51, .g = 51, .b = 51, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftColor((AzStyleBorderLeftColor){ .inner = (AzColorU){ .r = 68, .g = 68, .b = 68, .a = 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderTopStyle((AzStyleBorderTopStyle){ .inner = AzBorderStyle_Solid })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightStyle((AzStyleBorderRightStyle){ .inner = AzBorderStyle_Dashed })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomStyle((AzStyleBorderBottomStyle){ .inner = AzBorderStyle_Dotted })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftStyle((AzStyleBorderLeftStyle){ .inner = AzBorderStyle_Double })),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderTopWidth((AzLayoutBorderTopWidth){ .inner = AzPixelValue_px(1.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderRightWidth((AzLayoutBorderRightWidth){ .inner = AzPixelValue_px(2.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomWidth((AzLayoutBorderBottomWidth){ .inner = AzPixelValue_px(3.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftWidth((AzLayoutBorderLeftWidth){ .inner = AzPixelValue_px(4.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowLeft((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(1.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 64 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowRight((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(1.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 64 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop((AzStyleBoxShadow){ .offset_x = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(0.0f) }, .offset_y = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(2.0f) }, .blur_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(4.0f) }, .spread_radius = (AzPixelValueNoPercent){ .inner = AzPixelValue_px(1.0f) }, .clip_mode = AzBoxShadowClipMode_Outset, .color = (AzColorU){ .r = 0, .g = 0, .b = 0, .a = 64 } })),
@@ -255,19 +255,19 @@ static AzCssPropertyWithConditionsVec style_borders(void) {
 static AzCssPropertyWithConditionsVec style_scroll(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_appRegion((AzStyleAppRegionValue){ .Exact = { .tag = AzStyleAppRegionValue_Tag_Exact, .payload = AzStyleAppRegion_Drag } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarTrack((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 238, .g = 238, .b = 238, .a = 255 }) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarThumb((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 136, .g = 136, .b = 136, .a = 255 }) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarButton((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 204, .g = 204, .b = 204, .a = 255 }) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarCorner((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 221, .g = 221, .b = 221, .a = 255 }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDelay((AzScrollbarFadeDelayValue){ .Exact = { .tag = AzScrollbarFadeDelayValue_Tag_Exact, .payload = (AzScrollbarFadeDelay){ .ms = 500 } } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDuration((AzScrollbarFadeDurationValue){ .Exact = { .tag = AzScrollbarFadeDurationValue_Tag_Exact, .payload = (AzScrollbarFadeDuration){ .ms = 200 } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarResizer((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 187, .g = 187, .b = 187, .a = 255 }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarThumb((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 136, .g = 136, .b = 136, .a = 255 }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarTrack((AzStyleBackgroundContentValue){ .Exact = { .tag = AzStyleBackgroundContentValue_Tag_Exact, .payload = AzStyleBackgroundContent_color((AzColorU){ .r = 238, .g = 238, .b = 238, .a = 255 }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarVisibility((AzScrollbarVisibilityModeValue){ .Exact = { .tag = AzScrollbarVisibilityModeValue_Tag_Exact, .payload = AzScrollbarVisibilityMode_WhenScrolling } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarWidth((AzLayoutScrollbarWidthValue){ .Exact = { .tag = AzLayoutScrollbarWidthValue_Tag_Exact, .payload = AzLayoutScrollbarWidth_Thin } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarColor((AzStyleScrollbarColorValue){ .Exact = { .tag = AzStyleScrollbarColorValue_Tag_Exact, .payload = AzStyleScrollbarColor_custom((AzScrollbarColorCustom){ .thumb = (AzColorU){ .r = 136, .g = 136, .b = 136, .a = 255 }, .track = (AzColorU){ .r = 238, .g = 238, .b = 238, .a = 255 } }) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_overscrollBehaviorX((AzOverscrollBehaviorValue){ .Exact = { .tag = AzOverscrollBehaviorValue_Tag_Exact, .payload = AzOverscrollBehavior_Contain } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_overscrollBehaviorY((AzOverscrollBehaviorValue){ .Exact = { .tag = AzOverscrollBehaviorValue_Tag_Exact, .payload = AzOverscrollBehavior_None } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarColor((AzStyleScrollbarColorValue){ .Exact = { .tag = AzStyleScrollbarColorValue_Tag_Exact, .payload = AzStyleScrollbarColor_custom((AzScrollbarColorCustom){ .thumb = (AzColorU){ .r = 136, .g = 136, .b = 136, .a = 255 }, .track = (AzColorU){ .r = 238, .g = 238, .b = 238, .a = 255 } }) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarWidth((AzLayoutScrollbarWidthValue){ .Exact = { .tag = AzLayoutScrollbarWidthValue_Tag_Exact, .payload = AzLayoutScrollbarWidth_Thin } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarVisibility((AzScrollbarVisibilityModeValue){ .Exact = { .tag = AzScrollbarVisibilityModeValue_Tag_Exact, .payload = AzScrollbarVisibilityMode_WhenScrolling } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDelay((AzScrollbarFadeDelayValue){ .Exact = { .tag = AzScrollbarFadeDelayValue_Tag_Exact, .payload = (AzScrollbarFadeDelay){ .ms = 500 } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDuration((AzScrollbarFadeDurationValue){ .Exact = { .tag = AzScrollbarFadeDurationValue_Tag_Exact, .payload = (AzScrollbarFadeDuration){ .ms = 200 } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_appRegion((AzStyleAppRegionValue){ .Exact = { .tag = AzStyleAppRegionValue_Tag_Exact, .payload = AzStyleAppRegion_Drag } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationAction((AzStyleSpatialNavigationActionValue){ .Exact = { .tag = AzStyleSpatialNavigationActionValue_Tag_Exact, .payload = AzStyleSpatialNavigationAction_Focus } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationContain((AzStyleSpatialNavigationContainValue){ .Exact = { .tag = AzStyleSpatialNavigationContainValue_Tag_Exact, .payload = AzStyleSpatialNavigationContain_Contain } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationFunction((AzStyleSpatialNavigationFunctionValue){ .Exact = { .tag = AzStyleSpatialNavigationFunctionValue_Tag_Exact, .payload = AzStyleSpatialNavigationFunction_Grid } })),
@@ -281,17 +281,17 @@ static AzCssPropertyWithConditionsVec style_scroll(void) {
 static AzCssPropertyWithConditionsVec style_effects(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_grayscale((AzPercentageValue){ .number = AzFloatValue_create(50.0f) }) }, 1) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility_Hidden)),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr((AzStyleBackgroundContent[]){ AzStyleBackgroundContent_color((AzColorU){ .r = 250, .g = 250, .b = 250, .a = 255 }) }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr((AzStyleBackgroundPosition[]){ (AzStyleBackgroundPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_center() } }, 1))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr((AzStyleBackgroundSize[]){ AzStyleBackgroundSize_cover() }, 1))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_filter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_blur((AzStyleBlur){ .width = AzPixelValue_px(2.0f), .height = AzPixelValue_px(2.0f) }) }, 1) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode((AzStyleMixBlendModeValue){ .Exact = { .tag = AzStyleMixBlendModeValue_Tag_Exact, .payload = AzStyleMixBlendMode_Multiply } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin((AzStylePerspectiveOrigin){ .x = AzPixelValue_px(10.0f), .y = AzPixelValue_px(20.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr((AzStyleTransform[]){ AzStyleTransform_rotate((AzAngleValue){ .metric = AzAngleMetric_Degree, .number = AzFloatValue_create(45.0f) }) }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin((AzStyleTransformOrigin){ .x = AzPixelValue_percent(50.0f), .y = AzPixelValue_percent(50.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin((AzStylePerspectiveOrigin){ .x = AzPixelValue_px(10.0f), .y = AzPixelValue_px(20.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility_Hidden)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_filter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_blur((AzStyleBlur){ .width = AzPixelValue_px(2.0f), .height = AzPixelValue_px(2.0f) }) }, 1) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter((AzStyleFilterVecValue){ .Exact = { .tag = AzStyleFilterVecValue_Tag_Exact, .payload = AzStyleFilterVec_copyFromPtr((AzStyleFilter[]){ AzStyleFilter_grayscale((AzPercentageValue){ .number = AzFloatValue_create(50.0f) }) }, 1) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode((AzStyleMixBlendModeValue){ .Exact = { .tag = AzStyleMixBlendModeValue_Tag_Exact, .payload = AzStyleMixBlendMode_Multiply } })),
         },
         11
     );
@@ -301,21 +301,21 @@ static AzCssPropertyWithConditionsVec style_effects(void) {
 static AzCssPropertyWithConditionsVec style_fragment(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_boxDecorationBreak(AzBoxDecorationBreak_Clone)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_breakAfter(AzPageBreak_Avoid)),
             AzCssPropertyWithConditions_simple(AzCssProperty_breakBefore(AzPageBreak_Page)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_breakAfter(AzPageBreak_Avoid)),
             AzCssPropertyWithConditions_simple(AzCssProperty_breakInside(AzBreakInside_Avoid)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnCount(AzColumnCount_integer(3))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnFill(AzColumnFill_Balance)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor((AzColumnRuleColor){ .inner = (AzColorU){ .r = 204, .g = 204, .b = 204, .a = 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleStyle((AzColumnRuleStyle){ .inner = AzBorderStyle_Solid })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleWidth((AzColumnRuleWidth){ .inner = AzPixelValue_px(1.0f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnSpan(AzColumnSpan_All)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_columnWidth(AzColumnWidth_length(AzPixelValue_px(200.0f)))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_orphans((AzOrphans){ .inner = 2 })),
             AzCssPropertyWithConditions_simple(AzCssProperty_widows((AzWidows){ .inner = 3 })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_boxDecorationBreak(AzBoxDecorationBreak_Clone)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnCount(AzColumnCount_integer(3))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnWidth(AzColumnWidth_length(AzPixelValue_px(200.0f)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnSpan(AzColumnSpan_All)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnFill(AzColumnFill_Balance)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleWidth((AzColumnRuleWidth){ .inner = AzPixelValue_px(1.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleStyle((AzColumnRuleStyle){ .inner = AzBorderStyle_Solid })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor((AzColumnRuleColor){ .inner = (AzColorU){ .r = 204, .g = 204, .b = 204, .a = 255 } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(AzString_copyFromBytes((const uint8_t*)"article", 0, 7)))),
         },
         15
     );
@@ -325,11 +325,11 @@ static AzCssPropertyWithConditionsVec style_fragment(void) {
 static AzCssPropertyWithConditionsVec style_shape(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle((AzShapeCircle){ .center = (AzShapePoint){ .x = 0.0f, .y = 0.0f }, .radius = 40.0f })))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold((AzShapeImageThreshold){ .inner = AzFloatValue_create(0.5f) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle((AzShapeCircle){ .center = (AzShapePoint){ .x = 50.0f, .y = 50.0f }, .radius = 100.0f })))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin((AzShapeMargin){ .inner = AzPixelValue_px(10.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle((AzShapeCircle){ .center = (AzShapePoint){ .x = 0.0f, .y = 0.0f }, .radius = 50.0f })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle((AzShapeCircle){ .center = (AzShapePoint){ .x = 50.0f, .y = 50.0f }, .radius = 100.0f })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle((AzShapeCircle){ .center = (AzShapePoint){ .x = 0.0f, .y = 0.0f }, .radius = 40.0f })))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin((AzShapeMargin){ .inner = AzPixelValue_px(10.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold((AzShapeImageThreshold){ .inner = AzFloatValue_create(0.5f) })),
         },
         5
     );
@@ -339,11 +339,11 @@ static AzCssPropertyWithConditionsVec style_shape(void) {
 static AzCssPropertyWithConditionsVec style_table(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
+            AzCssPropertyWithConditions_simple(AzCssProperty_tableLayout(AzLayoutTableLayout_Fixed)),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderCollapse(AzStyleBorderCollapse_Collapse)),
             AzCssPropertyWithConditions_simple(AzCssProperty_borderSpacing((AzLayoutBorderSpacing){ .horizontal = AzPixelValue_px(2.0f), .vertical = AzPixelValue_px(4.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_captionSide(AzStyleCaptionSide_Bottom)),
             AzCssPropertyWithConditions_simple(AzCssProperty_emptyCells(AzStyleEmptyCells_Hide)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_tableLayout(AzLayoutTableLayout_Fixed)),
         },
         5
     );
@@ -354,10 +354,10 @@ static AzCssPropertyWithConditionsVec style_content(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
             AzCssPropertyWithConditions_simple(AzCssProperty_content((AzContent){ .inner = AzString_copyFromBytes((const uint8_t*)"\"Hello\"", 0, 7) })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement((AzCounterIncrement){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 1 })),
             AzCssPropertyWithConditions_simple(AzCssProperty_counterReset((AzCounterReset){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 1 })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement((AzCounterIncrement){ .counter_name = AzString_copyFromBytes((const uint8_t*)"section", 0, 7), .value = 1 })),
             AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType_UpperRoman)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition_Inside)),
             AzCssPropertyWithConditions_simple(AzCssProperty_stringSet((AzStringSet){ .inner = AzString_copyFromBytes((const uint8_t*)"title \"Chapter\"", 0, 15) })),
         },
         6
@@ -368,9 +368,9 @@ static AzCssPropertyWithConditionsVec style_content(void) {
 static AzCssPropertyWithConditionsVec style_anim(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
+            AzCssPropertyWithConditions_simple(AzCssProperty_animation((AzStyleAnimationVecValue){ .Exact = { .tag = AzStyleAnimationVecValue_Tag_Exact, .payload = AzStyleAnimationVec_copyFromPtr((AzStyleAnimation[]){ (AzStyleAnimation){ .name = AzString_copyFromBytes((const uint8_t*)"fadeIn", 0, 6), .duration = (AzCssDuration){ .inner = 300, .unit = AzCssDurationUnit_Milliseconds }, .delay = (AzCssDuration){ .inner = 0, .unit = AzCssDurationUnit_Milliseconds }, .iterations = AzAnimationIterationCount_count(1), .timing = AzAnimationTiming_easeInOut(), .clip = true } }, 1) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_animationIn((AzStyleAnimationVecValue){ .Exact = { .tag = AzStyleAnimationVecValue_Tag_Exact, .payload = AzStyleAnimationVec_copyFromPtr((AzStyleAnimation[]){ (AzStyleAnimation){ .name = AzString_copyFromBytes((const uint8_t*)"flyInLeft", 0, 9), .duration = (AzCssDuration){ .inner = 500, .unit = AzCssDurationUnit_Milliseconds }, .delay = (AzCssDuration){ .inner = 0, .unit = AzCssDurationUnit_Milliseconds }, .iterations = AzAnimationIterationCount_count(1), .timing = AzAnimationTiming_spring(), .clip = true } }, 1) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_animationOut((AzStyleAnimationVecValue){ .Exact = { .tag = AzStyleAnimationVecValue_Tag_Exact, .payload = AzStyleAnimationVec_copyFromPtr((AzStyleAnimation[]){ (AzStyleAnimation){ .name = AzString_copyFromBytes((const uint8_t*)"fadeOut", 0, 7), .duration = (AzCssDuration){ .inner = 200, .unit = AzCssDurationUnit_Milliseconds }, .delay = (AzCssDuration){ .inner = 0, .unit = AzCssDurationUnit_Milliseconds }, .iterations = AzAnimationIterationCount_count(1), .timing = AzAnimationTiming_linear(), .clip = true } }, 1) } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_animation((AzStyleAnimationVecValue){ .Exact = { .tag = AzStyleAnimationVecValue_Tag_Exact, .payload = AzStyleAnimationVec_copyFromPtr((AzStyleAnimation[]){ (AzStyleAnimation){ .name = AzString_copyFromBytes((const uint8_t*)"fadeIn", 0, 6), .duration = (AzCssDuration){ .inner = 300, .unit = AzCssDurationUnit_Milliseconds }, .delay = (AzCssDuration){ .inner = 0, .unit = AzCssDurationUnit_Milliseconds }, .iterations = AzAnimationIterationCount_count(1), .timing = AzAnimationTiming_easeInOut(), .clip = true } }, 1) } })),
         },
         3
     );

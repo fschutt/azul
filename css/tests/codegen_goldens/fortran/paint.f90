@@ -67,18 +67,18 @@ contains
   function style_photo() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzStyleBackgroundContent), target :: t1(1)
-    type(AzStyleBackgroundPosition), target :: t2(1)
-    type(AzStyleBackgroundRepeat), target :: t3(1)
-    type(AzStyleBackgroundSize), target :: t4(1)
+    type(AzStyleBackgroundSize), target :: t2(1)
+    type(AzStyleBackgroundPosition), target :: t3(1)
+    type(AzStyleBackgroundRepeat), target :: t4(1)
     type(AzCssPropertyWithConditions), target :: t5(4)
     t1(1) = az_style_background_content_image(azul_string('images/photo.png'))
-    t2(1) = AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_center(), vertical=az_background_position_vertical_center())
-    t3(1) = StyleBackgroundRepeat_NoRepeat
-    t4(1) = az_style_background_size_cover()
+    t2(1) = az_style_background_size_cover()
+    t3(1) = AzStyleBackgroundPosition(horizontal=az_background_position_horizontal_center(), vertical=az_background_position_vertical_center())
+    t4(1) = StyleBackgroundRepeat_NoRepeat
     t5(1) = az_css_property_with_conditions_simple(az_css_property_background_content(az_style_background_content_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)))
-    t5(2) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    t5(3) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
-    t5(4) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
+    t5(2) = az_css_property_with_conditions_simple(az_css_property_background_size(az_style_background_size_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
+    t5(3) = az_css_property_with_conditions_simple(az_css_property_background_position(az_style_background_position_vec_copy_from_ptr(c_loc(t3(1)), 1_c_size_t)))
+    t5(4) = az_css_property_with_conditions_simple(az_css_property_background_repeat(az_style_background_repeat_vec_copy_from_ptr(c_loc(t4(1)), 1_c_size_t)))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t5(1)), 4_c_size_t)
   end function style_photo
 
@@ -89,8 +89,8 @@ contains
     type(AzCssPropertyWithConditions), target :: t2(2)
     t1(1) = az_style_font_family_system(azul_string('Fira Code'))
     t1(2) = az_style_font_family_system(azul_string('monospace'))
-    t2(1) = az_css_property_with_conditions_simple(az_css_property_content(AzContent(inner=azul_string('"say \"hi\" \\ bye"'))))
-    t2(2) = az_css_property_with_conditions_simple(az_css_property_font_family(az_style_font_family_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
+    t2(1) = az_css_property_with_conditions_simple(az_css_property_font_family(az_style_font_family_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
+    t2(2) = az_css_property_with_conditions_simple(az_css_property_content(AzContent(inner=azul_string('"say \"hi\" \\ bye"'))))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t2(1)), 2_c_size_t)
   end function style_caption
 

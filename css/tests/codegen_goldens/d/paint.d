@@ -8,16 +8,6 @@ CssPropertyWithConditions[] styleHero()
 {
     return [
         CssPropertyWithConditions.simple(
-            CssProperty.backdropFilter(
-                StyleFilterVecValue.exact(
-                    [
-                        StyleFilter.brightness(PercentageValue(FloatValue(120.0f))),
-                        StyleFilter.contrast(PercentageValue(FloatValue(80.0f))),
-                    ]
-                )
-            )
-        ),
-        CssPropertyWithConditions.simple(
             CssProperty.backgroundContent(
                 [
                     StyleBackgroundContent.linearGradient(
@@ -39,6 +29,16 @@ CssPropertyWithConditions[] styleHero()
         CssPropertyWithConditions.simple(CssProperty.boxShadowTop(StyleBoxShadow(PixelValueNoPercent(PixelValue.px(0.0f)), PixelValueNoPercent(PixelValue.px(4.0f)), PixelValueNoPercent(PixelValue.px(12.0f)), PixelValueNoPercent(PixelValue.px(2.0f)), BoxShadowClipMode.outset, ColorU(0, 0, 0, 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowBottom(StyleBoxShadow(PixelValueNoPercent(PixelValue.px(0.0f)), PixelValueNoPercent(PixelValue.px(4.0f)), PixelValueNoPercent(PixelValue.px(12.0f)), PixelValueNoPercent(PixelValue.px(2.0f)), BoxShadowClipMode.outset, ColorU(0, 0, 0, 77)))),
         CssPropertyWithConditions.simple(
+            CssProperty.transform(
+                [
+                    StyleTransform.translate(StyleTransformTranslate2D(PixelValue.px(10.0f), PixelValue.px(20.0f))),
+                    StyleTransform.rotate(AngleValue(AngleMetric.degree, FloatValue(45.0f))),
+                    StyleTransform.scale(StyleTransformScale2D(FloatValue(1.5f), FloatValue(1.5f))),
+                    StyleTransform.skew(StyleTransformSkew2D(AngleValue(AngleMetric.degree, FloatValue(10.0f)), AngleValue(AngleMetric.degree, FloatValue(5.0f)))),
+                ]
+            )
+        ),
+        CssPropertyWithConditions.simple(
             CssProperty.filter(
                 StyleFilterVecValue.exact(
                     [
@@ -50,13 +50,13 @@ CssPropertyWithConditions[] styleHero()
             )
         ),
         CssPropertyWithConditions.simple(
-            CssProperty.transform(
-                [
-                    StyleTransform.translate(StyleTransformTranslate2D(PixelValue.px(10.0f), PixelValue.px(20.0f))),
-                    StyleTransform.rotate(AngleValue(AngleMetric.degree, FloatValue(45.0f))),
-                    StyleTransform.scale(StyleTransformScale2D(FloatValue(1.5f), FloatValue(1.5f))),
-                    StyleTransform.skew(StyleTransformSkew2D(AngleValue(AngleMetric.degree, FloatValue(10.0f)), AngleValue(AngleMetric.degree, FloatValue(5.0f)))),
-                ]
+            CssProperty.backdropFilter(
+                StyleFilterVecValue.exact(
+                    [
+                        StyleFilter.brightness(PercentageValue(FloatValue(120.0f))),
+                        StyleFilter.contrast(PercentageValue(FloatValue(80.0f))),
+                    ]
+                )
             )
         ),
     ];
@@ -116,9 +116,9 @@ CssPropertyWithConditions[] stylePhoto()
 {
     return [
         CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.image("images/photo.png")])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover()])),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(BackgroundPositionHorizontal.center(), BackgroundPositionVertical.center())])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),
-        CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover()])),
     ];
 }
 
@@ -126,7 +126,6 @@ CssPropertyWithConditions[] stylePhoto()
 CssPropertyWithConditions[] styleCaption()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.content(Content("\"say \\\"hi\\\" \\\\ bye\""))),
         CssPropertyWithConditions.simple(
             CssProperty.fontFamily(
                 [
@@ -135,5 +134,6 @@ CssPropertyWithConditions[] styleCaption()
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.content(Content("\"say \\\"hi\\\" \\\\ bye\""))),
     ];
 }

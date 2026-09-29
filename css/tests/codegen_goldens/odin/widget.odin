@@ -7,15 +7,15 @@ import azul "azul"
 style_azul_native_button :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 241, g = 243, b = 245, a = 255})}[0], 1))),
+		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 173, g = 181, b = 189, a = 255}})),
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_borderBottomColor(azul.AzStyleBorderBottomColor{inner = azul.AzColorU{r = 173, g = 181, b = 189, a = 255}})),
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_borderLeftColor(azul.AzStyleBorderLeftColor{inner = azul.AzColorU{r = 173, g = 181, b = 189, a = 255}})),
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_borderRightColor(azul.AzStyleBorderRightColor{inner = azul.AzColorU{r = 173, g = 181, b = 189, a = 255}})),
-		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 173, g = 181, b = 189, a = 255}})),
 		azul.AzCssPropertyWithConditions_onActive(azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 222, g = 226, b = 230, a = 255})}[0], 1))),
+		azul.AzCssPropertyWithConditions_onFocus(azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 13, g = 110, b = 253, a = 255}})),
 		azul.AzCssPropertyWithConditions_onFocus(azul.AzCssProperty_borderBottomColor(azul.AzStyleBorderBottomColor{inner = azul.AzColorU{r = 13, g = 110, b = 253, a = 255}})),
 		azul.AzCssPropertyWithConditions_onFocus(azul.AzCssProperty_borderLeftColor(azul.AzStyleBorderLeftColor{inner = azul.AzColorU{r = 13, g = 110, b = 253, a = 255}})),
 		azul.AzCssPropertyWithConditions_onFocus(azul.AzCssProperty_borderRightColor(azul.AzStyleBorderRightColor{inner = azul.AzColorU{r = 13, g = 110, b = 253, a = 255}})),
-		azul.AzCssPropertyWithConditions_onFocus(azul.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{inner = azul.AzColorU{r = 13, g = 110, b = 253, a = 255}})),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_backgroundContent(azul.AzStyleBackgroundContentVec_copyFromPtr(&[]azul.AzStyleBackgroundContent{azul.AzStyleBackgroundContent_color(azul.AzColorU{r = 73, g = 80, b = 87, a = 255})}[0], 1)),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{

@@ -14,20 +14,6 @@ namespace AzulStyles
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
                 NativeMethods.AzCssPropertyWithConditions_simple(
-                    NativeMethods.AzCssProperty_backdropFilter(
-                        new AzStyleFilterVecValue {
-                            Exact = new AzStyleFilterVecValueVariant_Exact {
-                                tag = AzStyleFilterVecValue_Tag.Exact,
-                                payload = AzulCodegen.Vec<AzStyleFilter, AzStyleFilterVec>(
-                                    NativeMethods.AzStyleFilterVec_copyFromPtr,
-                                    NativeMethods.AzStyleFilter_brightness(new AzPercentageValue { number = NativeMethods.AzFloatValue_create(120.0f) }),
-                                    NativeMethods.AzStyleFilter_contrast(new AzPercentageValue { number = NativeMethods.AzFloatValue_create(80.0f) })
-                                )
-                            }
-                        }
-                    )
-                ),
-                NativeMethods.AzCssPropertyWithConditions_simple(
                     NativeMethods.AzCssProperty_backgroundContent(
                         AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(
                             NativeMethods.AzStyleBackgroundContentVec_copyFromPtr,
@@ -51,6 +37,17 @@ namespace AzulStyles
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_boxShadowTop(new AzStyleBoxShadow { offset_x = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(0.0f) }, offset_y = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(4.0f) }, blur_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(12.0f) }, spread_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(2.0f) }, clip_mode = BoxShadowClipMode.Outset, color = new AzColorU { r = 0, g = 0, b = 0, a = 77 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_boxShadowBottom(new AzStyleBoxShadow { offset_x = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(0.0f) }, offset_y = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(4.0f) }, blur_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(12.0f) }, spread_radius = new AzPixelValueNoPercent { inner = NativeMethods.AzPixelValue_px(2.0f) }, clip_mode = BoxShadowClipMode.Outset, color = new AzColorU { r = 0, g = 0, b = 0, a = 77 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(
+                    NativeMethods.AzCssProperty_transform(
+                        AzulCodegen.Vec<AzStyleTransform, AzStyleTransformVec>(
+                            NativeMethods.AzStyleTransformVec_copyFromPtr,
+                            NativeMethods.AzStyleTransform_translate(new AzStyleTransformTranslate2D { x = NativeMethods.AzPixelValue_px(10.0f), y = NativeMethods.AzPixelValue_px(20.0f) }),
+                            NativeMethods.AzStyleTransform_rotate(new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(45.0f) }),
+                            NativeMethods.AzStyleTransform_scale(new AzStyleTransformScale2D { x = NativeMethods.AzFloatValue_create(1.5f), y = NativeMethods.AzFloatValue_create(1.5f) }),
+                            NativeMethods.AzStyleTransform_skew(new AzStyleTransformSkew2D { x = new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(10.0f) }, y = new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(5.0f) } })
+                        )
+                    )
+                ),
+                NativeMethods.AzCssPropertyWithConditions_simple(
                     NativeMethods.AzCssProperty_filter(
                         new AzStyleFilterVecValue {
                             Exact = new AzStyleFilterVecValueVariant_Exact {
@@ -66,14 +63,17 @@ namespace AzulStyles
                     )
                 ),
                 NativeMethods.AzCssPropertyWithConditions_simple(
-                    NativeMethods.AzCssProperty_transform(
-                        AzulCodegen.Vec<AzStyleTransform, AzStyleTransformVec>(
-                            NativeMethods.AzStyleTransformVec_copyFromPtr,
-                            NativeMethods.AzStyleTransform_translate(new AzStyleTransformTranslate2D { x = NativeMethods.AzPixelValue_px(10.0f), y = NativeMethods.AzPixelValue_px(20.0f) }),
-                            NativeMethods.AzStyleTransform_rotate(new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(45.0f) }),
-                            NativeMethods.AzStyleTransform_scale(new AzStyleTransformScale2D { x = NativeMethods.AzFloatValue_create(1.5f), y = NativeMethods.AzFloatValue_create(1.5f) }),
-                            NativeMethods.AzStyleTransform_skew(new AzStyleTransformSkew2D { x = new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(10.0f) }, y = new AzAngleValue { metric = AngleMetric.Degree, number = NativeMethods.AzFloatValue_create(5.0f) } })
-                        )
+                    NativeMethods.AzCssProperty_backdropFilter(
+                        new AzStyleFilterVecValue {
+                            Exact = new AzStyleFilterVecValueVariant_Exact {
+                                tag = AzStyleFilterVecValue_Tag.Exact,
+                                payload = AzulCodegen.Vec<AzStyleFilter, AzStyleFilterVec>(
+                                    NativeMethods.AzStyleFilterVec_copyFromPtr,
+                                    NativeMethods.AzStyleFilter_brightness(new AzPercentageValue { number = NativeMethods.AzFloatValue_create(120.0f) }),
+                                    NativeMethods.AzStyleFilter_contrast(new AzPercentageValue { number = NativeMethods.AzFloatValue_create(80.0f) })
+                                )
+                            }
+                        }
                     )
                 )
             );
@@ -140,9 +140,9 @@ namespace AzulStyles
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundContent(AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(NativeMethods.AzStyleBackgroundContentVec_copyFromPtr, NativeMethods.AzStyleBackgroundContent_image(AzulCodegen.Str("images/photo.png"))))),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundSize(AzulCodegen.Vec<AzStyleBackgroundSize, AzStyleBackgroundSizeVec>(NativeMethods.AzStyleBackgroundSizeVec_copyFromPtr, NativeMethods.AzStyleBackgroundSize_cover()))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundPosition(AzulCodegen.Vec<AzStyleBackgroundPosition, AzStyleBackgroundPositionVec>(NativeMethods.AzStyleBackgroundPositionVec_copyFromPtr, new AzStyleBackgroundPosition { horizontal = NativeMethods.AzBackgroundPositionHorizontal_center(), vertical = NativeMethods.AzBackgroundPositionVertical_center() }))),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundRepeat(AzulCodegen.Vec<StyleBackgroundRepeat, AzStyleBackgroundRepeatVec>(NativeMethods.AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat))),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundSize(AzulCodegen.Vec<AzStyleBackgroundSize, AzStyleBackgroundSizeVec>(NativeMethods.AzStyleBackgroundSizeVec_copyFromPtr, NativeMethods.AzStyleBackgroundSize_cover())))
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_backgroundRepeat(AzulCodegen.Vec<StyleBackgroundRepeat, AzStyleBackgroundRepeatVec>(NativeMethods.AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat)))
             );
         }
 
@@ -151,7 +151,6 @@ namespace AzulStyles
         {
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_content(new AzContent { inner = AzulCodegen.Str("\"say \\\"hi\\\" \\\\ bye\"") })),
                 NativeMethods.AzCssPropertyWithConditions_simple(
                     NativeMethods.AzCssProperty_fontFamily(
                         AzulCodegen.Vec<AzStyleFontFamily, AzStyleFontFamilyVec>(
@@ -160,7 +159,8 @@ namespace AzulStyles
                             NativeMethods.AzStyleFontFamily_system(AzulCodegen.Str("monospace"))
                         )
                     )
-                )
+                ),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_content(new AzContent { inner = AzulCodegen.Str("\"say \\\"hi\\\" \\\\ bye\"") }))
             );
         }
     }

@@ -12,11 +12,11 @@ proc azStr(s: string): AzString =
 # CSS: .btn, .btn:hover
 proc styleBtn*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 0'u8, b: 0'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay.Flex)),
     AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(AzLayoutFlexGrow(inner: AzFloatValue_create(1.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType.MinWidth)),
     AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue(Exact: AzStyleWhiteSpaceValueVariant_Exact(tag: 6, payload: AzStyleWhiteSpace.Nowrap)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0)))),
     AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight.Bold)),
   ])

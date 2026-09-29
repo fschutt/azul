@@ -55,12 +55,12 @@ module AzulStyles
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
+      N.az_css_property_with_conditions_simple(N.az_css_property_width(N.az_layout_width_px(N.az_pixel_value_px(100.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_color(AzulCodegen.struct(N::AzStyleTextColor, inner: AzulCodegen.struct(N::AzColorU, r: 255, g: 0, b: 0, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_display(N::AzLayoutDisplay::Flex)),
       N.az_css_property_with_conditions_simple(N.az_css_property_flex_grow(AzulCodegen.struct(N::AzLayoutFlexGrow, inner: N.az_float_value_create(1.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_inherit(N::AzCssPropertyType::MinWidth)),
       N.az_css_property_with_conditions_simple(N.az_css_property_white_space(AzulCodegen.union(N::AzStyleWhiteSpaceValue, :Exact, 6, N::AzStyleWhiteSpace::Nowrap))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_width(N.az_layout_width_px(N.az_pixel_value_px(100.0)))),
       N.az_css_property_with_conditions_on_hover(N.az_css_property_font_weight(N::AzStyleFontWeight::Bold))
     )
   end

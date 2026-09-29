@@ -12,15 +12,15 @@ end Styles;
 package body Styles is
 
    --  CSS: .bar
-   --  `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
    --  `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+   --  `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
    function Style_Bar return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 3) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Border_Top_Color (Az_StyleBorderTopColor'(Inner => Az_ColorU'(R => 204, G => 204, B => 204, A => 255))));
-      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 102, B => 0, A => 255))));
-      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Padding_Bottom (Az_LayoutPaddingBottom'(Inner => Az_PixelValue_Px (0.0))));
-      t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Padding_Top (Az_LayoutPaddingTop'(Inner => Az_PixelValue_Px (8.0))));
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 102, B => 0, A => 255))));
+      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Border_Top_Color (Az_StyleBorderTopColor'(Inner => Az_ColorU'(R => 204, G => 204, B => 204, A => 255))));
+      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Padding_Top (Az_LayoutPaddingTop'(Inner => Az_PixelValue_Px (8.0))));
+      t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Padding_Bottom (Az_LayoutPaddingBottom'(Inner => Az_PixelValue_Px (0.0))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 4);
    end Style_Bar;
 

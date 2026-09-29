@@ -13,15 +13,15 @@ proc azStr(s: string): AzString =
 proc styleAzulNativeButton*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 241'u8, g: 243'u8, b: 245'u8, a: 255'u8))]))),
+    AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 173'u8, g: 181'u8, b: 189'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onHover(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor(inner: AzColorU(r: 173'u8, g: 181'u8, b: 189'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onHover(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor(inner: AzColorU(r: 173'u8, g: 181'u8, b: 189'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onHover(AzCssProperty_borderRightColor(AzStyleBorderRightColor(inner: AzColorU(r: 173'u8, g: 181'u8, b: 189'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 173'u8, g: 181'u8, b: 189'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 222'u8, g: 226'u8, b: 230'u8, a: 255'u8))]))),
+    AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 13'u8, g: 110'u8, b: 253'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onFocus(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor(inner: AzColorU(r: 13'u8, g: 110'u8, b: 253'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onFocus(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor(inner: AzColorU(r: 13'u8, g: 110'u8, b: 253'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_onFocus(AzCssProperty_borderRightColor(AzStyleBorderRightColor(inner: AzColorU(r: 13'u8, g: 110'u8, b: 253'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 13'u8, g: 110'u8, b: 253'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_withConditions(
       AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 73'u8, g: 80'u8, b: 87'u8, a: 255'u8))])),
       azVec(AzDynamicSelectorVec_copyFromPtr, [

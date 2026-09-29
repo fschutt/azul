@@ -28,11 +28,11 @@
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-width (azul-internal::%az-layout-width-px (azul-internal::%az-pixel-value-px 100.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-text-color (list 'azul-internal::inner (list 'azul-internal::r 255 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 255))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-display :flex))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-flex-grow (list 'azul-internal::inner (azul-internal::%az-float-value-create 1.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-inherit :min-width))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-width (azul-internal::%az-layout-width-px (azul-internal::%az-pixel-value-px 100.0))))
       (azul-internal::%az-css-property-with-conditions-on-hover (azul-internal::%az-css-property-font-weight :bold))
     )
   ))

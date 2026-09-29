@@ -8,20 +8,6 @@ inline AzCssPropertyWithConditionsVec style_hero() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
             AzCssPropertyWithConditions_simple(
-                AzCssProperty_backdropFilter(
-                    []{ AzStyleFilterVecValue v{}; v.Exact = AzStyleFilterVecValueVariant_Exact{
-                        AzStyleFilterVecValue_Tag_Exact,
-                        AzStyleFilterVec_copyFromPtr(
-                            std::vector<AzStyleFilter>{
-                                AzStyleFilter_brightness(AzPercentageValue{ AzFloatValue_create(120.0f) }),
-                                AzStyleFilter_contrast(AzPercentageValue{ AzFloatValue_create(80.0f) }),
-                            }.data(),
-                            2
-                        )
-                    }; return v; }()
-                )
-            ),
-            AzCssPropertyWithConditions_simple(
                 AzCssProperty_backgroundContent(
                     AzStyleBackgroundContentVec_copyFromPtr(
                         std::vector<AzStyleBackgroundContent>{
@@ -49,6 +35,19 @@ inline AzCssPropertyWithConditionsVec style_hero() {
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop(AzStyleBoxShadow{ AzPixelValueNoPercent{ AzPixelValue_px(0.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(4.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(12.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(2.0f) }, AzBoxShadowClipMode_Outset, AzColorU{ 0, 0, 0, 77 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowBottom(AzStyleBoxShadow{ AzPixelValueNoPercent{ AzPixelValue_px(0.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(4.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(12.0f) }, AzPixelValueNoPercent{ AzPixelValue_px(2.0f) }, AzBoxShadowClipMode_Outset, AzColorU{ 0, 0, 0, 77 } })),
             AzCssPropertyWithConditions_simple(
+                AzCssProperty_transform(
+                    AzStyleTransformVec_copyFromPtr(
+                        std::vector<AzStyleTransform>{
+                            AzStyleTransform_translate(AzStyleTransformTranslate2D{ AzPixelValue_px(10.0f), AzPixelValue_px(20.0f) }),
+                            AzStyleTransform_rotate(AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(45.0f) }),
+                            AzStyleTransform_scale(AzStyleTransformScale2D{ AzFloatValue_create(1.5f), AzFloatValue_create(1.5f) }),
+                            AzStyleTransform_skew(AzStyleTransformSkew2D{ AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(10.0f) }, AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(5.0f) } }),
+                        }.data(),
+                        4
+                    )
+                )
+            ),
+            AzCssPropertyWithConditions_simple(
                 AzCssProperty_filter(
                     []{ AzStyleFilterVecValue v{}; v.Exact = AzStyleFilterVecValueVariant_Exact{
                         AzStyleFilterVecValue_Tag_Exact,
@@ -64,16 +63,17 @@ inline AzCssPropertyWithConditionsVec style_hero() {
                 )
             ),
             AzCssPropertyWithConditions_simple(
-                AzCssProperty_transform(
-                    AzStyleTransformVec_copyFromPtr(
-                        std::vector<AzStyleTransform>{
-                            AzStyleTransform_translate(AzStyleTransformTranslate2D{ AzPixelValue_px(10.0f), AzPixelValue_px(20.0f) }),
-                            AzStyleTransform_rotate(AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(45.0f) }),
-                            AzStyleTransform_scale(AzStyleTransformScale2D{ AzFloatValue_create(1.5f), AzFloatValue_create(1.5f) }),
-                            AzStyleTransform_skew(AzStyleTransformSkew2D{ AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(10.0f) }, AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(5.0f) } }),
-                        }.data(),
-                        4
-                    )
+                AzCssProperty_backdropFilter(
+                    []{ AzStyleFilterVecValue v{}; v.Exact = AzStyleFilterVecValueVariant_Exact{
+                        AzStyleFilterVecValue_Tag_Exact,
+                        AzStyleFilterVec_copyFromPtr(
+                            std::vector<AzStyleFilter>{
+                                AzStyleFilter_brightness(AzPercentageValue{ AzFloatValue_create(120.0f) }),
+                                AzStyleFilter_contrast(AzPercentageValue{ AzFloatValue_create(80.0f) }),
+                            }.data(),
+                            2
+                        )
+                    }; return v; }()
                 )
             ),
         }.data(),
@@ -151,9 +151,9 @@ inline AzCssPropertyWithConditionsVec style_photo() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_image(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("images/photo.png"), 0, 16)) }.data(), 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(std::vector<AzStyleBackgroundSize>{ AzStyleBackgroundSize_cover() }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(std::vector<AzStyleBackgroundPosition>{ AzStyleBackgroundPosition{ AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center() } }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(std::vector<AzStyleBackgroundRepeat>{ AzStyleBackgroundRepeat_NoRepeat }.data(), 1))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(std::vector<AzStyleBackgroundSize>{ AzStyleBackgroundSize_cover() }.data(), 1))),
         }.data(),
         4
     );
@@ -163,7 +163,6 @@ inline AzCssPropertyWithConditionsVec style_photo() {
 inline AzCssPropertyWithConditionsVec style_caption() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"say \\\"hi\\\" \\\\ bye\""), 0, 19) })),
             AzCssPropertyWithConditions_simple(
                 AzCssProperty_fontFamily(
                     AzStyleFontFamilyVec_copyFromPtr(
@@ -175,6 +174,7 @@ inline AzCssPropertyWithConditionsVec style_caption() {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"say \\\"hi\\\" \\\\ bye\""), 0, 19) })),
         }.data(),
         2
     );

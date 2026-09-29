@@ -7,10 +7,10 @@ def _with(value, **fields):
     return value
 
 # CSS: .hero
-# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFilterVec of 2+ items (only create() / from_item())
 # dropped a value these bindings cannot build: the Python bindings cannot build a NormalizedLinearColorStopVec of 2+ items (only create() / from_item())
-# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFilterVec of 2+ items (only create() / from_item())
 # dropped a value these bindings cannot build: the Python bindings cannot build a StyleTransformVec of 2+ items (only create() / from_item())
+# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFilterVec of 2+ items (only create() / from_item())
+# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFilterVec of 2+ items (only create() / from_item())
 def style_hero():
     return [
         CssPropertyWithConditions.simple(CssProperty.box_shadow_left(_with(StyleBoxShadow.default(), offset_x=_with(PixelValueNoPercent.default(), inner=PixelValue.px(0.0)), offset_y=_with(PixelValueNoPercent.default(), inner=PixelValue.px(4.0)), blur_radius=_with(PixelValueNoPercent.default(), inner=PixelValue.px(12.0)), spread_radius=_with(PixelValueNoPercent.default(), inner=PixelValue.px(2.0)), clip_mode=BoxShadowClipMode.Outset, color=_with(ColorU.default(), r=0, g=0, b=0, a=77)))),
@@ -33,9 +33,9 @@ def style_dial():
 # dropped a value these bindings cannot build: StyleBackgroundContent.Image has a String payload, which the Python bindings do not expose
 def style_photo():
     return [
+        CssPropertyWithConditions.simple(CssProperty.background_size(StyleBackgroundSizeVec.from_item(StyleBackgroundSize.Cover()))),
         CssPropertyWithConditions.simple(CssProperty.background_position(StyleBackgroundPositionVec.from_item(_with(StyleBackgroundPosition.default(), horizontal=BackgroundPositionHorizontal.Center(), vertical=BackgroundPositionVertical.Center())))),
         CssPropertyWithConditions.simple(CssProperty.background_repeat(StyleBackgroundRepeatVec.from_item(StyleBackgroundRepeat.NoRepeat))),
-        CssPropertyWithConditions.simple(CssProperty.background_size(StyleBackgroundSizeVec.from_item(StyleBackgroundSize.Cover()))),
     ]
 
 # CSS: .caption

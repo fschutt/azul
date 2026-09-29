@@ -9,22 +9,6 @@ local M = {}
 function M.style_hero()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[8]', {
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_backdropFilter(
-                ffi.new(
-                    'AzStyleFilterVecValue',
-                    {
-                        Exact = {
-                            tag = 6,
-                            payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[2]', {
-                                C.AzStyleFilter_brightness(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(120.0) })),
-                                C.AzStyleFilter_contrast(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(80.0) })),
-                            }), 2)
-                        }
-                    }
-                )
-            )
-        ),
-        C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_backgroundContent(
                 C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', {
                     C.AzStyleBackgroundContent_linearGradient(
@@ -49,6 +33,16 @@ function M.style_hero()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowTop(ffi.new('AzStyleBoxShadow', { offset_x = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(0.0) }), offset_y = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(4.0) }), blur_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(12.0) }), spread_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(2.0) }), clip_mode = C.AzBoxShadowClipMode_Outset, color = ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 77 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowBottom(ffi.new('AzStyleBoxShadow', { offset_x = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(0.0) }), offset_y = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(4.0) }), blur_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(12.0) }), spread_radius = ffi.new('AzPixelValueNoPercent', { inner = C.AzPixelValue_px(2.0) }), clip_mode = C.AzBoxShadowClipMode_Outset, color = ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 77 }) }))),
         C.AzCssPropertyWithConditions_simple(
+            C.AzCssProperty_transform(
+                C.AzStyleTransformVec_copyFromPtr(ffi.new('AzStyleTransform[4]', {
+                    C.AzStyleTransform_translate(ffi.new('AzStyleTransformTranslate2D', { x = C.AzPixelValue_px(10.0), y = C.AzPixelValue_px(20.0) })),
+                    C.AzStyleTransform_rotate(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(45.0) })),
+                    C.AzStyleTransform_scale(ffi.new('AzStyleTransformScale2D', { x = C.AzFloatValue_create(1.5), y = C.AzFloatValue_create(1.5) })),
+                    C.AzStyleTransform_skew(ffi.new('AzStyleTransformSkew2D', { x = ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(10.0) }), y = ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(5.0) }) })),
+                }), 4)
+            )
+        ),
+        C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_filter(
                 ffi.new(
                     'AzStyleFilterVecValue',
@@ -66,13 +60,19 @@ function M.style_hero()
             )
         ),
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_transform(
-                C.AzStyleTransformVec_copyFromPtr(ffi.new('AzStyleTransform[4]', {
-                    C.AzStyleTransform_translate(ffi.new('AzStyleTransformTranslate2D', { x = C.AzPixelValue_px(10.0), y = C.AzPixelValue_px(20.0) })),
-                    C.AzStyleTransform_rotate(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(45.0) })),
-                    C.AzStyleTransform_scale(ffi.new('AzStyleTransformScale2D', { x = C.AzFloatValue_create(1.5), y = C.AzFloatValue_create(1.5) })),
-                    C.AzStyleTransform_skew(ffi.new('AzStyleTransformSkew2D', { x = ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(10.0) }), y = ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(5.0) }) })),
-                }), 4)
+            C.AzCssProperty_backdropFilter(
+                ffi.new(
+                    'AzStyleFilterVecValue',
+                    {
+                        Exact = {
+                            tag = 6,
+                            payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[2]', {
+                                C.AzStyleFilter_brightness(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(120.0) })),
+                                C.AzStyleFilter_contrast(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(80.0) })),
+                            }), 2)
+                        }
+                    }
+                )
             )
         ),
     }), 8)
@@ -135,16 +135,15 @@ end
 function M.style_photo()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[4]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_image(azul._az_string("images/photo.png")) }), 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
     }), 4)
 end
 
 -- CSS: .caption
 function M.style_caption()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[2]', {
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(ffi.new('AzContent', { inner = azul._az_string("\"say \\\"hi\\\" \\\\ bye\"") }))),
         C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_fontFamily(
                 C.AzStyleFontFamilyVec_copyFromPtr(ffi.new('AzStyleFontFamily[2]', {
@@ -153,6 +152,7 @@ function M.style_caption()
                 }), 2)
             )
         ),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(ffi.new('AzContent', { inner = azul._az_string("\"say \\\"hi\\\" \\\\ bye\"") }))),
     }), 2)
 end
 

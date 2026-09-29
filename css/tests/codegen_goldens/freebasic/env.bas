@@ -2,13 +2,13 @@
 #include once "azul.bi"
 
 ' CSS: .bar
-' `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 ' `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+' `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 Function StyleBar() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 3) As AzCssPropertyWithConditions
-    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(204, 204, 204, 255))))
-    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 102, 0, 255))))
-    t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(Type<AzLayoutPaddingBottom>(AzPixelValue_px(0.0))))
-    t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(Type<AzLayoutPaddingTop>(AzPixelValue_px(8.0))))
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 102, 0, 255))))
+    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(Type<AzStyleBorderTopColor>(Type<AzColorU>(204, 204, 204, 255))))
+    t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(Type<AzLayoutPaddingTop>(AzPixelValue_px(8.0))))
+    t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(Type<AzLayoutPaddingBottom>(AzPixelValue_px(0.0))))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 4)
 End Function

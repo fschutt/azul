@@ -22,16 +22,16 @@
       (funcall copy-fn arr n))))
 
 ;; CSS: .bar
-;; `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 ;; `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+;; `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 (defun style-bar ()
   (css-vec
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-border-top-color (list 'azul-internal::inner (list 'azul-internal::r 204 'azul-internal::g 204 'azul-internal::b 204 'azul-internal::a 255))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-text-color (list 'azul-internal::inner (list 'azul-internal::r 255 'azul-internal::g 102 'azul-internal::b 0 'azul-internal::a 255))))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-padding-bottom (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.0))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-border-top-color (list 'azul-internal::inner (list 'azul-internal::r 204 'azul-internal::g 204 'azul-internal::b 204 'azul-internal::a 255))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-padding-top (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 8.0))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-padding-bottom (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.0))))
     )
   ))

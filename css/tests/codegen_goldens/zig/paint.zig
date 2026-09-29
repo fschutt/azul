@@ -6,19 +6,6 @@ const C = azul.C;
 pub fn styleHero() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_backdropFilter(
-                C.AzStyleFilterVecValue{
-                    .Exact = .{
-                        .tag = 6,
-                        .payload = C.AzStyleFilterVec_copyFromPtr(&[_]C.AzStyleFilter{
-                            C.AzStyleFilter_brightness(C.AzPercentageValue{ .number = C.AzFloatValue_create(120.0) }),
-                            C.AzStyleFilter_contrast(C.AzPercentageValue{ .number = C.AzFloatValue_create(80.0) }),
-                        }, 2)
-                    }
-                }
-            )
-        ),
-        C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_backgroundContent(
                 C.AzStyleBackgroundContentVec_copyFromPtr(&[_]C.AzStyleBackgroundContent{
                     C.AzStyleBackgroundContent_linearGradient(
@@ -40,6 +27,16 @@ pub fn styleHero() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowTop(C.AzStyleBoxShadow{ .offset_x = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(0.0) }, .offset_y = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(4.0) }, .blur_radius = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(12.0) }, .spread_radius = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(2.0) }, .clip_mode = C.AzBoxShadowClipMode_Outset, .color = C.AzColorU{ .r = 0, .g = 0, .b = 0, .a = 77 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxShadowBottom(C.AzStyleBoxShadow{ .offset_x = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(0.0) }, .offset_y = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(4.0) }, .blur_radius = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(12.0) }, .spread_radius = C.AzPixelValueNoPercent{ .inner = C.AzPixelValue_px(2.0) }, .clip_mode = C.AzBoxShadowClipMode_Outset, .color = C.AzColorU{ .r = 0, .g = 0, .b = 0, .a = 77 } })),
         C.AzCssPropertyWithConditions_simple(
+            C.AzCssProperty_transform(
+                C.AzStyleTransformVec_copyFromPtr(&[_]C.AzStyleTransform{
+                    C.AzStyleTransform_translate(C.AzStyleTransformTranslate2D{ .x = C.AzPixelValue_px(10.0), .y = C.AzPixelValue_px(20.0) }),
+                    C.AzStyleTransform_rotate(C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(45.0) }),
+                    C.AzStyleTransform_scale(C.AzStyleTransformScale2D{ .x = C.AzFloatValue_create(1.5), .y = C.AzFloatValue_create(1.5) }),
+                    C.AzStyleTransform_skew(C.AzStyleTransformSkew2D{ .x = C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(10.0) }, .y = C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(5.0) } }),
+                }, 4)
+            )
+        ),
+        C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_filter(
                 C.AzStyleFilterVecValue{
                     .Exact = .{
@@ -54,13 +51,16 @@ pub fn styleHero() C.AzCssPropertyWithConditionsVec {
             )
         ),
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_transform(
-                C.AzStyleTransformVec_copyFromPtr(&[_]C.AzStyleTransform{
-                    C.AzStyleTransform_translate(C.AzStyleTransformTranslate2D{ .x = C.AzPixelValue_px(10.0), .y = C.AzPixelValue_px(20.0) }),
-                    C.AzStyleTransform_rotate(C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(45.0) }),
-                    C.AzStyleTransform_scale(C.AzStyleTransformScale2D{ .x = C.AzFloatValue_create(1.5), .y = C.AzFloatValue_create(1.5) }),
-                    C.AzStyleTransform_skew(C.AzStyleTransformSkew2D{ .x = C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(10.0) }, .y = C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(5.0) } }),
-                }, 4)
+            C.AzCssProperty_backdropFilter(
+                C.AzStyleFilterVecValue{
+                    .Exact = .{
+                        .tag = 6,
+                        .payload = C.AzStyleFilterVec_copyFromPtr(&[_]C.AzStyleFilter{
+                            C.AzStyleFilter_brightness(C.AzPercentageValue{ .number = C.AzFloatValue_create(120.0) }),
+                            C.AzStyleFilter_contrast(C.AzPercentageValue{ .number = C.AzFloatValue_create(80.0) }),
+                        }, 2)
+                    }
+                }
             )
         ),
     }, 8);
@@ -117,16 +117,15 @@ pub fn styleDial() C.AzCssPropertyWithConditionsVec {
 pub fn stylePhoto() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(&[_]C.AzStyleBackgroundContent{ C.AzStyleBackgroundContent_image(C.AzString_copyFromBytes("images/photo.png", 0, 16)) }, 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(&[_]C.AzStyleBackgroundSize{ C.AzStyleBackgroundSize_cover() }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(&[_]C.AzStyleBackgroundPosition{ C.AzStyleBackgroundPosition{ .horizontal = C.AzBackgroundPositionHorizontal_center(), .vertical = C.AzBackgroundPositionVertical_center() } }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(&[_]C.AzStyleBackgroundRepeat{ C.AzStyleBackgroundRepeat_NoRepeat }, 1))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(&[_]C.AzStyleBackgroundSize{ C.AzStyleBackgroundSize_cover() }, 1))),
     }, 4);
 }
 
 // CSS: .caption
 pub fn styleCaption() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(C.AzContent{ .inner = C.AzString_copyFromBytes("\"say \\\"hi\\\" \\\\ bye\"", 0, 19) })),
         C.AzCssPropertyWithConditions_simple(
             C.AzCssProperty_fontFamily(
                 C.AzStyleFontFamilyVec_copyFromPtr(&[_]C.AzStyleFontFamily{
@@ -135,5 +134,6 @@ pub fn styleCaption() C.AzCssPropertyWithConditionsVec {
                 }, 2)
             )
         ),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_content(C.AzContent{ .inner = C.AzString_copyFromBytes("\"say \\\"hi\\\" \\\\ bye\"", 0, 19) })),
     }, 2);
 }

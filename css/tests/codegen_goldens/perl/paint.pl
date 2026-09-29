@@ -13,10 +13,10 @@ sub css_str {
 }
 
 # CSS: .hero
-# dropped a value these bindings cannot build: `StyleFilterVecValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: the Perl bindings cannot build a NormalizedLinearColorStopVec of 2+ items (only create() / fromItem())
-# dropped a value these bindings cannot build: `StyleFilterVecValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: the Perl bindings cannot build a StyleTransformVec of 2+ items (only create() / fromItem())
+# dropped a value these bindings cannot build: `StyleFilterVecValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFilterVecValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 sub style_hero {
     return [
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_boxShadowLeft(Azul::AzStyleBoxShadow->new(offset_x => ${ Azul::AzPixelValueNoPercent->new(inner => ${ Azul::FFI::AzPixelValue_px(0.0) }) }, offset_y => ${ Azul::AzPixelValueNoPercent->new(inner => ${ Azul::FFI::AzPixelValue_px(4.0) }) }, blur_radius => ${ Azul::AzPixelValueNoPercent->new(inner => ${ Azul::FFI::AzPixelValue_px(12.0) }) }, spread_radius => ${ Azul::AzPixelValueNoPercent->new(inner => ${ Azul::FFI::AzPixelValue_px(2.0) }) }, clip_mode => Azul::AzBoxShadowClipMode::Outset(), color => ${ Azul::AzColorU->new(r => 0, g => 0, b => 0, a => 77) }))),
@@ -42,9 +42,9 @@ sub style_dial {
 sub style_photo {
     return [
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundContent(Azul::FFI::AzStyleBackgroundContentVec_fromItem(Azul::FFI::AzStyleBackgroundContent_image(css_str("images/photo.png"))))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundSize(Azul::FFI::AzStyleBackgroundSizeVec_fromItem(Azul::FFI::AzStyleBackgroundSize_cover()))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundPosition(Azul::FFI::AzStyleBackgroundPositionVec_fromItem(Azul::AzStyleBackgroundPosition->new(horizontal => ${ Azul::FFI::AzBackgroundPositionHorizontal_center() }, vertical => ${ Azul::FFI::AzBackgroundPositionVertical_center() })))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundRepeat(Azul::FFI::AzStyleBackgroundRepeatVec_fromItem(Azul::AzStyleBackgroundRepeat::NoRepeat()))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundSize(Azul::FFI::AzStyleBackgroundSizeVec_fromItem(Azul::FFI::AzStyleBackgroundSize_cover()))),
     ];
 }
 

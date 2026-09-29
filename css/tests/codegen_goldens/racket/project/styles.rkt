@@ -23,12 +23,12 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
+      (css-property-with-conditions-simple (css-property-width (layout-width-px (pixel-value-px 100.0))))
       (css-property-with-conditions-simple (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 0 0 255))))
       (css-property-with-conditions-simple (css-property-display AzLayoutDisplay_Flex))
       (css-property-with-conditions-simple (css-property-flex-grow (make-AzLayoutFlexGrow (float-value-create 1.0))))
       (css-property-with-conditions-simple (css-property-inherit AzCssPropertyType_MinWidth))
       (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue _AzStyleWhiteSpaceValue_Variant_Exact (make-AzStyleWhiteSpaceValue_Variant_Exact AzStyleWhiteSpaceValue_Tag_Exact AzStyleWhiteSpace_Nowrap))))
-      (css-property-with-conditions-simple (css-property-width (layout-width-px (pixel-value-px 100.0))))
       (css-property-with-conditions-on-hover (css-property-font-weight AzStyleFontWeight_Bold))
     )
   ))

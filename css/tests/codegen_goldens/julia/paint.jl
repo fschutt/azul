@@ -20,22 +20,6 @@ function style_hero()
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
         Azul.AzCssPropertyWithConditions_simple(
-            Azul.AzCssProperty_backdropFilter(
-                az_union(
-                    Azul.AzStyleFilterVecValue,
-                    Azul.AzStyleFilterVecValueVariant_Exact(
-                        UInt8(6),
-                        az_vec(
-                            Azul.AzStyleFilterVec_copyFromPtr,
-                            Azul.AzStyleFilter,
-                            Azul.AzStyleFilter_brightness(Azul.AzPercentageValue(Azul.AzFloatValue_create(120.0f0))),
-                            Azul.AzStyleFilter_contrast(Azul.AzPercentageValue(Azul.AzFloatValue_create(80.0f0)))
-                        )
-                    )
-                )
-            )
-        ),
-        Azul.AzCssPropertyWithConditions_simple(
             Azul.AzCssProperty_backgroundContent(
                 az_vec(
                     Azul.AzStyleBackgroundContentVec_copyFromPtr,
@@ -61,6 +45,18 @@ function style_hero()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxShadowTop(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(12.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 77)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxShadowBottom(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(12.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 77)))),
         Azul.AzCssPropertyWithConditions_simple(
+            Azul.AzCssProperty_transform(
+                az_vec(
+                    Azul.AzStyleTransformVec_copyFromPtr,
+                    Azul.AzStyleTransform,
+                    Azul.AzStyleTransform_translate(Azul.AzStyleTransformTranslate2D(Azul.AzPixelValue_px(10.0f0), Azul.AzPixelValue_px(20.0f0))),
+                    Azul.AzStyleTransform_rotate(Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(45.0f0))),
+                    Azul.AzStyleTransform_scale(Azul.AzStyleTransformScale2D(Azul.AzFloatValue_create(1.5f0), Azul.AzFloatValue_create(1.5f0))),
+                    Azul.AzStyleTransform_skew(Azul.AzStyleTransformSkew2D(Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(10.0f0)), Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(5.0f0))))
+                )
+            )
+        ),
+        Azul.AzCssPropertyWithConditions_simple(
             Azul.AzCssProperty_filter(
                 az_union(
                     Azul.AzStyleFilterVecValue,
@@ -78,14 +74,18 @@ function style_hero()
             )
         ),
         Azul.AzCssPropertyWithConditions_simple(
-            Azul.AzCssProperty_transform(
-                az_vec(
-                    Azul.AzStyleTransformVec_copyFromPtr,
-                    Azul.AzStyleTransform,
-                    Azul.AzStyleTransform_translate(Azul.AzStyleTransformTranslate2D(Azul.AzPixelValue_px(10.0f0), Azul.AzPixelValue_px(20.0f0))),
-                    Azul.AzStyleTransform_rotate(Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(45.0f0))),
-                    Azul.AzStyleTransform_scale(Azul.AzStyleTransformScale2D(Azul.AzFloatValue_create(1.5f0), Azul.AzFloatValue_create(1.5f0))),
-                    Azul.AzStyleTransform_skew(Azul.AzStyleTransformSkew2D(Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(10.0f0)), Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(5.0f0))))
+            Azul.AzCssProperty_backdropFilter(
+                az_union(
+                    Azul.AzStyleFilterVecValue,
+                    Azul.AzStyleFilterVecValueVariant_Exact(
+                        UInt8(6),
+                        az_vec(
+                            Azul.AzStyleFilterVec_copyFromPtr,
+                            Azul.AzStyleFilter,
+                            Azul.AzStyleFilter_brightness(Azul.AzPercentageValue(Azul.AzFloatValue_create(120.0f0))),
+                            Azul.AzStyleFilter_contrast(Azul.AzPercentageValue(Azul.AzFloatValue_create(80.0f0)))
+                        )
+                    )
                 )
             )
         )
@@ -157,9 +157,9 @@ function style_photo()
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundContent(az_vec(Azul.AzStyleBackgroundContentVec_copyFromPtr, Azul.AzStyleBackgroundContent, Azul.AzStyleBackgroundContent_image(Azul.az_string("images/photo.png"))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundSize(az_vec(Azul.AzStyleBackgroundSizeVec_copyFromPtr, Azul.AzStyleBackgroundSize, Azul.AzStyleBackgroundSize_cover()))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundPosition(az_vec(Azul.AzStyleBackgroundPositionVec_copyFromPtr, Azul.AzStyleBackgroundPosition, Azul.AzStyleBackgroundPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_center())))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundRepeat(az_vec(Azul.AzStyleBackgroundRepeatVec_copyFromPtr, Azul.AzStyleBackgroundRepeat, Azul.AzStyleBackgroundRepeat_NoRepeat))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundSize(az_vec(Azul.AzStyleBackgroundSizeVec_copyFromPtr, Azul.AzStyleBackgroundSize, Azul.AzStyleBackgroundSize_cover())))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundRepeat(az_vec(Azul.AzStyleBackgroundRepeatVec_copyFromPtr, Azul.AzStyleBackgroundRepeat, Azul.AzStyleBackgroundRepeat_NoRepeat)))
     )
 end
 
@@ -168,7 +168,6 @@ function style_caption()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_content(Azul.AzContent(Azul.az_string("\"say \\\"hi\\\" \\\\ bye\"")))),
         Azul.AzCssPropertyWithConditions_simple(
             Azul.AzCssProperty_fontFamily(
                 az_vec(
@@ -178,6 +177,7 @@ function style_caption()
                     Azul.AzStyleFontFamily_system(Azul.az_string("monospace"))
                 )
             )
-        )
+        ),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_content(Azul.AzContent(Azul.az_string("\"say \\\"hi\\\" \\\\ bye\""))))
     )
 end

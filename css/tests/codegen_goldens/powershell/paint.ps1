@@ -37,19 +37,6 @@ function New-CssString([string]$S) {
 function Get-StyleHero {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
-            [Azul.NativeMethods]::AzCssProperty_backdropFilter(
-                [Azul.AzStyleFilterVecValue]@{
-                    Exact = [Azul.AzStyleFilterVecValueVariant_Exact]@{
-                        tag = [Azul.AzStyleFilterVecValue_Tag]::Exact;
-                        payload = (New-CssVec 'AzStyleFilterVec_copyFromPtr' ([Azul.AzStyleFilter]) @(
-                            [Azul.NativeMethods]::AzStyleFilter_brightness([Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]120.0) }),
-                            [Azul.NativeMethods]::AzStyleFilter_contrast([Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]80.0) })
-                        ))
-                    }
-                }
-            )
-        ),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
             [Azul.NativeMethods]::AzCssProperty_backgroundContent(
                 (New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @(
                     [Azul.NativeMethods]::AzStyleBackgroundContent_linearGradient(
@@ -71,6 +58,16 @@ function Get-StyleHero {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_boxShadowTop([Azul.AzStyleBoxShadow]@{ offset_x = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]0.0) }; offset_y = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]4.0) }; blur_radius = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]12.0) }; spread_radius = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]2.0) }; clip_mode = [Azul.BoxShadowClipMode]::Outset; color = [Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]77 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_boxShadowBottom([Azul.AzStyleBoxShadow]@{ offset_x = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]0.0) }; offset_y = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]4.0) }; blur_radius = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]12.0) }; spread_radius = [Azul.AzPixelValueNoPercent]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]2.0) }; clip_mode = [Azul.BoxShadowClipMode]::Outset; color = [Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]77 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
+            [Azul.NativeMethods]::AzCssProperty_transform(
+                (New-CssVec 'AzStyleTransformVec_copyFromPtr' ([Azul.AzStyleTransform]) @(
+                    [Azul.NativeMethods]::AzStyleTransform_translate([Azul.AzStyleTransformTranslate2D]@{ x = [Azul.NativeMethods]::AzPixelValue_px([float]10.0); y = [Azul.NativeMethods]::AzPixelValue_px([float]20.0) }),
+                    [Azul.NativeMethods]::AzStyleTransform_rotate([Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]45.0) }),
+                    [Azul.NativeMethods]::AzStyleTransform_scale([Azul.AzStyleTransformScale2D]@{ x = [Azul.NativeMethods]::AzFloatValue_create([float]1.5); y = [Azul.NativeMethods]::AzFloatValue_create([float]1.5) }),
+                    [Azul.NativeMethods]::AzStyleTransform_skew([Azul.AzStyleTransformSkew2D]@{ x = [Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]10.0) }; y = [Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]5.0) } })
+                ))
+            )
+        ),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
             [Azul.NativeMethods]::AzCssProperty_filter(
                 [Azul.AzStyleFilterVecValue]@{
                     Exact = [Azul.AzStyleFilterVecValueVariant_Exact]@{
@@ -85,13 +82,16 @@ function Get-StyleHero {
             )
         ),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
-            [Azul.NativeMethods]::AzCssProperty_transform(
-                (New-CssVec 'AzStyleTransformVec_copyFromPtr' ([Azul.AzStyleTransform]) @(
-                    [Azul.NativeMethods]::AzStyleTransform_translate([Azul.AzStyleTransformTranslate2D]@{ x = [Azul.NativeMethods]::AzPixelValue_px([float]10.0); y = [Azul.NativeMethods]::AzPixelValue_px([float]20.0) }),
-                    [Azul.NativeMethods]::AzStyleTransform_rotate([Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]45.0) }),
-                    [Azul.NativeMethods]::AzStyleTransform_scale([Azul.AzStyleTransformScale2D]@{ x = [Azul.NativeMethods]::AzFloatValue_create([float]1.5); y = [Azul.NativeMethods]::AzFloatValue_create([float]1.5) }),
-                    [Azul.NativeMethods]::AzStyleTransform_skew([Azul.AzStyleTransformSkew2D]@{ x = [Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]10.0) }; y = [Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]5.0) } })
-                ))
+            [Azul.NativeMethods]::AzCssProperty_backdropFilter(
+                [Azul.AzStyleFilterVecValue]@{
+                    Exact = [Azul.AzStyleFilterVecValueVariant_Exact]@{
+                        tag = [Azul.AzStyleFilterVecValue_Tag]::Exact;
+                        payload = (New-CssVec 'AzStyleFilterVec_copyFromPtr' ([Azul.AzStyleFilter]) @(
+                            [Azul.NativeMethods]::AzStyleFilter_brightness([Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]120.0) }),
+                            [Azul.NativeMethods]::AzStyleFilter_contrast([Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]80.0) })
+                        ))
+                    }
+                }
             )
         )
     ))
@@ -148,16 +148,15 @@ function Get-StyleDial {
 function Get-StylePhoto {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundContent((New-CssVec 'AzStyleBackgroundContentVec_copyFromPtr' ([Azul.AzStyleBackgroundContent]) @([Azul.NativeMethods]::AzStyleBackgroundContent_image((New-CssString 'images/photo.png')))))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundSize((New-CssVec 'AzStyleBackgroundSizeVec_copyFromPtr' ([Azul.AzStyleBackgroundSize]) @([Azul.NativeMethods]::AzStyleBackgroundSize_cover())))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundPosition((New-CssVec 'AzStyleBackgroundPositionVec_copyFromPtr' ([Azul.AzStyleBackgroundPosition]) @([Azul.AzStyleBackgroundPosition]@{ horizontal = [Azul.NativeMethods]::AzBackgroundPositionHorizontal_center(); vertical = [Azul.NativeMethods]::AzBackgroundPositionVertical_center() })))),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundRepeat((New-CssVec 'AzStyleBackgroundRepeatVec_copyFromPtr' ([Azul.StyleBackgroundRepeat]) @([Azul.StyleBackgroundRepeat]::NoRepeat)))),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundSize((New-CssVec 'AzStyleBackgroundSizeVec_copyFromPtr' ([Azul.AzStyleBackgroundSize]) @([Azul.NativeMethods]::AzStyleBackgroundSize_cover()))))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_backgroundRepeat((New-CssVec 'AzStyleBackgroundRepeatVec_copyFromPtr' ([Azul.StyleBackgroundRepeat]) @([Azul.StyleBackgroundRepeat]::NoRepeat))))
     ))
 }
 
 # CSS: .caption
 function Get-StyleCaption {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_content([Azul.AzContent]@{ inner = (New-CssString '"say \"hi\" \\ bye"') })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
             [Azul.NativeMethods]::AzCssProperty_fontFamily(
                 (New-CssVec 'AzStyleFontFamilyVec_copyFromPtr' ([Azul.AzStyleFontFamily]) @(
@@ -165,6 +164,7 @@ function Get-StyleCaption {
                     [Azul.NativeMethods]::AzStyleFontFamily_system((New-CssString 'monospace'))
                 ))
             )
-        )
+        ),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_content([Azul.AzContent]@{ inner = (New-CssString '"say \"hi\" \\ bye"') }))
     ))
 }

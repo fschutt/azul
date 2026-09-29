@@ -5,11 +5,11 @@
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleWhiteSpaceValue` (or for the CssPropertyValue<T> in its payload)
 Function StyleBtn() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 5) As AzCssPropertyWithConditions
-    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 0, 0, 255))))
-    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Flex))
-    t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(Type<AzLayoutFlexGrow>(AzFloatValue_create(1.0))))
-    t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth))
-    t1(4) = AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0))))
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0))))
+    t1(1) = AzCssPropertyWithConditions_simple(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 0, 0, 255))))
+    t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Flex))
+    t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(Type<AzLayoutFlexGrow>(AzFloatValue_create(1.0))))
+    t1(4) = AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth))
     t1(5) = AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 6)
 End Function

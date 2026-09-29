@@ -15,15 +15,15 @@ function az_union(::Type{U}, variant) where {U}
 end
 
 # CSS: .bar
-# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 # `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 function style_bar()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_borderTopColor(Azul.AzStyleBorderTopColor(Azul.AzColorU(204, 204, 204, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textColor(Azul.AzStyleTextColor(Azul.AzColorU(255, 102, 0, 255)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingBottom(Azul.AzLayoutPaddingBottom(Azul.AzPixelValue_px(0.0f0)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingTop(Azul.AzLayoutPaddingTop(Azul.AzPixelValue_px(8.0f0))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_borderTopColor(Azul.AzStyleBorderTopColor(Azul.AzColorU(204, 204, 204, 255)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingTop(Azul.AzLayoutPaddingTop(Azul.AzPixelValue_px(8.0f0)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingBottom(Azul.AzLayoutPaddingBottom(Azul.AzPixelValue_px(0.0f0))))
     )
 end

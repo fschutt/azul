@@ -8,15 +8,15 @@ inline AzCssPropertyWithConditionsVec style_azul_native_button() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
             AzCssPropertyWithConditions_onHover(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_color(AzColorU{ 241, 243, 245, 255 }) }.data(), 1))),
+            AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 173, 181, 189, 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor{ AzColorU{ 173, 181, 189, 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor{ AzColorU{ 173, 181, 189, 255 } })),
             AzCssPropertyWithConditions_onHover(AzCssProperty_borderRightColor(AzStyleBorderRightColor{ AzColorU{ 173, 181, 189, 255 } })),
-            AzCssPropertyWithConditions_onHover(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 173, 181, 189, 255 } })),
             AzCssPropertyWithConditions_onActive(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_color(AzColorU{ 222, 226, 230, 255 }) }.data(), 1))),
+            AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 13, 110, 253, 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor{ AzColorU{ 13, 110, 253, 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor{ AzColorU{ 13, 110, 253, 255 } })),
             AzCssPropertyWithConditions_onFocus(AzCssProperty_borderRightColor(AzStyleBorderRightColor{ AzColorU{ 13, 110, 253, 255 } })),
-            AzCssPropertyWithConditions_onFocus(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 13, 110, 253, 255 } })),
             AzCssPropertyWithConditions_withConditions(
                 AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(std::vector<AzStyleBackgroundContent>{ AzStyleBackgroundContent_color(AzColorU{ 73, 80, 87, 255 }) }.data(), 1)),
                 AzDynamicSelectorVec_copyFromPtr(

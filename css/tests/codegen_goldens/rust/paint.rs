@@ -9,16 +9,6 @@ use azul::vec::*;
 pub fn style_hero() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
         CssPropertyWithConditions::simple(
-            CssProperty::BackdropFilter(
-                StyleFilterVecValue::Exact(
-                    StyleFilterVec::from(vec![
-                        StyleFilter::Brightness(PercentageValue { number: FloatValue::create(120.0) }),
-                        StyleFilter::Contrast(PercentageValue { number: FloatValue::create(80.0) }),
-                    ])
-                )
-            )
-        ),
-        CssPropertyWithConditions::simple(
             CssProperty::background_content(
                 StyleBackgroundContentVec::from(vec![
                     StyleBackgroundContent::LinearGradient(
@@ -40,6 +30,16 @@ pub fn style_hero() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::box_shadow_top(StyleBoxShadow { offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) }, offset_y: PixelValueNoPercent { inner: PixelValue::px(4.0) }, blur_radius: PixelValueNoPercent { inner: PixelValue::px(12.0) }, spread_radius: PixelValueNoPercent { inner: PixelValue::px(2.0) }, clip_mode: BoxShadowClipMode::Outset, color: ColorU { r: 0, g: 0, b: 0, a: 77 } })),
         CssPropertyWithConditions::simple(CssProperty::box_shadow_bottom(StyleBoxShadow { offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) }, offset_y: PixelValueNoPercent { inner: PixelValue::px(4.0) }, blur_radius: PixelValueNoPercent { inner: PixelValue::px(12.0) }, spread_radius: PixelValueNoPercent { inner: PixelValue::px(2.0) }, clip_mode: BoxShadowClipMode::Outset, color: ColorU { r: 0, g: 0, b: 0, a: 77 } })),
         CssPropertyWithConditions::simple(
+            CssProperty::transform(
+                StyleTransformVec::from(vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D { x: PixelValue::px(10.0), y: PixelValue::px(20.0) }),
+                    StyleTransform::Rotate(AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(45.0) }),
+                    StyleTransform::Scale(StyleTransformScale2D { x: FloatValue::create(1.5), y: FloatValue::create(1.5) }),
+                    StyleTransform::Skew(StyleTransformSkew2D { x: AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(10.0) }, y: AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(5.0) } }),
+                ])
+            )
+        ),
+        CssPropertyWithConditions::simple(
             CssProperty::Filter(
                 StyleFilterVecValue::Exact(
                     StyleFilterVec::from(vec![
@@ -51,13 +51,13 @@ pub fn style_hero() -> CssPropertyWithConditionsVec {
             )
         ),
         CssPropertyWithConditions::simple(
-            CssProperty::transform(
-                StyleTransformVec::from(vec![
-                    StyleTransform::Translate(StyleTransformTranslate2D { x: PixelValue::px(10.0), y: PixelValue::px(20.0) }),
-                    StyleTransform::Rotate(AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(45.0) }),
-                    StyleTransform::Scale(StyleTransformScale2D { x: FloatValue::create(1.5), y: FloatValue::create(1.5) }),
-                    StyleTransform::Skew(StyleTransformSkew2D { x: AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(10.0) }, y: AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(5.0) } }),
-                ])
+            CssProperty::BackdropFilter(
+                StyleFilterVecValue::Exact(
+                    StyleFilterVec::from(vec![
+                        StyleFilter::Brightness(PercentageValue { number: FloatValue::create(120.0) }),
+                        StyleFilter::Contrast(PercentageValue { number: FloatValue::create(80.0) }),
+                    ])
+                )
             )
         ),
     ])
@@ -114,16 +114,15 @@ pub fn style_dial() -> CssPropertyWithConditionsVec {
 pub fn style_photo() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
         CssPropertyWithConditions::simple(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Image(azul::str::String::from("images/photo.png"))]))),
+        CssPropertyWithConditions::simple(CssProperty::background_size(StyleBackgroundSizeVec::from(vec![StyleBackgroundSize::Cover]))),
         CssPropertyWithConditions::simple(CssProperty::background_position(StyleBackgroundPositionVec::from(vec![StyleBackgroundPosition { horizontal: BackgroundPositionHorizontal::Center, vertical: BackgroundPositionVertical::Center }]))),
         CssPropertyWithConditions::simple(CssProperty::background_repeat(StyleBackgroundRepeatVec::from(vec![StyleBackgroundRepeat::NoRepeat]))),
-        CssPropertyWithConditions::simple(CssProperty::background_size(StyleBackgroundSizeVec::from(vec![StyleBackgroundSize::Cover]))),
     ])
 }
 
 /// CSS: .caption
 pub fn style_caption() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
-        CssPropertyWithConditions::simple(CssProperty::content(Content { inner: azul::str::String::from("\"say \\\"hi\\\" \\\\ bye\"") })),
         CssPropertyWithConditions::simple(
             CssProperty::font_family(
                 StyleFontFamilyVec::from(vec![
@@ -132,5 +131,6 @@ pub fn style_caption() -> CssPropertyWithConditionsVec {
                 ])
             )
         ),
+        CssPropertyWithConditions::simple(CssProperty::content(Content { inner: azul::str::String::from("\"say \\\"hi\\\" \\\\ bye\"") })),
     ])
 }

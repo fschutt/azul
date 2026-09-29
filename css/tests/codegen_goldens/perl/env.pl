@@ -5,14 +5,14 @@ use warnings;
 use Azul;
 
 # CSS: .bar
-# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 # `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 sub style_bar {
     return [
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 204, g => 204, b => 204, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textColor(Azul::AzStyleTextColor->new(inner => ${ Azul::AzColorU->new(r => 255, g => 102, b => 0, a => 255) }))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_paddingBottom(Azul::AzLayoutPaddingBottom->new(inner => ${ Azul::FFI::AzPixelValue_px(0.0) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 204, g => 204, b => 204, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_paddingTop(Azul::AzLayoutPaddingTop->new(inner => ${ Azul::FFI::AzPixelValue_px(8.0) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_paddingBottom(Azul::AzLayoutPaddingBottom->new(inner => ${ Azul::FFI::AzPixelValue_px(0.0) }))),
     ];
 }
 

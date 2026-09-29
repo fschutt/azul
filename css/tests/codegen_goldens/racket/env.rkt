@@ -12,16 +12,16 @@
   (copy arr n))
 
 ;; CSS: .bar
-;; `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 ;; `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+;; `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 (define (style-bar)
   (css-vec
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 204 204 204 255))))
       (css-property-with-conditions-simple (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 102 0 255))))
-      (css-property-with-conditions-simple (css-property-padding-bottom (make-AzLayoutPaddingBottom (pixel-value-px 0.0))))
+      (css-property-with-conditions-simple (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 204 204 204 255))))
       (css-property-with-conditions-simple (css-property-padding-top (make-AzLayoutPaddingTop (pixel-value-px 8.0))))
+      (css-property-with-conditions-simple (css-property-padding-bottom (make-AzLayoutPaddingBottom (pixel-value-px 0.0))))
     )
   ))

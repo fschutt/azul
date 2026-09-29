@@ -4,13 +4,13 @@ module main
 import azul
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 fn style_bar() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [4]azul.AzCssPropertyWithConditions{}
-	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{ inner: azul.AzColorU{ r: 204, g: 204, b: 204, a: 255 } }))
-	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(azul.AzStyleTextColor{ inner: azul.AzColorU{ r: 255, g: 102, b: 0, a: 255 } }))
-	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingBottom(azul.AzLayoutPaddingBottom{ inner: C.AzPixelValue_px(0.0) }))
-	t1[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingTop(azul.AzLayoutPaddingTop{ inner: C.AzPixelValue_px(8.0) }))
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(azul.AzStyleTextColor{ inner: azul.AzColorU{ r: 255, g: 102, b: 0, a: 255 } }))
+	t1[1] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_borderTopColor(azul.AzStyleBorderTopColor{ inner: azul.AzColorU{ r: 204, g: 204, b: 204, a: 255 } }))
+	t1[2] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingTop(azul.AzLayoutPaddingTop{ inner: C.AzPixelValue_px(8.0) }))
+	t1[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_paddingBottom(azul.AzLayoutPaddingBottom{ inner: C.AzPixelValue_px(0.0) }))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 4)
 }

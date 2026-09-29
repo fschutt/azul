@@ -7,12 +7,12 @@ import azul;
 CssPropertyWithConditions[] styleBtn()
 {
     return [
+        CssPropertyWithConditions.simple(CssProperty.width(LayoutWidth.px(PixelValue.px(100.0f)))),
         CssPropertyWithConditions.simple(CssProperty.textColor(StyleTextColor(ColorU(255, 0, 0, 255)))),
         CssPropertyWithConditions.simple(CssProperty.display(LayoutDisplay.flex)),
         CssPropertyWithConditions.simple(CssProperty.flexGrow(LayoutFlexGrow(FloatValue(1.0f)))),
         CssPropertyWithConditions.simple(CssProperty.inherit(CssPropertyType.minWidth)),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.nowrap))),
-        CssPropertyWithConditions.simple(CssProperty.width(LayoutWidth.px(PixelValue.px(100.0f)))),
         CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.bold)),
     ];
 }

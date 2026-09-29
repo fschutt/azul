@@ -7,12 +7,12 @@
 inline AzCssPropertyWithConditionsVec style_btn() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
+            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0f)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_textColor(AzStyleTextColor{ AzColorU{ 255, 0, 0, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Flex)),
             AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(AzLayoutFlexGrow{ AzFloatValue_create(1.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth)),
             AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace([]{ AzStyleWhiteSpaceValue v{}; v.Exact = AzStyleWhiteSpaceValueVariant_Exact{ AzStyleWhiteSpaceValue_Tag_Exact, AzStyleWhiteSpace_Nowrap }; return v; }())),
-            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0f)))),
             AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
         }.data(),
         7

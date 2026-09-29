@@ -3,138 +3,138 @@
 *> One subprogram per style: CALL "<PROGRAM-ID>" USING BY REFERENCE <result record>.
 
 *> CSS: .text
-*> dropped a value these bindings cannot build: the COBOL copybook gives `CaretWidthValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleExclusionMarginValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphenationLanguageValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `SelectionRadiusValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleInitialLetterValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineClampValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHangingPunctuationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextCombineUprightValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleUnicodeBidiValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextBoxTrimValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextBoxEdgeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDominantBaselineValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleAlignmentBaselineValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleBaselineSourceValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDirectionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDominantBaselineValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHangingPunctuationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphensValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleInitialLetterValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineFitEdgeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleInitialLetterAlignValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleInitialLetterWrapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineBreakValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineClampValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineFitEdgeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleOverflowWrapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextAlignLastValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextBoxEdgeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextBoxTrimValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextCombineUprightValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextOrientationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextOverflowValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextTransformValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleUnicodeBidiValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleWhiteSpaceValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphensValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleWordBreakValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleOverflowWrapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineBreakValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextOverflowValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextOrientationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextAlignLastValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextTransformValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDirectionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphenationLanguageValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleExclusionMarginValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `CaretWidthValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `SelectionRadiusValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 IDENTIFICATION DIVISION.
 PROGRAM-ID. STYLE-TEXT.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
 COPY "azul.cpy".
 01  t1 USAGE TYAZ-COLOR-U.
-01  t2 USAGE TYAZ-SELECTION-BACKGROUND-ec6b.
+01  t2 USAGE TYAZ-STYLE-TEXT-COLOR.
 01  t3 USAGE TYAZ-CSS-PROPERTY.
 01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t5 USAGE TYAZ-COLOR-U.
-01  t6 USAGE TYAZ-SELECTION-COLOR.
-01  t7 USAGE TYAZ-CSS-PROPERTY.
-01  t8 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t9 USAGE TYAZ-CSS-DURATION.
-01  t10 USAGE TYAZ-CARET-ANIMATION-DURATION.
-01  t11 USAGE TYAZ-CSS-PROPERTY.
-01  t12 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t13 USAGE TYAZ-COLOR-U.
-01  t14 USAGE TYAZ-CARET-COLOR.
-01  t15 USAGE TYAZ-CSS-PROPERTY.
-01  t16 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t17 USAGE TYAZ-COLOR-U.
-01  t18 USAGE TYAZ-STYLE-TEXT-COLOR.
+01  t5 USAGE FLOAT-SHORT VALUE 14.0.
+01  t6 USAGE TYAZ-PIXEL-VALUE.
+01  t7 USAGE TYAZ-STYLE-FONT-SIZE.
+01  t8 USAGE TYAZ-CSS-PROPERTY.
+01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t10.
+    05  t10-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t10-len USAGE BINARY-DOUBLE UNSIGNED VALUE 5.
+    05  t10-bytes PIC X(5) VALUE "Arial".
+01  t11 USAGE TYAZ-STRING.
+01  t12 USAGE TYAZ-STYLE-FONT-FAMILY.
+01  t13.
+    05  t13-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t13-len USAGE BINARY-DOUBLE UNSIGNED VALUE 10.
+    05  t13-bytes PIC X(10) VALUE "sans-serif".
+01  t14 USAGE TYAZ-STRING.
+01  t15 USAGE TYAZ-STYLE-FONT-FAMILY.
+01  t16.
+    05  t16-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 2 TIMES.
+01  t17 USAGE BINARY-DOUBLE UNSIGNED VALUE 2.
+01  t18 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
 01  t19 USAGE TYAZ-CSS-PROPERTY.
 01  t20 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t21.
-    05  t21-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t21-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
-    05  t21-bytes PIC X(7) VALUE "Georgia".
-01  t22 USAGE TYAZ-STRING.
-01  t23 USAGE TYAZ-STYLE-FONT-FAMILY.
-01  t24.
-    05  t24-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t24-len USAGE BINARY-DOUBLE UNSIGNED VALUE 5.
-    05  t24-bytes PIC X(5) VALUE "serif".
-01  t25 USAGE TYAZ-STRING.
-01  t26 USAGE TYAZ-STYLE-FONT-FAMILY.
-01  t27.
-    05  t27-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 2 TIMES.
-01  t28 USAGE BINARY-DOUBLE UNSIGNED VALUE 2.
-01  t29 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
+01  t21 USAGE TYAZ-CSS-PROPERTY.
+01  t22 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t23 USAGE TYAZ-CSS-PROPERTY.
+01  t24 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t25 USAGE TYAZ-CSS-PROPERTY.
+01  t26 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t27 USAGE TYAZ-CSS-PROPERTY.
+01  t28 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t29 USAGE TYAZ-STYLE-VERTICAL-ALIGN.
 01  t30 USAGE TYAZ-CSS-PROPERTY.
 01  t31 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t32.
-    05  t32-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t32-len USAGE BINARY-DOUBLE UNSIGNED VALUE 5.
-    05  t32-bytes PIC X(5) VALUE "Arial".
-01  t33 USAGE TYAZ-STRING.
-01  t34 USAGE TYAZ-STYLE-FONT-FAMILY.
-01  t35.
-    05  t35-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t35-len USAGE BINARY-DOUBLE UNSIGNED VALUE 10.
-    05  t35-bytes PIC X(10) VALUE "sans-serif".
-01  t36 USAGE TYAZ-STRING.
-01  t37 USAGE TYAZ-STYLE-FONT-FAMILY.
-01  t38.
-    05  t38-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 2 TIMES.
-01  t39 USAGE BINARY-DOUBLE UNSIGNED VALUE 2.
-01  t40 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
-01  t41 USAGE TYAZ-CSS-PROPERTY.
-01  t42 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t43 USAGE FLOAT-SHORT VALUE 14.0.
-01  t44 USAGE TYAZ-PIXEL-VALUE.
-01  t45 USAGE TYAZ-STYLE-FONT-SIZE.
+01  t32 USAGE FLOAT-SHORT VALUE 0.5.
+01  t33 USAGE TYAZ-PIXEL-VALUE.
+01  t34 USAGE TYAZ-STYLE-LETTER-SPACING.
+01  t35 USAGE TYAZ-CSS-PROPERTY.
+01  t36 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t37 USAGE FLOAT-SHORT VALUE 2.0.
+01  t38 USAGE TYAZ-PIXEL-VALUE.
+01  t39 USAGE TYAZ-STYLE-TEXT-INDENT.
+01  t40 USAGE TYAZ-CSS-PROPERTY.
+01  t41 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t42 USAGE FLOAT-SHORT VALUE 150.0.
+01  t43 USAGE TYAZ-FLOAT-VALUE.
+01  t44 USAGE TYAZ-PERCENTAGE-VALUE.
+01  t45 USAGE TYAZ-STYLE-LINE-HEIGHT.
 01  t46 USAGE TYAZ-CSS-PROPERTY.
 01  t47 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t48 USAGE TYAZ-CSS-PROPERTY.
-01  t49 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t50 USAGE TYAZ-CSS-PROPERTY.
-01  t51 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t52 USAGE FLOAT-SHORT VALUE 0.5.
-01  t53 USAGE TYAZ-PIXEL-VALUE.
-01  t54 USAGE TYAZ-STYLE-LETTER-SPACING.
-01  t55 USAGE TYAZ-CSS-PROPERTY.
-01  t56 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t57 USAGE FLOAT-SHORT VALUE 150.0.
-01  t58 USAGE TYAZ-FLOAT-VALUE.
-01  t59 USAGE TYAZ-PERCENTAGE-VALUE.
-01  t60 USAGE TYAZ-STYLE-LINE-HEIGHT.
-01  t61 USAGE TYAZ-CSS-PROPERTY.
-01  t62 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t63 USAGE FLOAT-SHORT VALUE 4.0.
-01  t64 USAGE TYAZ-PIXEL-VALUE.
-01  t65 USAGE TYAZ-STYLE-TAB-SIZE.
-01  t66 USAGE TYAZ-CSS-PROPERTY.
-01  t67 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t48 USAGE FLOAT-SHORT VALUE 4.0.
+01  t49 USAGE TYAZ-PIXEL-VALUE.
+01  t50 USAGE TYAZ-STYLE-WORD-SPACING.
+01  t51 USAGE TYAZ-CSS-PROPERTY.
+01  t52 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t53 USAGE FLOAT-SHORT VALUE 4.0.
+01  t54 USAGE TYAZ-PIXEL-VALUE.
+01  t55 USAGE TYAZ-STYLE-TAB-SIZE.
+01  t56 USAGE TYAZ-CSS-PROPERTY.
+01  t57 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t58 USAGE TYAZ-CSS-PROPERTY.
+01  t59 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t60 USAGE TYAZ-CSS-PROPERTY.
+01  t61 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t62 USAGE TYAZ-COLOR-U.
+01  t63 USAGE TYAZ-CARET-COLOR.
+01  t64 USAGE TYAZ-CSS-PROPERTY.
+01  t65 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t66 USAGE TYAZ-CSS-DURATION.
+01  t67 USAGE TYAZ-CARET-ANIMATION-DURATION.
 01  t68 USAGE TYAZ-CSS-PROPERTY.
 01  t69 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t70 USAGE TYAZ-CSS-PROPERTY.
-01  t71 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t72 USAGE FLOAT-SHORT VALUE 2.0.
-01  t73 USAGE TYAZ-PIXEL-VALUE.
-01  t74 USAGE TYAZ-STYLE-TEXT-INDENT.
-01  t75 USAGE TYAZ-CSS-PROPERTY.
-01  t76 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t77 USAGE TYAZ-CSS-PROPERTY.
-01  t78 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t79 USAGE TYAZ-CSS-PROPERTY.
-01  t80 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t81 USAGE TYAZ-STYLE-VERTICAL-ALIGN.
-01  t82 USAGE TYAZ-CSS-PROPERTY.
-01  t83 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t84 USAGE FLOAT-SHORT VALUE 4.0.
-01  t85 USAGE TYAZ-PIXEL-VALUE.
-01  t86 USAGE TYAZ-STYLE-WORD-SPACING.
+01  t70 USAGE TYAZ-COLOR-U.
+01  t71 USAGE TYAZ-SELECTION-BACKGROUND-ec6b.
+01  t72 USAGE TYAZ-CSS-PROPERTY.
+01  t73 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t74 USAGE TYAZ-COLOR-U.
+01  t75 USAGE TYAZ-SELECTION-COLOR.
+01  t76 USAGE TYAZ-CSS-PROPERTY.
+01  t77 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t78.
+    05  t78-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t78-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
+    05  t78-bytes PIC X(7) VALUE "Georgia".
+01  t79 USAGE TYAZ-STRING.
+01  t80 USAGE TYAZ-STYLE-FONT-FAMILY.
+01  t81.
+    05  t81-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t81-len USAGE BINARY-DOUBLE UNSIGNED VALUE 5.
+    05  t81-bytes PIC X(5) VALUE "serif".
+01  t82 USAGE TYAZ-STRING.
+01  t83 USAGE TYAZ-STYLE-FONT-FAMILY.
+01  t84.
+    05  t84-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 2 TIMES.
+01  t85 USAGE BINARY-DOUBLE UNSIGNED VALUE 2.
+01  t86 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
 01  t87 USAGE TYAZ-CSS-PROPERTY.
 01  t88 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t89.
@@ -145,117 +145,117 @@ LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
     MOVE 51 TO R OF t1
-    MOVE 153 TO G OF t1
-    MOVE 255 TO B OF t1
+    MOVE 102 TO G OF t1
+    MOVE 153 TO B OF t1
     MOVE 255 TO A OF t1
     MOVE t1 TO INNER OF t2
-    CALL "AzCssProperty_selectionBackgroundColorByref" USING BY REFERENCE t3 BY REFERENCE t2 END-CALL
+    CALL "AzCssProperty_textColorByref" USING BY REFERENCE t3 BY REFERENCE t2 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    MOVE 255 TO R OF t5
-    MOVE 255 TO G OF t5
-    MOVE 255 TO B OF t5
-    MOVE 255 TO A OF t5
-    MOVE t5 TO INNER OF t6
-    CALL "AzCssProperty_selectionColorByref" USING BY REFERENCE t7 BY REFERENCE t6 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    MOVE 500 TO INNER OF t9
-    MOVE AZ-CSS-DURATION-UNIT-MILL-e105 TO UNIT-X OF t9
-    MOVE t9 TO INNER OF t10
-    CALL "AzCssProperty_caretAnimationDurationByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
-    MOVE 255 TO R OF t13
-    MOVE 0 TO G OF t13
-    MOVE 0 TO B OF t13
-    MOVE 255 TO A OF t13
-    MOVE t13 TO INNER OF t14
-    CALL "AzCssProperty_caretColorByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
-    MOVE 51 TO R OF t17
-    MOVE 102 TO G OF t17
-    MOVE 153 TO B OF t17
-    MOVE 255 TO A OF t17
-    MOVE t17 TO INNER OF t18
-    CALL "AzCssProperty_textColorByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t6 BY VALUE t5 END-CALL
+    MOVE t6 TO INNER OF t7
+    CALL "AzCssProperty_fontSizeByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t11 BY REFERENCE t10-bytes BY VALUE t10-start BY VALUE t10-len END-CALL
+    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t14 BY REFERENCE t13-bytes BY VALUE t13-start BY VALUE t13-len END-CALL
+    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
+    MOVE t12 TO t16-item (1)
+    MOVE t15 TO t16-item (2)
+    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t18 BY REFERENCE t16 BY VALUE t17 END-CALL
+    CALL "AzCssProperty_fontFamilyByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t22 BY REFERENCE t21-bytes BY VALUE t21-start BY VALUE t21-len END-CALL
-    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t23 BY REFERENCE t22 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t25 BY REFERENCE t24-bytes BY VALUE t24-start BY VALUE t24-len END-CALL
-    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
-    MOVE t23 TO t27-item (1)
-    MOVE t26 TO t27-item (2)
-    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t29 BY REFERENCE t27 BY VALUE t28 END-CALL
-    CALL "AzCssProperty_fontByref" USING BY REFERENCE t30 BY REFERENCE t29 END-CALL
+    CALL "AzCssProperty_fontWeightByref" USING BY REFERENCE t21 BY VALUE AZ-STYLE-FONT-WEIGHT-W600 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
+    CALL "AzCssProperty_fontStyleByref" USING BY REFERENCE t23 BY VALUE AZ-STYLE-FONT-STYLE-ITALIC END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t24 BY REFERENCE t23 END-CALL
+    CALL "AzCssProperty_textAlignByref" USING BY REFERENCE t25 BY VALUE AZ-STYLE-TEXT-ALIGN-CENTER-X END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
+    CALL "AzCssProperty_textJustifyByref" USING BY REFERENCE t27 BY VALUE AZ-LAYOUT-TEXT-JUSTIFY-IN-bdfa END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
+    CALL "AzStyleVerticalAlign_middleByref" USING BY REFERENCE t29 END-CALL
+    CALL "AzCssProperty_verticalAlignByref" USING BY REFERENCE t30 BY REFERENCE t29 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t31 BY REFERENCE t30 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t33 BY REFERENCE t32-bytes BY VALUE t32-start BY VALUE t32-len END-CALL
-    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t36 BY REFERENCE t35-bytes BY VALUE t35-start BY VALUE t35-len END-CALL
-    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
-    MOVE t34 TO t38-item (1)
-    MOVE t37 TO t38-item (2)
-    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t40 BY REFERENCE t38 BY VALUE t39 END-CALL
-    CALL "AzCssProperty_fontFamilyByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t44 BY VALUE t43 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t33 BY VALUE t32 END-CALL
+    MOVE t33 TO INNER OF t34
+    CALL "AzCssProperty_letterSpacingByref" USING BY REFERENCE t35 BY REFERENCE t34 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t36 BY REFERENCE t35 END-CALL
+    CALL "AzPixelValue_emByref" USING BY REFERENCE t38 BY VALUE t37 END-CALL
+    MOVE t38 TO INNER OF t39
+    MOVE 0 TO EACH-LINE OF t39
+    MOVE 0 TO HANGING OF t39
+    CALL "AzCssProperty_textIndentByref" USING BY REFERENCE t40 BY REFERENCE t39 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t43 BY VALUE t42 END-CALL
+    MOVE t43 TO NUMBER-X OF t44
     MOVE t44 TO INNER OF t45
-    CALL "AzCssProperty_fontSizeByref" USING BY REFERENCE t46 BY REFERENCE t45 END-CALL
+    CALL "AzCssProperty_lineHeightByref" USING BY REFERENCE t46 BY REFERENCE t45 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
-    CALL "AzCssProperty_fontStyleByref" USING BY REFERENCE t48 BY VALUE AZ-STYLE-FONT-STYLE-ITALIC END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t49 BY REFERENCE t48 END-CALL
-    CALL "AzCssProperty_fontWeightByref" USING BY REFERENCE t50 BY VALUE AZ-STYLE-FONT-WEIGHT-W600 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t51 BY REFERENCE t50 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t53 BY VALUE t52 END-CALL
-    MOVE t53 TO INNER OF t54
-    CALL "AzCssProperty_letterSpacingByref" USING BY REFERENCE t55 BY REFERENCE t54 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t56 BY REFERENCE t55 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t58 BY VALUE t57 END-CALL
-    MOVE t58 TO NUMBER-X OF t59
-    MOVE t59 TO INNER OF t60
-    CALL "AzCssProperty_lineHeightByref" USING BY REFERENCE t61 BY REFERENCE t60 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t62 BY REFERENCE t61 END-CALL
-    CALL "AzPixelValue_emByref" USING BY REFERENCE t64 BY VALUE t63 END-CALL
-    MOVE t64 TO INNER OF t65
-    CALL "AzCssProperty_tabSizeByref" USING BY REFERENCE t66 BY REFERENCE t65 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t67 BY REFERENCE t66 END-CALL
-    CALL "AzCssProperty_textAlignByref" USING BY REFERENCE t68 BY VALUE AZ-STYLE-TEXT-ALIGN-CENTER-X END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t49 BY VALUE t48 END-CALL
+    MOVE t49 TO INNER OF t50
+    CALL "AzCssProperty_wordSpacingByref" USING BY REFERENCE t51 BY REFERENCE t50 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t52 BY REFERENCE t51 END-CALL
+    CALL "AzPixelValue_emByref" USING BY REFERENCE t54 BY VALUE t53 END-CALL
+    MOVE t54 TO INNER OF t55
+    CALL "AzCssProperty_tabSizeByref" USING BY REFERENCE t56 BY REFERENCE t55 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t57 BY REFERENCE t56 END-CALL
+    CALL "AzCssProperty_userSelectByref" USING BY REFERENCE t58 BY VALUE AZ-STYLE-USER-SELECT-NONE END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t59 BY REFERENCE t58 END-CALL
+    CALL "AzCssProperty_textDecorationByref" USING BY REFERENCE t60 BY VALUE AZ-STYLE-TEXT-DECORATION-0cde END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t61 BY REFERENCE t60 END-CALL
+    MOVE 255 TO R OF t62
+    MOVE 0 TO G OF t62
+    MOVE 0 TO B OF t62
+    MOVE 255 TO A OF t62
+    MOVE t62 TO INNER OF t63
+    CALL "AzCssProperty_caretColorByref" USING BY REFERENCE t64 BY REFERENCE t63 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t65 BY REFERENCE t64 END-CALL
+    MOVE 500 TO INNER OF t66
+    MOVE AZ-CSS-DURATION-UNIT-MILL-e105 TO UNIT-X OF t66
+    MOVE t66 TO INNER OF t67
+    CALL "AzCssProperty_caretAnimationDurationByref" USING BY REFERENCE t68 BY REFERENCE t67 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t69 BY REFERENCE t68 END-CALL
-    CALL "AzCssProperty_textDecorationByref" USING BY REFERENCE t70 BY VALUE AZ-STYLE-TEXT-DECORATION-0cde END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t71 BY REFERENCE t70 END-CALL
-    CALL "AzPixelValue_emByref" USING BY REFERENCE t73 BY VALUE t72 END-CALL
-    MOVE t73 TO INNER OF t74
-    MOVE 0 TO EACH-LINE OF t74
-    MOVE 0 TO HANGING OF t74
-    CALL "AzCssProperty_textIndentByref" USING BY REFERENCE t75 BY REFERENCE t74 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t76 BY REFERENCE t75 END-CALL
-    CALL "AzCssProperty_textJustifyByref" USING BY REFERENCE t77 BY VALUE AZ-LAYOUT-TEXT-JUSTIFY-IN-bdfa END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t78 BY REFERENCE t77 END-CALL
-    CALL "AzCssProperty_userSelectByref" USING BY REFERENCE t79 BY VALUE AZ-STYLE-USER-SELECT-NONE END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t80 BY REFERENCE t79 END-CALL
-    CALL "AzStyleVerticalAlign_middleByref" USING BY REFERENCE t81 END-CALL
-    CALL "AzCssProperty_verticalAlignByref" USING BY REFERENCE t82 BY REFERENCE t81 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t83 BY REFERENCE t82 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t85 BY VALUE t84 END-CALL
-    MOVE t85 TO INNER OF t86
-    CALL "AzCssProperty_wordSpacingByref" USING BY REFERENCE t87 BY REFERENCE t86 END-CALL
+    MOVE 51 TO R OF t70
+    MOVE 153 TO G OF t70
+    MOVE 255 TO B OF t70
+    MOVE 255 TO A OF t70
+    MOVE t70 TO INNER OF t71
+    CALL "AzCssProperty_selectionBackgroundColorByref" USING BY REFERENCE t72 BY REFERENCE t71 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t73 BY REFERENCE t72 END-CALL
+    MOVE 255 TO R OF t74
+    MOVE 255 TO G OF t74
+    MOVE 255 TO B OF t74
+    MOVE 255 TO A OF t74
+    MOVE t74 TO INNER OF t75
+    CALL "AzCssProperty_selectionColorByref" USING BY REFERENCE t76 BY REFERENCE t75 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t77 BY REFERENCE t76 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t79 BY REFERENCE t78-bytes BY VALUE t78-start BY VALUE t78-len END-CALL
+    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t80 BY REFERENCE t79 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t82 BY REFERENCE t81-bytes BY VALUE t81-start BY VALUE t81-len END-CALL
+    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t83 BY REFERENCE t82 END-CALL
+    MOVE t80 TO t84-item (1)
+    MOVE t83 TO t84-item (2)
+    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t86 BY REFERENCE t84 BY VALUE t85 END-CALL
+    CALL "AzCssProperty_fontByref" USING BY REFERENCE t87 BY REFERENCE t86 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t88 BY REFERENCE t87 END-CALL
     MOVE t4 TO t89-item (1)
-    MOVE t8 TO t89-item (2)
-    MOVE t12 TO t89-item (3)
-    MOVE t16 TO t89-item (4)
-    MOVE t20 TO t89-item (5)
-    MOVE t31 TO t89-item (6)
-    MOVE t42 TO t89-item (7)
-    MOVE t47 TO t89-item (8)
-    MOVE t49 TO t89-item (9)
-    MOVE t51 TO t89-item (10)
-    MOVE t56 TO t89-item (11)
-    MOVE t62 TO t89-item (12)
-    MOVE t67 TO t89-item (13)
-    MOVE t69 TO t89-item (14)
-    MOVE t71 TO t89-item (15)
-    MOVE t76 TO t89-item (16)
-    MOVE t78 TO t89-item (17)
-    MOVE t80 TO t89-item (18)
-    MOVE t83 TO t89-item (19)
+    MOVE t9 TO t89-item (2)
+    MOVE t20 TO t89-item (3)
+    MOVE t22 TO t89-item (4)
+    MOVE t24 TO t89-item (5)
+    MOVE t26 TO t89-item (6)
+    MOVE t28 TO t89-item (7)
+    MOVE t31 TO t89-item (8)
+    MOVE t36 TO t89-item (9)
+    MOVE t41 TO t89-item (10)
+    MOVE t47 TO t89-item (11)
+    MOVE t52 TO t89-item (12)
+    MOVE t57 TO t89-item (13)
+    MOVE t59 TO t89-item (14)
+    MOVE t61 TO t89-item (15)
+    MOVE t65 TO t89-item (16)
+    MOVE t69 TO t89-item (17)
+    MOVE t73 TO t89-item (18)
+    MOVE t77 TO t89-item (19)
     MOVE t88 TO t89-item (20)
     CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t91 BY REFERENCE t89 BY VALUE t90 END-CALL
     MOVE t91 TO ls-result
@@ -263,131 +263,131 @@ PROCEDURE DIVISION USING ls-result.
 END PROGRAM STYLE-TEXT.
 
 *> CSS: .box
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleAspectRatioValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutClearValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleClipRectValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutFloatValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutPaddingInlineStartValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutPaddingInlineEndValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutOverflowValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleScrollbarGutterValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleOverflowClipMarginValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleClipRectValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutWritingModeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutClearValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleObjectFitValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleObjectPositionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutOverflowValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleOverflowClipMarginValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutPaddingInlineEndValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutPaddingInlineStartValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleScrollbarGutterValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutWritingModeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleAspectRatioValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 IDENTIFICATION DIVISION.
 PROGRAM-ID. STYLE-BOX.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
 COPY "azul.cpy".
-01  t1 USAGE FLOAT-SHORT VALUE 5.0.
-01  t2 USAGE TYAZ-PIXEL-VALUE.
-01  t3 USAGE TYAZ-LAYOUT-INSET-BOTTOM.
-01  t4 USAGE TYAZ-CSS-PROPERTY.
-01  t5 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t6 USAGE TYAZ-CSS-PROPERTY.
-01  t7 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t1 USAGE TYAZ-CSS-PROPERTY.
+01  t2 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t3 USAGE TYAZ-CSS-PROPERTY.
+01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t5 USAGE FLOAT-SHORT VALUE 50.0.
+01  t6 USAGE TYAZ-PIXEL-VALUE.
+01  t7 USAGE TYAZ-LAYOUT-WIDTH.
 01  t8 USAGE TYAZ-CSS-PROPERTY.
 01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t10 USAGE TYAZ-CSS-PROPERTY.
-01  t11 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t12 USAGE FLOAT-SHORT VALUE 200.0.
-01  t13 USAGE TYAZ-PIXEL-VALUE.
-01  t14 USAGE TYAZ-LAYOUT-HEIGHT.
-01  t15 USAGE TYAZ-CSS-PROPERTY.
-01  t16 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t17 USAGE FLOAT-SHORT VALUE 1.0.
-01  t18 USAGE TYAZ-PIXEL-VALUE.
-01  t19 USAGE TYAZ-LAYOUT-LEFT.
-01  t20 USAGE TYAZ-CSS-PROPERTY.
-01  t21 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t22 USAGE FLOAT-SHORT VALUE 9.0.
-01  t23 USAGE TYAZ-PIXEL-VALUE.
-01  t24 USAGE TYAZ-LAYOUT-MARGIN-BOTTOM.
-01  t25 USAGE TYAZ-CSS-PROPERTY.
-01  t26 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t27 USAGE TYAZ-CSS-PROPERTY.
-01  t28 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t29 USAGE FLOAT-SHORT VALUE 8.0.
-01  t30 USAGE TYAZ-PIXEL-VALUE.
-01  t31 USAGE TYAZ-LAYOUT-MARGIN-RIGHT.
-01  t32 USAGE TYAZ-CSS-PROPERTY.
-01  t33 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t34 USAGE FLOAT-SHORT VALUE 7.0.
-01  t35 USAGE TYAZ-PIXEL-VALUE.
-01  t36 USAGE TYAZ-LAYOUT-MARGIN-TOP.
-01  t37 USAGE TYAZ-CSS-PROPERTY.
-01  t38 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t39 USAGE FLOAT-SHORT VALUE 90.0.
-01  t40 USAGE TYAZ-PIXEL-VALUE.
-01  t41 USAGE TYAZ-LAYOUT-MAX-HEIGHT.
-01  t42 USAGE TYAZ-CSS-PROPERTY.
-01  t43 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t44 USAGE FLOAT-SHORT VALUE 800.0.
-01  t45 USAGE TYAZ-PIXEL-VALUE.
-01  t46 USAGE TYAZ-LAYOUT-MAX-WIDTH.
-01  t47 USAGE TYAZ-CSS-PROPERTY.
-01  t48 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t49 USAGE FLOAT-SHORT VALUE 1.0.
-01  t50 USAGE TYAZ-PIXEL-VALUE.
-01  t51 USAGE TYAZ-LAYOUT-MIN-HEIGHT.
-01  t52 USAGE TYAZ-CSS-PROPERTY.
-01  t53 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t54 USAGE FLOAT-SHORT VALUE 10.0.
-01  t55 USAGE TYAZ-PIXEL-VALUE.
-01  t56 USAGE TYAZ-LAYOUT-MIN-WIDTH.
-01  t57 USAGE TYAZ-CSS-PROPERTY.
-01  t58 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t59 USAGE FLOAT-SHORT VALUE 50.0.
-01  t60 USAGE TYAZ-FLOAT-VALUE.
-01  t61 USAGE TYAZ-PERCENTAGE-VALUE.
-01  t62 USAGE TYAZ-STYLE-OPACITY.
+01  t10 USAGE FLOAT-SHORT VALUE 200.0.
+01  t11 USAGE TYAZ-PIXEL-VALUE.
+01  t12 USAGE TYAZ-LAYOUT-HEIGHT.
+01  t13 USAGE TYAZ-CSS-PROPERTY.
+01  t14 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t15 USAGE FLOAT-SHORT VALUE 10.0.
+01  t16 USAGE TYAZ-PIXEL-VALUE.
+01  t17 USAGE TYAZ-LAYOUT-MIN-WIDTH.
+01  t18 USAGE TYAZ-CSS-PROPERTY.
+01  t19 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t20 USAGE FLOAT-SHORT VALUE 1.0.
+01  t21 USAGE TYAZ-PIXEL-VALUE.
+01  t22 USAGE TYAZ-LAYOUT-MIN-HEIGHT.
+01  t23 USAGE TYAZ-CSS-PROPERTY.
+01  t24 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t25 USAGE FLOAT-SHORT VALUE 800.0.
+01  t26 USAGE TYAZ-PIXEL-VALUE.
+01  t27 USAGE TYAZ-LAYOUT-MAX-WIDTH.
+01  t28 USAGE TYAZ-CSS-PROPERTY.
+01  t29 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t30 USAGE FLOAT-SHORT VALUE 90.0.
+01  t31 USAGE TYAZ-PIXEL-VALUE.
+01  t32 USAGE TYAZ-LAYOUT-MAX-HEIGHT.
+01  t33 USAGE TYAZ-CSS-PROPERTY.
+01  t34 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t35 USAGE TYAZ-CSS-PROPERTY.
+01  t36 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t37 USAGE FLOAT-SHORT VALUE 0.0.
+01  t38 USAGE TYAZ-PIXEL-VALUE.
+01  t39 USAGE TYAZ-LAYOUT-TOP.
+01  t40 USAGE TYAZ-CSS-PROPERTY.
+01  t41 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t42 USAGE FLOAT-SHORT VALUE 10.0.
+01  t43 USAGE TYAZ-PIXEL-VALUE.
+01  t44 USAGE TYAZ-LAYOUT-RIGHT.
+01  t45 USAGE TYAZ-CSS-PROPERTY.
+01  t46 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t47 USAGE FLOAT-SHORT VALUE 5.0.
+01  t48 USAGE TYAZ-PIXEL-VALUE.
+01  t49 USAGE TYAZ-LAYOUT-INSET-BOTTOM.
+01  t50 USAGE TYAZ-CSS-PROPERTY.
+01  t51 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t52 USAGE FLOAT-SHORT VALUE 1.0.
+01  t53 USAGE TYAZ-PIXEL-VALUE.
+01  t54 USAGE TYAZ-LAYOUT-LEFT.
+01  t55 USAGE TYAZ-CSS-PROPERTY.
+01  t56 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t57 USAGE TYAZ-LAYOUT-Z-INDEX.
+01  t58 USAGE TYAZ-CSS-PROPERTY.
+01  t59 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t60 USAGE FLOAT-SHORT VALUE 1.0.
+01  t61 USAGE TYAZ-PIXEL-VALUE.
+01  t62 USAGE TYAZ-LAYOUT-PADDING-TOP.
 01  t63 USAGE TYAZ-CSS-PROPERTY.
 01  t64 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t65 USAGE TYAZ-CSS-PROPERTY.
-01  t66 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t67 USAGE TYAZ-CSS-PROPERTY.
-01  t68 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t69 USAGE FLOAT-SHORT VALUE 3.0.
-01  t70 USAGE TYAZ-PIXEL-VALUE.
-01  t71 USAGE TYAZ-LAYOUT-PADDING-BOTTOM.
-01  t72 USAGE TYAZ-CSS-PROPERTY.
-01  t73 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t74 USAGE FLOAT-SHORT VALUE 4.0.
-01  t75 USAGE TYAZ-PIXEL-VALUE.
-01  t76 USAGE TYAZ-LAYOUT-PADDING-LEFT.
-01  t77 USAGE TYAZ-CSS-PROPERTY.
-01  t78 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t79 USAGE FLOAT-SHORT VALUE 2.0.
-01  t80 USAGE TYAZ-PIXEL-VALUE.
-01  t81 USAGE TYAZ-LAYOUT-PADDING-RIGHT.
-01  t82 USAGE TYAZ-CSS-PROPERTY.
-01  t83 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t84 USAGE FLOAT-SHORT VALUE 1.0.
-01  t85 USAGE TYAZ-PIXEL-VALUE.
-01  t86 USAGE TYAZ-LAYOUT-PADDING-TOP.
-01  t87 USAGE TYAZ-CSS-PROPERTY.
-01  t88 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t89 USAGE TYAZ-CSS-PROPERTY.
-01  t90 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t91 USAGE FLOAT-SHORT VALUE 10.0.
-01  t92 USAGE TYAZ-PIXEL-VALUE.
-01  t93 USAGE TYAZ-LAYOUT-RIGHT.
-01  t94 USAGE TYAZ-CSS-PROPERTY.
-01  t95 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t96 USAGE FLOAT-SHORT VALUE 0.0.
-01  t97 USAGE TYAZ-PIXEL-VALUE.
-01  t98 USAGE TYAZ-LAYOUT-TOP.
+01  t65 USAGE FLOAT-SHORT VALUE 2.0.
+01  t66 USAGE TYAZ-PIXEL-VALUE.
+01  t67 USAGE TYAZ-LAYOUT-PADDING-RIGHT.
+01  t68 USAGE TYAZ-CSS-PROPERTY.
+01  t69 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t70 USAGE FLOAT-SHORT VALUE 3.0.
+01  t71 USAGE TYAZ-PIXEL-VALUE.
+01  t72 USAGE TYAZ-LAYOUT-PADDING-BOTTOM.
+01  t73 USAGE TYAZ-CSS-PROPERTY.
+01  t74 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t75 USAGE FLOAT-SHORT VALUE 4.0.
+01  t76 USAGE TYAZ-PIXEL-VALUE.
+01  t77 USAGE TYAZ-LAYOUT-PADDING-LEFT.
+01  t78 USAGE TYAZ-CSS-PROPERTY.
+01  t79 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t80 USAGE FLOAT-SHORT VALUE 7.0.
+01  t81 USAGE TYAZ-PIXEL-VALUE.
+01  t82 USAGE TYAZ-LAYOUT-MARGIN-TOP.
+01  t83 USAGE TYAZ-CSS-PROPERTY.
+01  t84 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t85 USAGE FLOAT-SHORT VALUE 8.0.
+01  t86 USAGE TYAZ-PIXEL-VALUE.
+01  t87 USAGE TYAZ-LAYOUT-MARGIN-RIGHT.
+01  t88 USAGE TYAZ-CSS-PROPERTY.
+01  t89 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t90 USAGE FLOAT-SHORT VALUE 9.0.
+01  t91 USAGE TYAZ-PIXEL-VALUE.
+01  t92 USAGE TYAZ-LAYOUT-MARGIN-BOTTOM.
+01  t93 USAGE TYAZ-CSS-PROPERTY.
+01  t94 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t95 USAGE TYAZ-CSS-PROPERTY.
+01  t96 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t97 USAGE TYAZ-CSS-PROPERTY.
+01  t98 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t99 USAGE TYAZ-CSS-PROPERTY.
 01  t100 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t101 USAGE TYAZ-CSS-PROPERTY.
 01  t102 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t103 USAGE FLOAT-SHORT VALUE 50.0.
-01  t104 USAGE TYAZ-PIXEL-VALUE.
-01  t105 USAGE TYAZ-LAYOUT-WIDTH.
-01  t106 USAGE TYAZ-CSS-PROPERTY.
-01  t107 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t108 USAGE TYAZ-LAYOUT-Z-INDEX.
+01  t104 USAGE TYAZ-FLOAT-VALUE.
+01  t105 USAGE TYAZ-PERCENTAGE-VALUE.
+01  t106 USAGE TYAZ-STYLE-OPACITY.
+01  t107 USAGE TYAZ-CSS-PROPERTY.
+01  t108 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t109 USAGE TYAZ-CSS-PROPERTY.
 01  t110 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t111.
@@ -397,124 +397,124 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    CALL "AzPixelValue_ptByref" USING BY REFERENCE t2 BY VALUE t1 END-CALL
-    MOVE t2 TO INNER OF t3
-    CALL "AzCssProperty_bottomByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t5 BY REFERENCE t4 END-CALL
-    CALL "AzCssProperty_boxSizingByref" USING BY REFERENCE t6 BY VALUE AZ-LAYOUT-BOX-SIZING-BORD-8191 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t7 BY REFERENCE t6 END-CALL
-    CALL "AzCssProperty_cursorByref" USING BY REFERENCE t8 BY VALUE AZ-STYLE-CURSOR-POINTER-X END-CALL
+    CALL "AzCssProperty_displayByref" USING BY REFERENCE t1 BY VALUE AZ-LAYOUT-DISPLAY-BLOCK-X END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
+    CALL "AzCssProperty_boxSizingByref" USING BY REFERENCE t3 BY VALUE AZ-LAYOUT-BOX-SIZING-BORD-8191 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
+    CALL "AzPixelValue_percentByref" USING BY REFERENCE t6 BY VALUE t5 END-CALL
+    CALL "AzLayoutWidth_pxByref" USING BY REFERENCE t7 BY REFERENCE t6 END-CALL
+    CALL "AzCssProperty_widthByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
-    CALL "AzCssProperty_displayByref" USING BY REFERENCE t10 BY VALUE AZ-LAYOUT-DISPLAY-BLOCK-X END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t13 BY VALUE t12 END-CALL
-    CALL "AzLayoutHeight_pxByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
-    CALL "AzCssProperty_heightByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
-    CALL "AzPixelValue_fromMetricByref" USING BY REFERENCE t18 BY VALUE AZ-SIZE-METRIC-IN-X BY VALUE t17 END-CALL
-    MOVE t18 TO INNER OF t19
-    CALL "AzCssProperty_leftByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t23 BY VALUE t22 END-CALL
-    MOVE t23 TO INNER OF t24
-    CALL "AzCssProperty_marginBottomByref" USING BY REFERENCE t25 BY REFERENCE t24 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
-    CALL "AzCssProperty_autoByref" USING BY REFERENCE t27 BY VALUE AZ-CSS-PROPERTY-TYPE-MARG-8bb0 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t30 BY VALUE t29 END-CALL
-    MOVE t30 TO INNER OF t31
-    CALL "AzCssProperty_marginRightByref" USING BY REFERENCE t32 BY REFERENCE t31 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t33 BY REFERENCE t32 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t35 BY VALUE t34 END-CALL
-    MOVE t35 TO INNER OF t36
-    CALL "AzCssProperty_marginTopByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t38 BY REFERENCE t37 END-CALL
-    CALL "AzPixelValue_fromMetricByref" USING BY REFERENCE t40 BY VALUE AZ-SIZE-METRIC-VH BY VALUE t39 END-CALL
-    MOVE t40 TO INNER OF t41
-    CALL "AzCssProperty_maxHeightByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t43 BY REFERENCE t42 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t45 BY VALUE t44 END-CALL
-    MOVE t45 TO INNER OF t46
-    CALL "AzCssProperty_maxWidthByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t48 BY REFERENCE t47 END-CALL
-    CALL "AzPixelValue_remByref" USING BY REFERENCE t50 BY VALUE t49 END-CALL
-    MOVE t50 TO INNER OF t51
-    CALL "AzCssProperty_minHeightByref" USING BY REFERENCE t52 BY REFERENCE t51 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t53 BY REFERENCE t52 END-CALL
-    CALL "AzPixelValue_emByref" USING BY REFERENCE t55 BY VALUE t54 END-CALL
-    MOVE t55 TO INNER OF t56
-    CALL "AzCssProperty_minWidthByref" USING BY REFERENCE t57 BY REFERENCE t56 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t58 BY REFERENCE t57 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t60 BY VALUE t59 END-CALL
-    MOVE t60 TO NUMBER-X OF t61
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t11 BY VALUE t10 END-CALL
+    CALL "AzLayoutHeight_pxByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
+    CALL "AzCssProperty_heightByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzPixelValue_emByref" USING BY REFERENCE t16 BY VALUE t15 END-CALL
+    MOVE t16 TO INNER OF t17
+    CALL "AzCssProperty_minWidthByref" USING BY REFERENCE t18 BY REFERENCE t17 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
+    CALL "AzPixelValue_remByref" USING BY REFERENCE t21 BY VALUE t20 END-CALL
+    MOVE t21 TO INNER OF t22
+    CALL "AzCssProperty_minHeightByref" USING BY REFERENCE t23 BY REFERENCE t22 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t24 BY REFERENCE t23 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t26 BY VALUE t25 END-CALL
+    MOVE t26 TO INNER OF t27
+    CALL "AzCssProperty_maxWidthByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t29 BY REFERENCE t28 END-CALL
+    CALL "AzPixelValue_fromMetricByref" USING BY REFERENCE t31 BY VALUE AZ-SIZE-METRIC-VH BY VALUE t30 END-CALL
+    MOVE t31 TO INNER OF t32
+    CALL "AzCssProperty_maxHeightByref" USING BY REFERENCE t33 BY REFERENCE t32 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
+    CALL "AzCssProperty_positionByref" USING BY REFERENCE t35 BY VALUE AZ-LAYOUT-POSITION-ABSOLUTE END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t36 BY REFERENCE t35 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t38 BY VALUE t37 END-CALL
+    MOVE t38 TO INNER OF t39
+    CALL "AzCssProperty_topByref" USING BY REFERENCE t40 BY REFERENCE t39 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t43 BY VALUE t42 END-CALL
+    MOVE t43 TO INNER OF t44
+    CALL "AzCssProperty_rightByref" USING BY REFERENCE t45 BY REFERENCE t44 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t46 BY REFERENCE t45 END-CALL
+    CALL "AzPixelValue_ptByref" USING BY REFERENCE t48 BY VALUE t47 END-CALL
+    MOVE t48 TO INNER OF t49
+    CALL "AzCssProperty_bottomByref" USING BY REFERENCE t50 BY REFERENCE t49 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t51 BY REFERENCE t50 END-CALL
+    CALL "AzPixelValue_fromMetricByref" USING BY REFERENCE t53 BY VALUE AZ-SIZE-METRIC-IN-X BY VALUE t52 END-CALL
+    MOVE t53 TO INNER OF t54
+    CALL "AzCssProperty_leftByref" USING BY REFERENCE t55 BY REFERENCE t54 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t56 BY REFERENCE t55 END-CALL
+    CALL "AzLayoutZIndex_integerByref" USING BY REFERENCE t57 BY VALUE 10 END-CALL
+    CALL "AzCssProperty_zIndexByref" USING BY REFERENCE t58 BY REFERENCE t57 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t59 BY REFERENCE t58 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t61 BY VALUE t60 END-CALL
     MOVE t61 TO INNER OF t62
-    CALL "AzCssProperty_opacityByref" USING BY REFERENCE t63 BY REFERENCE t62 END-CALL
+    CALL "AzCssProperty_paddingTopByref" USING BY REFERENCE t63 BY REFERENCE t62 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t64 BY REFERENCE t63 END-CALL
-    CALL "AzCssProperty_overflowXByref" USING BY REFERENCE t65 BY VALUE AZ-LAYOUT-OVERFLOW-HIDDEN END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t66 BY REFERENCE t65 END-CALL
-    CALL "AzCssProperty_overflowYByref" USING BY REFERENCE t67 BY VALUE AZ-LAYOUT-OVERFLOW-SCROLL-X END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t68 BY REFERENCE t67 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t70 BY VALUE t69 END-CALL
-    MOVE t70 TO INNER OF t71
-    CALL "AzCssProperty_paddingBottomByref" USING BY REFERENCE t72 BY REFERENCE t71 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t73 BY REFERENCE t72 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t75 BY VALUE t74 END-CALL
-    MOVE t75 TO INNER OF t76
-    CALL "AzCssProperty_paddingLeftByref" USING BY REFERENCE t77 BY REFERENCE t76 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t78 BY REFERENCE t77 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t80 BY VALUE t79 END-CALL
-    MOVE t80 TO INNER OF t81
-    CALL "AzCssProperty_paddingRightByref" USING BY REFERENCE t82 BY REFERENCE t81 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t83 BY REFERENCE t82 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t85 BY VALUE t84 END-CALL
-    MOVE t85 TO INNER OF t86
-    CALL "AzCssProperty_paddingTopByref" USING BY REFERENCE t87 BY REFERENCE t86 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t88 BY REFERENCE t87 END-CALL
-    CALL "AzCssProperty_positionByref" USING BY REFERENCE t89 BY VALUE AZ-LAYOUT-POSITION-ABSOLUTE END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t90 BY REFERENCE t89 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t92 BY VALUE t91 END-CALL
-    MOVE t92 TO INNER OF t93
-    CALL "AzCssProperty_rightByref" USING BY REFERENCE t94 BY REFERENCE t93 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t95 BY REFERENCE t94 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t97 BY VALUE t96 END-CALL
-    MOVE t97 TO INNER OF t98
-    CALL "AzCssProperty_topByref" USING BY REFERENCE t99 BY REFERENCE t98 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t66 BY VALUE t65 END-CALL
+    MOVE t66 TO INNER OF t67
+    CALL "AzCssProperty_paddingRightByref" USING BY REFERENCE t68 BY REFERENCE t67 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t69 BY REFERENCE t68 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t71 BY VALUE t70 END-CALL
+    MOVE t71 TO INNER OF t72
+    CALL "AzCssProperty_paddingBottomByref" USING BY REFERENCE t73 BY REFERENCE t72 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t74 BY REFERENCE t73 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t76 BY VALUE t75 END-CALL
+    MOVE t76 TO INNER OF t77
+    CALL "AzCssProperty_paddingLeftByref" USING BY REFERENCE t78 BY REFERENCE t77 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t79 BY REFERENCE t78 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t81 BY VALUE t80 END-CALL
+    MOVE t81 TO INNER OF t82
+    CALL "AzCssProperty_marginTopByref" USING BY REFERENCE t83 BY REFERENCE t82 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t84 BY REFERENCE t83 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t86 BY VALUE t85 END-CALL
+    MOVE t86 TO INNER OF t87
+    CALL "AzCssProperty_marginRightByref" USING BY REFERENCE t88 BY REFERENCE t87 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t89 BY REFERENCE t88 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t91 BY VALUE t90 END-CALL
+    MOVE t91 TO INNER OF t92
+    CALL "AzCssProperty_marginBottomByref" USING BY REFERENCE t93 BY REFERENCE t92 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t94 BY REFERENCE t93 END-CALL
+    CALL "AzCssProperty_autoByref" USING BY REFERENCE t95 BY VALUE AZ-CSS-PROPERTY-TYPE-MARG-8bb0 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t96 BY REFERENCE t95 END-CALL
+    CALL "AzCssProperty_overflowXByref" USING BY REFERENCE t97 BY VALUE AZ-LAYOUT-OVERFLOW-HIDDEN END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t98 BY REFERENCE t97 END-CALL
+    CALL "AzCssProperty_overflowYByref" USING BY REFERENCE t99 BY VALUE AZ-LAYOUT-OVERFLOW-SCROLL-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t100 BY REFERENCE t99 END-CALL
     CALL "AzCssProperty_visibilityByref" USING BY REFERENCE t101 BY VALUE AZ-STYLE-VISIBILITY-HIDDEN END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t102 BY REFERENCE t101 END-CALL
-    CALL "AzPixelValue_percentByref" USING BY REFERENCE t104 BY VALUE t103 END-CALL
-    CALL "AzLayoutWidth_pxByref" USING BY REFERENCE t105 BY REFERENCE t104 END-CALL
-    CALL "AzCssProperty_widthByref" USING BY REFERENCE t106 BY REFERENCE t105 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t107 BY REFERENCE t106 END-CALL
-    CALL "AzLayoutZIndex_integerByref" USING BY REFERENCE t108 BY VALUE 10 END-CALL
-    CALL "AzCssProperty_zIndexByref" USING BY REFERENCE t109 BY REFERENCE t108 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t104 BY VALUE t103 END-CALL
+    MOVE t104 TO NUMBER-X OF t105
+    MOVE t105 TO INNER OF t106
+    CALL "AzCssProperty_opacityByref" USING BY REFERENCE t107 BY REFERENCE t106 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t108 BY REFERENCE t107 END-CALL
+    CALL "AzCssProperty_cursorByref" USING BY REFERENCE t109 BY VALUE AZ-STYLE-CURSOR-POINTER-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t110 BY REFERENCE t109 END-CALL
-    MOVE t5 TO t111-item (1)
-    MOVE t7 TO t111-item (2)
+    MOVE t2 TO t111-item (1)
+    MOVE t4 TO t111-item (2)
     MOVE t9 TO t111-item (3)
-    MOVE t11 TO t111-item (4)
-    MOVE t16 TO t111-item (5)
-    MOVE t21 TO t111-item (6)
-    MOVE t26 TO t111-item (7)
-    MOVE t28 TO t111-item (8)
-    MOVE t33 TO t111-item (9)
-    MOVE t38 TO t111-item (10)
-    MOVE t43 TO t111-item (11)
-    MOVE t48 TO t111-item (12)
-    MOVE t53 TO t111-item (13)
-    MOVE t58 TO t111-item (14)
+    MOVE t14 TO t111-item (4)
+    MOVE t19 TO t111-item (5)
+    MOVE t24 TO t111-item (6)
+    MOVE t29 TO t111-item (7)
+    MOVE t34 TO t111-item (8)
+    MOVE t36 TO t111-item (9)
+    MOVE t41 TO t111-item (10)
+    MOVE t46 TO t111-item (11)
+    MOVE t51 TO t111-item (12)
+    MOVE t56 TO t111-item (13)
+    MOVE t59 TO t111-item (14)
     MOVE t64 TO t111-item (15)
-    MOVE t66 TO t111-item (16)
-    MOVE t68 TO t111-item (17)
-    MOVE t73 TO t111-item (18)
-    MOVE t78 TO t111-item (19)
-    MOVE t83 TO t111-item (20)
-    MOVE t88 TO t111-item (21)
-    MOVE t90 TO t111-item (22)
-    MOVE t95 TO t111-item (23)
+    MOVE t69 TO t111-item (16)
+    MOVE t74 TO t111-item (17)
+    MOVE t79 TO t111-item (18)
+    MOVE t84 TO t111-item (19)
+    MOVE t89 TO t111-item (20)
+    MOVE t94 TO t111-item (21)
+    MOVE t96 TO t111-item (22)
+    MOVE t98 TO t111-item (23)
     MOVE t100 TO t111-item (24)
     MOVE t102 TO t111-item (25)
-    MOVE t107 TO t111-item (26)
+    MOVE t108 TO t111-item (26)
     MOVE t110 TO t111-item (27)
     CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t113 BY REFERENCE t111 BY VALUE t112 END-CALL
     MOVE t113 TO ls-result
@@ -522,8 +522,8 @@ PROCEDURE DIVISION USING ls-result.
 END PROGRAM STYLE-BOX.
 
 *> CSS: .flex
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutColumnGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutFlexBasisValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutColumnGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutRowGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 IDENTIFICATION DIVISION.
 PROGRAM-ID. STYLE-FLEX.
@@ -534,18 +534,18 @@ COPY "azul.cpy".
 01  t2 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t3 USAGE TYAZ-CSS-PROPERTY.
 01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t5 USAGE TYAZ-CSS-PROPERTY.
-01  t6 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t7 USAGE TYAZ-CSS-PROPERTY.
-01  t8 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t9 USAGE FLOAT-SHORT VALUE 2.0.
-01  t10 USAGE TYAZ-FLOAT-VALUE.
-01  t11 USAGE TYAZ-LAYOUT-FLEX-GROW.
-01  t12 USAGE TYAZ-CSS-PROPERTY.
-01  t13 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t14 USAGE FLOAT-SHORT VALUE 0.5.
-01  t15 USAGE TYAZ-FLOAT-VALUE.
-01  t16 USAGE TYAZ-LAYOUT-FLEX-SHRINK.
+01  t5 USAGE FLOAT-SHORT VALUE 2.0.
+01  t6 USAGE TYAZ-FLOAT-VALUE.
+01  t7 USAGE TYAZ-LAYOUT-FLEX-GROW.
+01  t8 USAGE TYAZ-CSS-PROPERTY.
+01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t10 USAGE FLOAT-SHORT VALUE 0.5.
+01  t11 USAGE TYAZ-FLOAT-VALUE.
+01  t12 USAGE TYAZ-LAYOUT-FLEX-SHRINK.
+01  t13 USAGE TYAZ-CSS-PROPERTY.
+01  t14 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t15 USAGE TYAZ-CSS-PROPERTY.
+01  t16 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t17 USAGE TYAZ-CSS-PROPERTY.
 01  t18 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t19 USAGE TYAZ-CSS-PROPERTY.
@@ -559,31 +559,31 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    CALL "AzCssProperty_alignContentByref" USING BY REFERENCE t1 BY VALUE AZ-LAYOUT-ALIGN-CONTENT-S-7e5b END-CALL
+    CALL "AzCssProperty_flexWrapByref" USING BY REFERENCE t1 BY VALUE AZ-LAYOUT-FLEX-WRAP-WRAP END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
-    CALL "AzCssProperty_alignItemsByref" USING BY REFERENCE t3 BY VALUE AZ-LAYOUT-ALIGN-ITEMS-CENTER-X END-CALL
+    CALL "AzCssProperty_flexDirectionByref" USING BY REFERENCE t3 BY VALUE AZ-LAYOUT-FLEX-DIRECTION-d037 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzCssProperty_alignSelfByref" USING BY REFERENCE t5 BY VALUE AZ-LAYOUT-ALIGN-SELF-END-X END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t6 BY REFERENCE t5 END-CALL
-    CALL "AzCssProperty_flexDirectionByref" USING BY REFERENCE t7 BY VALUE AZ-LAYOUT-FLEX-DIRECTION-d037 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t10 BY VALUE t9 END-CALL
-    MOVE t10 TO INNER OF t11
-    CALL "AzCssProperty_flexGrowByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t15 BY VALUE t14 END-CALL
-    MOVE t15 TO INNER OF t16
-    CALL "AzCssProperty_flexShrinkByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t6 BY VALUE t5 END-CALL
+    MOVE t6 TO INNER OF t7
+    CALL "AzCssProperty_flexGrowByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t11 BY VALUE t10 END-CALL
+    MOVE t11 TO INNER OF t12
+    CALL "AzCssProperty_flexShrinkByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzCssProperty_justifyContentByref" USING BY REFERENCE t15 BY VALUE AZ-LAYOUT-JUSTIFY-CONTENT-4514 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
+    CALL "AzCssProperty_alignItemsByref" USING BY REFERENCE t17 BY VALUE AZ-LAYOUT-ALIGN-ITEMS-CENTER-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t18 BY REFERENCE t17 END-CALL
-    CALL "AzCssProperty_flexWrapByref" USING BY REFERENCE t19 BY VALUE AZ-LAYOUT-FLEX-WRAP-WRAP END-CALL
+    CALL "AzCssProperty_alignContentByref" USING BY REFERENCE t19 BY VALUE AZ-LAYOUT-ALIGN-CONTENT-S-7e5b END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
-    CALL "AzCssProperty_justifyContentByref" USING BY REFERENCE t21 BY VALUE AZ-LAYOUT-JUSTIFY-CONTENT-4514 END-CALL
+    CALL "AzCssProperty_alignSelfByref" USING BY REFERENCE t21 BY VALUE AZ-LAYOUT-ALIGN-SELF-END-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
     MOVE t2 TO t23-item (1)
     MOVE t4 TO t23-item (2)
-    MOVE t6 TO t23-item (3)
-    MOVE t8 TO t23-item (4)
-    MOVE t13 TO t23-item (5)
+    MOVE t9 TO t23-item (3)
+    MOVE t14 TO t23-item (4)
+    MOVE t16 TO t23-item (5)
     MOVE t18 TO t23-item (6)
     MOVE t20 TO t23-item (7)
     MOVE t22 TO t23-item (8)
@@ -594,15 +594,15 @@ END PROGRAM STYLE-FLEX.
 
 *> CSS: .grid
 *> dropped `grid-auto-rows: minmax(10px, 100fr)`: grid `minmax()` tracks hold raw pointers in the C ABI and cannot be built from the bindings
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridTemplateColumnsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridTemplateRowsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridAutoColumnsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridAutoRowsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridColumnValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutRowGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutColumnGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridRowValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridTemplateAreasValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridTemplateColumnsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutGridTemplateRowsValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutRowGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutColumnGapValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 IDENTIFICATION DIVISION.
 PROGRAM-ID. STYLE-GRID.
 DATA DIVISION.
@@ -623,9 +623,9 @@ LINKAGE SECTION.
 PROCEDURE DIVISION USING ls-result.
     CALL "AzCssProperty_gridAutoFlowByref" USING BY REFERENCE t1 BY VALUE AZ-LAYOUT-GRID-AUTO-FLOW-605f END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
-    CALL "AzCssProperty_justifyItemsByref" USING BY REFERENCE t3 BY VALUE AZ-LAYOUT-JUSTIFY-ITEMS-S-ba8f END-CALL
+    CALL "AzCssProperty_justifySelfByref" USING BY REFERENCE t3 BY VALUE AZ-LAYOUT-JUSTIFY-SELF-CE-e31a END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzCssProperty_justifySelfByref" USING BY REFERENCE t5 BY VALUE AZ-LAYOUT-JUSTIFY-SELF-CE-e31a END-CALL
+    CALL "AzCssProperty_justifyItemsByref" USING BY REFERENCE t5 BY VALUE AZ-LAYOUT-JUSTIFY-ITEMS-S-ba8f END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t6 BY REFERENCE t5 END-CALL
     MOVE t2 TO t7-item (1)
     MOVE t4 TO t7-item (2)
@@ -641,72 +641,72 @@ PROGRAM-ID. STYLE-BORDERS.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
 COPY "azul.cpy".
-01  t1 USAGE TYAZ-COLOR-U.
-01  t2 USAGE TYAZ-STYLE-BORDER-BOTTOM-COLOR.
-01  t3 USAGE TYAZ-CSS-PROPERTY.
-01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t5 USAGE FLOAT-SHORT VALUE 6.0.
-01  t6 USAGE TYAZ-PIXEL-VALUE.
-01  t7 USAGE TYAZ-STYLE-BORDER-BOTTOM-0911.
-01  t8 USAGE TYAZ-CSS-PROPERTY.
-01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t10 USAGE FLOAT-SHORT VALUE 7.0.
-01  t11 USAGE TYAZ-PIXEL-VALUE.
-01  t12 USAGE TYAZ-STYLE-BORDER-BOTTOM-d452.
-01  t13 USAGE TYAZ-CSS-PROPERTY.
-01  t14 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t15 USAGE TYAZ-STYLE-BORDER-BOTTOM-STYLE.
-01  t16 USAGE TYAZ-CSS-PROPERTY.
-01  t17 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t18 USAGE FLOAT-SHORT VALUE 3.0.
-01  t19 USAGE TYAZ-PIXEL-VALUE.
-01  t20 USAGE TYAZ-LAYOUT-BORDER-BOTTOM-8da8.
-01  t21 USAGE TYAZ-CSS-PROPERTY.
-01  t22 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t23 USAGE TYAZ-COLOR-U.
-01  t24 USAGE TYAZ-STYLE-BORDER-LEFT-COLOR.
-01  t25 USAGE TYAZ-CSS-PROPERTY.
-01  t26 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t27 USAGE TYAZ-STYLE-BORDER-LEFT-STYLE.
-01  t28 USAGE TYAZ-CSS-PROPERTY.
-01  t29 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t30 USAGE FLOAT-SHORT VALUE 4.0.
-01  t31 USAGE TYAZ-PIXEL-VALUE.
-01  t32 USAGE TYAZ-LAYOUT-BORDER-LEFT-WIDTH.
-01  t33 USAGE TYAZ-CSS-PROPERTY.
-01  t34 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t35 USAGE TYAZ-COLOR-U.
-01  t36 USAGE TYAZ-STYLE-BORDER-RIGHT-COLOR.
-01  t37 USAGE TYAZ-CSS-PROPERTY.
-01  t38 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t39 USAGE TYAZ-STYLE-BORDER-RIGHT-STYLE.
-01  t40 USAGE TYAZ-CSS-PROPERTY.
-01  t41 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t42 USAGE FLOAT-SHORT VALUE 2.0.
-01  t43 USAGE TYAZ-PIXEL-VALUE.
-01  t44 USAGE TYAZ-LAYOUT-BORDER-RIGHT-WIDTH.
-01  t45 USAGE TYAZ-CSS-PROPERTY.
-01  t46 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t47 USAGE TYAZ-COLOR-U.
-01  t48 USAGE TYAZ-STYLE-BORDER-TOP-COLOR.
-01  t49 USAGE TYAZ-CSS-PROPERTY.
-01  t50 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t51 USAGE FLOAT-SHORT VALUE 4.0.
-01  t52 USAGE TYAZ-PIXEL-VALUE.
-01  t53 USAGE TYAZ-STYLE-BORDER-TOP-LEF-c96f.
-01  t54 USAGE TYAZ-CSS-PROPERTY.
-01  t55 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t56 USAGE FLOAT-SHORT VALUE 5.0.
-01  t57 USAGE TYAZ-PIXEL-VALUE.
-01  t58 USAGE TYAZ-STYLE-BORDER-TOP-RIG-5130.
-01  t59 USAGE TYAZ-CSS-PROPERTY.
-01  t60 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t61 USAGE TYAZ-STYLE-BORDER-TOP-STYLE.
+01  t1 USAGE FLOAT-SHORT VALUE 4.0.
+01  t2 USAGE TYAZ-PIXEL-VALUE.
+01  t3 USAGE TYAZ-STYLE-BORDER-TOP-LEF-c96f.
+01  t4 USAGE TYAZ-CSS-PROPERTY.
+01  t5 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t6 USAGE FLOAT-SHORT VALUE 5.0.
+01  t7 USAGE TYAZ-PIXEL-VALUE.
+01  t8 USAGE TYAZ-STYLE-BORDER-TOP-RIG-5130.
+01  t9 USAGE TYAZ-CSS-PROPERTY.
+01  t10 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t11 USAGE FLOAT-SHORT VALUE 6.0.
+01  t12 USAGE TYAZ-PIXEL-VALUE.
+01  t13 USAGE TYAZ-STYLE-BORDER-BOTTOM-0911.
+01  t14 USAGE TYAZ-CSS-PROPERTY.
+01  t15 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t16 USAGE FLOAT-SHORT VALUE 7.0.
+01  t17 USAGE TYAZ-PIXEL-VALUE.
+01  t18 USAGE TYAZ-STYLE-BORDER-BOTTOM-d452.
+01  t19 USAGE TYAZ-CSS-PROPERTY.
+01  t20 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t21 USAGE TYAZ-COLOR-U.
+01  t22 USAGE TYAZ-STYLE-BORDER-TOP-COLOR.
+01  t23 USAGE TYAZ-CSS-PROPERTY.
+01  t24 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t25 USAGE TYAZ-COLOR-U.
+01  t26 USAGE TYAZ-STYLE-BORDER-RIGHT-COLOR.
+01  t27 USAGE TYAZ-CSS-PROPERTY.
+01  t28 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t29 USAGE TYAZ-COLOR-U.
+01  t30 USAGE TYAZ-STYLE-BORDER-BOTTOM-COLOR.
+01  t31 USAGE TYAZ-CSS-PROPERTY.
+01  t32 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t33 USAGE TYAZ-COLOR-U.
+01  t34 USAGE TYAZ-STYLE-BORDER-LEFT-COLOR.
+01  t35 USAGE TYAZ-CSS-PROPERTY.
+01  t36 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t37 USAGE TYAZ-STYLE-BORDER-TOP-STYLE.
+01  t38 USAGE TYAZ-CSS-PROPERTY.
+01  t39 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t40 USAGE TYAZ-STYLE-BORDER-RIGHT-STYLE.
+01  t41 USAGE TYAZ-CSS-PROPERTY.
+01  t42 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t43 USAGE TYAZ-STYLE-BORDER-BOTTOM-STYLE.
+01  t44 USAGE TYAZ-CSS-PROPERTY.
+01  t45 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t46 USAGE TYAZ-STYLE-BORDER-LEFT-STYLE.
+01  t47 USAGE TYAZ-CSS-PROPERTY.
+01  t48 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t49 USAGE FLOAT-SHORT VALUE 1.0.
+01  t50 USAGE TYAZ-PIXEL-VALUE.
+01  t51 USAGE TYAZ-LAYOUT-BORDER-TOP-WIDTH.
+01  t52 USAGE TYAZ-CSS-PROPERTY.
+01  t53 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t54 USAGE FLOAT-SHORT VALUE 2.0.
+01  t55 USAGE TYAZ-PIXEL-VALUE.
+01  t56 USAGE TYAZ-LAYOUT-BORDER-RIGHT-WIDTH.
+01  t57 USAGE TYAZ-CSS-PROPERTY.
+01  t58 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t59 USAGE FLOAT-SHORT VALUE 3.0.
+01  t60 USAGE TYAZ-PIXEL-VALUE.
+01  t61 USAGE TYAZ-LAYOUT-BORDER-BOTTOM-8da8.
 01  t62 USAGE TYAZ-CSS-PROPERTY.
 01  t63 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t64 USAGE FLOAT-SHORT VALUE 1.0.
+01  t64 USAGE FLOAT-SHORT VALUE 4.0.
 01  t65 USAGE TYAZ-PIXEL-VALUE.
-01  t66 USAGE TYAZ-LAYOUT-BORDER-TOP-WIDTH.
+01  t66 USAGE TYAZ-LAYOUT-BORDER-LEFT-WIDTH.
 01  t67 USAGE TYAZ-CSS-PROPERTY.
 01  t68 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t69 USAGE FLOAT-SHORT VALUE 0.0.
@@ -780,77 +780,77 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    MOVE 51 TO R OF t1
-    MOVE 51 TO G OF t1
-    MOVE 51 TO B OF t1
-    MOVE 255 TO A OF t1
-    MOVE t1 TO INNER OF t2
-    CALL "AzCssProperty_borderBottomColorByref" USING BY REFERENCE t3 BY REFERENCE t2 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t6 BY VALUE t5 END-CALL
-    MOVE t6 TO INNER OF t7
-    CALL "AzCssProperty_borderBottomLeftRadiusByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t11 BY VALUE t10 END-CALL
-    MOVE t11 TO INNER OF t12
-    CALL "AzCssProperty_borderBottomRightRadiusByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
-    MOVE AZ-BORDER-STYLE-DOTTED TO INNER OF t15
-    CALL "AzCssProperty_borderBottomStyleByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t19 BY VALUE t18 END-CALL
-    MOVE t19 TO INNER OF t20
-    CALL "AzCssProperty_borderBottomWidthByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
-    MOVE 68 TO R OF t23
-    MOVE 68 TO G OF t23
-    MOVE 68 TO B OF t23
-    MOVE 255 TO A OF t23
-    MOVE t23 TO INNER OF t24
-    CALL "AzCssProperty_borderLeftColorByref" USING BY REFERENCE t25 BY REFERENCE t24 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
-    MOVE AZ-BORDER-STYLE-DOUBLE TO INNER OF t27
-    CALL "AzCssProperty_borderLeftStyleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t29 BY REFERENCE t28 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t31 BY VALUE t30 END-CALL
-    MOVE t31 TO INNER OF t32
-    CALL "AzCssProperty_borderLeftWidthByref" USING BY REFERENCE t33 BY REFERENCE t32 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
-    MOVE 34 TO R OF t35
-    MOVE 34 TO G OF t35
-    MOVE 34 TO B OF t35
-    MOVE 255 TO A OF t35
-    MOVE t35 TO INNER OF t36
-    CALL "AzCssProperty_borderRightColorByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t38 BY REFERENCE t37 END-CALL
-    MOVE AZ-BORDER-STYLE-DASHED TO INNER OF t39
-    CALL "AzCssProperty_borderRightStyleByref" USING BY REFERENCE t40 BY REFERENCE t39 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t43 BY VALUE t42 END-CALL
-    MOVE t43 TO INNER OF t44
-    CALL "AzCssProperty_borderRightWidthByref" USING BY REFERENCE t45 BY REFERENCE t44 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t46 BY REFERENCE t45 END-CALL
-    MOVE 17 TO R OF t47
-    MOVE 17 TO G OF t47
-    MOVE 17 TO B OF t47
-    MOVE 255 TO A OF t47
-    MOVE t47 TO INNER OF t48
-    CALL "AzCssProperty_borderTopColorByref" USING BY REFERENCE t49 BY REFERENCE t48 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t50 BY REFERENCE t49 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t52 BY VALUE t51 END-CALL
-    MOVE t52 TO INNER OF t53
-    CALL "AzCssProperty_borderTopLeftRadiusByref" USING BY REFERENCE t54 BY REFERENCE t53 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t55 BY REFERENCE t54 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t57 BY VALUE t56 END-CALL
-    MOVE t57 TO INNER OF t58
-    CALL "AzCssProperty_borderTopRightRadiusByref" USING BY REFERENCE t59 BY REFERENCE t58 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t60 BY REFERENCE t59 END-CALL
-    MOVE AZ-BORDER-STYLE-SOLID TO INNER OF t61
-    CALL "AzCssProperty_borderTopStyleByref" USING BY REFERENCE t62 BY REFERENCE t61 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t2 BY VALUE t1 END-CALL
+    MOVE t2 TO INNER OF t3
+    CALL "AzCssProperty_borderTopLeftRadiusByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t5 BY REFERENCE t4 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t7 BY VALUE t6 END-CALL
+    MOVE t7 TO INNER OF t8
+    CALL "AzCssProperty_borderTopRightRadiusByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t12 BY VALUE t11 END-CALL
+    MOVE t12 TO INNER OF t13
+    CALL "AzCssProperty_borderBottomLeftRadiusByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t17 BY VALUE t16 END-CALL
+    MOVE t17 TO INNER OF t18
+    CALL "AzCssProperty_borderBottomRightRadiusByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
+    MOVE 17 TO R OF t21
+    MOVE 17 TO G OF t21
+    MOVE 17 TO B OF t21
+    MOVE 255 TO A OF t21
+    MOVE t21 TO INNER OF t22
+    CALL "AzCssProperty_borderTopColorByref" USING BY REFERENCE t23 BY REFERENCE t22 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t24 BY REFERENCE t23 END-CALL
+    MOVE 34 TO R OF t25
+    MOVE 34 TO G OF t25
+    MOVE 34 TO B OF t25
+    MOVE 255 TO A OF t25
+    MOVE t25 TO INNER OF t26
+    CALL "AzCssProperty_borderRightColorByref" USING BY REFERENCE t27 BY REFERENCE t26 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
+    MOVE 51 TO R OF t29
+    MOVE 51 TO G OF t29
+    MOVE 51 TO B OF t29
+    MOVE 255 TO A OF t29
+    MOVE t29 TO INNER OF t30
+    CALL "AzCssProperty_borderBottomColorByref" USING BY REFERENCE t31 BY REFERENCE t30 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t32 BY REFERENCE t31 END-CALL
+    MOVE 68 TO R OF t33
+    MOVE 68 TO G OF t33
+    MOVE 68 TO B OF t33
+    MOVE 255 TO A OF t33
+    MOVE t33 TO INNER OF t34
+    CALL "AzCssProperty_borderLeftColorByref" USING BY REFERENCE t35 BY REFERENCE t34 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t36 BY REFERENCE t35 END-CALL
+    MOVE AZ-BORDER-STYLE-SOLID TO INNER OF t37
+    CALL "AzCssProperty_borderTopStyleByref" USING BY REFERENCE t38 BY REFERENCE t37 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t39 BY REFERENCE t38 END-CALL
+    MOVE AZ-BORDER-STYLE-DASHED TO INNER OF t40
+    CALL "AzCssProperty_borderRightStyleByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
+    MOVE AZ-BORDER-STYLE-DOTTED TO INNER OF t43
+    CALL "AzCssProperty_borderBottomStyleByref" USING BY REFERENCE t44 BY REFERENCE t43 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t45 BY REFERENCE t44 END-CALL
+    MOVE AZ-BORDER-STYLE-DOUBLE TO INNER OF t46
+    CALL "AzCssProperty_borderLeftStyleByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t48 BY REFERENCE t47 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t50 BY VALUE t49 END-CALL
+    MOVE t50 TO INNER OF t51
+    CALL "AzCssProperty_borderTopWidthByref" USING BY REFERENCE t52 BY REFERENCE t51 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t53 BY REFERENCE t52 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t55 BY VALUE t54 END-CALL
+    MOVE t55 TO INNER OF t56
+    CALL "AzCssProperty_borderRightWidthByref" USING BY REFERENCE t57 BY REFERENCE t56 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t58 BY REFERENCE t57 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t60 BY VALUE t59 END-CALL
+    MOVE t60 TO INNER OF t61
+    CALL "AzCssProperty_borderBottomWidthByref" USING BY REFERENCE t62 BY REFERENCE t61 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t63 BY REFERENCE t62 END-CALL
     CALL "AzPixelValue_pxByref" USING BY REFERENCE t65 BY VALUE t64 END-CALL
     MOVE t65 TO INNER OF t66
-    CALL "AzCssProperty_borderTopWidthByref" USING BY REFERENCE t67 BY REFERENCE t66 END-CALL
+    CALL "AzCssProperty_borderLeftWidthByref" USING BY REFERENCE t67 BY REFERENCE t66 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t68 BY REFERENCE t67 END-CALL
     CALL "AzPixelValue_pxByref" USING BY REFERENCE t70 BY VALUE t69 END-CALL
     MOVE t70 TO INNER OF t71
@@ -932,20 +932,20 @@ PROCEDURE DIVISION USING ls-result.
     MOVE t129 TO COLOR-X OF t130
     CALL "AzCssProperty_boxShadowBottomByref" USING BY REFERENCE t131 BY REFERENCE t130 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t132 BY REFERENCE t131 END-CALL
-    MOVE t4 TO t133-item (1)
-    MOVE t9 TO t133-item (2)
-    MOVE t14 TO t133-item (3)
-    MOVE t17 TO t133-item (4)
-    MOVE t22 TO t133-item (5)
-    MOVE t26 TO t133-item (6)
-    MOVE t29 TO t133-item (7)
-    MOVE t34 TO t133-item (8)
-    MOVE t38 TO t133-item (9)
-    MOVE t41 TO t133-item (10)
-    MOVE t46 TO t133-item (11)
-    MOVE t50 TO t133-item (12)
-    MOVE t55 TO t133-item (13)
-    MOVE t60 TO t133-item (14)
+    MOVE t5 TO t133-item (1)
+    MOVE t10 TO t133-item (2)
+    MOVE t15 TO t133-item (3)
+    MOVE t20 TO t133-item (4)
+    MOVE t24 TO t133-item (5)
+    MOVE t28 TO t133-item (6)
+    MOVE t32 TO t133-item (7)
+    MOVE t36 TO t133-item (8)
+    MOVE t39 TO t133-item (9)
+    MOVE t42 TO t133-item (10)
+    MOVE t45 TO t133-item (11)
+    MOVE t48 TO t133-item (12)
+    MOVE t53 TO t133-item (13)
+    MOVE t58 TO t133-item (14)
     MOVE t63 TO t133-item (15)
     MOVE t68 TO t133-item (16)
     MOVE t84 TO t133-item (17)
@@ -958,14 +958,14 @@ PROCEDURE DIVISION USING ls-result.
 END PROGRAM STYLE-BORDERS.
 
 *> CSS: .scroll
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleAppRegionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleBackgroundContentValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutScrollbarWidthValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleScrollbarColorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `OverscrollBehaviorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `ScrollbarVisibilityModeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `ScrollbarFadeDelayValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `ScrollbarFadeDurationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `ScrollbarVisibilityModeValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `OverscrollBehaviorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleScrollbarColorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
-*> dropped a value these bindings cannot build: the COBOL copybook gives `LayoutScrollbarWidthValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleAppRegionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleSpatialNavigationActionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleSpatialNavigationContainValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleSpatialNavigationFunctionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
@@ -992,60 +992,60 @@ PROGRAM-ID. STYLE-EFFECTS.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
 COPY "azul.cpy".
-01  t1 USAGE TYAZ-CSS-PROPERTY.
-01  t2 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t3 USAGE TYAZ-COLOR-U.
-01  t4 USAGE TYAZ-STYLE-BACKGROUND-CONTENT.
-01  t5.
-    05  t5-item USAGE TYAZ-STYLE-BACKGROUND-CONTENT OCCURS 1 TIMES.
-01  t6 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t7 USAGE TYAZ-STYLE-BACKGROUND-CON-3b17.
-01  t8 USAGE TYAZ-CSS-PROPERTY.
-01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t10 USAGE TYAZ-BACKGROUND-POSITION-1037.
-01  t11 USAGE TYAZ-BACKGROUND-POSITION-8f59.
-01  t12 USAGE TYAZ-STYLE-BACKGROUND-POSITION.
-01  t13.
-    05  t13-item USAGE TYAZ-STYLE-BACKGROUND-POSITION OCCURS 1 TIMES.
-01  t14 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t15 USAGE TYAZ-STYLE-BACKGROUND-POS-9ecb.
-01  t16 USAGE TYAZ-CSS-PROPERTY.
-01  t17 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t18.
-    05  t18-item USAGE TYAZ-STYLE-BACKGROUND-REPEAT OCCURS 1 TIMES.
-01  t19 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t20 USAGE TYAZ-STYLE-BACKGROUND-REP-6c47.
-01  t21 USAGE TYAZ-CSS-PROPERTY.
-01  t22 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t23 USAGE TYAZ-STYLE-BACKGROUND-SIZE.
-01  t24.
-    05  t24-item USAGE TYAZ-STYLE-BACKGROUND-SIZE OCCURS 1 TIMES.
-01  t25 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t26 USAGE TYAZ-STYLE-BACKGROUND-SIZE-VEC.
-01  t27 USAGE TYAZ-CSS-PROPERTY.
-01  t28 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t29 USAGE FLOAT-SHORT VALUE 10.0.
-01  t30 USAGE TYAZ-PIXEL-VALUE.
-01  t31 USAGE FLOAT-SHORT VALUE 20.0.
-01  t32 USAGE TYAZ-PIXEL-VALUE.
-01  t33 USAGE TYAZ-STYLE-PERSPECTIVE-ORIGIN.
+01  t1 USAGE TYAZ-COLOR-U.
+01  t2 USAGE TYAZ-STYLE-BACKGROUND-CONTENT.
+01  t3.
+    05  t3-item USAGE TYAZ-STYLE-BACKGROUND-CONTENT OCCURS 1 TIMES.
+01  t4 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t5 USAGE TYAZ-STYLE-BACKGROUND-CON-3b17.
+01  t6 USAGE TYAZ-CSS-PROPERTY.
+01  t7 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t8 USAGE TYAZ-BACKGROUND-POSITION-1037.
+01  t9 USAGE TYAZ-BACKGROUND-POSITION-8f59.
+01  t10 USAGE TYAZ-STYLE-BACKGROUND-POSITION.
+01  t11.
+    05  t11-item USAGE TYAZ-STYLE-BACKGROUND-POSITION OCCURS 1 TIMES.
+01  t12 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t13 USAGE TYAZ-STYLE-BACKGROUND-POS-9ecb.
+01  t14 USAGE TYAZ-CSS-PROPERTY.
+01  t15 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t16 USAGE TYAZ-STYLE-BACKGROUND-SIZE.
+01  t17.
+    05  t17-item USAGE TYAZ-STYLE-BACKGROUND-SIZE OCCURS 1 TIMES.
+01  t18 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t19 USAGE TYAZ-STYLE-BACKGROUND-SIZE-VEC.
+01  t20 USAGE TYAZ-CSS-PROPERTY.
+01  t21 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t22.
+    05  t22-item USAGE TYAZ-STYLE-BACKGROUND-REPEAT OCCURS 1 TIMES.
+01  t23 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t24 USAGE TYAZ-STYLE-BACKGROUND-REP-6c47.
+01  t25 USAGE TYAZ-CSS-PROPERTY.
+01  t26 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t27 USAGE FLOAT-SHORT VALUE 45.0.
+01  t28 USAGE TYAZ-FLOAT-VALUE.
+01  t29 USAGE TYAZ-ANGLE-VALUE.
+01  t30 USAGE TYAZ-STYLE-TRANSFORM.
+01  t31.
+    05  t31-item USAGE TYAZ-STYLE-TRANSFORM OCCURS 1 TIMES.
+01  t32 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t33 USAGE TYAZ-STYLE-TRANSFORM-VEC.
 01  t34 USAGE TYAZ-CSS-PROPERTY.
 01  t35 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t36 USAGE FLOAT-SHORT VALUE 45.0.
-01  t37 USAGE TYAZ-FLOAT-VALUE.
-01  t38 USAGE TYAZ-ANGLE-VALUE.
-01  t39 USAGE TYAZ-STYLE-TRANSFORM.
-01  t40.
-    05  t40-item USAGE TYAZ-STYLE-TRANSFORM OCCURS 1 TIMES.
-01  t41 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t42 USAGE TYAZ-STYLE-TRANSFORM-VEC.
-01  t43 USAGE TYAZ-CSS-PROPERTY.
-01  t44 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t45 USAGE FLOAT-SHORT VALUE 50.0.
+01  t36 USAGE FLOAT-SHORT VALUE 50.0.
+01  t37 USAGE TYAZ-PIXEL-VALUE.
+01  t38 USAGE FLOAT-SHORT VALUE 50.0.
+01  t39 USAGE TYAZ-PIXEL-VALUE.
+01  t40 USAGE TYAZ-STYLE-TRANSFORM-ORIGIN.
+01  t41 USAGE TYAZ-CSS-PROPERTY.
+01  t42 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t43 USAGE FLOAT-SHORT VALUE 10.0.
+01  t44 USAGE TYAZ-PIXEL-VALUE.
+01  t45 USAGE FLOAT-SHORT VALUE 20.0.
 01  t46 USAGE TYAZ-PIXEL-VALUE.
-01  t47 USAGE FLOAT-SHORT VALUE 50.0.
-01  t48 USAGE TYAZ-PIXEL-VALUE.
-01  t49 USAGE TYAZ-STYLE-TRANSFORM-ORIGIN.
+01  t47 USAGE TYAZ-STYLE-PERSPECTIVE-ORIGIN.
+01  t48 USAGE TYAZ-CSS-PROPERTY.
+01  t49 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t50 USAGE TYAZ-CSS-PROPERTY.
 01  t51 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t52.
@@ -1055,61 +1055,61 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    CALL "AzCssProperty_backfaceVisibilityByref" USING BY REFERENCE t1 BY VALUE AZ-STYLE-BACKFACE-VISIBIL-27d5 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
-    MOVE 250 TO R OF t3
-    MOVE 250 TO G OF t3
-    MOVE 250 TO B OF t3
-    MOVE 255 TO A OF t3
-    CALL "AzStyleBackgroundContent_colorByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    MOVE t4 TO t5-item (1)
-    CALL "AzStyleBackgroundContentVec_copyFromPtrByref" USING BY REFERENCE t7 BY REFERENCE t5 BY VALUE t6 END-CALL
-    CALL "AzCssProperty_backgroundContentByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
-    CALL "AzBackgroundPositionHorizontal_centerByref" USING BY REFERENCE t10 END-CALL
-    CALL "AzBackgroundPositionVertical_centerByref" USING BY REFERENCE t11 END-CALL
-    MOVE t10 TO HORIZONTAL OF t12
-    MOVE t11 TO VERTICAL OF t12
-    MOVE t12 TO t13-item (1)
-    CALL "AzStyleBackgroundPositionVec_copyFromPtrByref" USING BY REFERENCE t15 BY REFERENCE t13 BY VALUE t14 END-CALL
-    CALL "AzCssProperty_backgroundPositionByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
-    MOVE AZ-STYLE-BACKGROUND-REPEA-c443 TO t18-item (1)
-    CALL "AzStyleBackgroundRepeatVec_copyFromPtrByref" USING BY REFERENCE t20 BY REFERENCE t18 BY VALUE t19 END-CALL
-    CALL "AzCssProperty_backgroundRepeatByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
-    CALL "AzStyleBackgroundSize_coverByref" USING BY REFERENCE t23 END-CALL
-    MOVE t23 TO t24-item (1)
-    CALL "AzStyleBackgroundSizeVec_copyFromPtrByref" USING BY REFERENCE t26 BY REFERENCE t24 BY VALUE t25 END-CALL
-    CALL "AzCssProperty_backgroundSizeByref" USING BY REFERENCE t27 BY REFERENCE t26 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t30 BY VALUE t29 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t32 BY VALUE t31 END-CALL
-    MOVE t30 TO X-X OF t33
-    MOVE t32 TO Y-X OF t33
-    CALL "AzCssProperty_perspectiveOriginByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
+    MOVE 250 TO R OF t1
+    MOVE 250 TO G OF t1
+    MOVE 250 TO B OF t1
+    MOVE 255 TO A OF t1
+    CALL "AzStyleBackgroundContent_colorByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
+    MOVE t2 TO t3-item (1)
+    CALL "AzStyleBackgroundContentVec_copyFromPtrByref" USING BY REFERENCE t5 BY REFERENCE t3 BY VALUE t4 END-CALL
+    CALL "AzCssProperty_backgroundContentByref" USING BY REFERENCE t6 BY REFERENCE t5 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t7 BY REFERENCE t6 END-CALL
+    CALL "AzBackgroundPositionHorizontal_centerByref" USING BY REFERENCE t8 END-CALL
+    CALL "AzBackgroundPositionVertical_centerByref" USING BY REFERENCE t9 END-CALL
+    MOVE t8 TO HORIZONTAL OF t10
+    MOVE t9 TO VERTICAL OF t10
+    MOVE t10 TO t11-item (1)
+    CALL "AzStyleBackgroundPositionVec_copyFromPtrByref" USING BY REFERENCE t13 BY REFERENCE t11 BY VALUE t12 END-CALL
+    CALL "AzCssProperty_backgroundPositionByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
+    CALL "AzStyleBackgroundSize_coverByref" USING BY REFERENCE t16 END-CALL
+    MOVE t16 TO t17-item (1)
+    CALL "AzStyleBackgroundSizeVec_copyFromPtrByref" USING BY REFERENCE t19 BY REFERENCE t17 BY VALUE t18 END-CALL
+    CALL "AzCssProperty_backgroundSizeByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
+    MOVE AZ-STYLE-BACKGROUND-REPEA-c443 TO t22-item (1)
+    CALL "AzStyleBackgroundRepeatVec_copyFromPtrByref" USING BY REFERENCE t24 BY REFERENCE t22 BY VALUE t23 END-CALL
+    CALL "AzCssProperty_backgroundRepeatByref" USING BY REFERENCE t25 BY REFERENCE t24 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t28 BY VALUE t27 END-CALL
+    MOVE AZ-ANGLE-METRIC-DEGREE TO METRIC OF t29
+    MOVE t28 TO NUMBER-X OF t29
+    CALL "AzStyleTransform_rotateByref" USING BY REFERENCE t30 BY REFERENCE t29 END-CALL
+    MOVE t30 TO t31-item (1)
+    CALL "AzStyleTransformVec_copyFromPtrByref" USING BY REFERENCE t33 BY REFERENCE t31 BY VALUE t32 END-CALL
+    CALL "AzCssProperty_transformByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t35 BY REFERENCE t34 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t37 BY VALUE t36 END-CALL
-    MOVE AZ-ANGLE-METRIC-DEGREE TO METRIC OF t38
-    MOVE t37 TO NUMBER-X OF t38
-    CALL "AzStyleTransform_rotateByref" USING BY REFERENCE t39 BY REFERENCE t38 END-CALL
-    MOVE t39 TO t40-item (1)
-    CALL "AzStyleTransformVec_copyFromPtrByref" USING BY REFERENCE t42 BY REFERENCE t40 BY VALUE t41 END-CALL
-    CALL "AzCssProperty_transformByref" USING BY REFERENCE t43 BY REFERENCE t42 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t44 BY REFERENCE t43 END-CALL
-    CALL "AzPixelValue_percentByref" USING BY REFERENCE t46 BY VALUE t45 END-CALL
-    CALL "AzPixelValue_percentByref" USING BY REFERENCE t48 BY VALUE t47 END-CALL
-    MOVE t46 TO X-X OF t49
-    MOVE t48 TO Y-X OF t49
-    CALL "AzCssProperty_transformOriginByref" USING BY REFERENCE t50 BY REFERENCE t49 END-CALL
+    CALL "AzPixelValue_percentByref" USING BY REFERENCE t37 BY VALUE t36 END-CALL
+    CALL "AzPixelValue_percentByref" USING BY REFERENCE t39 BY VALUE t38 END-CALL
+    MOVE t37 TO X-X OF t40
+    MOVE t39 TO Y-X OF t40
+    CALL "AzCssProperty_transformOriginByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t44 BY VALUE t43 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t46 BY VALUE t45 END-CALL
+    MOVE t44 TO X-X OF t47
+    MOVE t46 TO Y-X OF t47
+    CALL "AzCssProperty_perspectiveOriginByref" USING BY REFERENCE t48 BY REFERENCE t47 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t49 BY REFERENCE t48 END-CALL
+    CALL "AzCssProperty_backfaceVisibilityByref" USING BY REFERENCE t50 BY VALUE AZ-STYLE-BACKFACE-VISIBIL-27d5 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t51 BY REFERENCE t50 END-CALL
-    MOVE t2 TO t52-item (1)
-    MOVE t9 TO t52-item (2)
-    MOVE t17 TO t52-item (3)
-    MOVE t22 TO t52-item (4)
-    MOVE t28 TO t52-item (5)
-    MOVE t35 TO t52-item (6)
-    MOVE t44 TO t52-item (7)
+    MOVE t7 TO t52-item (1)
+    MOVE t15 TO t52-item (2)
+    MOVE t21 TO t52-item (3)
+    MOVE t26 TO t52-item (4)
+    MOVE t35 TO t52-item (5)
+    MOVE t42 TO t52-item (6)
+    MOVE t49 TO t52-item (7)
     MOVE t51 TO t52-item (8)
     CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t54 BY REFERENCE t52 BY VALUE t53 END-CALL
     MOVE t54 TO ls-result
@@ -1128,52 +1128,52 @@ COPY "azul.cpy".
 01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t5 USAGE TYAZ-CSS-PROPERTY.
 01  t6 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t7 USAGE TYAZ-CSS-PROPERTY.
-01  t8 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t9 USAGE TYAZ-COLUMN-COUNT.
-01  t10 USAGE TYAZ-CSS-PROPERTY.
-01  t11 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t12 USAGE TYAZ-CSS-PROPERTY.
-01  t13 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t14 USAGE TYAZ-COLOR-U.
-01  t15 USAGE TYAZ-COLUMN-RULE-COLOR.
+01  t7 USAGE TYAZ-ORPHANS.
+01  t8 USAGE TYAZ-CSS-PROPERTY.
+01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t10 USAGE TYAZ-WIDOWS.
+01  t11 USAGE TYAZ-CSS-PROPERTY.
+01  t12 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t13 USAGE TYAZ-CSS-PROPERTY.
+01  t14 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t15 USAGE TYAZ-COLUMN-COUNT.
 01  t16 USAGE TYAZ-CSS-PROPERTY.
 01  t17 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t18 USAGE TYAZ-COLUMN-RULE-STYLE.
-01  t19 USAGE TYAZ-CSS-PROPERTY.
-01  t20 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t21 USAGE FLOAT-SHORT VALUE 1.0.
-01  t22 USAGE TYAZ-PIXEL-VALUE.
-01  t23 USAGE TYAZ-COLUMN-RULE-WIDTH.
-01  t24 USAGE TYAZ-CSS-PROPERTY.
-01  t25 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t26 USAGE TYAZ-CSS-PROPERTY.
-01  t27 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t28 USAGE FLOAT-SHORT VALUE 200.0.
-01  t29 USAGE TYAZ-PIXEL-VALUE.
-01  t30 USAGE TYAZ-COLUMN-WIDTH.
-01  t31 USAGE TYAZ-CSS-PROPERTY.
-01  t32 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t33.
-    05  t33-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t33-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
-    05  t33-bytes PIC X(7) VALUE "article".
-01  t34 USAGE TYAZ-STRING.
-01  t35 USAGE TYAZ-FLOW-FROM.
-01  t36 USAGE TYAZ-CSS-PROPERTY.
-01  t37 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t38.
-    05  t38-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t38-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
-    05  t38-bytes PIC X(7) VALUE "article".
-01  t39 USAGE TYAZ-STRING.
-01  t40 USAGE TYAZ-FLOW-INTO.
-01  t41 USAGE TYAZ-CSS-PROPERTY.
-01  t42 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t43 USAGE TYAZ-ORPHANS.
-01  t44 USAGE TYAZ-CSS-PROPERTY.
-01  t45 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t46 USAGE TYAZ-WIDOWS.
+01  t18 USAGE FLOAT-SHORT VALUE 200.0.
+01  t19 USAGE TYAZ-PIXEL-VALUE.
+01  t20 USAGE TYAZ-COLUMN-WIDTH.
+01  t21 USAGE TYAZ-CSS-PROPERTY.
+01  t22 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t23 USAGE TYAZ-CSS-PROPERTY.
+01  t24 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t25 USAGE TYAZ-CSS-PROPERTY.
+01  t26 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t27 USAGE FLOAT-SHORT VALUE 1.0.
+01  t28 USAGE TYAZ-PIXEL-VALUE.
+01  t29 USAGE TYAZ-COLUMN-RULE-WIDTH.
+01  t30 USAGE TYAZ-CSS-PROPERTY.
+01  t31 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t32 USAGE TYAZ-COLUMN-RULE-STYLE.
+01  t33 USAGE TYAZ-CSS-PROPERTY.
+01  t34 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t35 USAGE TYAZ-COLOR-U.
+01  t36 USAGE TYAZ-COLUMN-RULE-COLOR.
+01  t37 USAGE TYAZ-CSS-PROPERTY.
+01  t38 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t39.
+    05  t39-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t39-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
+    05  t39-bytes PIC X(7) VALUE "article".
+01  t40 USAGE TYAZ-STRING.
+01  t41 USAGE TYAZ-FLOW-INTO.
+01  t42 USAGE TYAZ-CSS-PROPERTY.
+01  t43 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t44.
+    05  t44-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t44-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
+    05  t44-bytes PIC X(7) VALUE "article".
+01  t45 USAGE TYAZ-STRING.
+01  t46 USAGE TYAZ-FLOW-FROM.
 01  t47 USAGE TYAZ-CSS-PROPERTY.
 01  t48 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t49.
@@ -1183,67 +1183,67 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    CALL "AzCssProperty_boxDecorationBreakByref" USING BY REFERENCE t1 BY VALUE AZ-BOX-DECORATION-BREAK-CLONE END-CALL
+    CALL "AzCssProperty_breakBeforeByref" USING BY REFERENCE t1 BY VALUE AZ-PAGE-BREAK-PAGE-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
     CALL "AzCssProperty_breakAfterByref" USING BY REFERENCE t3 BY VALUE AZ-PAGE-BREAK-AVOID END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzCssProperty_breakBeforeByref" USING BY REFERENCE t5 BY VALUE AZ-PAGE-BREAK-PAGE-X END-CALL
+    CALL "AzCssProperty_breakInsideByref" USING BY REFERENCE t5 BY VALUE AZ-BREAK-INSIDE-AVOID END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t6 BY REFERENCE t5 END-CALL
-    CALL "AzCssProperty_breakInsideByref" USING BY REFERENCE t7 BY VALUE AZ-BREAK-INSIDE-AVOID END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    CALL "AzColumnCount_integerByref" USING BY REFERENCE t9 BY VALUE 3 END-CALL
-    CALL "AzCssProperty_columnCountByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
-    CALL "AzCssProperty_columnFillByref" USING BY REFERENCE t12 BY VALUE AZ-COLUMN-FILL-BALANCE END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
-    MOVE 204 TO R OF t14
-    MOVE 204 TO G OF t14
-    MOVE 204 TO B OF t14
-    MOVE 255 TO A OF t14
-    MOVE t14 TO INNER OF t15
-    CALL "AzCssProperty_columnRuleColorByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
+    MOVE 2 TO INNER OF t7
+    CALL "AzCssProperty_orphansByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    MOVE 3 TO INNER OF t10
+    CALL "AzCssProperty_widowsByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
+    CALL "AzCssProperty_boxDecorationBreakByref" USING BY REFERENCE t13 BY VALUE AZ-BOX-DECORATION-BREAK-CLONE END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzColumnCount_integerByref" USING BY REFERENCE t15 BY VALUE 3 END-CALL
+    CALL "AzCssProperty_columnCountByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
-    MOVE AZ-BORDER-STYLE-SOLID TO INNER OF t18
-    CALL "AzCssProperty_columnRuleStyleByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t22 BY VALUE t21 END-CALL
-    MOVE t22 TO INNER OF t23
-    CALL "AzCssProperty_columnRuleWidthByref" USING BY REFERENCE t24 BY REFERENCE t23 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t25 BY REFERENCE t24 END-CALL
-    CALL "AzCssProperty_columnSpanByref" USING BY REFERENCE t26 BY VALUE AZ-COLUMN-SPAN-ALL END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t27 BY REFERENCE t26 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t29 BY VALUE t28 END-CALL
-    CALL "AzColumnWidth_lengthByref" USING BY REFERENCE t30 BY REFERENCE t29 END-CALL
-    CALL "AzCssProperty_columnWidthByref" USING BY REFERENCE t31 BY REFERENCE t30 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t32 BY REFERENCE t31 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t34 BY REFERENCE t33-bytes BY VALUE t33-start BY VALUE t33-len END-CALL
-    CALL "AzFlowFrom_namedByref" USING BY REFERENCE t35 BY REFERENCE t34 END-CALL
-    CALL "AzCssProperty_flowFromByref" USING BY REFERENCE t36 BY REFERENCE t35 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t39 BY REFERENCE t38-bytes BY VALUE t38-start BY VALUE t38-len END-CALL
-    CALL "AzFlowInto_namedByref" USING BY REFERENCE t40 BY REFERENCE t39 END-CALL
-    CALL "AzCssProperty_flowIntoByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
-    MOVE 2 TO INNER OF t43
-    CALL "AzCssProperty_orphansByref" USING BY REFERENCE t44 BY REFERENCE t43 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t45 BY REFERENCE t44 END-CALL
-    MOVE 3 TO INNER OF t46
-    CALL "AzCssProperty_widowsByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t19 BY VALUE t18 END-CALL
+    CALL "AzColumnWidth_lengthByref" USING BY REFERENCE t20 BY REFERENCE t19 END-CALL
+    CALL "AzCssProperty_columnWidthByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
+    CALL "AzCssProperty_columnSpanByref" USING BY REFERENCE t23 BY VALUE AZ-COLUMN-SPAN-ALL END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t24 BY REFERENCE t23 END-CALL
+    CALL "AzCssProperty_columnFillByref" USING BY REFERENCE t25 BY VALUE AZ-COLUMN-FILL-BALANCE END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t28 BY VALUE t27 END-CALL
+    MOVE t28 TO INNER OF t29
+    CALL "AzCssProperty_columnRuleWidthByref" USING BY REFERENCE t30 BY REFERENCE t29 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t31 BY REFERENCE t30 END-CALL
+    MOVE AZ-BORDER-STYLE-SOLID TO INNER OF t32
+    CALL "AzCssProperty_columnRuleStyleByref" USING BY REFERENCE t33 BY REFERENCE t32 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t34 BY REFERENCE t33 END-CALL
+    MOVE 204 TO R OF t35
+    MOVE 204 TO G OF t35
+    MOVE 204 TO B OF t35
+    MOVE 255 TO A OF t35
+    MOVE t35 TO INNER OF t36
+    CALL "AzCssProperty_columnRuleColorByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t38 BY REFERENCE t37 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t40 BY REFERENCE t39-bytes BY VALUE t39-start BY VALUE t39-len END-CALL
+    CALL "AzFlowInto_namedByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
+    CALL "AzCssProperty_flowIntoByref" USING BY REFERENCE t42 BY REFERENCE t41 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t43 BY REFERENCE t42 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t45 BY REFERENCE t44-bytes BY VALUE t44-start BY VALUE t44-len END-CALL
+    CALL "AzFlowFrom_namedByref" USING BY REFERENCE t46 BY REFERENCE t45 END-CALL
+    CALL "AzCssProperty_flowFromByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t48 BY REFERENCE t47 END-CALL
     MOVE t2 TO t49-item (1)
     MOVE t4 TO t49-item (2)
     MOVE t6 TO t49-item (3)
-    MOVE t8 TO t49-item (4)
-    MOVE t11 TO t49-item (5)
-    MOVE t13 TO t49-item (6)
+    MOVE t9 TO t49-item (4)
+    MOVE t12 TO t49-item (5)
+    MOVE t14 TO t49-item (6)
     MOVE t17 TO t49-item (7)
-    MOVE t20 TO t49-item (8)
-    MOVE t25 TO t49-item (9)
-    MOVE t27 TO t49-item (10)
-    MOVE t32 TO t49-item (11)
-    MOVE t37 TO t49-item (12)
-    MOVE t42 TO t49-item (13)
-    MOVE t45 TO t49-item (14)
+    MOVE t22 TO t49-item (8)
+    MOVE t24 TO t49-item (9)
+    MOVE t26 TO t49-item (10)
+    MOVE t31 TO t49-item (11)
+    MOVE t34 TO t49-item (12)
+    MOVE t38 TO t49-item (13)
+    MOVE t43 TO t49-item (14)
     MOVE t48 TO t49-item (15)
     CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t51 BY REFERENCE t49 BY VALUE t50 END-CALL
     MOVE t51 TO ls-result
@@ -1259,29 +1259,29 @@ COPY "azul.cpy".
 01  t1 USAGE TYAZ-SHAPE-POINT.
 01  t2 USAGE TYAZ-SHAPE-CIRCLE.
 01  t3 USAGE TYAZ-CSS-SHAPE.
-01  t4 USAGE TYAZ-CLIP-PATH.
+01  t4 USAGE TYAZ-SHAPE-OUTSIDE.
 01  t5 USAGE TYAZ-CSS-PROPERTY.
 01  t6 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t7 USAGE FLOAT-SHORT VALUE 0.5.
-01  t8 USAGE TYAZ-FLOAT-VALUE.
-01  t9 USAGE TYAZ-SHAPE-IMAGE-THRESHOLD.
-01  t10 USAGE TYAZ-CSS-PROPERTY.
-01  t11 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t12 USAGE TYAZ-SHAPE-POINT.
-01  t13 USAGE TYAZ-SHAPE-CIRCLE.
-01  t14 USAGE TYAZ-CSS-SHAPE.
-01  t15 USAGE TYAZ-SHAPE-INSIDE.
-01  t16 USAGE TYAZ-CSS-PROPERTY.
-01  t17 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t18 USAGE FLOAT-SHORT VALUE 10.0.
-01  t19 USAGE TYAZ-PIXEL-VALUE.
-01  t20 USAGE TYAZ-SHAPE-MARGIN.
-01  t21 USAGE TYAZ-CSS-PROPERTY.
-01  t22 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t23 USAGE TYAZ-SHAPE-POINT.
-01  t24 USAGE TYAZ-SHAPE-CIRCLE.
-01  t25 USAGE TYAZ-CSS-SHAPE.
-01  t26 USAGE TYAZ-SHAPE-OUTSIDE.
+01  t7 USAGE TYAZ-SHAPE-POINT.
+01  t8 USAGE TYAZ-SHAPE-CIRCLE.
+01  t9 USAGE TYAZ-CSS-SHAPE.
+01  t10 USAGE TYAZ-SHAPE-INSIDE.
+01  t11 USAGE TYAZ-CSS-PROPERTY.
+01  t12 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t13 USAGE TYAZ-SHAPE-POINT.
+01  t14 USAGE TYAZ-SHAPE-CIRCLE.
+01  t15 USAGE TYAZ-CSS-SHAPE.
+01  t16 USAGE TYAZ-CLIP-PATH.
+01  t17 USAGE TYAZ-CSS-PROPERTY.
+01  t18 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t19 USAGE FLOAT-SHORT VALUE 10.0.
+01  t20 USAGE TYAZ-PIXEL-VALUE.
+01  t21 USAGE TYAZ-SHAPE-MARGIN.
+01  t22 USAGE TYAZ-CSS-PROPERTY.
+01  t23 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t24 USAGE FLOAT-SHORT VALUE 0.5.
+01  t25 USAGE TYAZ-FLOAT-VALUE.
+01  t26 USAGE TYAZ-SHAPE-IMAGE-THRESHOLD.
 01  t27 USAGE TYAZ-CSS-PROPERTY.
 01  t28 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t29.
@@ -1294,39 +1294,39 @@ PROCEDURE DIVISION USING ls-result.
     MOVE 0.0 TO X-X OF t1
     MOVE 0.0 TO Y-X OF t1
     MOVE t1 TO CENTER-X OF t2
-    MOVE 40.0 TO RADIUS OF t2
+    MOVE 50.0 TO RADIUS OF t2
     CALL "AzCssShape_circleByref" USING BY REFERENCE t3 BY REFERENCE t2 END-CALL
-    CALL "AzClipPath_shapeByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
-    CALL "AzCssProperty_clipPathByref" USING BY REFERENCE t5 BY REFERENCE t4 END-CALL
+    CALL "AzShapeOutside_shapeByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
+    CALL "AzCssProperty_shapeOutsideByref" USING BY REFERENCE t5 BY REFERENCE t4 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t6 BY REFERENCE t5 END-CALL
-    CALL "AzFloatValue_createByref" USING BY REFERENCE t8 BY VALUE t7 END-CALL
-    MOVE t8 TO INNER OF t9
-    CALL "AzCssProperty_shapeImageThresholdByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
-    MOVE 50.0 TO X-X OF t12
-    MOVE 50.0 TO Y-X OF t12
-    MOVE t12 TO CENTER-X OF t13
-    MOVE 100.0 TO RADIUS OF t13
-    CALL "AzCssShape_circleByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
-    CALL "AzShapeInside_shapeByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
-    CALL "AzCssProperty_shapeInsideByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t19 BY VALUE t18 END-CALL
-    MOVE t19 TO INNER OF t20
-    CALL "AzCssProperty_shapeMarginByref" USING BY REFERENCE t21 BY REFERENCE t20 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
-    MOVE 0.0 TO X-X OF t23
-    MOVE 0.0 TO Y-X OF t23
-    MOVE t23 TO CENTER-X OF t24
-    MOVE 50.0 TO RADIUS OF t24
-    CALL "AzCssShape_circleByref" USING BY REFERENCE t25 BY REFERENCE t24 END-CALL
-    CALL "AzShapeOutside_shapeByref" USING BY REFERENCE t26 BY REFERENCE t25 END-CALL
-    CALL "AzCssProperty_shapeOutsideByref" USING BY REFERENCE t27 BY REFERENCE t26 END-CALL
+    MOVE 50.0 TO X-X OF t7
+    MOVE 50.0 TO Y-X OF t7
+    MOVE t7 TO CENTER-X OF t8
+    MOVE 100.0 TO RADIUS OF t8
+    CALL "AzCssShape_circleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    CALL "AzShapeInside_shapeByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
+    CALL "AzCssProperty_shapeInsideByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t12 BY REFERENCE t11 END-CALL
+    MOVE 0.0 TO X-X OF t13
+    MOVE 0.0 TO Y-X OF t13
+    MOVE t13 TO CENTER-X OF t14
+    MOVE 40.0 TO RADIUS OF t14
+    CALL "AzCssShape_circleByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
+    CALL "AzClipPath_shapeByref" USING BY REFERENCE t16 BY REFERENCE t15 END-CALL
+    CALL "AzCssProperty_clipPathByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t18 BY REFERENCE t17 END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t20 BY VALUE t19 END-CALL
+    MOVE t20 TO INNER OF t21
+    CALL "AzCssProperty_shapeMarginByref" USING BY REFERENCE t22 BY REFERENCE t21 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t23 BY REFERENCE t22 END-CALL
+    CALL "AzFloatValue_createByref" USING BY REFERENCE t25 BY VALUE t24 END-CALL
+    MOVE t25 TO INNER OF t26
+    CALL "AzCssProperty_shapeImageThresholdByref" USING BY REFERENCE t27 BY REFERENCE t26 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t28 BY REFERENCE t27 END-CALL
     MOVE t6 TO t29-item (1)
-    MOVE t11 TO t29-item (2)
-    MOVE t17 TO t29-item (3)
-    MOVE t22 TO t29-item (4)
+    MOVE t12 TO t29-item (2)
+    MOVE t18 TO t29-item (3)
+    MOVE t23 TO t29-item (4)
     MOVE t28 TO t29-item (5)
     CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t31 BY REFERENCE t29 BY VALUE t30 END-CALL
     MOVE t31 TO ls-result
@@ -1341,13 +1341,13 @@ WORKING-STORAGE SECTION.
 COPY "azul.cpy".
 01  t1 USAGE TYAZ-CSS-PROPERTY.
 01  t2 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t3 USAGE FLOAT-SHORT VALUE 2.0.
-01  t4 USAGE TYAZ-PIXEL-VALUE.
-01  t5 USAGE FLOAT-SHORT VALUE 4.0.
+01  t3 USAGE TYAZ-CSS-PROPERTY.
+01  t4 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t5 USAGE FLOAT-SHORT VALUE 2.0.
 01  t6 USAGE TYAZ-PIXEL-VALUE.
-01  t7 USAGE TYAZ-LAYOUT-BORDER-SPACING.
-01  t8 USAGE TYAZ-CSS-PROPERTY.
-01  t9 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t7 USAGE FLOAT-SHORT VALUE 4.0.
+01  t8 USAGE TYAZ-PIXEL-VALUE.
+01  t9 USAGE TYAZ-LAYOUT-BORDER-SPACING.
 01  t10 USAGE TYAZ-CSS-PROPERTY.
 01  t11 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t12 USAGE TYAZ-CSS-PROPERTY.
@@ -1361,22 +1361,22 @@ COPY "azul.cpy".
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
-    CALL "AzCssProperty_borderCollapseByref" USING BY REFERENCE t1 BY VALUE AZ-STYLE-BORDER-COLLAPSE-c357 END-CALL
+    CALL "AzCssProperty_tableLayoutByref" USING BY REFERENCE t1 BY VALUE AZ-LAYOUT-TABLE-LAYOUT-FIXED END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t2 BY REFERENCE t1 END-CALL
-    CALL "AzPixelValue_pxByref" USING BY REFERENCE t4 BY VALUE t3 END-CALL
+    CALL "AzCssProperty_borderCollapseByref" USING BY REFERENCE t3 BY VALUE AZ-STYLE-BORDER-COLLAPSE-c357 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t4 BY REFERENCE t3 END-CALL
     CALL "AzPixelValue_pxByref" USING BY REFERENCE t6 BY VALUE t5 END-CALL
-    MOVE t4 TO HORIZONTAL OF t7
-    MOVE t6 TO VERTICAL OF t7
-    CALL "AzCssProperty_borderSpacingByref" USING BY REFERENCE t8 BY REFERENCE t7 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
-    CALL "AzCssProperty_captionSideByref" USING BY REFERENCE t10 BY VALUE AZ-STYLE-CAPTION-SIDE-BOTTOM-X END-CALL
+    CALL "AzPixelValue_pxByref" USING BY REFERENCE t8 BY VALUE t7 END-CALL
+    MOVE t6 TO HORIZONTAL OF t9
+    MOVE t8 TO VERTICAL OF t9
+    CALL "AzCssProperty_borderSpacingByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t11 BY REFERENCE t10 END-CALL
-    CALL "AzCssProperty_emptyCellsByref" USING BY REFERENCE t12 BY VALUE AZ-STYLE-EMPTY-CELLS-HIDE END-CALL
+    CALL "AzCssProperty_captionSideByref" USING BY REFERENCE t12 BY VALUE AZ-STYLE-CAPTION-SIDE-BOTTOM-X END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t13 BY REFERENCE t12 END-CALL
-    CALL "AzCssProperty_tableLayoutByref" USING BY REFERENCE t14 BY VALUE AZ-LAYOUT-TABLE-LAYOUT-FIXED END-CALL
+    CALL "AzCssProperty_emptyCellsByref" USING BY REFERENCE t14 BY VALUE AZ-STYLE-EMPTY-CELLS-HIDE END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
     MOVE t2 TO t16-item (1)
-    MOVE t9 TO t16-item (2)
+    MOVE t4 TO t16-item (2)
     MOVE t11 TO t16-item (3)
     MOVE t13 TO t16-item (4)
     MOVE t15 TO t16-item (5)
@@ -1404,7 +1404,7 @@ COPY "azul.cpy".
     05  t6-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
     05  t6-bytes PIC X(7) VALUE "section".
 01  t7 USAGE TYAZ-STRING.
-01  t8 USAGE TYAZ-COUNTER-INCREMENT.
+01  t8 USAGE TYAZ-COUNTER-RESET.
 01  t9 USAGE TYAZ-CSS-PROPERTY.
 01  t10 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t11.
@@ -1412,7 +1412,7 @@ COPY "azul.cpy".
     05  t11-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
     05  t11-bytes PIC X(7) VALUE "section".
 01  t12 USAGE TYAZ-STRING.
-01  t13 USAGE TYAZ-COUNTER-RESET.
+01  t13 USAGE TYAZ-COUNTER-INCREMENT.
 01  t14 USAGE TYAZ-CSS-PROPERTY.
 01  t15 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t16 USAGE TYAZ-CSS-PROPERTY.
@@ -1441,16 +1441,16 @@ PROCEDURE DIVISION USING ls-result.
     CALL "AzString_copyFromBytesByref" USING BY REFERENCE t7 BY REFERENCE t6-bytes BY VALUE t6-start BY VALUE t6-len END-CALL
     MOVE t7 TO COUNTER-NAME OF t8
     MOVE 1 TO VALUE-X OF t8
-    CALL "AzCssProperty_counterIncrementByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
+    CALL "AzCssProperty_counterResetByref" USING BY REFERENCE t9 BY REFERENCE t8 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t10 BY REFERENCE t9 END-CALL
     CALL "AzString_copyFromBytesByref" USING BY REFERENCE t12 BY REFERENCE t11-bytes BY VALUE t11-start BY VALUE t11-len END-CALL
     MOVE t12 TO COUNTER-NAME OF t13
     MOVE 1 TO VALUE-X OF t13
-    CALL "AzCssProperty_counterResetByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
+    CALL "AzCssProperty_counterIncrementByref" USING BY REFERENCE t14 BY REFERENCE t13 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t15 BY REFERENCE t14 END-CALL
-    CALL "AzCssProperty_listStylePositionByref" USING BY REFERENCE t16 BY VALUE AZ-STYLE-LIST-STYLE-POSIT-ca3e END-CALL
+    CALL "AzCssProperty_listStyleTypeByref" USING BY REFERENCE t16 BY VALUE AZ-STYLE-LIST-STYLE-TYPE-fbf1 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t17 BY REFERENCE t16 END-CALL
-    CALL "AzCssProperty_listStyleTypeByref" USING BY REFERENCE t18 BY VALUE AZ-STYLE-LIST-STYLE-TYPE-fbf1 END-CALL
+    CALL "AzCssProperty_listStylePositionByref" USING BY REFERENCE t18 BY VALUE AZ-STYLE-LIST-STYLE-POSIT-ca3e END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t19 BY REFERENCE t18 END-CALL
     CALL "AzString_copyFromBytesByref" USING BY REFERENCE t21 BY REFERENCE t20-bytes BY VALUE t20-start BY VALUE t20-len END-CALL
     MOVE t21 TO INNER OF t22

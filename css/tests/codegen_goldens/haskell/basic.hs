@@ -9,11 +9,11 @@ import qualified Azul.CssPropertyWithConditions as CssPropertyWithConditions
 styleBtn :: IO [CssPropertyWithConditions]
 styleBtn = sequence
   [
+    (CssPropertyWithConditions.simple (T.CssProperty_Width (T.LayoutWidthValue_Exact (T.LayoutWidth_Px (T.PixelValue T.SizeMetric_Px (T.FloatValue 100000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextColor (T.StyleTextColorValue_Exact (T.StyleTextColor (T.ColorU 255 0 0 255))))),
     (CssPropertyWithConditions.simple (T.CssProperty_Display (T.LayoutDisplayValue_Exact T.LayoutDisplay_Flex))),
     (CssPropertyWithConditions.simple (T.CssProperty_FlexGrow (T.LayoutFlexGrowValue_Exact (T.LayoutFlexGrow (T.FloatValue 1000))))),
     (CssPropertyWithConditions.simple (T.CssProperty_MinWidth T.LayoutMinWidthValue_Inherit)),
     (CssPropertyWithConditions.simple (T.CssProperty_WhiteSpace (T.StyleWhiteSpaceValue_Exact T.StyleWhiteSpace_Nowrap))),
-    (CssPropertyWithConditions.simple (T.CssProperty_Width (T.LayoutWidthValue_Exact (T.LayoutWidth_Px (T.PixelValue T.SizeMetric_Px (T.FloatValue 100000)))))),
     (CssPropertyWithConditions.onHover (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact T.StyleFontWeight_Bold)))
   ]

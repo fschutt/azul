@@ -21,15 +21,15 @@ AzulStyles class >> vec: aBlock of: aType items: anArray [
 AzulStyles class >> styleAzulNativeButton [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
         (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 241; g: 243; b: 245; a: 255; yourself)) }))).
+        (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 173; g: 181; b: 189; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBorderBottomColor: (AzStyleBorderBottomColor new inner: (AzColorU new r: 173; g: 181; b: 189; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBorderLeftColor: (AzStyleBorderLeftColor new inner: (AzColorU new r: 173; g: 181; b: 189; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBorderRightColor: (AzStyleBorderRightColor new inner: (AzColorU new r: 173; g: 181; b: 189; a: 255; yourself); yourself))).
-        (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 173; g: 181; b: 189; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnActive: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 222; g: 226; b: 230; a: 255; yourself)) }))).
+        (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderBottomColor: (AzStyleBorderBottomColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderLeftColor: (AzStyleBorderLeftColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderRightColor: (AzStyleBorderRightColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
-        (AzulNative azCssPropertyWithConditionsOnFocus: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 13; g: 110; b: 253; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyBackgroundContent: (self vec: [ :p :n | AzulNative azStyleBackgroundContentVecCopyFromPtr: p len: n ] of: AzStyleBackgroundContent items: { (AzulNative azStyleBackgroundContentColor: (AzColorU new r: 73; g: 80; b: 87; a: 255; yourself)) })) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Hover)).
             (AzulNative azDynamicSelectorTheme: (AzulNative azThemeConditionDark))

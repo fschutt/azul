@@ -17,14 +17,14 @@ AzulStyles class >> vec: aBlock of: aType items: anArray [
 ]
 
 "CSS: .bar
-`padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
-`padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback"
+`padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+`padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback"
 { #category : 'styles' }
 AzulStyles class >> styleBar [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 204; g: 204; b: 204; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 255; g: 102; b: 0; a: 255; yourself); yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyPaddingBottom: (AzLayoutPaddingBottom new inner: (AzulNative azPixelValuePx: 0.0); yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyPaddingTop: (AzLayoutPaddingTop new inner: (AzulNative azPixelValuePx: 8.0); yourself)))
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBorderTopColor: (AzStyleBorderTopColor new inner: (AzColorU new r: 204; g: 204; b: 204; a: 255; yourself); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyPaddingTop: (AzLayoutPaddingTop new inner: (AzulNative azPixelValuePx: 8.0); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyPaddingBottom: (AzLayoutPaddingBottom new inner: (AzulNative azPixelValuePx: 0.0); yourself)))
     }
 ]

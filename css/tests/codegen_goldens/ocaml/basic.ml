@@ -22,11 +22,11 @@ let az_payload t x p =
 (* CSS: .btn, .btn:hover *)
 let style_btn () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
+    (azCssPropertyWithConditions_simple (azCssProperty_width (azLayoutWidth_px (azPixelValue_px 100.0))));
     (azCssPropertyWithConditions_simple (azCssProperty_textColor (az_struct az_style_text_color [ (fun v -> Ctypes.setf v az_style_text_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_display (LayoutDisplay.to_int LayoutDisplay.Flex)));
     (azCssPropertyWithConditions_simple (azCssProperty_flexGrow (az_struct az_layout_flex_grow [ (fun v -> Ctypes.setf v az_layout_flex_grow_field_inner (azFloatValue_create 1.0)) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_inherit (CssPropertyType.to_int CssPropertyType.MinWidth)));
     (azCssPropertyWithConditions_simple (azCssProperty_whiteSpace (az_union az_style_white_space_value 6 (Some (az_payload az_style_white_space (StyleWhiteSpace.to_int StyleWhiteSpace.Nowrap))))));
-    (azCssPropertyWithConditions_simple (azCssProperty_width (azLayoutWidth_px (azPixelValue_px 100.0))));
     (azCssPropertyWithConditions_onHover (azCssProperty_fontWeight (StyleFontWeight.to_int StyleFontWeight.Bold)))
   ])) (Unsigned.Size_t.of_int 7))

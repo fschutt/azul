@@ -9,15 +9,15 @@ local M = {}
 function M.style_azul_native_button()
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[14]', {
         C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 241, g = 243, b = 245, a = 255 })) }), 1))),
+        C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_borderTopColor(ffi.new('AzStyleBorderTopColor', { inner = ffi.new('AzColorU', { r = 173, g = 181, b = 189, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_borderBottomColor(ffi.new('AzStyleBorderBottomColor', { inner = ffi.new('AzColorU', { r = 173, g = 181, b = 189, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_borderLeftColor(ffi.new('AzStyleBorderLeftColor', { inner = ffi.new('AzColorU', { r = 173, g = 181, b = 189, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_borderRightColor(ffi.new('AzStyleBorderRightColor', { inner = ffi.new('AzColorU', { r = 173, g = 181, b = 189, a = 255 }) }))),
-        C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_borderTopColor(ffi.new('AzStyleBorderTopColor', { inner = ffi.new('AzColorU', { r = 173, g = 181, b = 189, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onActive(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 222, g = 226, b = 230, a = 255 })) }), 1))),
+        C.AzCssPropertyWithConditions_onFocus(C.AzCssProperty_borderTopColor(ffi.new('AzStyleBorderTopColor', { inner = ffi.new('AzColorU', { r = 13, g = 110, b = 253, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onFocus(C.AzCssProperty_borderBottomColor(ffi.new('AzStyleBorderBottomColor', { inner = ffi.new('AzColorU', { r = 13, g = 110, b = 253, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onFocus(C.AzCssProperty_borderLeftColor(ffi.new('AzStyleBorderLeftColor', { inner = ffi.new('AzColorU', { r = 13, g = 110, b = 253, a = 255 }) }))),
         C.AzCssPropertyWithConditions_onFocus(C.AzCssProperty_borderRightColor(ffi.new('AzStyleBorderRightColor', { inner = ffi.new('AzColorU', { r = 13, g = 110, b = 253, a = 255 }) }))),
-        C.AzCssPropertyWithConditions_onFocus(C.AzCssProperty_borderTopColor(ffi.new('AzStyleBorderTopColor', { inner = ffi.new('AzColorU', { r = 13, g = 110, b = 253, a = 255 }) }))),
         C.AzCssPropertyWithConditions_withConditions(
             C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 73, g = 80, b = 87, a = 255 })) }), 1)),
             C.AzDynamicSelectorVec_copyFromPtr(ffi.new('AzDynamicSelector[2]', {

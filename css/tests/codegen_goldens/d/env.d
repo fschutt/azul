@@ -4,14 +4,14 @@ module styles;
 import azul;
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 CssPropertyWithConditions[] styleBar()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.borderTopColor(StyleBorderTopColor(ColorU(204, 204, 204, 255)))),
         CssPropertyWithConditions.simple(CssProperty.textColor(StyleTextColor(ColorU(255, 102, 0, 255)))),
-        CssPropertyWithConditions.simple(CssProperty.paddingBottom(LayoutPaddingBottom(PixelValue.px(0.0f)))),
+        CssPropertyWithConditions.simple(CssProperty.borderTopColor(StyleBorderTopColor(ColorU(204, 204, 204, 255)))),
         CssPropertyWithConditions.simple(CssProperty.paddingTop(LayoutPaddingTop(PixelValue.px(8.0f)))),
+        CssPropertyWithConditions.simple(CssProperty.paddingBottom(LayoutPaddingBottom(PixelValue.px(0.0f)))),
     ];
 }

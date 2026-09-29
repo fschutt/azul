@@ -4,15 +4,15 @@
 #include "azul17.hpp"
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 inline AzCssPropertyWithConditionsVec style_bar() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 204, 204, 204, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_textColor(AzStyleTextColor{ AzColorU{ 255, 102, 0, 255 } })),
-            AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom{ AzPixelValue_px(0.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor{ AzColorU{ 204, 204, 204, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(AzLayoutPaddingTop{ AzPixelValue_px(8.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom{ AzPixelValue_px(0.0f) })),
         }.data(),
         4
     );

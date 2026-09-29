@@ -51,31 +51,8 @@ function style_text()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretWidth(azul_union('AzCaretWidthValue', 'Exact', 6, azul_struct('AzCaretWidth', ['inner' => $L->AzPixelValue_px(2.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_exclusionMargin(azul_union('AzStyleExclusionMarginValue', 'Exact', 6, azul_struct('AzStyleExclusionMargin', ['inner' => $L->AzFloatValue_create(10.5)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hyphenationLanguage(azul_union('AzStyleHyphenationLanguageValue', 'Exact', 6, azul_struct('AzStyleHyphenationLanguage', ['inner' => azul_str('en-US')])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionBackgroundColor(azul_struct('AzSelectionBackgroundColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 153, 'b' => 255, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionColor(azul_struct('AzSelectionColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionRadius(azul_union('AzSelectionRadiusValue', 'Exact', 6, azul_struct('AzSelectionRadius', ['inner' => $L->AzPixelValue_px(3.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignmentBaseline(azul_union('AzStyleAlignmentBaselineValue', 'Exact', 6, $L->AzStyleAlignmentBaseline_Middle))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_baselineSource(azul_union('AzStyleBaselineSourceValue', 'Exact', 6, $L->AzStyleBaselineSource_Last))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretAnimationDuration(azul_struct('AzCaretAnimationDuration', ['inner' => azul_struct('AzCssDuration', ['inner' => 500, 'unit' => $L->AzCssDurationUnit_Milliseconds])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretColor(azul_struct('AzCaretColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 102, 'b' => 153, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_direction(azul_union('AzStyleDirectionValue', 'Exact', 6, $L->AzStyleDirection_Rtl))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_dominantBaseline(azul_union('AzStyleDominantBaselineValue', 'Exact', 6, $L->AzStyleDominantBaseline_Central))),
-            $L->AzCssPropertyWithConditions_simple(
-                $L->AzCssProperty_font(
-                    azul_vec(
-                        'AzStyleFontFamilyVec_copyFromPtr',
-                        'AzStyleFontFamily',
-                        [
-                            $L->AzStyleFontFamily_system(azul_str('Georgia')),
-                            $L->AzStyleFontFamily_system(azul_str('serif')),
-                        ]
-                    )
-                )
-            ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(14.0)]))),
             $L->AzCssPropertyWithConditions_simple(
                 $L->AzCssProperty_fontFamily(
                     azul_vec(
@@ -88,38 +65,61 @@ function style_text()
                     )
                 )
             ),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(14.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_W600)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hangingPunctuation(azul_union('AzStyleHangingPunctuationValue', 'Exact', 6, azul_struct('AzStyleHangingPunctuation', ['first' => true, 'force_end' => false, 'allow_end' => false, 'last' => false])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hyphens(azul_union('AzStyleHyphensValue', 'Exact', 6, $L->AzStyleHyphens_Auto))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlign($L->AzStyleTextAlign_Center)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textJustify($L->AzLayoutTextJustify_InterWord)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_verticalAlign($L->AzStyleVerticalAlign_middle())),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_letterSpacing(azul_struct('AzStyleLetterSpacing', ['inner' => $L->AzPixelValue_px(0.5)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textIndent(azul_struct('AzStyleTextIndent', ['inner' => $L->AzPixelValue_em(2.0), 'each_line' => false, 'hanging' => false]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initialLetter(azul_union('AzStyleInitialLetterValue', 'Exact', 6, azul_struct('AzStyleInitialLetter', ['size' => 3, 'sink' => $L->AzOptionU32_none()])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineClamp(azul_union('AzStyleLineClampValue', 'Exact', 6, azul_struct('AzStyleLineClamp', ['max_lines' => 3])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hangingPunctuation(azul_union('AzStyleHangingPunctuationValue', 'Exact', 6, azul_struct('AzStyleHangingPunctuation', ['first' => true, 'force_end' => false, 'allow_end' => false, 'last' => false])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textCombineUpright(azul_union('AzStyleTextCombineUprightValue', 'Exact', 6, $L->AzStyleTextCombineUpright_digits(2)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_unicodeBidi(azul_union('AzStyleUnicodeBidiValue', 'Exact', 6, $L->AzStyleUnicodeBidi_Isolate))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textBoxTrim(azul_union('AzStyleTextBoxTrimValue', 'Exact', 6, $L->AzStyleTextBoxTrim_TrimBoth))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textBoxEdge(azul_union('AzStyleTextBoxEdgeValue', 'Exact', 6, azul_struct('AzStyleTextBoxEdge', ['over' => $L->AzTextBoxEdgeOver_Cap, 'under' => $L->AzTextBoxEdgeUnder_Alphabetic])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_dominantBaseline(azul_union('AzStyleDominantBaselineValue', 'Exact', 6, $L->AzStyleDominantBaseline_Central))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignmentBaseline(azul_union('AzStyleAlignmentBaselineValue', 'Exact', 6, $L->AzStyleAlignmentBaseline_Middle))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_baselineSource(azul_union('AzStyleBaselineSourceValue', 'Exact', 6, $L->AzStyleBaselineSource_Last))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineFitEdge(azul_union('AzStyleLineFitEdgeValue', 'Exact', 6, $L->AzStyleLineFitEdge_Leading))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initialLetterAlign(azul_union('AzStyleInitialLetterAlignValue', 'Exact', 6, $L->AzStyleInitialLetterAlign_Alphabetic))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initialLetterWrap(azul_union('AzStyleInitialLetterWrapValue', 'Exact', 6, $L->AzStyleInitialLetterWrap_First))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_letterSpacing(azul_struct('AzStyleLetterSpacing', ['inner' => $L->AzPixelValue_px(0.5)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineBreak(azul_union('AzStyleLineBreakValue', 'Exact', 6, $L->AzStyleLineBreak_Strict))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineClamp(azul_union('AzStyleLineClampValue', 'Exact', 6, azul_struct('AzStyleLineClamp', ['max_lines' => 3])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineFitEdge(azul_union('AzStyleLineFitEdgeValue', 'Exact', 6, $L->AzStyleLineFitEdge_Leading))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineHeight(azul_struct('AzStyleLineHeight', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(150.0)])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowWrap(azul_union('AzStyleOverflowWrapValue', 'Exact', 6, $L->AzStyleOverflowWrap_Anywhere))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_tabSize(azul_struct('AzStyleTabSize', ['inner' => $L->AzPixelValue_em(4.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlign($L->AzStyleTextAlign_Center)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlignLast(azul_union('AzStyleTextAlignLastValue', 'Exact', 6, $L->AzStyleTextAlignLast_Justify))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textBoxEdge(azul_union('AzStyleTextBoxEdgeValue', 'Exact', 6, azul_struct('AzStyleTextBoxEdge', ['over' => $L->AzTextBoxEdgeOver_Cap, 'under' => $L->AzTextBoxEdgeUnder_Alphabetic])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textBoxTrim(azul_union('AzStyleTextBoxTrimValue', 'Exact', 6, $L->AzStyleTextBoxTrim_TrimBoth))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textCombineUpright(azul_union('AzStyleTextCombineUprightValue', 'Exact', 6, $L->AzStyleTextCombineUpright_digits(2)))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textDecoration($L->AzStyleTextDecoration_Underline)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textIndent(azul_struct('AzStyleTextIndent', ['inner' => $L->AzPixelValue_em(2.0), 'each_line' => false, 'hanging' => false]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textJustify($L->AzLayoutTextJustify_InterWord)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textOrientation(azul_union('AzStyleTextOrientationValue', 'Exact', 6, $L->AzStyleTextOrientation_Upright))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textOverflow(azul_union('AzStyleTextOverflowValue', 'Exact', 6, $L->AzStyleTextOverflow_Ellipsis))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textTransform(azul_union('AzStyleTextTransformValue', 'Exact', 6, $L->AzStyleTextTransform_Uppercase))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_unicodeBidi(azul_union('AzStyleUnicodeBidiValue', 'Exact', 6, $L->AzStyleUnicodeBidi_Isolate))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_userSelect($L->AzStyleUserSelect_None)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_verticalAlign($L->AzStyleVerticalAlign_middle())),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_whiteSpace(azul_union('AzStyleWhiteSpaceValue', 'Exact', 6, $L->AzStyleWhiteSpace_PreWrap))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wordBreak(azul_union('AzStyleWordBreakValue', 'Exact', 6, $L->AzStyleWordBreak_BreakAll))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wordSpacing(azul_struct('AzStyleWordSpacing', ['inner' => $L->AzPixelValue_px(4.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_tabSize(azul_struct('AzStyleTabSize', ['inner' => $L->AzPixelValue_em(4.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_whiteSpace(azul_union('AzStyleWhiteSpaceValue', 'Exact', 6, $L->AzStyleWhiteSpace_PreWrap))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hyphens(azul_union('AzStyleHyphensValue', 'Exact', 6, $L->AzStyleHyphens_Auto))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wordBreak(azul_union('AzStyleWordBreakValue', 'Exact', 6, $L->AzStyleWordBreak_BreakAll))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowWrap(azul_union('AzStyleOverflowWrapValue', 'Exact', 6, $L->AzStyleOverflowWrap_Anywhere))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineBreak(azul_union('AzStyleLineBreakValue', 'Exact', 6, $L->AzStyleLineBreak_Strict))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textOverflow(azul_union('AzStyleTextOverflowValue', 'Exact', 6, $L->AzStyleTextOverflow_Ellipsis))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textOrientation(azul_union('AzStyleTextOrientationValue', 'Exact', 6, $L->AzStyleTextOrientation_Upright))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlignLast(azul_union('AzStyleTextAlignLastValue', 'Exact', 6, $L->AzStyleTextAlignLast_Justify))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textTransform(azul_union('AzStyleTextTransformValue', 'Exact', 6, $L->AzStyleTextTransform_Uppercase))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_direction(azul_union('AzStyleDirectionValue', 'Exact', 6, $L->AzStyleDirection_Rtl))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_userSelect($L->AzStyleUserSelect_None)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textDecoration($L->AzStyleTextDecoration_Underline)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hyphenationLanguage(azul_union('AzStyleHyphenationLanguageValue', 'Exact', 6, azul_struct('AzStyleHyphenationLanguage', ['inner' => azul_str('en-US')])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_exclusionMargin(azul_union('AzStyleExclusionMarginValue', 'Exact', 6, azul_struct('AzStyleExclusionMargin', ['inner' => $L->AzFloatValue_create(10.5)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretColor(azul_struct('AzCaretColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretAnimationDuration(azul_struct('AzCaretAnimationDuration', ['inner' => azul_struct('AzCssDuration', ['inner' => 500, 'unit' => $L->AzCssDurationUnit_Milliseconds])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretWidth(azul_union('AzCaretWidthValue', 'Exact', 6, azul_struct('AzCaretWidth', ['inner' => $L->AzPixelValue_px(2.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionBackgroundColor(azul_struct('AzSelectionBackgroundColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 153, 'b' => 255, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionColor(azul_struct('AzSelectionColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionRadius(azul_union('AzSelectionRadiusValue', 'Exact', 6, azul_struct('AzSelectionRadius', ['inner' => $L->AzPixelValue_px(3.0)])))),
+            $L->AzCssPropertyWithConditions_simple(
+                $L->AzCssProperty_font(
+                    azul_vec(
+                        'AzStyleFontFamilyVec_copyFromPtr',
+                        'AzStyleFontFamily',
+                        [
+                            $L->AzStyleFontFamily_system(azul_str('Georgia')),
+                            $L->AzStyleFontFamily_system(azul_str('serif')),
+                        ]
+                    )
+                )
+            ),
         ]
     );
 }
@@ -132,46 +132,46 @@ function style_box()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_aspectRatio(azul_union('AzStyleAspectRatioValue', 'Exact', 6, $L->AzStyleAspectRatio_ratio(azul_struct('AzAspectRatioValue', ['width' => 16000, 'height' => 9000]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_bottom(azul_struct('AzLayoutInsetBottom', ['inner' => $L->AzPixelValue_pt(5.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxSizing($L->AzLayoutBoxSizing_BorderBox)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clear(azul_union('AzLayoutClearValue', 'Exact', 6, $L->AzLayoutClear_Both))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clip(azul_union('AzStyleClipRectValue', 'Exact', 6, azul_struct('AzStyleClipRect', ['top' => $L->AzOptionF32_some(0.0), 'right' => $L->AzOptionF32_some(10.0), 'bottom' => $L->AzOptionF32_some(10.0), 'left' => $L->AzOptionF32_some(0.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_cursor($L->AzStyleCursor_Pointer)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_display($L->AzLayoutDisplay_Block)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_float(azul_union('AzLayoutFloatValue', 'Exact', 6, $L->AzLayoutFloat_Left))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxSizing($L->AzLayoutBoxSizing_BorderBox)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_width($L->AzLayoutWidth_px($L->AzPixelValue_percent(50.0)))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_height($L->AzLayoutHeight_px($L->AzPixelValue_px(200.0)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_minWidth(azul_struct('AzLayoutMinWidth', ['inner' => $L->AzPixelValue_em(10.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_minHeight(azul_struct('AzLayoutMinHeight', ['inner' => $L->AzPixelValue_rem(1.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_maxWidth(azul_struct('AzLayoutMaxWidth', ['inner' => $L->AzPixelValue_px(800.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_maxHeight(azul_struct('AzLayoutMaxHeight', ['inner' => $L->AzPixelValue_fromMetric($L->AzSizeMetric_Vh, 90.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_position($L->AzLayoutPosition_Absolute)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_top(azul_struct('AzLayoutTop', ['inner' => $L->AzPixelValue_px(0.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_right(azul_struct('AzLayoutRight', ['inner' => $L->AzPixelValue_px(10.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_bottom(azul_struct('AzLayoutInsetBottom', ['inner' => $L->AzPixelValue_pt(5.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_left(azul_struct('AzLayoutLeft', ['inner' => $L->AzPixelValue_fromMetric($L->AzSizeMetric_In, 1.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_zIndex($L->AzLayoutZIndex_integer(10))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingTop(azul_struct('AzLayoutPaddingTop', ['inner' => $L->AzPixelValue_px(1.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingRight(azul_struct('AzLayoutPaddingRight', ['inner' => $L->AzPixelValue_px(2.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingBottom(azul_struct('AzLayoutPaddingBottom', ['inner' => $L->AzPixelValue_px(3.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingLeft(azul_struct('AzLayoutPaddingLeft', ['inner' => $L->AzPixelValue_px(4.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingInlineStart(azul_union('AzLayoutPaddingInlineStartValue', 'Exact', 6, azul_struct('AzLayoutPaddingInlineStart', ['inner' => $L->AzPixelValue_px(5.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingInlineEnd(azul_union('AzLayoutPaddingInlineEndValue', 'Exact', 6, azul_struct('AzLayoutPaddingInlineEnd', ['inner' => $L->AzPixelValue_px(6.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_marginTop(azul_struct('AzLayoutMarginTop', ['inner' => $L->AzPixelValue_px(7.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_marginRight(azul_struct('AzLayoutMarginRight', ['inner' => $L->AzPixelValue_px(8.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_marginBottom(azul_struct('AzLayoutMarginBottom', ['inner' => $L->AzPixelValue_px(9.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_auto($L->AzCssPropertyType_MarginLeft)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_marginRight(azul_struct('AzLayoutMarginRight', ['inner' => $L->AzPixelValue_px(8.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_marginTop(azul_struct('AzLayoutMarginTop', ['inner' => $L->AzPixelValue_px(7.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_maxHeight(azul_struct('AzLayoutMaxHeight', ['inner' => $L->AzPixelValue_fromMetric($L->AzSizeMetric_Vh, 90.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_maxWidth(azul_struct('AzLayoutMaxWidth', ['inner' => $L->AzPixelValue_px(800.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_minHeight(azul_struct('AzLayoutMinHeight', ['inner' => $L->AzPixelValue_rem(1.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_minWidth(azul_struct('AzLayoutMinWidth', ['inner' => $L->AzPixelValue_em(10.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_objectFit(azul_union('AzStyleObjectFitValue', 'Exact', 6, $L->AzStyleObjectFit_Cover))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_objectPosition(azul_union('AzStyleObjectPositionValue', 'Exact', 6, azul_struct('AzStyleObjectPosition', ['horizontal' => $L->AzBackgroundPositionHorizontal_center(), 'vertical' => $L->AzBackgroundPositionVertical_top()])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_opacity(azul_struct('AzStyleOpacity', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowBlock(azul_union('AzLayoutOverflowValue', 'Exact', 6, $L->AzLayoutOverflow_Clip))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowClipMargin(azul_union('AzStyleOverflowClipMarginValue', 'Exact', 6, azul_struct('AzStyleOverflowClipMargin', ['clip_edge' => $L->AzVisualBox_ContentBox, 'inner' => $L->AzPixelValue_px(0.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowInline(azul_union('AzLayoutOverflowValue', 'Exact', 6, $L->AzLayoutOverflow_Auto))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowX($L->AzLayoutOverflow_Hidden)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowY($L->AzLayoutOverflow_Scroll)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingBottom(azul_struct('AzLayoutPaddingBottom', ['inner' => $L->AzPixelValue_px(3.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingInlineEnd(azul_union('AzLayoutPaddingInlineEndValue', 'Exact', 6, azul_struct('AzLayoutPaddingInlineEnd', ['inner' => $L->AzPixelValue_px(6.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingInlineStart(azul_union('AzLayoutPaddingInlineStartValue', 'Exact', 6, azul_struct('AzLayoutPaddingInlineStart', ['inner' => $L->AzPixelValue_px(5.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingLeft(azul_struct('AzLayoutPaddingLeft', ['inner' => $L->AzPixelValue_px(4.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingRight(azul_struct('AzLayoutPaddingRight', ['inner' => $L->AzPixelValue_px(2.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingTop(azul_struct('AzLayoutPaddingTop', ['inner' => $L->AzPixelValue_px(1.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_position($L->AzLayoutPosition_Absolute)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_right(azul_struct('AzLayoutRight', ['inner' => $L->AzPixelValue_px(10.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowBlock(azul_union('AzLayoutOverflowValue', 'Exact', 6, $L->AzLayoutOverflow_Clip))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowInline(azul_union('AzLayoutOverflowValue', 'Exact', 6, $L->AzLayoutOverflow_Auto))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarGutter(azul_union('AzStyleScrollbarGutterValue', 'Exact', 6, $L->AzStyleScrollbarGutter_StableBothEdges))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_top(azul_struct('AzLayoutTop', ['inner' => $L->AzPixelValue_px(0.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_visibility($L->AzStyleVisibility_Hidden)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_width($L->AzLayoutWidth_px($L->AzPixelValue_percent(50.0)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overflowClipMargin(azul_union('AzStyleOverflowClipMarginValue', 'Exact', 6, azul_struct('AzStyleOverflowClipMargin', ['clip_edge' => $L->AzVisualBox_ContentBox, 'inner' => $L->AzPixelValue_px(0.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clip(azul_union('AzStyleClipRectValue', 'Exact', 6, azul_struct('AzStyleClipRect', ['top' => $L->AzOptionF32_some(0.0), 'right' => $L->AzOptionF32_some(10.0), 'bottom' => $L->AzOptionF32_some(10.0), 'left' => $L->AzOptionF32_some(0.0)])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_writingMode(azul_union('AzLayoutWritingModeValue', 'Exact', 6, $L->AzLayoutWritingMode_VerticalRl))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_zIndex($L->AzLayoutZIndex_integer(10))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clear(azul_union('AzLayoutClearValue', 'Exact', 6, $L->AzLayoutClear_Both))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_visibility($L->AzStyleVisibility_Hidden)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_opacity(azul_struct('AzStyleOpacity', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_cursor($L->AzStyleCursor_Pointer)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_objectFit(azul_union('AzStyleObjectFitValue', 'Exact', 6, $L->AzStyleObjectFit_Cover))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_objectPosition(azul_union('AzStyleObjectPositionValue', 'Exact', 6, azul_struct('AzStyleObjectPosition', ['horizontal' => $L->AzBackgroundPositionHorizontal_center(), 'vertical' => $L->AzBackgroundPositionVertical_top()])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_aspectRatio(azul_union('AzStyleAspectRatioValue', 'Exact', 6, $L->AzStyleAspectRatio_ratio(azul_struct('AzAspectRatioValue', ['width' => 16000, 'height' => 9000]))))),
         ]
     );
 }
@@ -184,19 +184,19 @@ function style_flex()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignContent($L->AzLayoutAlignContent_Stretch)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignItems($L->AzLayoutAlignItems_Center)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignSelf($L->AzLayoutAlignSelf_End)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnGap(azul_union('AzLayoutColumnGapValue', 'Exact', 6, azul_struct('AzLayoutColumnGap', ['inner' => $L->AzPixelValue_px(8.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexBasis(azul_union('AzLayoutFlexBasisValue', 'Exact', 6, $L->AzLayoutFlexBasis_exact($L->AzPixelValue_percent(30.0))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexWrap($L->AzLayoutFlexWrap_Wrap)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexDirection($L->AzLayoutFlexDirection_Column)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexGrow(azul_struct('AzLayoutFlexGrow', ['inner' => $L->AzFloatValue_create(2.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexShrink(azul_struct('AzLayoutFlexShrink', ['inner' => $L->AzFloatValue_create(0.5)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexWrap($L->AzLayoutFlexWrap_Wrap)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexBasis(azul_union('AzLayoutFlexBasisValue', 'Exact', 6, $L->AzLayoutFlexBasis_exact($L->AzPixelValue_percent(30.0))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_justifyContent($L->AzLayoutJustifyContent_SpaceBetween)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignItems($L->AzLayoutAlignItems_Center)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignContent($L->AzLayoutAlignContent_Stretch)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_alignSelf($L->AzLayoutAlignSelf_End)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnGap(azul_union('AzLayoutColumnGapValue', 'Exact', 6, azul_struct('AzLayoutColumnGap', ['inner' => $L->AzPixelValue_px(8.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_rowGap(azul_union('AzLayoutRowGapValue', 'Exact', 6, azul_struct('AzLayoutRowGap', ['inner' => $L->AzPixelValue_px(4.0)])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_rowGap(azul_union('AzLayoutRowGapValue', 'Exact', 6, azul_struct('AzLayoutRowGap', ['inner' => $L->AzPixelValue_px(6.0)])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnGap(azul_union('AzLayoutColumnGapValue', 'Exact', 6, azul_struct('AzLayoutColumnGap', ['inner' => $L->AzPixelValue_px(6.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_justifyContent($L->AzLayoutJustifyContent_SpaceBetween)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_rowGap(azul_union('AzLayoutRowGapValue', 'Exact', 6, azul_struct('AzLayoutRowGap', ['inner' => $L->AzPixelValue_px(4.0)])))),
         ]
     );
 }
@@ -210,35 +210,6 @@ function style_grid()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridAutoColumns(azul_union('AzLayoutGridAutoColumnsValue', 'Exact', 6, azul_struct('AzGridAutoTracks', ['tracks' => azul_vec('AzGridTrackSizingVec_copyFromPtr', 'AzGridTrackSizing', [$L->AzGridTrackSizing_fixed($L->AzPixelValue_px(50.0))])])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridAutoFlow($L->AzLayoutGridAutoFlow_Column)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridColumn(azul_union('AzLayoutGridColumnValue', 'Exact', 6, azul_struct('AzGridPlacement', ['grid_start' => $L->AzGridLine_line(1), 'grid_end' => $L->AzGridLine_line(3)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_rowGap(azul_union('AzLayoutRowGapValue', 'Exact', 6, azul_struct('AzLayoutRowGap', ['inner' => $L->AzPixelValue_px(10.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnGap(azul_union('AzLayoutColumnGapValue', 'Exact', 6, azul_struct('AzLayoutColumnGap', ['inner' => $L->AzPixelValue_px(10.0)])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridRow(azul_union('AzLayoutGridRowValue', 'Exact', 6, azul_struct('AzGridPlacement', ['grid_start' => $L->AzGridLine_span(2), 'grid_end' => $L->AzGridLine_auto()])))),
-            $L->AzCssPropertyWithConditions_simple(
-                $L->AzCssProperty_gridTemplateAreas(
-                    azul_union(
-                        'AzLayoutGridTemplateAreasValue',
-                        'Exact',
-                        6,
-                        azul_struct(
-                            'AzGridTemplateAreas',
-                            [
-                                'areas' => azul_vec(
-                                    'AzGridAreaDefinitionVec_copyFromPtr',
-                                    'AzGridAreaDefinition',
-                                    [
-                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('header'), 'row_start' => 1, 'row_end' => 2, 'column_start' => 1, 'column_end' => 3]),
-                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('main'), 'row_start' => 2, 'row_end' => 3, 'column_start' => 2, 'column_end' => 3]),
-                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('sidebar'), 'row_start' => 2, 'row_end' => 3, 'column_start' => 1, 'column_end' => 2]),
-                                    ]
-                                ),
-                            ]
-                        )
-                    )
-                )
-            ),
             $L->AzCssPropertyWithConditions_simple(
                 $L->AzCssProperty_gridTemplateColumns(
                     azul_union(
@@ -284,8 +255,37 @@ function style_grid()
                     )
                 )
             ),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_justifyItems($L->AzLayoutJustifyItems_Start)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridAutoColumns(azul_union('AzLayoutGridAutoColumnsValue', 'Exact', 6, azul_struct('AzGridAutoTracks', ['tracks' => azul_vec('AzGridTrackSizingVec_copyFromPtr', 'AzGridTrackSizing', [$L->AzGridTrackSizing_fixed($L->AzPixelValue_px(50.0))])])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridColumn(azul_union('AzLayoutGridColumnValue', 'Exact', 6, azul_struct('AzGridPlacement', ['grid_start' => $L->AzGridLine_line(1), 'grid_end' => $L->AzGridLine_line(3)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridRow(azul_union('AzLayoutGridRowValue', 'Exact', 6, azul_struct('AzGridPlacement', ['grid_start' => $L->AzGridLine_span(2), 'grid_end' => $L->AzGridLine_auto()])))),
+            $L->AzCssPropertyWithConditions_simple(
+                $L->AzCssProperty_gridTemplateAreas(
+                    azul_union(
+                        'AzLayoutGridTemplateAreasValue',
+                        'Exact',
+                        6,
+                        azul_struct(
+                            'AzGridTemplateAreas',
+                            [
+                                'areas' => azul_vec(
+                                    'AzGridAreaDefinitionVec_copyFromPtr',
+                                    'AzGridAreaDefinition',
+                                    [
+                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('header'), 'row_start' => 1, 'row_end' => 2, 'column_start' => 1, 'column_end' => 3]),
+                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('main'), 'row_start' => 2, 'row_end' => 3, 'column_start' => 2, 'column_end' => 3]),
+                                        azul_struct('AzGridAreaDefinition', ['name' => azul_str('sidebar'), 'row_start' => 2, 'row_end' => 3, 'column_start' => 1, 'column_end' => 2]),
+                                    ]
+                                ),
+                            ]
+                        )
+                    )
+                )
+            ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_gridAutoFlow($L->AzLayoutGridAutoFlow_Column)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_justifySelf($L->AzLayoutJustifySelf_Center)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_justifyItems($L->AzLayoutJustifyItems_Start)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_rowGap(azul_union('AzLayoutRowGapValue', 'Exact', 6, azul_struct('AzLayoutRowGap', ['inner' => $L->AzPixelValue_px(10.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnGap(azul_union('AzLayoutColumnGapValue', 'Exact', 6, azul_struct('AzLayoutColumnGap', ['inner' => $L->AzPixelValue_px(10.0)])))),
         ]
     );
 }
@@ -298,22 +298,22 @@ function style_borders()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomColor(azul_struct('AzStyleBorderBottomColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 51, 'b' => 51, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomLeftRadius(azul_struct('AzStyleBorderBottomLeftRadius', ['inner' => $L->AzPixelValue_px(6.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomRightRadius(azul_struct('AzStyleBorderBottomRightRadius', ['inner' => $L->AzPixelValue_px(7.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomStyle(azul_struct('AzStyleBorderBottomStyle', ['inner' => $L->AzBorderStyle_Dotted]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomWidth(azul_struct('AzLayoutBorderBottomWidth', ['inner' => $L->AzPixelValue_px(3.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftColor(azul_struct('AzStyleBorderLeftColor', ['inner' => azul_struct('AzColorU', ['r' => 68, 'g' => 68, 'b' => 68, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftStyle(azul_struct('AzStyleBorderLeftStyle', ['inner' => $L->AzBorderStyle_Double]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftWidth(azul_struct('AzLayoutBorderLeftWidth', ['inner' => $L->AzPixelValue_px(4.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightColor(azul_struct('AzStyleBorderRightColor', ['inner' => azul_struct('AzColorU', ['r' => 34, 'g' => 34, 'b' => 34, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightStyle(azul_struct('AzStyleBorderRightStyle', ['inner' => $L->AzBorderStyle_Dashed]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightWidth(azul_struct('AzLayoutBorderRightWidth', ['inner' => $L->AzPixelValue_px(2.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 17, 'g' => 17, 'b' => 17, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopLeftRadius(azul_struct('AzStyleBorderTopLeftRadius', ['inner' => $L->AzPixelValue_px(4.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopRightRadius(azul_struct('AzStyleBorderTopRightRadius', ['inner' => $L->AzPixelValue_px(5.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomLeftRadius(azul_struct('AzStyleBorderBottomLeftRadius', ['inner' => $L->AzPixelValue_px(6.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomRightRadius(azul_struct('AzStyleBorderBottomRightRadius', ['inner' => $L->AzPixelValue_px(7.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 17, 'g' => 17, 'b' => 17, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightColor(azul_struct('AzStyleBorderRightColor', ['inner' => azul_struct('AzColorU', ['r' => 34, 'g' => 34, 'b' => 34, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomColor(azul_struct('AzStyleBorderBottomColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 51, 'b' => 51, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftColor(azul_struct('AzStyleBorderLeftColor', ['inner' => azul_struct('AzColorU', ['r' => 68, 'g' => 68, 'b' => 68, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopStyle(azul_struct('AzStyleBorderTopStyle', ['inner' => $L->AzBorderStyle_Solid]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightStyle(azul_struct('AzStyleBorderRightStyle', ['inner' => $L->AzBorderStyle_Dashed]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomStyle(azul_struct('AzStyleBorderBottomStyle', ['inner' => $L->AzBorderStyle_Dotted]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftStyle(azul_struct('AzStyleBorderLeftStyle', ['inner' => $L->AzBorderStyle_Double]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopWidth(azul_struct('AzLayoutBorderTopWidth', ['inner' => $L->AzPixelValue_px(1.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderRightWidth(azul_struct('AzLayoutBorderRightWidth', ['inner' => $L->AzPixelValue_px(2.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderBottomWidth(azul_struct('AzLayoutBorderBottomWidth', ['inner' => $L->AzPixelValue_px(3.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderLeftWidth(azul_struct('AzLayoutBorderLeftWidth', ['inner' => $L->AzPixelValue_px(4.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowLeft(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(1.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 64])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowRight(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(1.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 64])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxShadowTop(azul_struct('AzStyleBoxShadow', ['offset_x' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(0.0)]), 'offset_y' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(2.0)]), 'blur_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(4.0)]), 'spread_radius' => azul_struct('AzPixelValueNoPercent', ['inner' => $L->AzPixelValue_px(1.0)]), 'clip_mode' => $L->AzBoxShadowClipMode_Outset, 'color' => azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 64])]))),
@@ -330,19 +330,19 @@ function style_scroll()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_appRegion(azul_union('AzStyleAppRegionValue', 'Exact', 6, $L->AzStyleAppRegion_Drag))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarTrack(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 238, 'g' => 238, 'b' => 238, 'a' => 255]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarThumb(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 136, 'g' => 136, 'b' => 136, 'a' => 255]))))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarButton(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255]))))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarCorner(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 221, 'g' => 221, 'b' => 221, 'a' => 255]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarFadeDelay(azul_union('AzScrollbarFadeDelayValue', 'Exact', 6, azul_struct('AzScrollbarFadeDelay', ['ms' => 500])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarFadeDuration(azul_union('AzScrollbarFadeDurationValue', 'Exact', 6, azul_struct('AzScrollbarFadeDuration', ['ms' => 200])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarResizer(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 187, 'g' => 187, 'b' => 187, 'a' => 255]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarThumb(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 136, 'g' => 136, 'b' => 136, 'a' => 255]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarTrack(azul_union('AzStyleBackgroundContentValue', 'Exact', 6, $L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 238, 'g' => 238, 'b' => 238, 'a' => 255]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarVisibility(azul_union('AzScrollbarVisibilityModeValue', 'Exact', 6, $L->AzScrollbarVisibilityMode_WhenScrolling))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarWidth(azul_union('AzLayoutScrollbarWidthValue', 'Exact', 6, $L->AzLayoutScrollbarWidth_Thin))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarColor(azul_union('AzStyleScrollbarColorValue', 'Exact', 6, $L->AzStyleScrollbarColor_custom(azul_struct('AzScrollbarColorCustom', ['thumb' => azul_struct('AzColorU', ['r' => 136, 'g' => 136, 'b' => 136, 'a' => 255]), 'track' => azul_struct('AzColorU', ['r' => 238, 'g' => 238, 'b' => 238, 'a' => 255])]))))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overscrollBehaviorX(azul_union('AzOverscrollBehaviorValue', 'Exact', 6, $L->AzOverscrollBehavior_Contain))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_overscrollBehaviorY(azul_union('AzOverscrollBehaviorValue', 'Exact', 6, $L->AzOverscrollBehavior_None))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarColor(azul_union('AzStyleScrollbarColorValue', 'Exact', 6, $L->AzStyleScrollbarColor_custom(azul_struct('AzScrollbarColorCustom', ['thumb' => azul_struct('AzColorU', ['r' => 136, 'g' => 136, 'b' => 136, 'a' => 255]), 'track' => azul_struct('AzColorU', ['r' => 238, 'g' => 238, 'b' => 238, 'a' => 255])]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarWidth(azul_union('AzLayoutScrollbarWidthValue', 'Exact', 6, $L->AzLayoutScrollbarWidth_Thin))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarVisibility(azul_union('AzScrollbarVisibilityModeValue', 'Exact', 6, $L->AzScrollbarVisibilityMode_WhenScrolling))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarFadeDelay(azul_union('AzScrollbarFadeDelayValue', 'Exact', 6, azul_struct('AzScrollbarFadeDelay', ['ms' => 500])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_scrollbarFadeDuration(azul_union('AzScrollbarFadeDurationValue', 'Exact', 6, azul_struct('AzScrollbarFadeDuration', ['ms' => 200])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_appRegion(azul_union('AzStyleAppRegionValue', 'Exact', 6, $L->AzStyleAppRegion_Drag))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_spatialNavigationAction(azul_union('AzStyleSpatialNavigationActionValue', 'Exact', 6, $L->AzStyleSpatialNavigationAction_Focus))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_spatialNavigationContain(azul_union('AzStyleSpatialNavigationContainValue', 'Exact', 6, $L->AzStyleSpatialNavigationContain_Contain))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_spatialNavigationFunction(azul_union('AzStyleSpatialNavigationFunctionValue', 'Exact', 6, $L->AzStyleSpatialNavigationFunction_Grid))),
@@ -359,17 +359,17 @@ function style_effects()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backdropFilter(azul_union('AzStyleFilterVecValue', 'Exact', 6, azul_vec('AzStyleFilterVec_copyFromPtr', 'AzStyleFilter', [$L->AzStyleFilter_grayscale(azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)]))])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backfaceVisibility($L->AzStyleBackfaceVisibility_Hidden)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 250, 'g' => 250, 'b' => 250, 'a' => 255]))]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundPosition(azul_vec('AzStyleBackgroundPositionVec_copyFromPtr', 'AzStyleBackgroundPosition', [azul_struct('AzStyleBackgroundPosition', ['horizontal' => $L->AzBackgroundPositionHorizontal_center(), 'vertical' => $L->AzBackgroundPositionVertical_center()])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundRepeat(azul_vec('AzStyleBackgroundRepeatVec_copyFromPtr', 'AzStyleBackgroundRepeat', [$L->AzStyleBackgroundRepeat_NoRepeat]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundSize(azul_vec('AzStyleBackgroundSizeVec_copyFromPtr', 'AzStyleBackgroundSize', [$L->AzStyleBackgroundSize_cover()]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_filter(azul_union('AzStyleFilterVecValue', 'Exact', 6, azul_vec('AzStyleFilterVec_copyFromPtr', 'AzStyleFilter', [$L->AzStyleFilter_blur(azul_struct('AzStyleBlur', ['width' => $L->AzPixelValue_px(2.0), 'height' => $L->AzPixelValue_px(2.0)]))])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_mixBlendMode(azul_union('AzStyleMixBlendModeValue', 'Exact', 6, $L->AzStyleMixBlendMode_Multiply))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_perspectiveOrigin(azul_struct('AzStylePerspectiveOrigin', ['x' => $L->AzPixelValue_px(10.0), 'y' => $L->AzPixelValue_px(20.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backgroundRepeat(azul_vec('AzStyleBackgroundRepeatVec_copyFromPtr', 'AzStyleBackgroundRepeat', [$L->AzStyleBackgroundRepeat_NoRepeat]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_transform(azul_vec('AzStyleTransformVec_copyFromPtr', 'AzStyleTransform', [$L->AzStyleTransform_rotate(azul_struct('AzAngleValue', ['metric' => $L->AzAngleMetric_Degree, 'number' => $L->AzFloatValue_create(45.0)]))]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_transformOrigin(azul_struct('AzStyleTransformOrigin', ['x' => $L->AzPixelValue_percent(50.0), 'y' => $L->AzPixelValue_percent(50.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_perspectiveOrigin(azul_struct('AzStylePerspectiveOrigin', ['x' => $L->AzPixelValue_px(10.0), 'y' => $L->AzPixelValue_px(20.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backfaceVisibility($L->AzStyleBackfaceVisibility_Hidden)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_filter(azul_union('AzStyleFilterVecValue', 'Exact', 6, azul_vec('AzStyleFilterVec_copyFromPtr', 'AzStyleFilter', [$L->AzStyleFilter_blur(azul_struct('AzStyleBlur', ['width' => $L->AzPixelValue_px(2.0), 'height' => $L->AzPixelValue_px(2.0)]))])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_backdropFilter(azul_union('AzStyleFilterVecValue', 'Exact', 6, azul_vec('AzStyleFilterVec_copyFromPtr', 'AzStyleFilter', [$L->AzStyleFilter_grayscale(azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)]))])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_mixBlendMode(azul_union('AzStyleMixBlendModeValue', 'Exact', 6, $L->AzStyleMixBlendMode_Multiply))),
         ]
     );
 }
@@ -382,21 +382,21 @@ function style_fragment()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxDecorationBreak($L->AzBoxDecorationBreak_Clone)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_breakAfter($L->AzPageBreak_Avoid)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_breakBefore($L->AzPageBreak_Page)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_breakAfter($L->AzPageBreak_Avoid)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_breakInside($L->AzBreakInside_Avoid)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnCount($L->AzColumnCount_integer(3))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnFill($L->AzColumnFill_Balance)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleColor(azul_struct('AzColumnRuleColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleStyle(azul_struct('AzColumnRuleStyle', ['inner' => $L->AzBorderStyle_Solid]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleWidth(azul_struct('AzColumnRuleWidth', ['inner' => $L->AzPixelValue_px(1.0)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnSpan($L->AzColumnSpan_All)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnWidth($L->AzColumnWidth_length($L->AzPixelValue_px(200.0)))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowFrom($L->AzFlowFrom_named(azul_str('article')))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowInto($L->AzFlowInto_named(azul_str('article')))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_orphans(azul_struct('AzOrphans', ['inner' => 2]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_widows(azul_struct('AzWidows', ['inner' => 3]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_boxDecorationBreak($L->AzBoxDecorationBreak_Clone)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnCount($L->AzColumnCount_integer(3))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnWidth($L->AzColumnWidth_length($L->AzPixelValue_px(200.0)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnSpan($L->AzColumnSpan_All)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnFill($L->AzColumnFill_Balance)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleWidth(azul_struct('AzColumnRuleWidth', ['inner' => $L->AzPixelValue_px(1.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleStyle(azul_struct('AzColumnRuleStyle', ['inner' => $L->AzBorderStyle_Solid]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_columnRuleColor(azul_struct('AzColumnRuleColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowInto($L->AzFlowInto_named(azul_str('article')))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flowFrom($L->AzFlowFrom_named(azul_str('article')))),
         ]
     );
 }
@@ -409,11 +409,11 @@ function style_shape()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clipPath($L->AzClipPath_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 0.0, 'y' => 0.0]), 'radius' => 40.0]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeImageThreshold(azul_struct('AzShapeImageThreshold', ['inner' => $L->AzFloatValue_create(0.5)]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeInside($L->AzShapeInside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 50.0, 'y' => 50.0]), 'radius' => 100.0]))))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeMargin(azul_struct('AzShapeMargin', ['inner' => $L->AzPixelValue_px(10.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeOutside($L->AzShapeOutside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 0.0, 'y' => 0.0]), 'radius' => 50.0]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeInside($L->AzShapeInside_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 50.0, 'y' => 50.0]), 'radius' => 100.0]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_clipPath($L->AzClipPath_shape($L->AzCssShape_circle(azul_struct('AzShapeCircle', ['center' => azul_struct('AzShapePoint', ['x' => 0.0, 'y' => 0.0]), 'radius' => 40.0]))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeMargin(azul_struct('AzShapeMargin', ['inner' => $L->AzPixelValue_px(10.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_shapeImageThreshold(azul_struct('AzShapeImageThreshold', ['inner' => $L->AzFloatValue_create(0.5)]))),
         ]
     );
 }
@@ -426,11 +426,11 @@ function style_table()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_tableLayout($L->AzLayoutTableLayout_Fixed)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderCollapse($L->AzStyleBorderCollapse_Collapse)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderSpacing(azul_struct('AzLayoutBorderSpacing', ['horizontal' => $L->AzPixelValue_px(2.0), 'vertical' => $L->AzPixelValue_px(4.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_captionSide($L->AzStyleCaptionSide_Bottom)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_emptyCells($L->AzStyleEmptyCells_Hide)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_tableLayout($L->AzLayoutTableLayout_Fixed)),
         ]
     );
 }
@@ -444,10 +444,10 @@ function style_content()
         'AzCssPropertyWithConditions',
         [
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_content(azul_struct('AzContent', ['inner' => azul_str('"Hello"')]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterIncrement(azul_struct('AzCounterIncrement', ['counter_name' => azul_str('section'), 'value' => 1]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterReset(azul_struct('AzCounterReset', ['counter_name' => azul_str('section'), 'value' => 1]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStylePosition($L->AzStyleListStylePosition_Inside)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_counterIncrement(azul_struct('AzCounterIncrement', ['counter_name' => azul_str('section'), 'value' => 1]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStyleType($L->AzStyleListStyleType_UpperRoman)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_listStylePosition($L->AzStyleListStylePosition_Inside)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_stringSet(azul_struct('AzStringSet', ['inner' => azul_str('title "Chapter"')]))),
         ]
     );
@@ -461,9 +461,9 @@ function style_anim()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_animation(azul_union('AzStyleAnimationVecValue', 'Exact', 6, azul_vec('AzStyleAnimationVec_copyFromPtr', 'AzStyleAnimation', [azul_struct('AzStyleAnimation', ['name' => azul_str('fadeIn'), 'duration' => azul_struct('AzCssDuration', ['inner' => 300, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'delay' => azul_struct('AzCssDuration', ['inner' => 0, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'iterations' => $L->AzAnimationIterationCount_count(1), 'timing' => $L->AzAnimationTiming_easeInOut(), 'clip' => true])])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_animationIn(azul_union('AzStyleAnimationVecValue', 'Exact', 6, azul_vec('AzStyleAnimationVec_copyFromPtr', 'AzStyleAnimation', [azul_struct('AzStyleAnimation', ['name' => azul_str('flyInLeft'), 'duration' => azul_struct('AzCssDuration', ['inner' => 500, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'delay' => azul_struct('AzCssDuration', ['inner' => 0, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'iterations' => $L->AzAnimationIterationCount_count(1), 'timing' => $L->AzAnimationTiming_spring(), 'clip' => true])])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_animationOut(azul_union('AzStyleAnimationVecValue', 'Exact', 6, azul_vec('AzStyleAnimationVec_copyFromPtr', 'AzStyleAnimation', [azul_struct('AzStyleAnimation', ['name' => azul_str('fadeOut'), 'duration' => azul_struct('AzCssDuration', ['inner' => 200, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'delay' => azul_struct('AzCssDuration', ['inner' => 0, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'iterations' => $L->AzAnimationIterationCount_count(1), 'timing' => $L->AzAnimationTiming_linear(), 'clip' => true])])))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_animation(azul_union('AzStyleAnimationVecValue', 'Exact', 6, azul_vec('AzStyleAnimationVec_copyFromPtr', 'AzStyleAnimation', [azul_struct('AzStyleAnimation', ['name' => azul_str('fadeIn'), 'duration' => azul_struct('AzCssDuration', ['inner' => 300, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'delay' => azul_struct('AzCssDuration', ['inner' => 0, 'unit' => $L->AzCssDurationUnit_Milliseconds]), 'iterations' => $L->AzAnimationIterationCount_count(1), 'timing' => $L->AzAnimationTiming_easeInOut(), 'clip' => true])])))),
         ]
     );
 }

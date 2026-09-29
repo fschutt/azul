@@ -51,12 +51,12 @@ function style_btn()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_width($L->AzLayoutWidth_px($L->AzPixelValue_px(100.0)))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_display($L->AzLayoutDisplay_Flex)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexGrow(azul_struct('AzLayoutFlexGrow', ['inner' => $L->AzFloatValue_create(1.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_inherit($L->AzCssPropertyType_MinWidth)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_whiteSpace(azul_union('AzStyleWhiteSpaceValue', 'Exact', 6, $L->AzStyleWhiteSpace_Nowrap))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_width($L->AzLayoutWidth_px($L->AzPixelValue_px(100.0)))),
             $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_Bold)),
         ]
     );

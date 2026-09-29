@@ -52,15 +52,15 @@ function style_azul_native_button()
         'AzCssPropertyWithConditions',
         [
             $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 241, 'g' => 243, 'b' => 245, 'a' => 255]))]))),
+            $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 173, 'g' => 181, 'b' => 189, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_borderBottomColor(azul_struct('AzStyleBorderBottomColor', ['inner' => azul_struct('AzColorU', ['r' => 173, 'g' => 181, 'b' => 189, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_borderLeftColor(azul_struct('AzStyleBorderLeftColor', ['inner' => azul_struct('AzColorU', ['r' => 173, 'g' => 181, 'b' => 189, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_borderRightColor(azul_struct('AzStyleBorderRightColor', ['inner' => azul_struct('AzColorU', ['r' => 173, 'g' => 181, 'b' => 189, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 173, 'g' => 181, 'b' => 189, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onActive($L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 222, 'g' => 226, 'b' => 230, 'a' => 255]))]))),
+            $L->AzCssPropertyWithConditions_onFocus($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 13, 'g' => 110, 'b' => 253, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onFocus($L->AzCssProperty_borderBottomColor(azul_struct('AzStyleBorderBottomColor', ['inner' => azul_struct('AzColorU', ['r' => 13, 'g' => 110, 'b' => 253, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onFocus($L->AzCssProperty_borderLeftColor(azul_struct('AzStyleBorderLeftColor', ['inner' => azul_struct('AzColorU', ['r' => 13, 'g' => 110, 'b' => 253, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_onFocus($L->AzCssProperty_borderRightColor(azul_struct('AzStyleBorderRightColor', ['inner' => azul_struct('AzColorU', ['r' => 13, 'g' => 110, 'b' => 253, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_onFocus($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 13, 'g' => 110, 'b' => 253, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_withConditions(
                 $L->AzCssProperty_backgroundContent(azul_vec('AzStyleBackgroundContentVec_copyFromPtr', 'AzStyleBackgroundContent', [$L->AzStyleBackgroundContent_color(azul_struct('AzColorU', ['r' => 73, 'g' => 80, 'b' => 87, 'a' => 255]))])),
                 azul_vec(

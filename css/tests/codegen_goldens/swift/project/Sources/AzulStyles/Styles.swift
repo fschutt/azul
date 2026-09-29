@@ -4,12 +4,12 @@ import Azul
 // CSS: .btn, .btn:hover
 public func styleBtn() -> [CssPropertyWithConditions] {
     return [
+        CssPropertyWithConditions.simple(CssProperty.width(LayoutWidth.px(PixelValue.px(100.0)))),
         CssPropertyWithConditions.simple(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 0, b: 0, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.display(LayoutDisplay.flex)),
         CssPropertyWithConditions.simple(CssProperty.flexGrow(LayoutFlexGrow(inner: FloatValue(1.0)))),
         CssPropertyWithConditions.simple(CssProperty.inherit(CssPropertyType.minWidth)),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.nowrap))),
-        CssPropertyWithConditions.simple(CssProperty.width(LayoutWidth.px(PixelValue.px(100.0)))),
         CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.bold)),
     ]
 }

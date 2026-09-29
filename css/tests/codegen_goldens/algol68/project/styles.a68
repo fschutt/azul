@@ -10,11 +10,11 @@ BEGIN
    [6] AZCSSPROPERTYWITHCONDITIONS t3;
    inner OF t1 := AZCOLORU (REPR 255, REPR 0, REPR 0, REPR 255);
    inner OF t2 := az float value create (1.0);
-   t3[1] := az css property with conditions simple (az css property text color (t1));
-   t3[2] := az css property with conditions simple (az css property display (layout display flex));
-   t3[3] := az css property with conditions simple (az css property flex grow (t2));
-   t3[4] := az css property with conditions simple (az css property inherit (css property type min width));
-   t3[5] := az css property with conditions simple (az css property width (az layout width px (az pixel value px (100.0))));
+   t3[1] := az css property with conditions simple (az css property width (az layout width px (az pixel value px (100.0))));
+   t3[2] := az css property with conditions simple (az css property text color (t1));
+   t3[3] := az css property with conditions simple (az css property display (layout display flex));
+   t3[4] := az css property with conditions simple (az css property flex grow (t2));
+   t3[5] := az css property with conditions simple (az css property inherit (css property type min width));
    t3[6] := az css property with conditions on hover (az css property font weight (style font weight bold));
    az css property with conditions vec copy from ptr (t3[1], LENG 6)
 END;

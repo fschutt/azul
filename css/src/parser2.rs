@@ -946,7 +946,9 @@ pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
 pub struct UnparsedCssRuleBlock<'a> {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
-    /// `"justify-content" => "center"`
+    /// `"justify-content" => "center"`, ONE value per property. Keyed by
+    /// name, so iterating the map is alphabetical: read the declarations
+    /// through [`UnparsedCssRuleBlock::in_source_order`].
     pub declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
     /// Conditions from enclosing @-rules (@media, @lang, etc.)
     pub conditions: Vec<DynamicSelector>,
@@ -960,7 +962,24 @@ pub struct UnparsedCssRuleBlockOwned {
     pub conditions: Vec<DynamicSelector>,
 }
 
-impl UnparsedCssRuleBlock<'_> {
+impl<'a> UnparsedCssRuleBlock<'a> {
+    /// The declarations in the order they were written: each one's location
+    /// starts at its byte offset in the source. The cascade takes the LAST of
+    /// two declarations that set the same longhand, so a shorthand and its
+    /// longhand must keep their source order (`padding-top: 5px; padding: 0`
+    /// ends at 0) - the map's alphabetical order let the longhand always win.
+    /// A repeated property counts from the position of the value it kept.
+    #[must_use]
+    pub fn in_source_order(&self) -> Vec<(&'a str, &'a str, ErrorLocationRange)> {
+        let mut declarations: Vec<_> = self
+            .declarations
+            .iter()
+            .map(|(key, (value, location))| (*key, *value, *location))
+            .collect();
+        declarations.sort_by_key(|(_, _, location)| *location);
+        declarations
+    }
+
     #[must_use]
     pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
         UnparsedCssRuleBlockOwned {
@@ -2095,7 +2114,8 @@ fn css_blocks_to_stylesheet<'a>(
     for unparsed_css_block in css_blocks {
         let mut declarations = Vec::<CssDeclaration>::new();
 
-        for (unparsed_css_key, (unparsed_css_value, location)) in &unparsed_css_block.declarations {
+        for (unparsed_css_key, unparsed_css_value, location) in unparsed_css_block.in_source_order()
+        {
             // Custom-property DEFINITIONS were collected above; they emit no declaration
             // themselves (and must not warn as unknown keys).
             if unparsed_css_key.starts_with("--") {
@@ -2104,7 +2124,7 @@ fn css_blocks_to_stylesheet<'a>(
             match parse_declaration_resilient(
                 unparsed_css_key,
                 unparsed_css_value,
-                *location,
+                location,
                 &css_key_map,
             ) {
                 Ok(decls) => {
@@ -2121,7 +2141,7 @@ fn css_blocks_to_stylesheet<'a>(
                             value: unparsed_css_value,
                             error: e,
                         },
-                        location: *location,
+                        location,
                     });
                 }
             }

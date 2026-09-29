@@ -25,12 +25,12 @@ function New-CssVec([string]$Copy, [type]$Type, [object[]]$Items) {
 # CSS: .btn, .btn:hover
 function Get-StyleBtn {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_width([Azul.NativeMethods]::AzLayoutWidth_px([Azul.NativeMethods]::AzPixelValue_px([float]100.0)))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]255; g = [byte]0; b = [byte]0; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_display([Azul.LayoutDisplay]::Flex)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flexGrow([Azul.AzLayoutFlexGrow]@{ inner = [Azul.NativeMethods]::AzFloatValue_create([float]1.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_inherit([Azul.AzCssPropertyType]::MinWidth)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_whiteSpace([Azul.AzStyleWhiteSpaceValue]@{ Exact = [Azul.AzStyleWhiteSpaceValueVariant_Exact]@{ tag = [Azul.AzStyleWhiteSpaceValue_Tag]::Exact; payload = [Azul.StyleWhiteSpace]::Nowrap } })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_width([Azul.NativeMethods]::AzLayoutWidth_px([Azul.NativeMethods]::AzPixelValue_px([float]100.0)))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::Bold))
     ))
 }

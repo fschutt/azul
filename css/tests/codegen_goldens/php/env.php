@@ -44,8 +44,8 @@ function azul_str(string $s)
 }
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 function style_bar()
 {
     $L = \Azul\Azul::lib();
@@ -53,10 +53,10 @@ function style_bar()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 102, 'b' => 0, 'a' => 255])]))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingBottom(azul_struct('AzLayoutPaddingBottom', ['inner' => $L->AzPixelValue_px(0.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_borderTopColor(azul_struct('AzStyleBorderTopColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingTop(azul_struct('AzLayoutPaddingTop', ['inner' => $L->AzPixelValue_px(8.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_paddingBottom(azul_struct('AzLayoutPaddingBottom', ['inner' => $L->AzPixelValue_px(0.0)]))),
         ]
     );
 }

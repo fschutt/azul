@@ -13,12 +13,12 @@ namespace AzulStyles
         {
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_width(NativeMethods.AzLayoutWidth_px(NativeMethods.AzPixelValue_px(100.0f)))),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textColor(new AzStyleTextColor { inner = new AzColorU { r = 255, g = 0, b = 0, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_display(LayoutDisplay.Flex)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flexGrow(new AzLayoutFlexGrow { inner = NativeMethods.AzFloatValue_create(1.0f) })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_inherit(CssPropertyType.MinWidth)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_whiteSpace(new AzStyleWhiteSpaceValue { Exact = new AzStyleWhiteSpaceValueVariant_Exact { tag = AzStyleWhiteSpaceValue_Tag.Exact, payload = StyleWhiteSpace.Nowrap } })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_width(NativeMethods.AzLayoutWidth_px(NativeMethods.AzPixelValue_px(100.0f)))),
                 NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.Bold))
             );
         }

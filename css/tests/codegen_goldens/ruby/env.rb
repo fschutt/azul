@@ -51,16 +51,16 @@ module AzulStyles
   N = Azul::Native
 
   # CSS: .bar
-  # `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
   # `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+  # `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
   def self.style_bar
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
-      N.az_css_property_with_conditions_simple(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 204, g: 204, b: 204, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_color(AzulCodegen.struct(N::AzStyleTextColor, inner: AzulCodegen.struct(N::AzColorU, r: 255, g: 102, b: 0, a: 255)))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_padding_bottom(AzulCodegen.struct(N::AzLayoutPaddingBottom, inner: N.az_pixel_value_px(0.0)))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_padding_top(AzulCodegen.struct(N::AzLayoutPaddingTop, inner: N.az_pixel_value_px(8.0))))
+      N.az_css_property_with_conditions_simple(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 204, g: 204, b: 204, a: 255)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_padding_top(AzulCodegen.struct(N::AzLayoutPaddingTop, inner: N.az_pixel_value_px(8.0)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_padding_bottom(AzulCodegen.struct(N::AzLayoutPaddingBottom, inner: N.az_pixel_value_px(0.0))))
     )
   end
 end

@@ -23,13 +23,13 @@ function New-CssVec([string]$Copy, [type]$Type, [object[]]$Items) {
 }
 
 # CSS: .bar
-# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 # `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 function Get-StyleBar {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_borderTopColor([Azul.AzStyleBorderTopColor]@{ inner = [Azul.AzColorU]@{ r = [byte]204; g = [byte]204; b = [byte]204; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]255; g = [byte]102; b = [byte]0; a = [byte]255 } })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_paddingBottom([Azul.AzLayoutPaddingBottom]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]0.0) })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_paddingTop([Azul.AzLayoutPaddingTop]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]8.0) }))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_borderTopColor([Azul.AzStyleBorderTopColor]@{ inner = [Azul.AzColorU]@{ r = [byte]204; g = [byte]204; b = [byte]204; a = [byte]255 } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_paddingTop([Azul.AzLayoutPaddingTop]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]8.0) })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_paddingBottom([Azul.AzLayoutPaddingBottom]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]0.0) }))
     ))
 }

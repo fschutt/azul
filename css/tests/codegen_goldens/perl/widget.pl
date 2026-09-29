@@ -12,15 +12,15 @@ use Azul;
 sub style_azul_native_button {
     return [
         Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_backgroundContent(Azul::FFI::AzStyleBackgroundContentVec_fromItem(Azul::FFI::AzStyleBackgroundContent_color(Azul::AzColorU->new(r => 241, g => 243, b => 245, a => 255))))),
+        Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 173, g => 181, b => 189, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_borderBottomColor(Azul::AzStyleBorderBottomColor->new(inner => ${ Azul::AzColorU->new(r => 173, g => 181, b => 189, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_borderLeftColor(Azul::AzStyleBorderLeftColor->new(inner => ${ Azul::AzColorU->new(r => 173, g => 181, b => 189, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_borderRightColor(Azul::AzStyleBorderRightColor->new(inner => ${ Azul::AzColorU->new(r => 173, g => 181, b => 189, a => 255) }))),
-        Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 173, g => 181, b => 189, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onActive(Azul::FFI::AzCssProperty_backgroundContent(Azul::FFI::AzStyleBackgroundContentVec_fromItem(Azul::FFI::AzStyleBackgroundContent_color(Azul::AzColorU->new(r => 222, g => 226, b => 230, a => 255))))),
+        Azul::FFI::AzCssPropertyWithConditions_onFocus(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 13, g => 110, b => 253, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onFocus(Azul::FFI::AzCssProperty_borderBottomColor(Azul::AzStyleBorderBottomColor->new(inner => ${ Azul::AzColorU->new(r => 13, g => 110, b => 253, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onFocus(Azul::FFI::AzCssProperty_borderLeftColor(Azul::AzStyleBorderLeftColor->new(inner => ${ Azul::AzColorU->new(r => 13, g => 110, b => 253, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_onFocus(Azul::FFI::AzCssProperty_borderRightColor(Azul::AzStyleBorderRightColor->new(inner => ${ Azul::AzColorU->new(r => 13, g => 110, b => 253, a => 255) }))),
-        Azul::FFI::AzCssPropertyWithConditions_onFocus(Azul::FFI::AzCssProperty_borderTopColor(Azul::AzStyleBorderTopColor->new(inner => ${ Azul::AzColorU->new(r => 13, g => 110, b => 253, a => 255) }))),
     ];
 }
 

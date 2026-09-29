@@ -5,15 +5,15 @@ import Azul
 public func styleAzulNativeButton() -> [CssPropertyWithConditions] {
     return [
         CssPropertyWithConditions.onHover(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 241, g: 243, b: 245, a: 255))])),
+        CssPropertyWithConditions.onHover(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 173, g: 181, b: 189, a: 255)))),
         CssPropertyWithConditions.onHover(CssProperty.borderBottomColor(StyleBorderBottomColor(inner: ColorU(r: 173, g: 181, b: 189, a: 255)))),
         CssPropertyWithConditions.onHover(CssProperty.borderLeftColor(StyleBorderLeftColor(inner: ColorU(r: 173, g: 181, b: 189, a: 255)))),
         CssPropertyWithConditions.onHover(CssProperty.borderRightColor(StyleBorderRightColor(inner: ColorU(r: 173, g: 181, b: 189, a: 255)))),
-        CssPropertyWithConditions.onHover(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 173, g: 181, b: 189, a: 255)))),
         CssPropertyWithConditions.onActive(CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 222, g: 226, b: 230, a: 255))])),
+        CssPropertyWithConditions.onFocus(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 13, g: 110, b: 253, a: 255)))),
         CssPropertyWithConditions.onFocus(CssProperty.borderBottomColor(StyleBorderBottomColor(inner: ColorU(r: 13, g: 110, b: 253, a: 255)))),
         CssPropertyWithConditions.onFocus(CssProperty.borderLeftColor(StyleBorderLeftColor(inner: ColorU(r: 13, g: 110, b: 253, a: 255)))),
         CssPropertyWithConditions.onFocus(CssProperty.borderRightColor(StyleBorderRightColor(inner: ColorU(r: 13, g: 110, b: 253, a: 255)))),
-        CssPropertyWithConditions.onFocus(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 13, g: 110, b: 253, a: 255)))),
         CssPropertyWithConditions.withConditions(
             CssProperty.backgroundContent([StyleBackgroundContent.color(ColorU(r: 73, g: 80, b: 87, a: 255))]),
             conditions: [

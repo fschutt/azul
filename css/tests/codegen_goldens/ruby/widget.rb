@@ -56,15 +56,15 @@ module AzulStyles
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
       N.az_css_property_with_conditions_on_hover(N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 241, g: 243, b: 245, a: 255))))),
+      N.az_css_property_with_conditions_on_hover(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 173, g: 181, b: 189, a: 255)))),
       N.az_css_property_with_conditions_on_hover(N.az_css_property_border_bottom_color(AzulCodegen.struct(N::AzStyleBorderBottomColor, inner: AzulCodegen.struct(N::AzColorU, r: 173, g: 181, b: 189, a: 255)))),
       N.az_css_property_with_conditions_on_hover(N.az_css_property_border_left_color(AzulCodegen.struct(N::AzStyleBorderLeftColor, inner: AzulCodegen.struct(N::AzColorU, r: 173, g: 181, b: 189, a: 255)))),
       N.az_css_property_with_conditions_on_hover(N.az_css_property_border_right_color(AzulCodegen.struct(N::AzStyleBorderRightColor, inner: AzulCodegen.struct(N::AzColorU, r: 173, g: 181, b: 189, a: 255)))),
-      N.az_css_property_with_conditions_on_hover(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 173, g: 181, b: 189, a: 255)))),
       N.az_css_property_with_conditions_on_active(N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 222, g: 226, b: 230, a: 255))))),
+      N.az_css_property_with_conditions_on_focus(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 13, g: 110, b: 253, a: 255)))),
       N.az_css_property_with_conditions_on_focus(N.az_css_property_border_bottom_color(AzulCodegen.struct(N::AzStyleBorderBottomColor, inner: AzulCodegen.struct(N::AzColorU, r: 13, g: 110, b: 253, a: 255)))),
       N.az_css_property_with_conditions_on_focus(N.az_css_property_border_left_color(AzulCodegen.struct(N::AzStyleBorderLeftColor, inner: AzulCodegen.struct(N::AzColorU, r: 13, g: 110, b: 253, a: 255)))),
       N.az_css_property_with_conditions_on_focus(N.az_css_property_border_right_color(AzulCodegen.struct(N::AzStyleBorderRightColor, inner: AzulCodegen.struct(N::AzColorU, r: 13, g: 110, b: 253, a: 255)))),
-      N.az_css_property_with_conditions_on_focus(N.az_css_property_border_top_color(AzulCodegen.struct(N::AzStyleBorderTopColor, inner: AzulCodegen.struct(N::AzColorU, r: 13, g: 110, b: 253, a: 255)))),
       N.az_css_property_with_conditions_with_conditions(
         N.az_css_property_background_content(AzulCodegen.vec(:az_style_background_content_vec_copy_from_ptr, N::AzStyleBackgroundContent, N.az_style_background_content_color(AzulCodegen.struct(N::AzColorU, r: 73, g: 80, b: 87, a: 255)))),
         AzulCodegen.vec(

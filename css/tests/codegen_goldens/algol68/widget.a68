@@ -5,15 +5,15 @@
 PROC style azul native button = AZCSSPROPERTYWITHCONDITIONSVEC:
 BEGIN
    [1] AZSTYLEBACKGROUNDCONTENT t1;
-   AZSTYLEBORDERBOTTOMCOLOR t2;
-   AZSTYLEBORDERLEFTCOLOR t3;
-   AZSTYLEBORDERRIGHTCOLOR t4;
-   AZSTYLEBORDERTOPCOLOR t5;
+   AZSTYLEBORDERTOPCOLOR t2;
+   AZSTYLEBORDERBOTTOMCOLOR t3;
+   AZSTYLEBORDERLEFTCOLOR t4;
+   AZSTYLEBORDERRIGHTCOLOR t5;
    [1] AZSTYLEBACKGROUNDCONTENT t6;
-   AZSTYLEBORDERBOTTOMCOLOR t7;
-   AZSTYLEBORDERLEFTCOLOR t8;
-   AZSTYLEBORDERRIGHTCOLOR t9;
-   AZSTYLEBORDERTOPCOLOR t10;
+   AZSTYLEBORDERTOPCOLOR t7;
+   AZSTYLEBORDERBOTTOMCOLOR t8;
+   AZSTYLEBORDERLEFTCOLOR t9;
+   AZSTYLEBORDERRIGHTCOLOR t10;
    [1] AZSTYLEBACKGROUNDCONTENT t11;
    [2] AZDYNAMICSELECTOR t12;
    AZSTYLEBORDERTOPCOLOR t13;
@@ -46,15 +46,15 @@ BEGIN
    t18[1] := az dynamic selector pseudo state (pseudo state type focus);
    t18[2] := az dynamic selector theme (az theme condition dark);
    t19[1] := az css property with conditions on hover (az css property background content (az style background content vec copy from ptr (t1[1], LENG 1)));
-   t19[2] := az css property with conditions on hover (az css property border bottom color (t2));
-   t19[3] := az css property with conditions on hover (az css property border left color (t3));
-   t19[4] := az css property with conditions on hover (az css property border right color (t4));
-   t19[5] := az css property with conditions on hover (az css property border top color (t5));
+   t19[2] := az css property with conditions on hover (az css property border top color (t2));
+   t19[3] := az css property with conditions on hover (az css property border bottom color (t3));
+   t19[4] := az css property with conditions on hover (az css property border left color (t4));
+   t19[5] := az css property with conditions on hover (az css property border right color (t5));
    t19[6] := az css property with conditions on active (az css property background content (az style background content vec copy from ptr (t6[1], LENG 1)));
-   t19[7] := az css property with conditions on focus (az css property border bottom color (t7));
-   t19[8] := az css property with conditions on focus (az css property border left color (t8));
-   t19[9] := az css property with conditions on focus (az css property border right color (t9));
-   t19[10] := az css property with conditions on focus (az css property border top color (t10));
+   t19[7] := az css property with conditions on focus (az css property border top color (t7));
+   t19[8] := az css property with conditions on focus (az css property border bottom color (t8));
+   t19[9] := az css property with conditions on focus (az css property border left color (t9));
+   t19[10] := az css property with conditions on focus (az css property border right color (t10));
    t19[11] := az css property with conditions with conditions (az css property background content (az style background content vec copy from ptr (t11[1], LENG 1)), az dynamic selector vec copy from ptr (t12[1], LENG 2));
    t19[12] := az css property with conditions with conditions (az css property border top color (t13), az dynamic selector vec copy from ptr (t14[1], LENG 2));
    t19[13] := az css property with conditions with conditions (az css property background content (az style background content vec copy from ptr (t15[1], LENG 1)), az dynamic selector vec copy from ptr (t16[1], LENG 2));

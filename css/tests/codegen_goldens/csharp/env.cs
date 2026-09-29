@@ -9,16 +9,16 @@ namespace AzulStyles
     public static class Styles
     {
         // CSS: .bar
-        // `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
         // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+        // `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
         public static AzCssPropertyWithConditionsVec StyleBar()
         {
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 204, g = 204, b = 204, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textColor(new AzStyleTextColor { inner = new AzColorU { r = 255, g = 102, b = 0, a = 255 } })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_paddingBottom(new AzLayoutPaddingBottom { inner = NativeMethods.AzPixelValue_px(0.0f) })),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_paddingTop(new AzLayoutPaddingTop { inner = NativeMethods.AzPixelValue_px(8.0f) }))
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 204, g = 204, b = 204, a = 255 } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_paddingTop(new AzLayoutPaddingTop { inner = NativeMethods.AzPixelValue_px(8.0f) })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_paddingBottom(new AzLayoutPaddingBottom { inner = NativeMethods.AzPixelValue_px(0.0f) }))
             );
         }
     }

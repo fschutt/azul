@@ -6,15 +6,15 @@ module AzulStyles
   def self.style_azul_native_button : Array(Azul::CssPropertyWithConditions)
     [
       Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 241_u8, g: 243_u8, b: 245_u8, a: 255_u8)))] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 173_u8, g: 181_u8, b: 189_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.border_bottom_color(Azul::StyleBorderBottomColor.__own(LibAzul::AzStyleBorderBottomColor.new(inner: LibAzul::AzColorU.new(r: 173_u8, g: 181_u8, b: 189_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.border_left_color(Azul::StyleBorderLeftColor.__own(LibAzul::AzStyleBorderLeftColor.new(inner: LibAzul::AzColorU.new(r: 173_u8, g: 181_u8, b: 189_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.border_right_color(Azul::StyleBorderRightColor.__own(LibAzul::AzStyleBorderRightColor.new(inner: LibAzul::AzColorU.new(r: 173_u8, g: 181_u8, b: 189_u8, a: 255_u8))))),
-      Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 173_u8, g: 181_u8, b: 189_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_active(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 222_u8, g: 226_u8, b: 230_u8, a: 255_u8)))] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.on_focus(Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 13_u8, g: 110_u8, b: 253_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_focus(Azul::CssProperty.border_bottom_color(Azul::StyleBorderBottomColor.__own(LibAzul::AzStyleBorderBottomColor.new(inner: LibAzul::AzColorU.new(r: 13_u8, g: 110_u8, b: 253_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_focus(Azul::CssProperty.border_left_color(Azul::StyleBorderLeftColor.__own(LibAzul::AzStyleBorderLeftColor.new(inner: LibAzul::AzColorU.new(r: 13_u8, g: 110_u8, b: 253_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.on_focus(Azul::CssProperty.border_right_color(Azul::StyleBorderRightColor.__own(LibAzul::AzStyleBorderRightColor.new(inner: LibAzul::AzColorU.new(r: 13_u8, g: 110_u8, b: 253_u8, a: 255_u8))))),
-      Azul::CssPropertyWithConditions.on_focus(Azul::CssProperty.border_top_color(Azul::StyleBorderTopColor.__own(LibAzul::AzStyleBorderTopColor.new(inner: LibAzul::AzColorU.new(r: 13_u8, g: 110_u8, b: 253_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.with_conditions(
         Azul::CssProperty.background_content([Azul::StyleBackgroundContent.color(Azul::ColorU.__own(LibAzul::AzColorU.new(r: 73_u8, g: 80_u8, b: 87_u8, a: 255_u8)))] of Azul::StyleBackgroundContent),
         [

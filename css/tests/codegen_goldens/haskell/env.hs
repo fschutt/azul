@@ -6,13 +6,13 @@ import qualified Azul.Types as T
 import qualified Azul.CssPropertyWithConditions as CssPropertyWithConditions
 
 -- CSS: .bar
--- `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 -- `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+-- `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 styleBar :: IO [CssPropertyWithConditions]
 styleBar = sequence
   [
-    (CssPropertyWithConditions.simple (T.CssProperty_BorderTopColor (T.StyleBorderTopColorValue_Exact (T.StyleBorderTopColor (T.ColorU 204 204 204 255))))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextColor (T.StyleTextColorValue_Exact (T.StyleTextColor (T.ColorU 255 102 0 255))))),
-    (CssPropertyWithConditions.simple (T.CssProperty_PaddingBottom (T.LayoutPaddingBottomValue_Exact (T.LayoutPaddingBottom (T.PixelValue T.SizeMetric_Px (T.FloatValue 0)))))),
-    (CssPropertyWithConditions.simple (T.CssProperty_PaddingTop (T.LayoutPaddingTopValue_Exact (T.LayoutPaddingTop (T.PixelValue T.SizeMetric_Px (T.FloatValue 8000))))))
+    (CssPropertyWithConditions.simple (T.CssProperty_BorderTopColor (T.StyleBorderTopColorValue_Exact (T.StyleBorderTopColor (T.ColorU 204 204 204 255))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_PaddingTop (T.LayoutPaddingTopValue_Exact (T.LayoutPaddingTop (T.PixelValue T.SizeMetric_Px (T.FloatValue 8000)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_PaddingBottom (T.LayoutPaddingBottomValue_Exact (T.LayoutPaddingBottom (T.PixelValue T.SizeMetric_Px (T.FloatValue 0))))))
   ]

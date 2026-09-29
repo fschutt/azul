@@ -8,12 +8,12 @@ use azul::vec::*;
 /// CSS: .btn, .btn:hover
 pub fn style_btn() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
+        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::Px(PixelValue::px(100.0)))),
         CssPropertyWithConditions::simple(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 255, g: 0, b: 0, a: 255 } })),
         CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),
         CssPropertyWithConditions::simple(CssProperty::flex_grow(LayoutFlexGrow { inner: FloatValue::create(1.0) })),
         CssPropertyWithConditions::simple(CssProperty::inherit(CssPropertyType::MinWidth)),
         CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap))),
-        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::Px(PixelValue::px(100.0)))),
         CssPropertyWithConditions::on_hover(CssProperty::font_weight(StyleFontWeight::Bold)),
     ])
 }

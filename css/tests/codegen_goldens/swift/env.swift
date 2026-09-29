@@ -2,13 +2,13 @@
 import Azul
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 public func styleBar() -> [CssPropertyWithConditions] {
     return [
-        CssPropertyWithConditions.simple(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 102, b: 0, a: 255)))),
-        CssPropertyWithConditions.simple(CssProperty.paddingBottom(LayoutPaddingBottom(inner: PixelValue.px(0.0)))),
+        CssPropertyWithConditions.simple(CssProperty.borderTopColor(StyleBorderTopColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.paddingTop(LayoutPaddingTop(inner: PixelValue.px(8.0)))),
+        CssPropertyWithConditions.simple(CssProperty.paddingBottom(LayoutPaddingBottom(inner: PixelValue.px(0.0)))),
     ]
 }

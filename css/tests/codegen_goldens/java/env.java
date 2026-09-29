@@ -12,15 +12,15 @@ public final class AzulStyles {
     private AzulStyles() {}
 
     // CSS: .bar
-    // `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
     // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+    // `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
     public static AzCssPropertyWithConditionsVec.ByValue styleBar() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_borderTopColor(AzulCodegen.with(new AzStyleBorderTopColor.ByValue(), styleBorderTopColor -> { styleBorderTopColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 204; colorU.g = (byte) 204; colorU.b = (byte) 204; colorU.a = (byte) 255; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textColor(AzulCodegen.with(new AzStyleTextColor.ByValue(), styleTextColor -> { styleTextColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 255; colorU.g = (byte) 102; colorU.b = (byte) 0; colorU.a = (byte) 255; }); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingBottom(AzulCodegen.with(new AzLayoutPaddingBottom.ByValue(), layoutPaddingBottom -> { layoutPaddingBottom.inner = AzulNativeCss.AzPixelValue_px(0.0f); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingTop(AzulCodegen.with(new AzLayoutPaddingTop.ByValue(), layoutPaddingTop -> { layoutPaddingTop.inner = AzulNativeCss.AzPixelValue_px(8.0f); })))
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_borderTopColor(AzulCodegen.with(new AzStyleBorderTopColor.ByValue(), styleBorderTopColor -> { styleBorderTopColor.inner = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 204; colorU.g = (byte) 204; colorU.b = (byte) 204; colorU.a = (byte) 255; }); }))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingTop(AzulCodegen.with(new AzLayoutPaddingTop.ByValue(), layoutPaddingTop -> { layoutPaddingTop.inner = AzulNativeCss.AzPixelValue_px(8.0f); }))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingBottom(AzulCodegen.with(new AzLayoutPaddingBottom.ByValue(), layoutPaddingBottom -> { layoutPaddingBottom.inner = AzulNativeCss.AzPixelValue_px(0.0f); })))
         );
     }
 }

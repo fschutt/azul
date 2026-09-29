@@ -6,15 +6,15 @@ import com.sun.jna.Pointer
 import com.sun.jna.Structure
 
 // CSS: .bar
-// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 // `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+// `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 fun styleBar(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_borderTopColor(AzStyleBorderTopColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 204.toByte(); g = 204.toByte(); b = 204.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textColor(AzStyleTextColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 255.toByte(); g = 102.toByte(); b = 0.toByte(); a = 255.toByte() } })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingBottom(AzLayoutPaddingBottom.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(0.0f) })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingTop(AzLayoutPaddingTop.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(8.0f) }))
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_borderTopColor(AzStyleBorderTopColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 204.toByte(); g = 204.toByte(); b = 204.toByte(); a = 255.toByte() } })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingTop(AzLayoutPaddingTop.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(8.0f) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_paddingBottom(AzLayoutPaddingBottom.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(0.0f) }))
     )
 }
 

@@ -9,12 +9,12 @@ import com.sun.jna.Structure
 fun styleBtn(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_width(AzulNativeCss.AzLayoutWidth_px(AzulNativeCss.AzPixelValue_px(100.0f)))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textColor(AzStyleTextColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 255.toByte(); g = 0.toByte(); b = 0.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_display(LayoutDisplay.Flex.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flexGrow(AzLayoutFlexGrow.ByValue().apply { inner = AzulNativeCss.AzFloatValue_create(1.0f) })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_inherit(CssPropertyType.MinWidth.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue.ByValue().apply { Exact.tag = AzStyleWhiteSpaceValue_Tag.Exact.value.toByte(); Exact.payload = StyleWhiteSpace.Nowrap.value; setType("Exact") })),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_width(AzulNativeCss.AzLayoutWidth_px(AzulNativeCss.AzPixelValue_px(100.0f)))),
         AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
     )
 }

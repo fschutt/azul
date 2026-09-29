@@ -12,27 +12,8 @@ proc azStr(s: string): AzString =
 # CSS: .text
 proc styleText*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_caretWidth(AzCaretWidthValue(Exact: AzCaretWidthValueVariant_Exact(tag: 6, payload: AzCaretWidth(inner: AzPixelValue_px(2.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin(AzStyleExclusionMarginValue(Exact: AzStyleExclusionMarginValueVariant_Exact(tag: 6, payload: AzStyleExclusionMargin(inner: AzFloatValue_create(10.5)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage(AzStyleHyphenationLanguageValue(Exact: AzStyleHyphenationLanguageValueVariant_Exact(tag: 6, payload: AzStyleHyphenationLanguage(inner: azStr("en-US")))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(AzSelectionBackgroundColor(inner: AzColorU(r: 51'u8, g: 153'u8, b: 255'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(AzSelectionColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius(AzSelectionRadiusValue(Exact: AzSelectionRadiusValueVariant_Exact(tag: 6, payload: AzSelectionRadius(inner: AzPixelValue_px(3.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_alignmentBaseline(AzStyleAlignmentBaselineValue(Exact: AzStyleAlignmentBaselineValueVariant_Exact(tag: 6, payload: AzStyleAlignmentBaseline.Middle)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_baselineSource(AzStyleBaselineSourceValue(Exact: AzStyleBaselineSourceValueVariant_Exact(tag: 6, payload: AzStyleBaselineSource.Last)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration(AzCaretAnimationDuration(inner: AzCssDuration(inner: 500'u32, unit: AzCssDurationUnit.Milliseconds)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_caretColor(AzCaretColor(inner: AzColorU(r: 255'u8, g: 0'u8, b: 0'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 51'u8, g: 102'u8, b: 153'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_direction(AzStyleDirectionValue(Exact: AzStyleDirectionValueVariant_Exact(tag: 6, payload: AzStyleDirection.Rtl)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_dominantBaseline(AzStyleDominantBaselineValue(Exact: AzStyleDominantBaselineValueVariant_Exact(tag: 6, payload: AzStyleDominantBaseline.Central)))),
-    AzCssPropertyWithConditions_simple(
-      AzCssProperty_font(
-        azVec(AzStyleFontFamilyVec_copyFromPtr, [
-          AzStyleFontFamily_system(azStr("Georgia")),
-          AzStyleFontFamily_system(azStr("serif")),
-        ])
-      )
-    ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(14.0)))),
     AzCssPropertyWithConditions_simple(
       AzCssProperty_fontFamily(
         azVec(AzStyleFontFamilyVec_copyFromPtr, [
@@ -41,129 +22,126 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(14.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight.W600)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_hangingPunctuation(AzStyleHangingPunctuationValue(Exact: AzStyleHangingPunctuationValueVariant_Exact(tag: 6, payload: AzStyleHangingPunctuation(first: true, force_end: false, allow_end: false, last: false))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_hyphens(AzStyleHyphensValue(Exact: AzStyleHyphensValueVariant_Exact(tag: 6, payload: AzStyleHyphens.Auto)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign.Center)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify.InterWord)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
+    AzCssPropertyWithConditions_simple(AzCssProperty_letterSpacing(AzStyleLetterSpacing(inner: AzPixelValue_px(0.5)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textIndent(AzStyleTextIndent(inner: AzPixelValue_em(2.0), each_line: false, hanging: false))),
     AzCssPropertyWithConditions_simple(AzCssProperty_initialLetter(AzStyleInitialLetterValue(Exact: AzStyleInitialLetterValueVariant_Exact(tag: 6, payload: AzStyleInitialLetter(size: 3'u32, sink: AzOptionU32_none()))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_lineClamp(AzStyleLineClampValue(Exact: AzStyleLineClampValueVariant_Exact(tag: 6, payload: AzStyleLineClamp(max_lines: csize_t(3)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_hangingPunctuation(AzStyleHangingPunctuationValue(Exact: AzStyleHangingPunctuationValueVariant_Exact(tag: 6, payload: AzStyleHangingPunctuation(first: true, force_end: false, allow_end: false, last: false))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textCombineUpright(AzStyleTextCombineUprightValue(Exact: AzStyleTextCombineUprightValueVariant_Exact(tag: 6, payload: AzStyleTextCombineUpright_digits(2'u8))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_unicodeBidi(AzStyleUnicodeBidiValue(Exact: AzStyleUnicodeBidiValueVariant_Exact(tag: 6, payload: AzStyleUnicodeBidi.Isolate)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textBoxTrim(AzStyleTextBoxTrimValue(Exact: AzStyleTextBoxTrimValueVariant_Exact(tag: 6, payload: AzStyleTextBoxTrim.TrimBoth)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textBoxEdge(AzStyleTextBoxEdgeValue(Exact: AzStyleTextBoxEdgeValueVariant_Exact(tag: 6, payload: AzStyleTextBoxEdge(over: AzTextBoxEdgeOver.Cap, under: AzTextBoxEdgeUnder.Alphabetic))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_dominantBaseline(AzStyleDominantBaselineValue(Exact: AzStyleDominantBaselineValueVariant_Exact(tag: 6, payload: AzStyleDominantBaseline.Central)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_alignmentBaseline(AzStyleAlignmentBaselineValue(Exact: AzStyleAlignmentBaselineValueVariant_Exact(tag: 6, payload: AzStyleAlignmentBaseline.Middle)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_baselineSource(AzStyleBaselineSourceValue(Exact: AzStyleBaselineSourceValueVariant_Exact(tag: 6, payload: AzStyleBaselineSource.Last)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge(AzStyleLineFitEdgeValue(Exact: AzStyleLineFitEdgeValueVariant_Exact(tag: 6, payload: AzStyleLineFitEdge.Leading)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterAlign(AzStyleInitialLetterAlignValue(Exact: AzStyleInitialLetterAlignValueVariant_Exact(tag: 6, payload: AzStyleInitialLetterAlign.Alphabetic)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterWrap(AzStyleInitialLetterWrapValue(Exact: AzStyleInitialLetterWrapValueVariant_Exact(tag: 6, payload: AzStyleInitialLetterWrap.First)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_letterSpacing(AzStyleLetterSpacing(inner: AzPixelValue_px(0.5)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_lineBreak(AzStyleLineBreakValue(Exact: AzStyleLineBreakValueVariant_Exact(tag: 6, payload: AzStyleLineBreak.Strict)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_lineClamp(AzStyleLineClampValue(Exact: AzStyleLineClampValueVariant_Exact(tag: 6, payload: AzStyleLineClamp(max_lines: csize_t(3)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge(AzStyleLineFitEdgeValue(Exact: AzStyleLineFitEdgeValueVariant_Exact(tag: 6, payload: AzStyleLineFitEdge.Leading)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight(inner: AzPercentageValue(number: AzFloatValue_create(150.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_overflowWrap(AzStyleOverflowWrapValue(Exact: AzStyleOverflowWrapValueVariant_Exact(tag: 6, payload: AzStyleOverflowWrap.Anywhere)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(AzStyleTabSize(inner: AzPixelValue_em(4.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign.Center)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textAlignLast(AzStyleTextAlignLastValue(Exact: AzStyleTextAlignLastValueVariant_Exact(tag: 6, payload: AzStyleTextAlignLast.Justify)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textBoxEdge(AzStyleTextBoxEdgeValue(Exact: AzStyleTextBoxEdgeValueVariant_Exact(tag: 6, payload: AzStyleTextBoxEdge(over: AzTextBoxEdgeOver.Cap, under: AzTextBoxEdgeUnder.Alphabetic))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textBoxTrim(AzStyleTextBoxTrimValue(Exact: AzStyleTextBoxTrimValueVariant_Exact(tag: 6, payload: AzStyleTextBoxTrim.TrimBoth)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textCombineUpright(AzStyleTextCombineUprightValue(Exact: AzStyleTextCombineUprightValueVariant_Exact(tag: 6, payload: AzStyleTextCombineUpright_digits(2'u8))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration.Underline)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textIndent(AzStyleTextIndent(inner: AzPixelValue_em(2.0), each_line: false, hanging: false))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify.InterWord)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textOrientation(AzStyleTextOrientationValue(Exact: AzStyleTextOrientationValueVariant_Exact(tag: 6, payload: AzStyleTextOrientation.Upright)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textOverflow(AzStyleTextOverflowValue(Exact: AzStyleTextOverflowValueVariant_Exact(tag: 6, payload: AzStyleTextOverflow.Ellipsis)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_textTransform(AzStyleTextTransformValue(Exact: AzStyleTextTransformValueVariant_Exact(tag: 6, payload: AzStyleTextTransform.Uppercase)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_unicodeBidi(AzStyleUnicodeBidiValue(Exact: AzStyleUnicodeBidiValueVariant_Exact(tag: 6, payload: AzStyleUnicodeBidi.Isolate)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect.None)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
-    AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue(Exact: AzStyleWhiteSpaceValueVariant_Exact(tag: 6, payload: AzStyleWhiteSpace.PreWrap)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_wordBreak(AzStyleWordBreakValue(Exact: AzStyleWordBreakValueVariant_Exact(tag: 6, payload: AzStyleWordBreak.BreakAll)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_wordSpacing(AzStyleWordSpacing(inner: AzPixelValue_px(4.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(AzStyleTabSize(inner: AzPixelValue_em(4.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue(Exact: AzStyleWhiteSpaceValueVariant_Exact(tag: 6, payload: AzStyleWhiteSpace.PreWrap)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_hyphens(AzStyleHyphensValue(Exact: AzStyleHyphensValueVariant_Exact(tag: 6, payload: AzStyleHyphens.Auto)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_wordBreak(AzStyleWordBreakValue(Exact: AzStyleWordBreakValueVariant_Exact(tag: 6, payload: AzStyleWordBreak.BreakAll)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_overflowWrap(AzStyleOverflowWrapValue(Exact: AzStyleOverflowWrapValueVariant_Exact(tag: 6, payload: AzStyleOverflowWrap.Anywhere)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_lineBreak(AzStyleLineBreakValue(Exact: AzStyleLineBreakValueVariant_Exact(tag: 6, payload: AzStyleLineBreak.Strict)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textOverflow(AzStyleTextOverflowValue(Exact: AzStyleTextOverflowValueVariant_Exact(tag: 6, payload: AzStyleTextOverflow.Ellipsis)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textOrientation(AzStyleTextOrientationValue(Exact: AzStyleTextOrientationValueVariant_Exact(tag: 6, payload: AzStyleTextOrientation.Upright)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textAlignLast(AzStyleTextAlignLastValue(Exact: AzStyleTextAlignLastValueVariant_Exact(tag: 6, payload: AzStyleTextAlignLast.Justify)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textTransform(AzStyleTextTransformValue(Exact: AzStyleTextTransformValueVariant_Exact(tag: 6, payload: AzStyleTextTransform.Uppercase)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_direction(AzStyleDirectionValue(Exact: AzStyleDirectionValueVariant_Exact(tag: 6, payload: AzStyleDirection.Rtl)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect.None)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration.Underline)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage(AzStyleHyphenationLanguageValue(Exact: AzStyleHyphenationLanguageValueVariant_Exact(tag: 6, payload: AzStyleHyphenationLanguage(inner: azStr("en-US")))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin(AzStyleExclusionMarginValue(Exact: AzStyleExclusionMarginValueVariant_Exact(tag: 6, payload: AzStyleExclusionMargin(inner: AzFloatValue_create(10.5)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_caretColor(AzCaretColor(inner: AzColorU(r: 255'u8, g: 0'u8, b: 0'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration(AzCaretAnimationDuration(inner: AzCssDuration(inner: 500'u32, unit: AzCssDurationUnit.Milliseconds)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_caretWidth(AzCaretWidthValue(Exact: AzCaretWidthValueVariant_Exact(tag: 6, payload: AzCaretWidth(inner: AzPixelValue_px(2.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(AzSelectionBackgroundColor(inner: AzColorU(r: 51'u8, g: 153'u8, b: 255'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(AzSelectionColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius(AzSelectionRadiusValue(Exact: AzSelectionRadiusValueVariant_Exact(tag: 6, payload: AzSelectionRadius(inner: AzPixelValue_px(3.0)))))),
+    AzCssPropertyWithConditions_simple(
+      AzCssProperty_font(
+        azVec(AzStyleFontFamilyVec_copyFromPtr, [
+          AzStyleFontFamily_system(azStr("Georgia")),
+          AzStyleFontFamily_system(azStr("serif")),
+        ])
+      )
+    ),
   ])
 
 # CSS: .box
 proc styleBox*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_aspectRatio(AzStyleAspectRatioValue(Exact: AzStyleAspectRatioValueVariant_Exact(tag: 6, payload: AzStyleAspectRatio_ratio(AzAspectRatioValue(width: 16000'u32, height: 9000'u32)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_bottom(AzLayoutInsetBottom(inner: AzPixelValue_pt(5.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_boxSizing(AzLayoutBoxSizing.BorderBox)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_clear(AzLayoutClearValue(Exact: AzLayoutClearValueVariant_Exact(tag: 6, payload: AzLayoutClear.Both)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_clip(AzStyleClipRectValue(Exact: AzStyleClipRectValueVariant_Exact(tag: 6, payload: AzStyleClipRect(top: AzOptionF32_some(0.0), right: AzOptionF32_some(10.0), bottom: AzOptionF32_some(10.0), left: AzOptionF32_some(0.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_cursor(AzStyleCursor.Pointer)),
     AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay.`Block`)),
     AzCssPropertyWithConditions_simple(AzCssProperty_float(AzLayoutFloatValue(Exact: AzLayoutFloatValueVariant_Exact(tag: 6, payload: AzLayoutFloat.Left)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_boxSizing(AzLayoutBoxSizing.BorderBox)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_percent(50.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(200.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_minWidth(AzLayoutMinWidth(inner: AzPixelValue_em(10.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_minHeight(AzLayoutMinHeight(inner: AzPixelValue_rem(1.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_maxWidth(AzLayoutMaxWidth(inner: AzPixelValue_px(800.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_maxHeight(AzLayoutMaxHeight(inner: AzPixelValue_fromMetric(AzSizeMetric.Vh, 90.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_position(AzLayoutPosition.Absolute)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_top(AzLayoutTop(inner: AzPixelValue_px(0.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_right(AzLayoutRight(inner: AzPixelValue_px(10.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_bottom(AzLayoutInsetBottom(inner: AzPixelValue_pt(5.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_left(AzLayoutLeft(inner: AzPixelValue_fromMetric(AzSizeMetric.`In`, 1.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_zIndex(AzLayoutZIndex_integer(10'i32))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(AzLayoutPaddingTop(inner: AzPixelValue_px(1.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingRight(AzLayoutPaddingRight(inner: AzPixelValue_px(2.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom(inner: AzPixelValue_px(3.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingLeft(AzLayoutPaddingLeft(inner: AzPixelValue_px(4.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineStart(AzLayoutPaddingInlineStartValue(Exact: AzLayoutPaddingInlineStartValueVariant_Exact(tag: 6, payload: AzLayoutPaddingInlineStart(inner: AzPixelValue_px(5.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineEnd(AzLayoutPaddingInlineEndValue(Exact: AzLayoutPaddingInlineEndValueVariant_Exact(tag: 6, payload: AzLayoutPaddingInlineEnd(inner: AzPixelValue_px(6.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_marginTop(AzLayoutMarginTop(inner: AzPixelValue_px(7.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_marginRight(AzLayoutMarginRight(inner: AzPixelValue_px(8.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_marginBottom(AzLayoutMarginBottom(inner: AzPixelValue_px(9.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_auto(AzCssPropertyType.MarginLeft)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_marginRight(AzLayoutMarginRight(inner: AzPixelValue_px(8.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_marginTop(AzLayoutMarginTop(inner: AzPixelValue_px(7.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_maxHeight(AzLayoutMaxHeight(inner: AzPixelValue_fromMetric(AzSizeMetric.Vh, 90.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_maxWidth(AzLayoutMaxWidth(inner: AzPixelValue_px(800.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_minHeight(AzLayoutMinHeight(inner: AzPixelValue_rem(1.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_minWidth(AzLayoutMinWidth(inner: AzPixelValue_em(10.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_objectFit(AzStyleObjectFitValue(Exact: AzStyleObjectFitValueVariant_Exact(tag: 6, payload: AzStyleObjectFit.Cover)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_objectPosition(AzStyleObjectPositionValue(Exact: AzStyleObjectPositionValueVariant_Exact(tag: 6, payload: AzStyleObjectPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_top()))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_opacity(AzStyleOpacity(inner: AzPercentageValue(number: AzFloatValue_create(50.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_overflowBlock(AzLayoutOverflowValue(Exact: AzLayoutOverflowValueVariant_Exact(tag: 6, payload: AzLayoutOverflow.Clip)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_overflowClipMargin(AzStyleOverflowClipMarginValue(Exact: AzStyleOverflowClipMarginValueVariant_Exact(tag: 6, payload: AzStyleOverflowClipMargin(clip_edge: AzVisualBox.ContentBox, inner: AzPixelValue_px(0.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_overflowInline(AzLayoutOverflowValue(Exact: AzLayoutOverflowValueVariant_Exact(tag: 6, payload: AzLayoutOverflow.Auto)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_overflowX(AzLayoutOverflow.Hidden)),
     AzCssPropertyWithConditions_simple(AzCssProperty_overflowY(AzLayoutOverflow.Scroll)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom(inner: AzPixelValue_px(3.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineEnd(AzLayoutPaddingInlineEndValue(Exact: AzLayoutPaddingInlineEndValueVariant_Exact(tag: 6, payload: AzLayoutPaddingInlineEnd(inner: AzPixelValue_px(6.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingInlineStart(AzLayoutPaddingInlineStartValue(Exact: AzLayoutPaddingInlineStartValueVariant_Exact(tag: 6, payload: AzLayoutPaddingInlineStart(inner: AzPixelValue_px(5.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingLeft(AzLayoutPaddingLeft(inner: AzPixelValue_px(4.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingRight(AzLayoutPaddingRight(inner: AzPixelValue_px(2.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(AzLayoutPaddingTop(inner: AzPixelValue_px(1.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_position(AzLayoutPosition.Absolute)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_right(AzLayoutRight(inner: AzPixelValue_px(10.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_overflowBlock(AzLayoutOverflowValue(Exact: AzLayoutOverflowValueVariant_Exact(tag: 6, payload: AzLayoutOverflow.Clip)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_overflowInline(AzLayoutOverflowValue(Exact: AzLayoutOverflowValueVariant_Exact(tag: 6, payload: AzLayoutOverflow.Auto)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarGutter(AzStyleScrollbarGutterValue(Exact: AzStyleScrollbarGutterValueVariant_Exact(tag: 6, payload: AzStyleScrollbarGutter.StableBothEdges)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_top(AzLayoutTop(inner: AzPixelValue_px(0.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_visibility(AzStyleVisibility.Hidden)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_percent(50.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_overflowClipMargin(AzStyleOverflowClipMarginValue(Exact: AzStyleOverflowClipMarginValueVariant_Exact(tag: 6, payload: AzStyleOverflowClipMargin(clip_edge: AzVisualBox.ContentBox, inner: AzPixelValue_px(0.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_clip(AzStyleClipRectValue(Exact: AzStyleClipRectValueVariant_Exact(tag: 6, payload: AzStyleClipRect(top: AzOptionF32_some(0.0), right: AzOptionF32_some(10.0), bottom: AzOptionF32_some(10.0), left: AzOptionF32_some(0.0)))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_writingMode(AzLayoutWritingModeValue(Exact: AzLayoutWritingModeValueVariant_Exact(tag: 6, payload: AzLayoutWritingMode.VerticalRl)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_zIndex(AzLayoutZIndex_integer(10'i32))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_clear(AzLayoutClearValue(Exact: AzLayoutClearValueVariant_Exact(tag: 6, payload: AzLayoutClear.Both)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_visibility(AzStyleVisibility.Hidden)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_opacity(AzStyleOpacity(inner: AzPercentageValue(number: AzFloatValue_create(50.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_cursor(AzStyleCursor.Pointer)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_objectFit(AzStyleObjectFitValue(Exact: AzStyleObjectFitValueVariant_Exact(tag: 6, payload: AzStyleObjectFit.Cover)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_objectPosition(AzStyleObjectPositionValue(Exact: AzStyleObjectPositionValueVariant_Exact(tag: 6, payload: AzStyleObjectPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_top()))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_aspectRatio(AzStyleAspectRatioValue(Exact: AzStyleAspectRatioValueVariant_Exact(tag: 6, payload: AzStyleAspectRatio_ratio(AzAspectRatioValue(width: 16000'u32, height: 9000'u32)))))),
   ])
 
 # CSS: .flex
 proc styleFlex*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_alignContent(AzLayoutAlignContent.Stretch)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_alignItems(AzLayoutAlignItems.Center)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_alignSelf(AzLayoutAlignSelf.`End`)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnGap(AzLayoutColumnGapValue(Exact: AzLayoutColumnGapValueVariant_Exact(tag: 6, payload: AzLayoutColumnGap(inner: AzPixelValue_px(8.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_flexBasis(AzLayoutFlexBasisValue(Exact: AzLayoutFlexBasisValueVariant_Exact(tag: 6, payload: AzLayoutFlexBasis_exact(AzPixelValue_percent(30.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_flexWrap(AzLayoutFlexWrap.Wrap)),
     AzCssPropertyWithConditions_simple(AzCssProperty_flexDirection(AzLayoutFlexDirection.Column)),
     AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(AzLayoutFlexGrow(inner: AzFloatValue_create(2.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_flexShrink(AzLayoutFlexShrink(inner: AzFloatValue_create(0.5)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_flexWrap(AzLayoutFlexWrap.Wrap)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_flexBasis(AzLayoutFlexBasisValue(Exact: AzLayoutFlexBasisValueVariant_Exact(tag: 6, payload: AzLayoutFlexBasis_exact(AzPixelValue_percent(30.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_justifyContent(AzLayoutJustifyContent.SpaceBetween)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_alignItems(AzLayoutAlignItems.Center)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_alignContent(AzLayoutAlignContent.Stretch)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_alignSelf(AzLayoutAlignSelf.`End`)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnGap(AzLayoutColumnGapValue(Exact: AzLayoutColumnGapValueVariant_Exact(tag: 6, payload: AzLayoutColumnGap(inner: AzPixelValue_px(8.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_rowGap(AzLayoutRowGapValue(Exact: AzLayoutRowGapValueVariant_Exact(tag: 6, payload: AzLayoutRowGap(inner: AzPixelValue_px(4.0)))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_rowGap(AzLayoutRowGapValue(Exact: AzLayoutRowGapValueVariant_Exact(tag: 6, payload: AzLayoutRowGap(inner: AzPixelValue_px(6.0)))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_columnGap(AzLayoutColumnGapValue(Exact: AzLayoutColumnGapValueVariant_Exact(tag: 6, payload: AzLayoutColumnGap(inner: AzPixelValue_px(6.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_justifyContent(AzLayoutJustifyContent.SpaceBetween)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_rowGap(AzLayoutRowGapValue(Exact: AzLayoutRowGapValueVariant_Exact(tag: 6, payload: AzLayoutRowGap(inner: AzPixelValue_px(4.0)))))),
   ])
 
 # CSS: .grid
 # dropped `grid-auto-rows: minmax(10px, 100fr)`: grid `minmax()` tracks hold raw pointers in the C ABI and cannot be built from the bindings
 proc styleGrid*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoColumns(AzLayoutGridAutoColumnsValue(Exact: AzLayoutGridAutoColumnsValueVariant_Exact(tag: 6, payload: AzGridAutoTracks(tracks: azVec(AzGridTrackSizingVec_copyFromPtr, [AzGridTrackSizing_fixed(AzPixelValue_px(50.0))])))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoFlow(AzLayoutGridAutoFlow.Column)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_gridColumn(AzLayoutGridColumnValue(Exact: AzLayoutGridColumnValueVariant_Exact(tag: 6, payload: AzGridPlacement(grid_start: AzGridLine_line(1'i32), grid_end: AzGridLine_line(3'i32)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_rowGap(AzLayoutRowGapValue(Exact: AzLayoutRowGapValueVariant_Exact(tag: 6, payload: AzLayoutRowGap(inner: AzPixelValue_px(10.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnGap(AzLayoutColumnGapValue(Exact: AzLayoutColumnGapValueVariant_Exact(tag: 6, payload: AzLayoutColumnGap(inner: AzPixelValue_px(10.0)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_gridRow(AzLayoutGridRowValue(Exact: AzLayoutGridRowValueVariant_Exact(tag: 6, payload: AzGridPlacement(grid_start: AzGridLine_span(2'i32), grid_end: AzGridLine_auto()))))),
-    AzCssPropertyWithConditions_simple(
-      AzCssProperty_gridTemplateAreas(
-        AzLayoutGridTemplateAreasValue(
-          Exact: AzLayoutGridTemplateAreasValueVariant_Exact(
-            tag: 6,
-            payload: AzGridTemplateAreas(
-              areas: azVec(AzGridAreaDefinitionVec_copyFromPtr, [
-                AzGridAreaDefinition(name: azStr("header"), row_start: 1'u16, row_end: 2'u16, column_start: 1'u16, column_end: 3'u16),
-                AzGridAreaDefinition(name: azStr("main"), row_start: 2'u16, row_end: 3'u16, column_start: 2'u16, column_end: 3'u16),
-                AzGridAreaDefinition(name: azStr("sidebar"), row_start: 2'u16, row_end: 3'u16, column_start: 1'u16, column_end: 2'u16),
-              ])
-            )
-          )
-        )
-      )
-    ),
     AzCssPropertyWithConditions_simple(
       AzCssProperty_gridTemplateColumns(
         AzLayoutGridTemplateColumnsValue(
@@ -195,29 +173,51 @@ proc styleGrid*(): AzCssPropertyWithConditionsVec =
         )
       )
     ),
-    AzCssPropertyWithConditions_simple(AzCssProperty_justifyItems(AzLayoutJustifyItems.Start)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoColumns(AzLayoutGridAutoColumnsValue(Exact: AzLayoutGridAutoColumnsValueVariant_Exact(tag: 6, payload: AzGridAutoTracks(tracks: azVec(AzGridTrackSizingVec_copyFromPtr, [AzGridTrackSizing_fixed(AzPixelValue_px(50.0))])))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_gridColumn(AzLayoutGridColumnValue(Exact: AzLayoutGridColumnValueVariant_Exact(tag: 6, payload: AzGridPlacement(grid_start: AzGridLine_line(1'i32), grid_end: AzGridLine_line(3'i32)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_gridRow(AzLayoutGridRowValue(Exact: AzLayoutGridRowValueVariant_Exact(tag: 6, payload: AzGridPlacement(grid_start: AzGridLine_span(2'i32), grid_end: AzGridLine_auto()))))),
+    AzCssPropertyWithConditions_simple(
+      AzCssProperty_gridTemplateAreas(
+        AzLayoutGridTemplateAreasValue(
+          Exact: AzLayoutGridTemplateAreasValueVariant_Exact(
+            tag: 6,
+            payload: AzGridTemplateAreas(
+              areas: azVec(AzGridAreaDefinitionVec_copyFromPtr, [
+                AzGridAreaDefinition(name: azStr("header"), row_start: 1'u16, row_end: 2'u16, column_start: 1'u16, column_end: 3'u16),
+                AzGridAreaDefinition(name: azStr("main"), row_start: 2'u16, row_end: 3'u16, column_start: 2'u16, column_end: 3'u16),
+                AzGridAreaDefinition(name: azStr("sidebar"), row_start: 2'u16, row_end: 3'u16, column_start: 1'u16, column_end: 2'u16),
+              ])
+            )
+          )
+        )
+      )
+    ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_gridAutoFlow(AzLayoutGridAutoFlow.Column)),
     AzCssPropertyWithConditions_simple(AzCssProperty_justifySelf(AzLayoutJustifySelf.Center)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_justifyItems(AzLayoutJustifyItems.Start)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_rowGap(AzLayoutRowGapValue(Exact: AzLayoutRowGapValueVariant_Exact(tag: 6, payload: AzLayoutRowGap(inner: AzPixelValue_px(10.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnGap(AzLayoutColumnGapValue(Exact: AzLayoutColumnGapValueVariant_Exact(tag: 6, payload: AzLayoutColumnGap(inner: AzPixelValue_px(10.0)))))),
   ])
 
 # CSS: .borders
 proc styleBorders*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor(inner: AzColorU(r: 51'u8, g: 51'u8, b: 51'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomLeftRadius(AzStyleBorderBottomLeftRadius(inner: AzPixelValue_px(6.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomRightRadius(AzStyleBorderBottomRightRadius(inner: AzPixelValue_px(7.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomStyle(AzStyleBorderBottomStyle(inner: AzBorderStyle.Dotted))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomWidth(AzLayoutBorderBottomWidth(inner: AzPixelValue_px(3.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor(inner: AzColorU(r: 68'u8, g: 68'u8, b: 68'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftStyle(AzStyleBorderLeftStyle(inner: AzBorderStyle.Double))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftWidth(AzLayoutBorderLeftWidth(inner: AzPixelValue_px(4.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightColor(AzStyleBorderRightColor(inner: AzColorU(r: 34'u8, g: 34'u8, b: 34'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightStyle(AzStyleBorderRightStyle(inner: AzBorderStyle.Dashed))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightWidth(AzLayoutBorderRightWidth(inner: AzPixelValue_px(2.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 17'u8, g: 17'u8, b: 17'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderTopLeftRadius(AzStyleBorderTopLeftRadius(inner: AzPixelValue_px(4.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderTopRightRadius(AzStyleBorderTopRightRadius(inner: AzPixelValue_px(5.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomLeftRadius(AzStyleBorderBottomLeftRadius(inner: AzPixelValue_px(6.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomRightRadius(AzStyleBorderBottomRightRadius(inner: AzPixelValue_px(7.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 17'u8, g: 17'u8, b: 17'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightColor(AzStyleBorderRightColor(inner: AzColorU(r: 34'u8, g: 34'u8, b: 34'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomColor(AzStyleBorderBottomColor(inner: AzColorU(r: 51'u8, g: 51'u8, b: 51'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftColor(AzStyleBorderLeftColor(inner: AzColorU(r: 68'u8, g: 68'u8, b: 68'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderTopStyle(AzStyleBorderTopStyle(inner: AzBorderStyle.Solid))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightStyle(AzStyleBorderRightStyle(inner: AzBorderStyle.Dashed))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomStyle(AzStyleBorderBottomStyle(inner: AzBorderStyle.Dotted))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftStyle(AzStyleBorderLeftStyle(inner: AzBorderStyle.Double))),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderTopWidth(AzLayoutBorderTopWidth(inner: AzPixelValue_px(1.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderRightWidth(AzLayoutBorderRightWidth(inner: AzPixelValue_px(2.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderBottomWidth(AzLayoutBorderBottomWidth(inner: AzPixelValue_px(3.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderLeftWidth(AzLayoutBorderLeftWidth(inner: AzPixelValue_px(4.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowLeft(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(1.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 64'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowRight(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(1.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 64'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(1.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 64'u8)))),
@@ -227,19 +227,19 @@ proc styleBorders*(): AzCssPropertyWithConditionsVec =
 # CSS: .scroll
 proc styleScroll*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_appRegion(AzStyleAppRegionValue(Exact: AzStyleAppRegionValueVariant_Exact(tag: 6, payload: AzStyleAppRegion.Drag)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarTrack(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 238'u8, g: 238'u8, b: 238'u8, a: 255'u8)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarThumb(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 136'u8, g: 136'u8, b: 136'u8, a: 255'u8)))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarButton(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarCorner(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 221'u8, g: 221'u8, b: 221'u8, a: 255'u8)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDelay(AzScrollbarFadeDelayValue(Exact: AzScrollbarFadeDelayValueVariant_Exact(tag: 6, payload: AzScrollbarFadeDelay(ms: 500'u32))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDuration(AzScrollbarFadeDurationValue(Exact: AzScrollbarFadeDurationValueVariant_Exact(tag: 6, payload: AzScrollbarFadeDuration(ms: 200'u32))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarResizer(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 187'u8, g: 187'u8, b: 187'u8, a: 255'u8)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarThumb(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 136'u8, g: 136'u8, b: 136'u8, a: 255'u8)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarTrack(AzStyleBackgroundContentValue(Exact: AzStyleBackgroundContentValueVariant_Exact(tag: 6, payload: AzStyleBackgroundContent_color(AzColorU(r: 238'u8, g: 238'u8, b: 238'u8, a: 255'u8)))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarVisibility(AzScrollbarVisibilityModeValue(Exact: AzScrollbarVisibilityModeValueVariant_Exact(tag: 6, payload: AzScrollbarVisibilityMode.WhenScrolling)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarWidth(AzLayoutScrollbarWidthValue(Exact: AzLayoutScrollbarWidthValueVariant_Exact(tag: 6, payload: AzLayoutScrollbarWidth.Thin)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarColor(AzStyleScrollbarColorValue(Exact: AzStyleScrollbarColorValueVariant_Exact(tag: 6, payload: AzStyleScrollbarColor_custom(AzScrollbarColorCustom(thumb: AzColorU(r: 136'u8, g: 136'u8, b: 136'u8, a: 255'u8), track: AzColorU(r: 238'u8, g: 238'u8, b: 238'u8, a: 255'u8))))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_overscrollBehaviorX(AzOverscrollBehaviorValue(Exact: AzOverscrollBehaviorValueVariant_Exact(tag: 6, payload: AzOverscrollBehavior.Contain)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_overscrollBehaviorY(AzOverscrollBehaviorValue(Exact: AzOverscrollBehaviorValueVariant_Exact(tag: 6, payload: AzOverscrollBehavior.None)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarColor(AzStyleScrollbarColorValue(Exact: AzStyleScrollbarColorValueVariant_Exact(tag: 6, payload: AzStyleScrollbarColor_custom(AzScrollbarColorCustom(thumb: AzColorU(r: 136'u8, g: 136'u8, b: 136'u8, a: 255'u8), track: AzColorU(r: 238'u8, g: 238'u8, b: 238'u8, a: 255'u8))))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarWidth(AzLayoutScrollbarWidthValue(Exact: AzLayoutScrollbarWidthValueVariant_Exact(tag: 6, payload: AzLayoutScrollbarWidth.Thin)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarVisibility(AzScrollbarVisibilityModeValue(Exact: AzScrollbarVisibilityModeValueVariant_Exact(tag: 6, payload: AzScrollbarVisibilityMode.WhenScrolling)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDelay(AzScrollbarFadeDelayValue(Exact: AzScrollbarFadeDelayValueVariant_Exact(tag: 6, payload: AzScrollbarFadeDelay(ms: 500'u32))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_scrollbarFadeDuration(AzScrollbarFadeDurationValue(Exact: AzScrollbarFadeDurationValueVariant_Exact(tag: 6, payload: AzScrollbarFadeDuration(ms: 200'u32))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_appRegion(AzStyleAppRegionValue(Exact: AzStyleAppRegionValueVariant_Exact(tag: 6, payload: AzStyleAppRegion.Drag)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationAction(AzStyleSpatialNavigationActionValue(Exact: AzStyleSpatialNavigationActionValueVariant_Exact(tag: 6, payload: AzStyleSpatialNavigationAction.Focus)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationContain(AzStyleSpatialNavigationContainValue(Exact: AzStyleSpatialNavigationContainValueVariant_Exact(tag: 6, payload: AzStyleSpatialNavigationContain.Contain)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_spatialNavigationFunction(AzStyleSpatialNavigationFunctionValue(Exact: AzStyleSpatialNavigationFunctionValueVariant_Exact(tag: 6, payload: AzStyleSpatialNavigationFunction.Grid)))),
@@ -249,74 +249,74 @@ proc styleScroll*(): AzCssPropertyWithConditionsVec =
 # dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 proc styleEffects*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter(AzStyleFilterVecValue(Exact: AzStyleFilterVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleFilterVec_copyFromPtr, [AzStyleFilter_grayscale(AzPercentageValue(number: AzFloatValue_create(50.0)))]))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility.Hidden)),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_color(AzColorU(r: 250'u8, g: 250'u8, b: 250'u8, a: 255'u8))]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(azVec(AzStyleBackgroundPositionVec_copyFromPtr, [AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_center())]))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_filter(AzStyleFilterVecValue(Exact: AzStyleFilterVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleFilterVec_copyFromPtr, [AzStyleFilter_blur(AzStyleBlur(width: AzPixelValue_px(2.0), height: AzPixelValue_px(2.0)))]))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode(AzStyleMixBlendModeValue(Exact: AzStyleMixBlendModeValueVariant_Exact(tag: 6, payload: AzStyleMixBlendMode.Multiply)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(AzStylePerspectiveOrigin(x: AzPixelValue_px(10.0), y: AzPixelValue_px(20.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_transform(azVec(AzStyleTransformVec_copyFromPtr, [AzStyleTransform_rotate(AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(45.0)))]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin(AzStyleTransformOrigin(x: AzPixelValue_percent(50.0), y: AzPixelValue_percent(50.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(AzStylePerspectiveOrigin(x: AzPixelValue_px(10.0), y: AzPixelValue_px(20.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility.Hidden)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_filter(AzStyleFilterVecValue(Exact: AzStyleFilterVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleFilterVec_copyFromPtr, [AzStyleFilter_blur(AzStyleBlur(width: AzPixelValue_px(2.0), height: AzPixelValue_px(2.0)))]))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter(AzStyleFilterVecValue(Exact: AzStyleFilterVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleFilterVec_copyFromPtr, [AzStyleFilter_grayscale(AzPercentageValue(number: AzFloatValue_create(50.0)))]))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode(AzStyleMixBlendModeValue(Exact: AzStyleMixBlendModeValueVariant_Exact(tag: 6, payload: AzStyleMixBlendMode.Multiply)))),
   ])
 
 # CSS: .fragment
 proc styleFragment*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_boxDecorationBreak(AzBoxDecorationBreak.Clone)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_breakAfter(AzPageBreak.Avoid)),
     AzCssPropertyWithConditions_simple(AzCssProperty_breakBefore(AzPageBreak.Page)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_breakAfter(AzPageBreak.Avoid)),
     AzCssPropertyWithConditions_simple(AzCssProperty_breakInside(AzBreakInside.Avoid)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnCount(AzColumnCount_integer(3'u32))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnFill(AzColumnFill.Balance)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor(AzColumnRuleColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleStyle(AzColumnRuleStyle(inner: AzBorderStyle.Solid))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleWidth(AzColumnRuleWidth(inner: AzPixelValue_px(1.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnSpan(AzColumnSpan.All)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_columnWidth(AzColumnWidth_length(AzPixelValue_px(200.0)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(azStr("article")))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(azStr("article")))),
     AzCssPropertyWithConditions_simple(AzCssProperty_orphans(AzOrphans(inner: 2'u32))),
     AzCssPropertyWithConditions_simple(AzCssProperty_widows(AzWidows(inner: 3'u32))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_boxDecorationBreak(AzBoxDecorationBreak.Clone)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnCount(AzColumnCount_integer(3'u32))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnWidth(AzColumnWidth_length(AzPixelValue_px(200.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnSpan(AzColumnSpan.All)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnFill(AzColumnFill.Balance)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleWidth(AzColumnRuleWidth(inner: AzPixelValue_px(1.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleStyle(AzColumnRuleStyle(inner: AzBorderStyle.Solid))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_columnRuleColor(AzColumnRuleColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_flowInto(AzFlowInto_named(azStr("article")))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_flowFrom(AzFlowFrom_named(azStr("article")))),
   ])
 
 # CSS: .shape
 proc styleShape*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 0.0, y: 0.0), radius: 40.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold(AzShapeImageThreshold(inner: AzFloatValue_create(0.5)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 50.0, y: 50.0), radius: 100.0))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin(AzShapeMargin(inner: AzPixelValue_px(10.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_shapeOutside(AzShapeOutside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 0.0, y: 0.0), radius: 50.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_shapeInside(AzShapeInside_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 50.0, y: 50.0), radius: 100.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_clipPath(AzClipPath_shape(AzCssShape_circle(AzShapeCircle(center: AzShapePoint(x: 0.0, y: 0.0), radius: 40.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_shapeMargin(AzShapeMargin(inner: AzPixelValue_px(10.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_shapeImageThreshold(AzShapeImageThreshold(inner: AzFloatValue_create(0.5)))),
   ])
 
 # CSS: .table
 proc styleTable*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_tableLayout(AzLayoutTableLayout.Fixed)),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderCollapse(AzStyleBorderCollapse.Collapse)),
     AzCssPropertyWithConditions_simple(AzCssProperty_borderSpacing(AzLayoutBorderSpacing(horizontal: AzPixelValue_px(2.0), vertical: AzPixelValue_px(4.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_captionSide(AzStyleCaptionSide.Bottom)),
     AzCssPropertyWithConditions_simple(AzCssProperty_emptyCells(AzStyleEmptyCells.Hide)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_tableLayout(AzLayoutTableLayout.Fixed)),
   ])
 
 # CSS: .content
 proc styleContent*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent(inner: azStr("\"Hello\"")))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement(counter_name: azStr("section"), value: 1'i32))),
     AzCssPropertyWithConditions_simple(AzCssProperty_counterReset(AzCounterReset(counter_name: azStr("section"), value: 1'i32))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition.Inside)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_counterIncrement(AzCounterIncrement(counter_name: azStr("section"), value: 1'i32))),
     AzCssPropertyWithConditions_simple(AzCssProperty_listStyleType(AzStyleListStyleType.UpperRoman)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_listStylePosition(AzStyleListStylePosition.Inside)),
     AzCssPropertyWithConditions_simple(AzCssProperty_stringSet(AzStringSet(inner: azStr("title \"Chapter\"")))),
   ])
 
 # CSS: .anim
 proc styleAnim*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_animation(AzStyleAnimationVecValue(Exact: AzStyleAnimationVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleAnimationVec_copyFromPtr, [AzStyleAnimation(name: azStr("fadeIn"), duration: AzCssDuration(inner: 300'u32, unit: AzCssDurationUnit.Milliseconds), delay: AzCssDuration(inner: 0'u32, unit: AzCssDurationUnit.Milliseconds), iterations: AzAnimationIterationCount_count(1'u16), timing: AzAnimationTiming_easeInOut(), clip: true)]))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_animationIn(AzStyleAnimationVecValue(Exact: AzStyleAnimationVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleAnimationVec_copyFromPtr, [AzStyleAnimation(name: azStr("flyInLeft"), duration: AzCssDuration(inner: 500'u32, unit: AzCssDurationUnit.Milliseconds), delay: AzCssDuration(inner: 0'u32, unit: AzCssDurationUnit.Milliseconds), iterations: AzAnimationIterationCount_count(1'u16), timing: AzAnimationTiming_spring(), clip: true)]))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_animationOut(AzStyleAnimationVecValue(Exact: AzStyleAnimationVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleAnimationVec_copyFromPtr, [AzStyleAnimation(name: azStr("fadeOut"), duration: AzCssDuration(inner: 200'u32, unit: AzCssDurationUnit.Milliseconds), delay: AzCssDuration(inner: 0'u32, unit: AzCssDurationUnit.Milliseconds), iterations: AzAnimationIterationCount_count(1'u16), timing: AzAnimationTiming_linear(), clip: true)]))))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_animation(AzStyleAnimationVecValue(Exact: AzStyleAnimationVecValueVariant_Exact(tag: 6, payload: azVec(AzStyleAnimationVec_copyFromPtr, [AzStyleAnimation(name: azStr("fadeIn"), duration: AzCssDuration(inner: 300'u32, unit: AzCssDurationUnit.Milliseconds), delay: AzCssDuration(inner: 0'u32, unit: AzCssDurationUnit.Milliseconds), iterations: AzAnimationIterationCount_count(1'u16), timing: AzAnimationTiming_easeInOut(), clip: true)]))))),
   ])

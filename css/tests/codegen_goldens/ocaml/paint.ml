@@ -25,25 +25,6 @@ let style_hero () =
     (
       azCssPropertyWithConditions_simple
       (
-        azCssProperty_backdropFilter
-        (
-          az_union az_style_filter_vec_value 6
-          (
-            Some
-            (
-              az_payload az_style_filter_vec
-              (azStyleFilterVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_filter [
-                (azStyleFilter_brightness (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 120.0)) ]));
-                (azStyleFilter_contrast (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 80.0)) ]))
-              ])) (Unsigned.Size_t.of_int 2))
-            )
-          )
-        )
-      )
-    );
-    (
-      azCssPropertyWithConditions_simple
-      (
         azCssProperty_backgroundContent
         (azStyleBackgroundContentVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_content [
           (
@@ -71,6 +52,18 @@ let style_hero () =
     (
       azCssPropertyWithConditions_simple
       (
+        azCssProperty_transform
+        (azStyleTransformVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_transform [
+          (azStyleTransform_translate (az_struct az_style_transform_translate2_d [ (fun v -> Ctypes.setf v az_style_transform_translate2_d_field_x (azPixelValue_px 10.0)); (fun v -> Ctypes.setf v az_style_transform_translate2_d_field_y (azPixelValue_px 20.0)) ]));
+          (azStyleTransform_rotate (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 45.0)) ]));
+          (azStyleTransform_scale (az_struct az_style_transform_scale2_d [ (fun v -> Ctypes.setf v az_style_transform_scale2_d_field_x (azFloatValue_create 1.5)); (fun v -> Ctypes.setf v az_style_transform_scale2_d_field_y (azFloatValue_create 1.5)) ]));
+          (azStyleTransform_skew (az_struct az_style_transform_skew2_d [ (fun v -> Ctypes.setf v az_style_transform_skew2_d_field_x (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 10.0)) ])); (fun v -> Ctypes.setf v az_style_transform_skew2_d_field_y (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 5.0)) ])) ]))
+        ])) (Unsigned.Size_t.of_int 4))
+      )
+    );
+    (
+      azCssPropertyWithConditions_simple
+      (
         azCssProperty_filter
         (
           az_union az_style_filter_vec_value 6
@@ -91,13 +84,20 @@ let style_hero () =
     (
       azCssPropertyWithConditions_simple
       (
-        azCssProperty_transform
-        (azStyleTransformVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_transform [
-          (azStyleTransform_translate (az_struct az_style_transform_translate2_d [ (fun v -> Ctypes.setf v az_style_transform_translate2_d_field_x (azPixelValue_px 10.0)); (fun v -> Ctypes.setf v az_style_transform_translate2_d_field_y (azPixelValue_px 20.0)) ]));
-          (azStyleTransform_rotate (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 45.0)) ]));
-          (azStyleTransform_scale (az_struct az_style_transform_scale2_d [ (fun v -> Ctypes.setf v az_style_transform_scale2_d_field_x (azFloatValue_create 1.5)); (fun v -> Ctypes.setf v az_style_transform_scale2_d_field_y (azFloatValue_create 1.5)) ]));
-          (azStyleTransform_skew (az_struct az_style_transform_skew2_d [ (fun v -> Ctypes.setf v az_style_transform_skew2_d_field_x (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 10.0)) ])); (fun v -> Ctypes.setf v az_style_transform_skew2_d_field_y (az_struct az_angle_value [ (fun v -> Ctypes.setf v az_angle_value_field_metric (AngleMetric.to_int AngleMetric.Degree)); (fun v -> Ctypes.setf v az_angle_value_field_number (azFloatValue_create 5.0)) ])) ]))
-        ])) (Unsigned.Size_t.of_int 4))
+        azCssProperty_backdropFilter
+        (
+          az_union az_style_filter_vec_value 6
+          (
+            Some
+            (
+              az_payload az_style_filter_vec
+              (azStyleFilterVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_filter [
+                (azStyleFilter_brightness (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 120.0)) ]));
+                (azStyleFilter_contrast (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 80.0)) ]))
+              ])) (Unsigned.Size_t.of_int 2))
+            )
+          )
+        )
       )
     )
   ])) (Unsigned.Size_t.of_int 8))
@@ -163,15 +163,14 @@ let style_dial () =
 let style_photo () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundContent (azStyleBackgroundContentVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_content [(azStyleBackgroundContent_image (azul_az_string "images/photo.png"))])) (Unsigned.Size_t.of_int 1))));
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundSize (azStyleBackgroundSizeVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_size [(azStyleBackgroundSize_cover ())])) (Unsigned.Size_t.of_int 1))));
     (azCssPropertyWithConditions_simple (azCssProperty_backgroundPosition (azStyleBackgroundPositionVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_position [(az_struct az_style_background_position [ (fun v -> Ctypes.setf v az_style_background_position_field_horizontal (azBackgroundPositionHorizontal_center ())); (fun v -> Ctypes.setf v az_style_background_position_field_vertical (azBackgroundPositionVertical_center ())) ])])) (Unsigned.Size_t.of_int 1))));
-    (azCssPropertyWithConditions_simple (azCssProperty_backgroundRepeat (azStyleBackgroundRepeatVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_repeat [(StyleBackgroundRepeat.to_int StyleBackgroundRepeat.NoRepeat)])) (Unsigned.Size_t.of_int 1))));
-    (azCssPropertyWithConditions_simple (azCssProperty_backgroundSize (azStyleBackgroundSizeVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_size [(azStyleBackgroundSize_cover ())])) (Unsigned.Size_t.of_int 1))))
+    (azCssPropertyWithConditions_simple (azCssProperty_backgroundRepeat (azStyleBackgroundRepeatVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_background_repeat [(StyleBackgroundRepeat.to_int StyleBackgroundRepeat.NoRepeat)])) (Unsigned.Size_t.of_int 1))))
   ])) (Unsigned.Size_t.of_int 4))
 
 (* CSS: .caption *)
 let style_caption () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
-    (azCssPropertyWithConditions_simple (azCssProperty_content (az_struct az_content [ (fun v -> Ctypes.setf v az_content_field_inner (azul_az_string "\"say \\\"hi\\\" \\\\ bye\"")) ])));
     (
       azCssPropertyWithConditions_simple
       (
@@ -181,5 +180,6 @@ let style_caption () =
           (azStyleFontFamily_system (azul_az_string "monospace"))
         ])) (Unsigned.Size_t.of_int 2))
       )
-    )
+    );
+    (azCssPropertyWithConditions_simple (azCssProperty_content (az_struct az_content [ (fun v -> Ctypes.setf v az_content_field_inner (azul_az_string "\"say \\\"hi\\\" \\\\ bye\"")) ])))
   ])) (Unsigned.Size_t.of_int 2))

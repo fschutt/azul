@@ -168,9 +168,9 @@
     'azul-internal::az-css-property-with-conditions
     (list
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-content (css-vec #'azul-internal::%az-style-background-content-vec-copy-from-ptr 'azul-internal::az-style-background-content (list (azul-internal::%az-style-background-content-image (css-str "images/photo.png"))))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-size (css-vec #'azul-internal::%az-style-background-size-vec-copy-from-ptr 'azul-internal::az-style-background-size (list (azul-internal::%az-style-background-size-cover)))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-position (css-vec #'azul-internal::%az-style-background-position-vec-copy-from-ptr 'azul-internal::az-style-background-position (list (list 'azul-internal::horizontal (azul-internal::%az-background-position-horizontal-center) 'azul-internal::vertical (azul-internal::%az-background-position-vertical-center))))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-repeat (css-vec #'azul-internal::%az-style-background-repeat-vec-copy-from-ptr 'azul-internal::az-style-background-repeat (list :no-repeat))))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-background-size (css-vec #'azul-internal::%az-style-background-size-vec-copy-from-ptr 'azul-internal::az-style-background-size (list (azul-internal::%az-style-background-size-cover)))))
     )
   ))
 
@@ -180,7 +180,6 @@
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-content (list 'azul-internal::inner (css-str "\"say \\\"hi\\\" \\\\ bye\""))))
       (azul-internal::%az-css-property-with-conditions-simple
         (azul-internal::%az-css-property-font-family
           (css-vec
@@ -193,5 +192,6 @@
           )
         )
       )
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-content (list 'azul-internal::inner (css-str "\"say \\\"hi\\\" \\\\ bye\""))))
     )
   ))

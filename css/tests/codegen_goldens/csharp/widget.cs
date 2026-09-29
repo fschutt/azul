@@ -14,15 +14,15 @@ namespace AzulStyles
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
                 NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_backgroundContent(AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(NativeMethods.AzStyleBackgroundContentVec_copyFromPtr, NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 241, g = 243, b = 245, a = 255 })))),
+                NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 173, g = 181, b = 189, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_borderBottomColor(new AzStyleBorderBottomColor { inner = new AzColorU { r = 173, g = 181, b = 189, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_borderLeftColor(new AzStyleBorderLeftColor { inner = new AzColorU { r = 173, g = 181, b = 189, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_borderRightColor(new AzStyleBorderRightColor { inner = new AzColorU { r = 173, g = 181, b = 189, a = 255 } })),
-                NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 173, g = 181, b = 189, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onActive(NativeMethods.AzCssProperty_backgroundContent(AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(NativeMethods.AzStyleBackgroundContentVec_copyFromPtr, NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 222, g = 226, b = 230, a = 255 })))),
+                NativeMethods.AzCssPropertyWithConditions_onFocus(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 13, g = 110, b = 253, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onFocus(NativeMethods.AzCssProperty_borderBottomColor(new AzStyleBorderBottomColor { inner = new AzColorU { r = 13, g = 110, b = 253, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onFocus(NativeMethods.AzCssProperty_borderLeftColor(new AzStyleBorderLeftColor { inner = new AzColorU { r = 13, g = 110, b = 253, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_onFocus(NativeMethods.AzCssProperty_borderRightColor(new AzStyleBorderRightColor { inner = new AzColorU { r = 13, g = 110, b = 253, a = 255 } })),
-                NativeMethods.AzCssPropertyWithConditions_onFocus(NativeMethods.AzCssProperty_borderTopColor(new AzStyleBorderTopColor { inner = new AzColorU { r = 13, g = 110, b = 253, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_withConditions(
                     NativeMethods.AzCssProperty_backgroundContent(AzulCodegen.Vec<AzStyleBackgroundContent, AzStyleBackgroundContentVec>(NativeMethods.AzStyleBackgroundContentVec_copyFromPtr, NativeMethods.AzStyleBackgroundContent_color(new AzColorU { r = 73, g = 80, b = 87, a = 255 }))),
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(

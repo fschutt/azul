@@ -11,15 +11,15 @@ use azul::window::*;
 pub fn style_azul_native_button() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
         CssPropertyWithConditions::on_hover(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 241, g: 243, b: 245, a: 255 })]))),
+        CssPropertyWithConditions::on_hover(CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 173, g: 181, b: 189, a: 255 } })),
         CssPropertyWithConditions::on_hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: ColorU { r: 173, g: 181, b: 189, a: 255 } })),
         CssPropertyWithConditions::on_hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: ColorU { r: 173, g: 181, b: 189, a: 255 } })),
         CssPropertyWithConditions::on_hover(CssProperty::border_right_color(StyleBorderRightColor { inner: ColorU { r: 173, g: 181, b: 189, a: 255 } })),
-        CssPropertyWithConditions::on_hover(CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 173, g: 181, b: 189, a: 255 } })),
         CssPropertyWithConditions::on_active(CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 222, g: 226, b: 230, a: 255 })]))),
+        CssPropertyWithConditions::on_focus(CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 13, g: 110, b: 253, a: 255 } })),
         CssPropertyWithConditions::on_focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: ColorU { r: 13, g: 110, b: 253, a: 255 } })),
         CssPropertyWithConditions::on_focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: ColorU { r: 13, g: 110, b: 253, a: 255 } })),
         CssPropertyWithConditions::on_focus(CssProperty::border_right_color(StyleBorderRightColor { inner: ColorU { r: 13, g: 110, b: 253, a: 255 } })),
-        CssPropertyWithConditions::on_focus(CssProperty::border_top_color(StyleBorderTopColor { inner: ColorU { r: 13, g: 110, b: 253, a: 255 } })),
         CssPropertyWithConditions::with_conditions(
             CssProperty::background_content(StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU { r: 73, g: 80, b: 87, a: 255 })])),
             DynamicSelectorVec::from(vec![

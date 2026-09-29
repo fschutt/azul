@@ -7,19 +7,6 @@ const lib = azul.__lib;
 function styleHero() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
         lib.AzCssPropertyWithConditions_simple(
-            lib.AzCssProperty_backdropFilter(
-                {
-                    Exact: {
-                        tag: 6,
-                        payload: lib.AzStyleFilterVec_copyFromPtr([
-                            lib.AzStyleFilter_brightness({ number: lib.AzFloatValue_create(120.0) }),
-                            lib.AzStyleFilter_contrast({ number: lib.AzFloatValue_create(80.0) }),
-                        ], 2)
-                    }
-                }
-            )
-        ),
-        lib.AzCssPropertyWithConditions_simple(
             lib.AzCssProperty_backgroundContent(
                 lib.AzStyleBackgroundContentVec_copyFromPtr([
                     lib.AzStyleBackgroundContent_linearGradient(
@@ -41,6 +28,16 @@ function styleHero() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_boxShadowTop({ offset_x: { inner: lib.AzPixelValue_px(0.0) }, offset_y: { inner: lib.AzPixelValue_px(4.0) }, blur_radius: { inner: lib.AzPixelValue_px(12.0) }, spread_radius: { inner: lib.AzPixelValue_px(2.0) }, clip_mode: azul.BoxShadowClipMode.Outset, color: { r: 0, g: 0, b: 0, a: 77 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_boxShadowBottom({ offset_x: { inner: lib.AzPixelValue_px(0.0) }, offset_y: { inner: lib.AzPixelValue_px(4.0) }, blur_radius: { inner: lib.AzPixelValue_px(12.0) }, spread_radius: { inner: lib.AzPixelValue_px(2.0) }, clip_mode: azul.BoxShadowClipMode.Outset, color: { r: 0, g: 0, b: 0, a: 77 } })),
         lib.AzCssPropertyWithConditions_simple(
+            lib.AzCssProperty_transform(
+                lib.AzStyleTransformVec_copyFromPtr([
+                    lib.AzStyleTransform_translate({ x: lib.AzPixelValue_px(10.0), y: lib.AzPixelValue_px(20.0) }),
+                    lib.AzStyleTransform_rotate({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(45.0) }),
+                    lib.AzStyleTransform_scale({ x: lib.AzFloatValue_create(1.5), y: lib.AzFloatValue_create(1.5) }),
+                    lib.AzStyleTransform_skew({ x: { metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(10.0) }, y: { metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(5.0) } }),
+                ], 4)
+            )
+        ),
+        lib.AzCssPropertyWithConditions_simple(
             lib.AzCssProperty_filter(
                 {
                     Exact: {
@@ -55,13 +52,16 @@ function styleHero() {
             )
         ),
         lib.AzCssPropertyWithConditions_simple(
-            lib.AzCssProperty_transform(
-                lib.AzStyleTransformVec_copyFromPtr([
-                    lib.AzStyleTransform_translate({ x: lib.AzPixelValue_px(10.0), y: lib.AzPixelValue_px(20.0) }),
-                    lib.AzStyleTransform_rotate({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(45.0) }),
-                    lib.AzStyleTransform_scale({ x: lib.AzFloatValue_create(1.5), y: lib.AzFloatValue_create(1.5) }),
-                    lib.AzStyleTransform_skew({ x: { metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(10.0) }, y: { metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(5.0) } }),
-                ], 4)
+            lib.AzCssProperty_backdropFilter(
+                {
+                    Exact: {
+                        tag: 6,
+                        payload: lib.AzStyleFilterVec_copyFromPtr([
+                            lib.AzStyleFilter_brightness({ number: lib.AzFloatValue_create(120.0) }),
+                            lib.AzStyleFilter_contrast({ number: lib.AzFloatValue_create(80.0) }),
+                        ], 2)
+                    }
+                }
             )
         ),
     ], 8));
@@ -118,16 +118,15 @@ function styleDial() {
 function stylePhoto() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundContent(lib.AzStyleBackgroundContentVec_copyFromPtr([lib.AzStyleBackgroundContent_image(azul._azString("images/photo.png"))], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundPosition(lib.AzStyleBackgroundPositionVec_copyFromPtr([{ horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_center() }], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
     ], 4));
 }
 
 // CSS: .caption
 function styleCaption() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_content({ inner: azul._azString("\"say \\\"hi\\\" \\\\ bye\"") })),
         lib.AzCssPropertyWithConditions_simple(
             lib.AzCssProperty_fontFamily(
                 lib.AzStyleFontFamilyVec_copyFromPtr([
@@ -136,6 +135,7 @@ function styleCaption() {
                 ], 2)
             )
         ),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_content({ inner: azul._azString("\"say \\\"hi\\\" \\\\ bye\"") })),
     ], 2));
 }
 

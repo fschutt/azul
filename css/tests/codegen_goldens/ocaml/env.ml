@@ -20,12 +20,12 @@ let az_payload t x p =
   Ctypes.(from_voidp t (to_voidp (from_voidp char p +@ alignment t)) <-@ x)
 
 (* CSS: .bar *)
-(* `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback *)
 (* `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback *)
+(* `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback *)
 let style_bar () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
-    (azCssPropertyWithConditions_simple (azCssProperty_borderTopColor (az_struct az_style_border_top_color [ (fun v -> Ctypes.setf v az_style_border_top_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_textColor (az_struct az_style_text_color [ (fun v -> Ctypes.setf v az_style_text_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 102)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
-    (azCssPropertyWithConditions_simple (azCssProperty_paddingBottom (az_struct az_layout_padding_bottom [ (fun v -> Ctypes.setf v az_layout_padding_bottom_field_inner (azPixelValue_px 0.0)) ])));
-    (azCssPropertyWithConditions_simple (azCssProperty_paddingTop (az_struct az_layout_padding_top [ (fun v -> Ctypes.setf v az_layout_padding_top_field_inner (azPixelValue_px 8.0)) ])))
+    (azCssPropertyWithConditions_simple (azCssProperty_borderTopColor (az_struct az_style_border_top_color [ (fun v -> Ctypes.setf v az_style_border_top_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_paddingTop (az_struct az_layout_padding_top [ (fun v -> Ctypes.setf v az_layout_padding_top_field_inner (azPixelValue_px 8.0)) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_paddingBottom (az_struct az_layout_padding_bottom [ (fun v -> Ctypes.setf v az_layout_padding_bottom_field_inner (azPixelValue_px 0.0)) ])))
   ])) (Unsigned.Size_t.of_int 4))

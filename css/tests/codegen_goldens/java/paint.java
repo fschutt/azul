@@ -16,19 +16,6 @@ public final class AzulStyles {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
             AzulNativeCss.AzCssPropertyWithConditions_simple(
-                AzulNativeCss.AzCssProperty_backdropFilter(
-                    AzulCodegen.with(new AzStyleFilterVecValue.ByValue(), styleFilterVecValue -> {
-                        styleFilterVecValue.Exact.tag = (byte) AzStyleFilterVecValue_Tag.Exact.value;
-                        styleFilterVecValue.Exact.payload = AzulCodegen.vec(
-                            AzulNativeVec::AzStyleFilterVec_copyFromPtr,
-                            AzulNativeCss.AzStyleFilter_brightness(AzulCodegen.with(new AzPercentageValue.ByValue(), percentageValue -> { percentageValue.number = AzulNativeCss.AzFloatValue_create(120.0f); })),
-                            AzulNativeCss.AzStyleFilter_contrast(AzulCodegen.with(new AzPercentageValue.ByValue(), percentageValue -> { percentageValue.number = AzulNativeCss.AzFloatValue_create(80.0f); }))
-                        );
-                        styleFilterVecValue.setType("Exact");
-                    })
-                )
-            ),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(
                 AzulNativeCss.AzCssProperty_backgroundContent(
                     AzulCodegen.vec(
                         AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr,
@@ -52,6 +39,17 @@ public final class AzulStyles {
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowTop(AzulCodegen.with(new AzStyleBoxShadow.ByValue(), styleBoxShadow -> { styleBoxShadow.offset_x = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(0.0f); }); styleBoxShadow.offset_y = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(4.0f); }); styleBoxShadow.blur_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(12.0f); }); styleBoxShadow.spread_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(2.0f); }); styleBoxShadow.clip_mode = BoxShadowClipMode.Outset.value; styleBoxShadow.color = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 77; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_boxShadowBottom(AzulCodegen.with(new AzStyleBoxShadow.ByValue(), styleBoxShadow -> { styleBoxShadow.offset_x = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(0.0f); }); styleBoxShadow.offset_y = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(4.0f); }); styleBoxShadow.blur_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(12.0f); }); styleBoxShadow.spread_radius = AzulCodegen.with(new AzPixelValueNoPercent.ByValue(), pixelValueNoPercent -> { pixelValueNoPercent.inner = AzulNativeCss.AzPixelValue_px(2.0f); }); styleBoxShadow.clip_mode = BoxShadowClipMode.Outset.value; styleBoxShadow.color = AzulCodegen.with(new AzColorU.ByValue(), colorU -> { colorU.r = (byte) 0; colorU.g = (byte) 0; colorU.b = (byte) 0; colorU.a = (byte) 77; }); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(
+                AzulNativeCss.AzCssProperty_transform(
+                    AzulCodegen.vec(
+                        AzulNativeVec::AzStyleTransformVec_copyFromPtr,
+                        AzulNativeCss.AzStyleTransform_translate(AzulCodegen.with(new AzStyleTransformTranslate2D.ByValue(), styleTransformTranslate2D -> { styleTransformTranslate2D.x = AzulNativeCss.AzPixelValue_px(10.0f); styleTransformTranslate2D.y = AzulNativeCss.AzPixelValue_px(20.0f); })),
+                        AzulNativeCss.AzStyleTransform_rotate(AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(45.0f); })),
+                        AzulNativeCss.AzStyleTransform_scale(AzulCodegen.with(new AzStyleTransformScale2D.ByValue(), styleTransformScale2D -> { styleTransformScale2D.x = AzulNativeCss.AzFloatValue_create(1.5f); styleTransformScale2D.y = AzulNativeCss.AzFloatValue_create(1.5f); })),
+                        AzulNativeCss.AzStyleTransform_skew(AzulCodegen.with(new AzStyleTransformSkew2D.ByValue(), styleTransformSkew2D -> { styleTransformSkew2D.x = AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(10.0f); }); styleTransformSkew2D.y = AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(5.0f); }); }))
+                    )
+                )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(
                 AzulNativeCss.AzCssProperty_filter(
                     AzulCodegen.with(new AzStyleFilterVecValue.ByValue(), styleFilterVecValue -> {
                         styleFilterVecValue.Exact.tag = (byte) AzStyleFilterVecValue_Tag.Exact.value;
@@ -66,14 +64,16 @@ public final class AzulStyles {
                 )
             ),
             AzulNativeCss.AzCssPropertyWithConditions_simple(
-                AzulNativeCss.AzCssProperty_transform(
-                    AzulCodegen.vec(
-                        AzulNativeVec::AzStyleTransformVec_copyFromPtr,
-                        AzulNativeCss.AzStyleTransform_translate(AzulCodegen.with(new AzStyleTransformTranslate2D.ByValue(), styleTransformTranslate2D -> { styleTransformTranslate2D.x = AzulNativeCss.AzPixelValue_px(10.0f); styleTransformTranslate2D.y = AzulNativeCss.AzPixelValue_px(20.0f); })),
-                        AzulNativeCss.AzStyleTransform_rotate(AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(45.0f); })),
-                        AzulNativeCss.AzStyleTransform_scale(AzulCodegen.with(new AzStyleTransformScale2D.ByValue(), styleTransformScale2D -> { styleTransformScale2D.x = AzulNativeCss.AzFloatValue_create(1.5f); styleTransformScale2D.y = AzulNativeCss.AzFloatValue_create(1.5f); })),
-                        AzulNativeCss.AzStyleTransform_skew(AzulCodegen.with(new AzStyleTransformSkew2D.ByValue(), styleTransformSkew2D -> { styleTransformSkew2D.x = AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(10.0f); }); styleTransformSkew2D.y = AzulCodegen.with(new AzAngleValue.ByValue(), angleValue -> { angleValue.metric = AngleMetric.Degree.value; angleValue.number = AzulNativeCss.AzFloatValue_create(5.0f); }); }))
-                    )
+                AzulNativeCss.AzCssProperty_backdropFilter(
+                    AzulCodegen.with(new AzStyleFilterVecValue.ByValue(), styleFilterVecValue -> {
+                        styleFilterVecValue.Exact.tag = (byte) AzStyleFilterVecValue_Tag.Exact.value;
+                        styleFilterVecValue.Exact.payload = AzulCodegen.vec(
+                            AzulNativeVec::AzStyleFilterVec_copyFromPtr,
+                            AzulNativeCss.AzStyleFilter_brightness(AzulCodegen.with(new AzPercentageValue.ByValue(), percentageValue -> { percentageValue.number = AzulNativeCss.AzFloatValue_create(120.0f); })),
+                            AzulNativeCss.AzStyleFilter_contrast(AzulCodegen.with(new AzPercentageValue.ByValue(), percentageValue -> { percentageValue.number = AzulNativeCss.AzFloatValue_create(80.0f); }))
+                        );
+                        styleFilterVecValue.setType("Exact");
+                    })
                 )
             )
         );
@@ -137,9 +137,9 @@ public final class AzulStyles {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundContent(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundContentVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundContent_image(AzulCodegen.str("images/photo.png"))))),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover()))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundPosition(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundPositionVec_copyFromPtr, AzulCodegen.with(new AzStyleBackgroundPosition.ByValue(), styleBackgroundPosition -> { styleBackgroundPosition.horizontal = AzulNativeCss.AzBackgroundPositionHorizontal_center(); styleBackgroundPosition.vertical = AzulNativeCss.AzBackgroundPositionVertical_center(); })))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value))),
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundSize(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundSizeVec_copyFromPtr, AzulNativeCss.AzStyleBackgroundSize_cover())))
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_backgroundRepeat(AzulCodegen.vec(AzulNativeVec::AzStyleBackgroundRepeatVec_copyFromPtr, StyleBackgroundRepeat.NoRepeat.value)))
         );
     }
 
@@ -147,7 +147,6 @@ public final class AzulStyles {
     public static AzCssPropertyWithConditionsVec.ByValue styleCaption() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_content(AzulCodegen.with(new AzContent.ByValue(), content -> { content.inner = AzulCodegen.str("\"say \\\"hi\\\" \\\\ bye\""); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(
                 AzulNativeCss.AzCssProperty_fontFamily(
                     AzulCodegen.vec(
@@ -156,7 +155,8 @@ public final class AzulStyles {
                         AzulNativeCss.AzStyleFontFamily_system(AzulCodegen.str("monospace"))
                     )
                 )
-            )
+            ),
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_content(AzulCodegen.with(new AzContent.ByValue(), content -> { content.inner = AzulCodegen.str("\"say \\\"hi\\\" \\\\ bye\""); })))
         );
     }
 }

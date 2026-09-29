@@ -18,15 +18,15 @@
     _AzCssPropertyWithConditions
     (list
       (css-property-with-conditions-on-hover (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-color (make-AzColorU 241 243 245 255))))))
+      (css-property-with-conditions-on-hover (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 173 181 189 255))))
       (css-property-with-conditions-on-hover (css-property-border-bottom-color (make-AzStyleBorderBottomColor (make-AzColorU 173 181 189 255))))
       (css-property-with-conditions-on-hover (css-property-border-left-color (make-AzStyleBorderLeftColor (make-AzColorU 173 181 189 255))))
       (css-property-with-conditions-on-hover (css-property-border-right-color (make-AzStyleBorderRightColor (make-AzColorU 173 181 189 255))))
-      (css-property-with-conditions-on-hover (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 173 181 189 255))))
       (css-property-with-conditions-on-active (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-color (make-AzColorU 222 226 230 255))))))
+      (css-property-with-conditions-on-focus (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 13 110 253 255))))
       (css-property-with-conditions-on-focus (css-property-border-bottom-color (make-AzStyleBorderBottomColor (make-AzColorU 13 110 253 255))))
       (css-property-with-conditions-on-focus (css-property-border-left-color (make-AzStyleBorderLeftColor (make-AzColorU 13 110 253 255))))
       (css-property-with-conditions-on-focus (css-property-border-right-color (make-AzStyleBorderRightColor (make-AzColorU 13 110 253 255))))
-      (css-property-with-conditions-on-focus (css-property-border-top-color (make-AzStyleBorderTopColor (make-AzColorU 13 110 253 255))))
       (css-property-with-conditions-with-conditions
         (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-color (make-AzColorU 73 80 87 255)))))
         (css-vec

@@ -6,10 +6,10 @@ import qualified Azul.Types as T
 import qualified Azul.CssPropertyWithConditions as CssPropertyWithConditions
 
 -- CSS: .hero
--- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
--- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleTransformVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 styleHero :: IO [CssPropertyWithConditions]
 styleHero = sequence
   [
@@ -33,16 +33,16 @@ styleDial = sequence
 
 -- CSS: .photo
 -- dropped a value these bindings cannot build: a StyleBackgroundContentVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a StyleBackgroundSizeVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundPositionVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundRepeatVec has no pure constructor in Azul.Types
--- dropped a value these bindings cannot build: a StyleBackgroundSizeVec has no pure constructor in Azul.Types
 stylePhoto :: IO [CssPropertyWithConditions]
 stylePhoto = sequence
   []
 
 -- CSS: .caption
--- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleFontFamilyVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: an AzString has no pure constructor in Azul.Types
 styleCaption :: IO [CssPropertyWithConditions]
 styleCaption = sequence
   []

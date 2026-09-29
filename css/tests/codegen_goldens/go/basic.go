@@ -6,12 +6,12 @@ import azul "azul.rs/ui/go"
 // CSS: .btn, .btn:hover
 func StyleBtn() azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_width(azul.AzLayoutWidth_Px(azul.AzPixelValue_px(100.0)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textColor(azul.AzStyleTextColor{Inner: azul.AzColorU{R: 255, G: 0, B: 0, A: 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_display(azul.LayoutDisplay_Flex)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flexGrow(azul.AzLayoutFlexGrow{Inner: azul.AzFloatValue_create(1.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_inherit(azul.CssPropertyType_MinWidth)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_WhiteSpace(azul.AzStyleWhiteSpaceValue_Exact(azul.StyleWhiteSpace_Nowrap))),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_width(azul.AzLayoutWidth_Px(azul.AzPixelValue_px(100.0)))),
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.StyleFontWeight_Bold)),
 	}[0], 7)
 }

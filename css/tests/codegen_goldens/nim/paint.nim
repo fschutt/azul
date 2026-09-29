@@ -13,19 +13,6 @@ proc azStr(s: string): AzString =
 proc styleHero*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_simple(
-      AzCssProperty_backdropFilter(
-        AzStyleFilterVecValue(
-          Exact: AzStyleFilterVecValueVariant_Exact(
-            tag: 6,
-            payload: azVec(AzStyleFilterVec_copyFromPtr, [
-              AzStyleFilter_brightness(AzPercentageValue(number: AzFloatValue_create(120.0))),
-              AzStyleFilter_contrast(AzPercentageValue(number: AzFloatValue_create(80.0))),
-            ])
-          )
-        )
-      )
-    ),
-    AzCssPropertyWithConditions_simple(
       AzCssProperty_backgroundContent(
         azVec(AzStyleBackgroundContentVec_copyFromPtr, [
           AzStyleBackgroundContent_linearGradient(
@@ -47,6 +34,16 @@ proc styleHero*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowTop(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(12.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 77'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_boxShadowBottom(AzStyleBoxShadow(offset_x: AzPixelValueNoPercent(inner: AzPixelValue_px(0.0)), offset_y: AzPixelValueNoPercent(inner: AzPixelValue_px(4.0)), blur_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(12.0)), spread_radius: AzPixelValueNoPercent(inner: AzPixelValue_px(2.0)), clip_mode: AzBoxShadowClipMode.Outset, color: AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 77'u8)))),
     AzCssPropertyWithConditions_simple(
+      AzCssProperty_transform(
+        azVec(AzStyleTransformVec_copyFromPtr, [
+          AzStyleTransform_translate(AzStyleTransformTranslate2D(x: AzPixelValue_px(10.0), y: AzPixelValue_px(20.0))),
+          AzStyleTransform_rotate(AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(45.0))),
+          AzStyleTransform_scale(AzStyleTransformScale2D(x: AzFloatValue_create(1.5), y: AzFloatValue_create(1.5))),
+          AzStyleTransform_skew(AzStyleTransformSkew2D(x: AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(10.0)), y: AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(5.0)))),
+        ])
+      )
+    ),
+    AzCssPropertyWithConditions_simple(
       AzCssProperty_filter(
         AzStyleFilterVecValue(
           Exact: AzStyleFilterVecValueVariant_Exact(
@@ -61,13 +58,16 @@ proc styleHero*(): AzCssPropertyWithConditionsVec =
       )
     ),
     AzCssPropertyWithConditions_simple(
-      AzCssProperty_transform(
-        azVec(AzStyleTransformVec_copyFromPtr, [
-          AzStyleTransform_translate(AzStyleTransformTranslate2D(x: AzPixelValue_px(10.0), y: AzPixelValue_px(20.0))),
-          AzStyleTransform_rotate(AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(45.0))),
-          AzStyleTransform_scale(AzStyleTransformScale2D(x: AzFloatValue_create(1.5), y: AzFloatValue_create(1.5))),
-          AzStyleTransform_skew(AzStyleTransformSkew2D(x: AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(10.0)), y: AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(5.0)))),
-        ])
+      AzCssProperty_backdropFilter(
+        AzStyleFilterVecValue(
+          Exact: AzStyleFilterVecValueVariant_Exact(
+            tag: 6,
+            payload: azVec(AzStyleFilterVec_copyFromPtr, [
+              AzStyleFilter_brightness(AzPercentageValue(number: AzFloatValue_create(120.0))),
+              AzStyleFilter_contrast(AzPercentageValue(number: AzFloatValue_create(80.0))),
+            ])
+          )
+        )
       )
     ),
   ])
@@ -121,15 +121,14 @@ proc styleDial*(): AzCssPropertyWithConditionsVec =
 proc stylePhoto*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(azVec(AzStyleBackgroundContentVec_copyFromPtr, [AzStyleBackgroundContent_image(azStr("images/photo.png"))]))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(azVec(AzStyleBackgroundPositionVec_copyFromPtr, [AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_center())]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
   ])
 
 # CSS: .caption
 proc styleCaption*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent(inner: azStr("\"say \\\"hi\\\" \\\\ bye\"")))),
     AzCssPropertyWithConditions_simple(
       AzCssProperty_fontFamily(
         azVec(AzStyleFontFamilyVec_copyFromPtr, [
@@ -138,4 +137,5 @@ proc styleCaption*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_content(AzContent(inner: azStr("\"say \\\"hi\\\" \\\\ bye\"")))),
   ])

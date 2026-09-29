@@ -10,12 +10,12 @@ proc azStr(s: string): AzString =
   AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
 
 # CSS: .bar
-# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 # `padding-top: 8px` is a runtime reference (`env:safe-area-inset-top`); a flat property list holds its fallback
+# `padding-bottom: 0px` is a runtime reference (`env:safe-area-inset-bottom`); a flat property list holds its fallback
 proc styleBar*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 102'u8, b: 0'u8, a: 255'u8)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom(inner: AzPixelValue_px(0.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_borderTopColor(AzStyleBorderTopColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_paddingTop(AzLayoutPaddingTop(inner: AzPixelValue_px(8.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_paddingBottom(AzLayoutPaddingBottom(inner: AzPixelValue_px(0.0)))),
   ])

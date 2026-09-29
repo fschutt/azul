@@ -101,31 +101,31 @@ END;
 PROC style photo = AZCSSPROPERTYWITHCONDITIONSVEC:
 BEGIN
    [1] AZSTYLEBACKGROUNDCONTENT t1;
-   [1] AZSTYLEBACKGROUNDPOSITION t2;
-   [1] AZSTYLEBACKGROUNDREPEAT t3;
-   [1] AZSTYLEBACKGROUNDSIZE t4;
+   [1] AZSTYLEBACKGROUNDSIZE t2;
+   [1] AZSTYLEBACKGROUNDPOSITION t3;
+   [1] AZSTYLEBACKGROUNDREPEAT t4;
    [4] AZCSSPROPERTYWITHCONDITIONS t5;
    t1[1] := az style background content image (css str ("images/photo.png"));
-   t2[1] := AZSTYLEBACKGROUNDPOSITION (az background position horizontal center, az background position vertical center);
-   t3[1] := style background repeat no repeat;
-   t4[1] := az style background size cover;
+   t2[1] := az style background size cover;
+   t3[1] := AZSTYLEBACKGROUNDPOSITION (az background position horizontal center, az background position vertical center);
+   t4[1] := style background repeat no repeat;
    t5[1] := az css property with conditions simple (az css property background content (az style background content vec copy from ptr (t1[1], LENG 1)));
-   t5[2] := az css property with conditions simple (az css property background position (az style background position vec copy from ptr (t2[1], LENG 1)));
-   t5[3] := az css property with conditions simple (az css property background repeat (az style background repeat vec copy from ptr (t3[1], LENG 1)));
-   t5[4] := az css property with conditions simple (az css property background size (az style background size vec copy from ptr (t4[1], LENG 1)));
+   t5[2] := az css property with conditions simple (az css property background size (az style background size vec copy from ptr (t2[1], LENG 1)));
+   t5[3] := az css property with conditions simple (az css property background position (az style background position vec copy from ptr (t3[1], LENG 1)));
+   t5[4] := az css property with conditions simple (az css property background repeat (az style background repeat vec copy from ptr (t4[1], LENG 1)));
    az css property with conditions vec copy from ptr (t5[1], LENG 4)
 END;
 
 # CSS: .caption #
 PROC style caption = AZCSSPROPERTYWITHCONDITIONSVEC:
 BEGIN
-   AZCONTENT t1;
-   [2] AZSTYLEFONTFAMILY t2;
+   [2] AZSTYLEFONTFAMILY t1;
+   AZCONTENT t2;
    [2] AZCSSPROPERTYWITHCONDITIONS t3;
-   inner OF t1 := css str ("""say \""hi\"" \\ bye""");
-   t2[1] := az style font family system (css str ("Fira Code"));
-   t2[2] := az style font family system (css str ("monospace"));
-   t3[1] := az css property with conditions simple (az css property content (t1));
-   t3[2] := az css property with conditions simple (az css property font family (az style font family vec copy from ptr (t2[1], LENG 2)));
+   t1[1] := az style font family system (css str ("Fira Code"));
+   t1[2] := az style font family system (css str ("monospace"));
+   inner OF t2 := css str ("""say \""hi\"" \\ bye""");
+   t3[1] := az css property with conditions simple (az css property font family (az style font family vec copy from ptr (t1[1], LENG 2)));
+   t3[2] := az css property with conditions simple (az css property content (t2));
    az css property with conditions vec copy from ptr (t3[1], LENG 2)
 END;

@@ -56,18 +56,18 @@ End Function
 ' CSS: .photo
 Function StylePhoto() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 0) As AzStyleBackgroundContent
-    Dim t2(0 To 0) As AzStyleBackgroundPosition
-    Dim t3(0 To 0) As AzStyleBackgroundRepeat
-    Dim t4(0 To 0) As AzStyleBackgroundSize
+    Dim t2(0 To 0) As AzStyleBackgroundSize
+    Dim t3(0 To 0) As AzStyleBackgroundPosition
+    Dim t4(0 To 0) As AzStyleBackgroundRepeat
     Dim t5(0 To 3) As AzCssPropertyWithConditions
     t1(0) = AzStyleBackgroundContent_image(CssStr("images/photo.png"))
-    t2(0) = Type<AzStyleBackgroundPosition>(AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center())
-    t3(0) = AzStyleBackgroundRepeat_NoRepeat
-    t4(0) = AzStyleBackgroundSize_cover()
+    t2(0) = AzStyleBackgroundSize_cover()
+    t3(0) = Type<AzStyleBackgroundPosition>(AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center())
+    t4(0) = AzStyleBackgroundRepeat_NoRepeat
     t5(0) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t1(0), 1)))
-    t5(1) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(@t2(0), 1)))
-    t5(2) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(@t3(0), 1)))
-    t5(3) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(@t4(0), 1)))
+    t5(1) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(@t2(0), 1)))
+    t5(2) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(@t3(0), 1)))
+    t5(3) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(@t4(0), 1)))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t5(0), 4)
 End Function
 
@@ -77,7 +77,7 @@ Function StyleCaption() As AzCssPropertyWithConditionsVec
     Dim t2(0 To 1) As AzCssPropertyWithConditions
     t1(0) = AzStyleFontFamily_system(CssStr("Fira Code"))
     t1(1) = AzStyleFontFamily_system(CssStr("monospace"))
-    t2(0) = AzCssPropertyWithConditions_simple(AzCssProperty_content(Type<AzContent>(CssStr("""say \""hi\"" \\ bye"""))))
-    t2(1) = AzCssPropertyWithConditions_simple(AzCssProperty_fontFamily(AzStyleFontFamilyVec_copyFromPtr(@t1(0), 2)))
+    t2(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontFamily(AzStyleFontFamilyVec_copyFromPtr(@t1(0), 2)))
+    t2(1) = AzCssPropertyWithConditions_simple(AzCssProperty_content(Type<AzContent>(CssStr("""say \""hi\"" \\ bye"""))))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t2(0), 2)
 End Function

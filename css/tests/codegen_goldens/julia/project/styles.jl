@@ -19,12 +19,12 @@ function style_btn()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_width(Azul.AzLayoutWidth_px(Azul.AzPixelValue_px(100.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textColor(Azul.AzStyleTextColor(Azul.AzColorU(255, 0, 0, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_display(Azul.AzLayoutDisplay_Flex)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexGrow(Azul.AzLayoutFlexGrow(Azul.AzFloatValue_create(1.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_inherit(Azul.AzCssPropertyType_MinWidth)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_whiteSpace(az_union(Azul.AzStyleWhiteSpaceValue, Azul.AzStyleWhiteSpaceValueVariant_Exact(UInt8(6), Azul.AzStyleWhiteSpace_Nowrap)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_width(Azul.AzLayoutWidth_px(Azul.AzPixelValue_px(100.0f0)))),
         Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_Bold))
     )
 end

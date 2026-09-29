@@ -24,25 +24,6 @@
     _AzCssPropertyWithConditions
     (list
       (css-property-with-conditions-simple
-        (css-property-backdrop-filter
-          (css-union
-            _AzStyleFilterVecValue
-            _AzStyleFilterVecValue_Variant_Exact
-            (make-AzStyleFilterVecValue_Variant_Exact
-              AzStyleFilterVecValue_Tag_Exact
-              (css-vec
-                style-filter-vec-copy-from-ptr
-                _AzStyleFilter
-                (list
-                  (style-filter-brightness (make-AzPercentageValue (float-value-create 120.0)))
-                  (style-filter-contrast (make-AzPercentageValue (float-value-create 80.0)))
-                )
-              )
-            )
-          )
-        )
-      )
-      (css-property-with-conditions-simple
         (css-property-background-content
           (css-vec
             style-background-content-vec-copy-from-ptr
@@ -72,6 +53,20 @@
       (css-property-with-conditions-simple (css-property-box-shadow-top (make-AzStyleBoxShadow (make-AzPixelValueNoPercent (pixel-value-px 0.0)) (make-AzPixelValueNoPercent (pixel-value-px 4.0)) (make-AzPixelValueNoPercent (pixel-value-px 12.0)) (make-AzPixelValueNoPercent (pixel-value-px 2.0)) AzBoxShadowClipMode_Outset (make-AzColorU 0 0 0 77))))
       (css-property-with-conditions-simple (css-property-box-shadow-bottom (make-AzStyleBoxShadow (make-AzPixelValueNoPercent (pixel-value-px 0.0)) (make-AzPixelValueNoPercent (pixel-value-px 4.0)) (make-AzPixelValueNoPercent (pixel-value-px 12.0)) (make-AzPixelValueNoPercent (pixel-value-px 2.0)) AzBoxShadowClipMode_Outset (make-AzColorU 0 0 0 77))))
       (css-property-with-conditions-simple
+        (css-property-transform
+          (css-vec
+            style-transform-vec-copy-from-ptr
+            _AzStyleTransform
+            (list
+              (style-transform-translate (make-AzStyleTransformTranslate2D (pixel-value-px 10.0) (pixel-value-px 20.0)))
+              (style-transform-rotate (make-AzAngleValue AzAngleMetric_Degree (float-value-create 45.0)))
+              (style-transform-scale (make-AzStyleTransformScale2D (float-value-create 1.5) (float-value-create 1.5)))
+              (style-transform-skew (make-AzStyleTransformSkew2D (make-AzAngleValue AzAngleMetric_Degree (float-value-create 10.0)) (make-AzAngleValue AzAngleMetric_Degree (float-value-create 5.0))))
+            )
+          )
+        )
+      )
+      (css-property-with-conditions-simple
         (css-property-filter
           (css-union
             _AzStyleFilterVecValue
@@ -92,15 +87,20 @@
         )
       )
       (css-property-with-conditions-simple
-        (css-property-transform
-          (css-vec
-            style-transform-vec-copy-from-ptr
-            _AzStyleTransform
-            (list
-              (style-transform-translate (make-AzStyleTransformTranslate2D (pixel-value-px 10.0) (pixel-value-px 20.0)))
-              (style-transform-rotate (make-AzAngleValue AzAngleMetric_Degree (float-value-create 45.0)))
-              (style-transform-scale (make-AzStyleTransformScale2D (float-value-create 1.5) (float-value-create 1.5)))
-              (style-transform-skew (make-AzStyleTransformSkew2D (make-AzAngleValue AzAngleMetric_Degree (float-value-create 10.0)) (make-AzAngleValue AzAngleMetric_Degree (float-value-create 5.0))))
+        (css-property-backdrop-filter
+          (css-union
+            _AzStyleFilterVecValue
+            _AzStyleFilterVecValue_Variant_Exact
+            (make-AzStyleFilterVecValue_Variant_Exact
+              AzStyleFilterVecValue_Tag_Exact
+              (css-vec
+                style-filter-vec-copy-from-ptr
+                _AzStyleFilter
+                (list
+                  (style-filter-brightness (make-AzPercentageValue (float-value-create 120.0)))
+                  (style-filter-contrast (make-AzPercentageValue (float-value-create 80.0)))
+                )
+              )
             )
           )
         )
@@ -184,9 +184,9 @@
     _AzCssPropertyWithConditions
     (list
       (css-property-with-conditions-simple (css-property-background-content (css-vec style-background-content-vec-copy-from-ptr _AzStyleBackgroundContent (list (style-background-content-image (string->azul-string "images/photo.png"))))))
+      (css-property-with-conditions-simple (css-property-background-size (css-vec style-background-size-vec-copy-from-ptr _AzStyleBackgroundSize (list (style-background-size-cover)))))
       (css-property-with-conditions-simple (css-property-background-position (css-vec style-background-position-vec-copy-from-ptr _AzStyleBackgroundPosition (list (make-AzStyleBackgroundPosition (background-position-horizontal-center) (background-position-vertical-center))))))
       (css-property-with-conditions-simple (css-property-background-repeat (css-vec style-background-repeat-vec-copy-from-ptr _AzStyleBackgroundRepeat (list AzStyleBackgroundRepeat_NoRepeat))))
-      (css-property-with-conditions-simple (css-property-background-size (css-vec style-background-size-vec-copy-from-ptr _AzStyleBackgroundSize (list (style-background-size-cover)))))
     )
   ))
 
@@ -196,7 +196,6 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-content (make-AzContent (string->azul-string "\"say \\\"hi\\\" \\\\ bye\""))))
       (css-property-with-conditions-simple
         (css-property-font-family
           (css-vec
@@ -209,5 +208,6 @@
           )
         )
       )
+      (css-property-with-conditions-simple (css-property-content (make-AzContent (string->azul-string "\"say \\\"hi\\\" \\\\ bye\""))))
     )
   ))

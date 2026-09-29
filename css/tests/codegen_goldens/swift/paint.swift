@@ -5,16 +5,6 @@ import Azul
 public func styleHero() -> [CssPropertyWithConditions] {
     return [
         CssPropertyWithConditions.simple(
-            CssProperty.backdropFilter(
-                StyleFilterVecValue.exact(
-                    [
-                        StyleFilter.brightness(PercentageValue(number: FloatValue(120.0))),
-                        StyleFilter.contrast(PercentageValue(number: FloatValue(80.0))),
-                    ]
-                )
-            )
-        ),
-        CssPropertyWithConditions.simple(
             CssProperty.backgroundContent(
                 [
                     StyleBackgroundContent.linearGradient(
@@ -36,6 +26,16 @@ public func styleHero() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.boxShadowTop(StyleBoxShadow(offsetX: PixelValueNoPercent(inner: PixelValue.px(0.0)), offsetY: PixelValueNoPercent(inner: PixelValue.px(4.0)), blurRadius: PixelValueNoPercent(inner: PixelValue.px(12.0)), spreadRadius: PixelValueNoPercent(inner: PixelValue.px(2.0)), clipMode: BoxShadowClipMode.outset, color: ColorU(r: 0, g: 0, b: 0, a: 77)))),
         CssPropertyWithConditions.simple(CssProperty.boxShadowBottom(StyleBoxShadow(offsetX: PixelValueNoPercent(inner: PixelValue.px(0.0)), offsetY: PixelValueNoPercent(inner: PixelValue.px(4.0)), blurRadius: PixelValueNoPercent(inner: PixelValue.px(12.0)), spreadRadius: PixelValueNoPercent(inner: PixelValue.px(2.0)), clipMode: BoxShadowClipMode.outset, color: ColorU(r: 0, g: 0, b: 0, a: 77)))),
         CssPropertyWithConditions.simple(
+            CssProperty.transform(
+                [
+                    StyleTransform.translate(StyleTransformTranslate2D(x: PixelValue.px(10.0), y: PixelValue.px(20.0))),
+                    StyleTransform.rotate(AngleValue(metric: AngleMetric.degree, number: FloatValue(45.0))),
+                    StyleTransform.scale(StyleTransformScale2D(x: FloatValue(1.5), y: FloatValue(1.5))),
+                    StyleTransform.skew(StyleTransformSkew2D(x: AngleValue(metric: AngleMetric.degree, number: FloatValue(10.0)), y: AngleValue(metric: AngleMetric.degree, number: FloatValue(5.0)))),
+                ]
+            )
+        ),
+        CssPropertyWithConditions.simple(
             CssProperty.filter(
                 StyleFilterVecValue.exact(
                     [
@@ -47,13 +47,13 @@ public func styleHero() -> [CssPropertyWithConditions] {
             )
         ),
         CssPropertyWithConditions.simple(
-            CssProperty.transform(
-                [
-                    StyleTransform.translate(StyleTransformTranslate2D(x: PixelValue.px(10.0), y: PixelValue.px(20.0))),
-                    StyleTransform.rotate(AngleValue(metric: AngleMetric.degree, number: FloatValue(45.0))),
-                    StyleTransform.scale(StyleTransformScale2D(x: FloatValue(1.5), y: FloatValue(1.5))),
-                    StyleTransform.skew(StyleTransformSkew2D(x: AngleValue(metric: AngleMetric.degree, number: FloatValue(10.0)), y: AngleValue(metric: AngleMetric.degree, number: FloatValue(5.0)))),
-                ]
+            CssProperty.backdropFilter(
+                StyleFilterVecValue.exact(
+                    [
+                        StyleFilter.brightness(PercentageValue(number: FloatValue(120.0))),
+                        StyleFilter.contrast(PercentageValue(number: FloatValue(80.0))),
+                    ]
+                )
             )
         ),
     ]
@@ -110,16 +110,15 @@ public func styleDial() -> [CssPropertyWithConditions] {
 public func stylePhoto() -> [CssPropertyWithConditions] {
     return [
         CssPropertyWithConditions.simple(CssProperty.backgroundContent([StyleBackgroundContent.image("images/photo.png")])),
+        CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover])),
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(horizontal: BackgroundPositionHorizontal.center, vertical: BackgroundPositionVertical.center)])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),
-        CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover])),
     ]
 }
 
 // CSS: .caption
 public func styleCaption() -> [CssPropertyWithConditions] {
     return [
-        CssPropertyWithConditions.simple(CssProperty.content(Content(inner: "\"say \\\"hi\\\" \\\\ bye\""))),
         CssPropertyWithConditions.simple(
             CssProperty.fontFamily(
                 [
@@ -128,5 +127,6 @@ public func styleCaption() -> [CssPropertyWithConditions] {
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.content(Content(inner: "\"say \\\"hi\\\" \\\\ bye\""))),
     ]
 }

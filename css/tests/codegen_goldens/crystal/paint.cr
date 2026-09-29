@@ -6,16 +6,6 @@ module AzulStyles
   def self.style_hero : Array(Azul::CssPropertyWithConditions)
     [
       Azul::CssPropertyWithConditions.simple(
-        Azul::CssProperty.backdrop_filter(
-          Azul::StyleFilterVecValue::Exact.new(
-            [
-              Azul::StyleFilter.brightness(Azul::PercentageValue.__own(LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(120.0_f32).__take))),
-              Azul::StyleFilter.contrast(Azul::PercentageValue.__own(LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(80.0_f32).__take))),
-            ] of Azul::StyleFilter
-          )
-        )
-      ),
-      Azul::CssPropertyWithConditions.simple(
         Azul::CssProperty.background_content(
           [
             Azul::StyleBackgroundContent.linear_gradient(
@@ -33,6 +23,16 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.box_shadow_top(Azul::StyleBoxShadow.__own(LibAzul::AzStyleBoxShadow.new(offset_x: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(0.0_f32).__take), offset_y: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(4.0_f32).__take), blur_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(12.0_f32).__take), spread_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(2.0_f32).__take), clip_mode: Azul::BoxShadowClipMode::Outset, color: LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 77_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.box_shadow_bottom(Azul::StyleBoxShadow.__own(LibAzul::AzStyleBoxShadow.new(offset_x: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(0.0_f32).__take), offset_y: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(4.0_f32).__take), blur_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(12.0_f32).__take), spread_radius: LibAzul::AzPixelValueNoPercent.new(inner: Azul::PixelValue.px(2.0_f32).__take), clip_mode: Azul::BoxShadowClipMode::Outset, color: LibAzul::AzColorU.new(r: 0_u8, g: 0_u8, b: 0_u8, a: 77_u8))))),
       Azul::CssPropertyWithConditions.simple(
+        Azul::CssProperty.transform(
+          [
+            Azul::StyleTransform.translate(Azul::StyleTransformTranslate2D.__own(LibAzul::AzStyleTransformTranslate2D.new(x: Azul::PixelValue.px(10.0_f32).__take, y: Azul::PixelValue.px(20.0_f32).__take))),
+            Azul::StyleTransform.rotate(Azul::AngleValue.__own(LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(45.0_f32).__take))),
+            Azul::StyleTransform.scale(Azul::StyleTransformScale2D.__own(LibAzul::AzStyleTransformScale2D.new(x: Azul::FloatValue.new(1.5_f32).__take, y: Azul::FloatValue.new(1.5_f32).__take))),
+            Azul::StyleTransform.skew(Azul::StyleTransformSkew2D.__own(LibAzul::AzStyleTransformSkew2D.new(x: LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(10.0_f32).__take), y: LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(5.0_f32).__take)))),
+          ] of Azul::StyleTransform
+        )
+      ),
+      Azul::CssPropertyWithConditions.simple(
         Azul::CssProperty.filter(
           Azul::StyleFilterVecValue::Exact.new(
             [
@@ -44,13 +44,13 @@ module AzulStyles
         )
       ),
       Azul::CssPropertyWithConditions.simple(
-        Azul::CssProperty.transform(
-          [
-            Azul::StyleTransform.translate(Azul::StyleTransformTranslate2D.__own(LibAzul::AzStyleTransformTranslate2D.new(x: Azul::PixelValue.px(10.0_f32).__take, y: Azul::PixelValue.px(20.0_f32).__take))),
-            Azul::StyleTransform.rotate(Azul::AngleValue.__own(LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(45.0_f32).__take))),
-            Azul::StyleTransform.scale(Azul::StyleTransformScale2D.__own(LibAzul::AzStyleTransformScale2D.new(x: Azul::FloatValue.new(1.5_f32).__take, y: Azul::FloatValue.new(1.5_f32).__take))),
-            Azul::StyleTransform.skew(Azul::StyleTransformSkew2D.__own(LibAzul::AzStyleTransformSkew2D.new(x: LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(10.0_f32).__take), y: LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(5.0_f32).__take)))),
-          ] of Azul::StyleTransform
+        Azul::CssProperty.backdrop_filter(
+          Azul::StyleFilterVecValue::Exact.new(
+            [
+              Azul::StyleFilter.brightness(Azul::PercentageValue.__own(LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(120.0_f32).__take))),
+              Azul::StyleFilter.contrast(Azul::PercentageValue.__own(LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(80.0_f32).__take))),
+            ] of Azul::StyleFilter
+          )
         )
       ),
     ] of Azul::CssPropertyWithConditions
@@ -101,16 +101,15 @@ module AzulStyles
   def self.style_photo : Array(Azul::CssPropertyWithConditions)
     [
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_content([Azul::StyleBackgroundContent.image("images/photo.png")] of Azul::StyleBackgroundContent)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_size([Azul::StyleBackgroundSize.cover] of Azul::StyleBackgroundSize)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_position([Azul::StyleBackgroundPosition.__own(LibAzul::AzStyleBackgroundPosition.new(horizontal: Azul::BackgroundPositionHorizontal.center.__take, vertical: Azul::BackgroundPositionVertical.center.__take))] of Azul::StyleBackgroundPosition)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_repeat([Azul::StyleBackgroundRepeat::NoRepeat] of Azul::StyleBackgroundRepeat)),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_size([Azul::StyleBackgroundSize.cover] of Azul::StyleBackgroundSize)),
     ] of Azul::CssPropertyWithConditions
   end
 
   # CSS: .caption
   def self.style_caption : Array(Azul::CssPropertyWithConditions)
     [
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.content(Azul::Content.__own(LibAzul::AzContent.new(inner: Azul::Native.az_string("\"say \\\"hi\\\" \\\\ bye\""))))),
       Azul::CssPropertyWithConditions.simple(
         Azul::CssProperty.font_family(
           [
@@ -119,6 +118,7 @@ module AzulStyles
           ] of Azul::StyleFontFamily
         )
       ),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.content(Azul::Content.__own(LibAzul::AzContent.new(inner: Azul::Native.az_string("\"say \\\"hi\\\" \\\\ bye\""))))),
     ] of Azul::CssPropertyWithConditions
   end
 end

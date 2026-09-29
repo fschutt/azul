@@ -6,12 +6,12 @@ import azul "azul"
 // CSS: .btn, .btn:hover
 style_btn :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_width(azul.AzLayoutWidth_px(azul.AzPixelValue_px(100.0)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textColor(azul.AzStyleTextColor{inner = azul.AzColorU{r = 255, g = 0, b = 0, a = 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_display(azul.AzLayoutDisplay.Flex)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flexGrow(azul.AzLayoutFlexGrow{inner = azul.AzFloatValue_create(1.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_inherit(azul.AzCssPropertyType.MinWidth)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_whiteSpace(azul.AzStyleWhiteSpaceValue{Exact = {tag = 6, payload = azul.AzStyleWhiteSpace.Nowrap}})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_width(azul.AzLayoutWidth_px(azul.AzPixelValue_px(100.0)))),
 		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold)),
 	}[0], 7)
 }

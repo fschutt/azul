@@ -25,34 +25,34 @@ package body Styles is
 
    --  CSS: .hero
    function Style_Hero return Az_CssPropertyWithConditionsVec is
-      t1 : aliased array (0 .. 1) of Az_StyleFilter;
-      t2 : aliased array (0 .. 2) of Az_NormalizedLinearColorStop;
-      t3 : aliased array (0 .. 0) of Az_StyleBackgroundContent;
+      t1 : aliased array (0 .. 2) of Az_NormalizedLinearColorStop;
+      t2 : aliased array (0 .. 0) of Az_StyleBackgroundContent;
+      t3 : aliased array (0 .. 3) of Az_StyleTransform;
       t4 : aliased array (0 .. 2) of Az_StyleFilter;
-      t5 : aliased array (0 .. 3) of Az_StyleTransform;
+      t5 : aliased array (0 .. 1) of Az_StyleFilter;
       t6 : aliased array (0 .. 7) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_StyleFilter_Brightness (Az_PercentageValue'(Number => Az_FloatValue_Create (120.0)));
-      t1 (1) := Az_StyleFilter_Contrast (Az_PercentageValue'(Number => Az_FloatValue_Create (80.0)));
-      t2 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 0, B => 0, A => 255)));
-      t2 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 255, B => 0, A => 255)));
-      t2 (2) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 255, A => 255)));
-      t3 (0) := Az_StyleBackgroundContent_Linear_Gradient (Az_LinearGradient'(Direction => Az_Direction_Angle (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (135.0))), Extend_Mode => Az_ExtendMode'(Clamp), Stops => Az_NormalizedLinearColorStopVec_Copy_From_Ptr (t2 (0)'Address, 3)));
+      t1 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 0, B => 0, A => 255)));
+      t1 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 255, B => 0, A => 255)));
+      t1 (2) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 255, A => 255)));
+      t2 (0) := Az_StyleBackgroundContent_Linear_Gradient (Az_LinearGradient'(Direction => Az_Direction_Angle (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (135.0))), Extend_Mode => Az_ExtendMode'(Clamp), Stops => Az_NormalizedLinearColorStopVec_Copy_From_Ptr (t1 (0)'Address, 3)));
+      t3 (0) := Az_StyleTransform_Translate (Az_StyleTransformTranslate2D'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0)));
+      t3 (1) := Az_StyleTransform_Rotate (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (45.0)));
+      t3 (2) := Az_StyleTransform_Scale (Az_StyleTransformScale2D'(X => Az_FloatValue_Create (1.5), Y => Az_FloatValue_Create (1.5)));
+      t3 (3) := Az_StyleTransform_Skew (Az_StyleTransformSkew2D'(X => Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (10.0)), Y => Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (5.0))));
       t4 (0) := Az_StyleFilter_Blur (Az_StyleBlur'(Width => Az_PixelValue_Px (4.0), Height => Az_PixelValue_Px (4.0)));
       t4 (1) := Az_StyleFilter_Grayscale (Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)));
       t4 (2) := Az_StyleFilter_Drop_Shadow (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 255)));
-      t5 (0) := Az_StyleTransform_Translate (Az_StyleTransformTranslate2D'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0)));
-      t5 (1) := Az_StyleTransform_Rotate (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (45.0)));
-      t5 (2) := Az_StyleTransform_Scale (Az_StyleTransformScale2D'(X => Az_FloatValue_Create (1.5), Y => Az_FloatValue_Create (1.5)));
-      t5 (3) := Az_StyleTransform_Skew (Az_StyleTransformSkew2D'(X => Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (10.0)), Y => Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (5.0))));
-      t6 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t1 (0)'Address, 2))));
-      t6 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t3 (0)'Address, 1)));
-      t6 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Left (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
-      t6 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Right (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
-      t6 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Top (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
-      t6 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Bottom (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
+      t5 (0) := Az_StyleFilter_Brightness (Az_PercentageValue'(Number => Az_FloatValue_Create (120.0)));
+      t5 (1) := Az_StyleFilter_Contrast (Az_PercentageValue'(Number => Az_FloatValue_Create (80.0)));
+      t6 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t2 (0)'Address, 1)));
+      t6 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Left (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
+      t6 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Right (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
+      t6 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Top (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
+      t6 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Box_Shadow_Bottom (Az_StyleBoxShadow'(Offset_X => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (0.0)), Offset_Y => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (4.0)), Blur_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (12.0)), Spread_Radius => Az_PixelValueNoPercent'(Inner => Az_PixelValue_Px (2.0)), Clip_Mode => Az_BoxShadowClipMode'(Outset), Color => Az_ColorU'(R => 0, G => 0, B => 0, A => 77))));
+      t6 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t3 (0)'Address, 4)));
       t6 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t4 (0)'Address, 3))));
-      t6 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t5 (0)'Address, 4)));
+      t6 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t5 (0)'Address, 2))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t6 (0)'Address, 8);
    end Style_Hero;
 
@@ -85,19 +85,19 @@ package body Styles is
    --  CSS: .photo
    function Style_Photo return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 0) of Az_StyleBackgroundContent;
-      t2 : aliased array (0 .. 0) of Az_StyleBackgroundPosition;
-      t3 : aliased array (0 .. 0) of Az_StyleBackgroundRepeat;
-      t4 : aliased array (0 .. 0) of Az_StyleBackgroundSize;
+      t2 : aliased array (0 .. 0) of Az_StyleBackgroundSize;
+      t3 : aliased array (0 .. 0) of Az_StyleBackgroundPosition;
+      t4 : aliased array (0 .. 0) of Az_StyleBackgroundRepeat;
       t5 : aliased array (0 .. 3) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_StyleBackgroundContent_Image (To_Az_String ("images/photo.png"));
-      t2 (0) := Az_StyleBackgroundPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Center);
-      t3 (0) := Az_StyleBackgroundRepeat'(NoRepeat);
-      t4 (0) := Az_StyleBackgroundSize_Cover;
+      t2 (0) := Az_StyleBackgroundSize_Cover;
+      t3 (0) := Az_StyleBackgroundPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Center);
+      t4 (0) := Az_StyleBackgroundRepeat'(NoRepeat);
       t5 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t1 (0)'Address, 1)));
-      t5 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Position (Az_StyleBackgroundPositionVec_Copy_From_Ptr (t2 (0)'Address, 1)));
-      t5 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Repeat (Az_StyleBackgroundRepeatVec_Copy_From_Ptr (t3 (0)'Address, 1)));
-      t5 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Size (Az_StyleBackgroundSizeVec_Copy_From_Ptr (t4 (0)'Address, 1)));
+      t5 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Size (Az_StyleBackgroundSizeVec_Copy_From_Ptr (t2 (0)'Address, 1)));
+      t5 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Position (Az_StyleBackgroundPositionVec_Copy_From_Ptr (t3 (0)'Address, 1)));
+      t5 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Repeat (Az_StyleBackgroundRepeatVec_Copy_From_Ptr (t4 (0)'Address, 1)));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t5 (0)'Address, 4);
    end Style_Photo;
 
@@ -108,8 +108,8 @@ package body Styles is
    begin
       t1 (0) := Az_StyleFontFamily_System_K (To_Az_String ("Fira Code"));
       t1 (1) := Az_StyleFontFamily_System_K (To_Az_String ("monospace"));
-      t2 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""say \""hi\"" \\ bye"""))));
-      t2 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Family (Az_StyleFontFamilyVec_Copy_From_Ptr (t1 (0)'Address, 2)));
+      t2 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Family (Az_StyleFontFamilyVec_Copy_From_Ptr (t1 (0)'Address, 2)));
+      t2 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Content (Az_Content'(Inner => To_Az_String ("""say \""hi\"" \\ bye"""))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t2 (0)'Address, 2);
    end Style_Caption;
 

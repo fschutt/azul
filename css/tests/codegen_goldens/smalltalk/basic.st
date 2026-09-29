@@ -21,11 +21,11 @@ dropped a value these bindings cannot build: the Smalltalk bindings define no cl
 { #category : 'styles' }
 AzulStyles class >> styleBtn [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyWidth: (AzulNative azLayoutWidthPx: (AzulNative azPixelValuePx: 100.0)))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 255; g: 0; b: 0; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyDisplay: (AzLayoutDisplay Flex))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlexGrow: (AzLayoutFlexGrow new inner: (AzulNative azFloatValueCreate: 1.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInherit: (AzCssPropertyType MinWidth))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyWidth: (AzulNative azLayoutWidthPx: (AzulNative azPixelValuePx: 100.0)))).
         (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight Bold)))
     }
 ]
