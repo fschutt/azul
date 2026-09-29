@@ -1888,12 +1888,16 @@ impl CGenerator {
         builder.line("#endif /* __cplusplus - end of C-only reflection macro */");
         builder.blank();
 
-        // Inject TR and AzString_fromConstStr macros for C/C++
-        builder.line("/* Helper macros for zero-allocation AzString creation from string literals */");
+        // Zero-allocation AzStrings over static bytes, for C and C++. Their
+        // names must be free: `AzString_fromConstStr` is the C99 initializer
+        // macro above and `AzString_tr(AzString)` is a libazul export, and
+        // re-using either name here broke every C translation unit
+        // (`bug_classes::azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages`).
+        builder.line("/* Zero-allocation AzString over static bytes (C and C++); TR(\"key\") makes a translation key */");
         builder.line("#ifdef __cplusplus");
         builder.line("extern \"C\" {");
         builder.line("#endif");
-        builder.line("static inline AzString AzString_fromConstStr(const char* key, size_t len) {");
+        builder.line("static inline AzString AzString_fromStaticBytes(const char* key, size_t len) {");
         builder.line("    AzU8VecDestructor dest;");
         builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
         builder.line("    AzU8Vec vec;");
@@ -1906,7 +1910,7 @@ impl CGenerator {
         builder.line("    s.vec = vec;");
         builder.line("    return s;");
         builder.line("}");
-        builder.line("static inline AzString AzString_tr(const char* key, size_t len) {");
+        builder.line("static inline AzString AzString_trStaticBytes(const char* key, size_t len) {");
         builder.line("    AzU8VecDestructor dest;");
         builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
         builder.line("    AzU8Vec vec;");
@@ -1922,7 +1926,7 @@ impl CGenerator {
         builder.line("#ifdef __cplusplus");
         builder.line("}");
         builder.line("#endif");
-        builder.line("#define TR(key) AzString_tr(key, sizeof(key) - 1)");
+        builder.line("#define TR(key) AzString_trStaticBytes(key, sizeof(key) - 1)");
         builder.blank();
     }
 }
