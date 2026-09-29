@@ -36,13 +36,17 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   FIX a1a28a9d0 (`spatial_navigation_containers` + `is_visible` on the chain; focus_cursor unit fixture
   mirrors the DOM)
 
+- 2: RED dc8abbfd3 (`layout/tests/the_ime_caret_rect_is_where_the_raster_paints_the_caret.rs`, 2 tests),
+  FIX adcd74e7b (`headless::content_rect_to_screen` + private `rect_to_screen`;
+  `LayoutWindow::css_transform_of` replaces 3 inline copies)
+
 ## IN PROGRESS
 
-- 2 RED (IME caret rect under a transformed ancestor / a scrolled page's thumb)
+- 3 RED (layout blit: a focus ring painted over a mover)
 
 ## NEXT
 
-- 2 fix, 3, 4, (5), report
+- 3 fix, 4, (5), report
 
 ## Open questions
 
