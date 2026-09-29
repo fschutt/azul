@@ -1369,7 +1369,7 @@ mod gaps {
 // ---------------------------------------------------------------------------
 
 mod platforms {
-    use super::wire;
+    use super::{s, wire, Notification, NotificationEvent, NotificationEventType};
 
     // ---- which response launched the app ----
 
@@ -1623,5 +1623,248 @@ mod platforms {
             wire::toast_activator_event("com.azul.azwidgets", "com.azul.azwidgets", "not-ours"),
             None
         );
+    }
+
+    // ---- freedesktop: an asynchronous `Notify` ----
+
+    /// Post `app_id` and let the server answer `server_id` at once.
+    fn shown(posts: &mut wire::FreedesktopPosts, app_id: &str, server_id: u32) {
+        let (token, _) = posts.post(app_id, 0);
+        assert_eq!(
+            posts.replied(token, Ok(server_id)),
+            wire::FreedesktopActions::default()
+        );
+    }
+
+    #[test]
+    fn a_notify_reply_maps_the_servers_id_to_the_apps() {
+        let mut posts = wire::FreedesktopPosts::new();
+        let (token, replaces) = posts.post("mail-7", 0);
+        assert_eq!(replaces, 0, "nothing on screen to replace");
+        assert_eq!(posts.app_id_of(5), None, "no id before the reply");
+        assert_eq!(
+            posts.replied(token, Ok(5)),
+            wire::FreedesktopActions::default()
+        );
+        assert_eq!(posts.app_id_of(5).as_deref(), Some("mail-7"));
+        assert_eq!(
+            posts.post("mail-7", 1).1,
+            5,
+            "a repost replaces the notification on screen"
+        );
+    }
+
+    #[test]
+    fn a_repost_before_the_first_reply_closes_the_stale_notification() {
+        // Two posts under one id before the server answered the first: the
+        // second could not name the first's id, so the server shows two.
+        let mut posts = wire::FreedesktopPosts::new();
+        let (first, _) = posts.post("upload", 0);
+        let (second, replaces) = posts.post("upload", 1);
+        assert_eq!(replaces, 0);
+        assert_eq!(
+            posts.replied(first, Ok(5)).close,
+            vec![5],
+            "the older notification is stale: the app replaced it"
+        );
+        assert_eq!(
+            posts.replied(second, Ok(6)),
+            wire::FreedesktopActions::default()
+        );
+        assert_eq!(posts.app_id_of(6).as_deref(), Some("upload"));
+        assert_eq!(posts.app_id_of(5), None);
+    }
+
+    #[test]
+    fn a_stale_reply_for_the_notification_a_newer_post_replaces_in_place_is_kept() {
+        let mut posts = wire::FreedesktopPosts::new();
+        shown(&mut posts, "upload", 5);
+        let (second, r2) = posts.post("upload", 1);
+        let (third, r3) = posts.post("upload", 2);
+        assert_eq!((r2, r3), (5, 5));
+        assert_eq!(
+            posts.replied(second, Ok(5)),
+            wire::FreedesktopActions::default(),
+            "5 is what the newest post replaces: closing it would close the newest"
+        );
+        assert_eq!(
+            posts.replied(third, Ok(5)),
+            wire::FreedesktopActions::default()
+        );
+        assert_eq!(posts.app_id_of(5).as_deref(), Some("upload"));
+    }
+
+    #[test]
+    fn a_reply_closes_the_notification_its_server_did_not_replace() {
+        // A server that ignores `replaces_id` answers with a new id.
+        let mut posts = wire::FreedesktopPosts::new();
+        shown(&mut posts, "upload", 5);
+        let (token, replaces) = posts.post("upload", 1);
+        assert_eq!(replaces, 5);
+        assert_eq!(posts.replied(token, Ok(6)).close, vec![5]);
+        assert_eq!(posts.app_id_of(6).as_deref(), Some("upload"));
+        assert_eq!(posts.app_id_of(5), None);
+    }
+
+    #[test]
+    fn a_withdraw_closes_what_is_shown_and_what_is_still_on_its_way() {
+        let mut posts = wire::FreedesktopPosts::new();
+        shown(&mut posts, "a", 5);
+        assert_eq!(posts.withdraw("a"), vec![5]);
+        assert_eq!(posts.app_id_of(5), None);
+
+        let (token, _) = posts.post("b", 0);
+        assert_eq!(posts.withdraw("b"), Vec::<u32>::new(), "nothing on screen yet");
+        let late = posts.replied(token, Ok(7));
+        assert_eq!(
+            late.close,
+            vec![7],
+            "withdrawn before the server answered: closed when it does"
+        );
+        assert!(late.events.is_empty());
+        assert_eq!(posts.app_id_of(7), None);
+    }
+
+    #[test]
+    fn a_failed_notify_is_a_failed_event_for_the_newest_post_only() {
+        let mut posts = wire::FreedesktopPosts::new();
+        let (first, _) = posts.post("n", 0);
+        let (second, _) = posts.post("n", 1);
+        assert_eq!(
+            posts.replied(first, Err("org.freedesktop.DBus.Error.NoReply".into())),
+            wire::FreedesktopActions::default(),
+            "a newer post replaced it: its failure is nobody's news"
+        );
+        let failed = posts.replied(second, Err("the server crashed".into()));
+        assert_eq!(failed.events.len(), 1, "{failed:?}");
+        assert_eq!(failed.events[0].kind, NotificationEventType::Failed);
+        assert_eq!(failed.events[0].notification_id.as_str(), "n");
+        assert!(
+            failed.events[0].reason.as_str().contains("the server crashed"),
+            "{:?}",
+            failed.events[0]
+        );
+
+        let (zero, _) = posts.post("z", 2);
+        let answered_zero = posts.replied(zero, Ok(0));
+        assert_eq!(
+            answered_zero.events.len(),
+            1,
+            "an id of 0 is no notification: {answered_zero:?}"
+        );
+        assert_eq!(answered_zero.events[0].kind, NotificationEventType::Failed);
+    }
+
+    #[test]
+    fn a_notify_the_server_never_answers_fails_after_the_timeout() {
+        let mut posts = wire::FreedesktopPosts::new();
+        let (token, _) = posts.post("n", 1_000);
+        assert!(posts.expired(20_000, 25_000).is_empty());
+        assert_eq!(posts.expired(26_000, 25_000), vec![token]);
+        let failed = posts.replied(token, Err("no answer".into()));
+        assert_eq!(failed.events.len(), 1);
+        assert!(
+            posts.expired(99_000, 25_000).is_empty(),
+            "a post that got its answer is not pending"
+        );
+    }
+
+    #[test]
+    fn a_signal_names_the_notification_until_it_closed() {
+        let mut posts = wire::FreedesktopPosts::new();
+        shown(&mut posts, "a", 5);
+        assert_eq!(posts.closed(5).as_deref(), Some("a"));
+        assert_eq!(posts.app_id_of(5), None);
+        assert_eq!(posts.closed(5), None);
+        assert_eq!(posts.replaces_id("a"), 0);
+    }
+
+    // ---- freedesktop: the server restarts ----
+
+    #[test]
+    fn the_server_leaving_the_bus_ends_every_notification_it_showed() {
+        let mut posts = wire::FreedesktopPosts::new();
+        shown(&mut posts, "a", 5);
+        shown(&mut posts, "b", 6);
+        let gone = posts.server_gone();
+        assert!(gone.close.is_empty(), "there is no server left to close them");
+        let ids: Vec<&str> = gone
+            .events
+            .iter()
+            .map(|e| e.notification_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert!(gone
+            .events
+            .iter()
+            .all(|e| e.kind == NotificationEventType::Dismissed));
+        assert_eq!(posts.app_id_of(5), None);
+        assert_eq!(
+            posts.post("a", 9).1,
+            0,
+            "the next server never saw id 5: nothing to replace"
+        );
+    }
+
+    #[test]
+    fn only_the_notification_server_leaving_counts() {
+        let name = "org.freedesktop.Notifications";
+        assert!(wire::freedesktop_server_left(name, ":1.42", ""));
+        assert!(
+            wire::freedesktop_server_left(name, ":1.42", ":1.99"),
+            "a restart: the old owner's notifications are gone"
+        );
+        assert!(!wire::freedesktop_server_left(name, "", ":1.99"), "it appeared");
+        assert!(!wire::freedesktop_server_left("org.kde.StatusNotifierWatcher", ":1.4", ""));
+    }
+
+    // ---- the Flatpak portal ----
+
+    #[test]
+    fn a_portal_notification_carries_title_body_the_body_click_and_the_buttons() {
+        let n = Notification::create(s("mail-7"), s("New mail"))
+            .with_body(s("From: Ada"))
+            .with_action(s("open-log"), s("Open log"))
+            .with_action(s(""), s("no id"))
+            .with_action(s("default"), s("reserved"))
+            .with_action(s("app.quit"), s("Quit"));
+        let p = wire::portal_notification(&n);
+        assert_eq!(p.title, "New mail");
+        assert_eq!(p.body, "From: Ada");
+        assert_eq!(p.default_action, "default");
+        assert_eq!(
+            p.buttons,
+            vec![
+                ("Open log".to_string(), "open-log".to_string()),
+                ("Quit".to_string(), "azul.app.quit".to_string()),
+            ],
+            "no empty or reserved id; an `app.` action would be activated on the app's \
+             D-Bus name instead of coming back as ActionInvoked, so it is renamed"
+        );
+    }
+
+    #[test]
+    fn portal_actions_come_back_as_the_apps_events() {
+        assert_eq!(
+            wire::portal_action_event("n", "default"),
+            NotificationEvent::activated(s("n"))
+        );
+        assert_eq!(
+            wire::portal_action_event("n", "open-log"),
+            NotificationEvent::action_invoked(s("n"), s("open-log"))
+        );
+        assert_eq!(
+            wire::portal_action_event("n", "azul.app.quit"),
+            NotificationEvent::action_invoked(s("n"), s("app.quit")),
+            "the renamed `app.` action reports the app's own id"
+        );
+    }
+
+    #[test]
+    fn the_portal_is_used_inside_a_flatpak_only() {
+        assert!(wire::in_flatpak_sandbox(true, None));
+        assert!(wire::in_flatpak_sandbox(false, Some("org.example.App")));
+        assert!(!wire::in_flatpak_sandbox(false, None));
+        assert!(!wire::in_flatpak_sandbox(false, Some("")));
     }
 }

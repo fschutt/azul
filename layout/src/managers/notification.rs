@@ -562,7 +562,7 @@ pub fn clear_recorded_notifications() {
 /// encodings a backend needs. Pure functions, so they are built and tested on
 /// every host - the backends that call them each compile on one OS only.
 pub mod wire {
-    use alloc::{string::String, vec::Vec};
+    use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
     use azul_core::notification::{
         Notification, NotificationAction, NotificationEvent, NotificationSound,
@@ -686,6 +686,145 @@ pub mod wire {
             other => format!("closed (unknown reason {other})"),
         };
         NotificationEvent::dismissed_because(AzString::from(app_id), AzString::from(why))
+    }
+
+    /// What the freedesktop backend does after a reply or a signal.
+    #[derive(Debug, Default, Clone, PartialEq)]
+    pub struct FreedesktopActions {
+        /// Server ids to close (`CloseNotification`) now.
+        pub close: Vec<u32>,
+        /// Events to queue.
+        pub events: Vec<NotificationEvent>,
+    }
+
+    /// A `Notify` whose reply has not arrived.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct PendingNotify {
+        app_id: String,
+        /// The `replaces_id` it was sent with.
+        replaces: u32,
+        sent_at_ms: u64,
+    }
+
+    /// The freedesktop backend's bookkeeping between a `Notify` and its reply.
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    pub struct FreedesktopPosts {
+        /// Server id -> the app's id, for what is on screen.
+        shown: BTreeMap<u32, String>,
+        /// Sent, reply outstanding, by token.
+        pending: BTreeMap<u64, PendingNotify>,
+        /// The app's id -> the token of its newest post.
+        newest: BTreeMap<String, u64>,
+        next_token: u64,
+    }
+
+    impl FreedesktopPosts {
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                shown: BTreeMap::new(),
+                pending: BTreeMap::new(),
+                newest: BTreeMap::new(),
+                next_token: 0,
+            }
+        }
+
+        /// A `Notify` for `app_id` is about to be sent: `(token, replaces_id)`.
+        pub fn post(&mut self, app_id: &str, now_ms: u64) -> (u64, u32) {
+            let _ = (app_id, now_ms);
+            (0, 0)
+        }
+
+        /// The reply (or the error, or the timeout) of the post `token`.
+        pub fn replied(&mut self, token: u64, result: Result<u32, String>) -> FreedesktopActions {
+            let _ = (token, result);
+            FreedesktopActions::default()
+        }
+
+        /// The posts whose reply is overdue.
+        #[must_use]
+        pub fn expired(&self, now_ms: u64, timeout_ms: u64) -> Vec<u64> {
+            let _ = (now_ms, timeout_ms);
+            Vec::new()
+        }
+
+        /// `withdraw_notification`: the server ids to close now.
+        pub fn withdraw(&mut self, app_id: &str) -> Vec<u32> {
+            let _ = app_id;
+            Vec::new()
+        }
+
+        /// The app's id of a server id on screen.
+        #[must_use]
+        pub fn app_id_of(&self, server_id: u32) -> Option<String> {
+            let _ = server_id;
+            None
+        }
+
+        /// The server id showing the app's `app_id` (0: none).
+        #[must_use]
+        pub fn replaces_id(&self, app_id: &str) -> u32 {
+            let _ = app_id;
+            0
+        }
+
+        /// `NotificationClosed`: forget the server id.
+        pub fn closed(&mut self, server_id: u32) -> Option<String> {
+            let _ = server_id;
+            None
+        }
+
+        /// The notification server left the bus.
+        pub fn server_gone(&mut self) -> FreedesktopActions {
+            FreedesktopActions::default()
+        }
+    }
+
+    /// `org.freedesktop.DBus.NameOwnerChanged(name, old_owner, new_owner)`:
+    /// did the notification server leave the bus?
+    #[must_use]
+    pub fn freedesktop_server_left(name: &str, old_owner: &str, new_owner: &str) -> bool {
+        let _ = (name, old_owner, new_owner);
+        false
+    }
+
+    // ---- the Flatpak portal (org.freedesktop.portal.Notification) ----
+
+    /// `AddNotification`'s `notification` dictionary, as plain data.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct PortalNotification {
+        pub title: String,
+        pub body: String,
+        /// `default-action`.
+        pub default_action: String,
+        /// `buttons`: `(label, action)`.
+        pub buttons: Vec<(String, String)>,
+    }
+
+    /// A notification as the portal takes it.
+    #[must_use]
+    pub fn portal_notification(notification: &Notification) -> PortalNotification {
+        let _ = notification;
+        PortalNotification {
+            title: String::new(),
+            body: String::new(),
+            default_action: String::new(),
+            buttons: Vec::new(),
+        }
+    }
+
+    /// The portal's `ActionInvoked(id, action, parameter)`.
+    #[must_use]
+    pub fn portal_action_event(app_id: &str, action: &str) -> NotificationEvent {
+        let _ = action;
+        NotificationEvent::activated(AzString::from(app_id))
+    }
+
+    /// Does this process run in a Flatpak sandbox?
+    #[must_use]
+    pub fn in_flatpak_sandbox(flatpak_info_exists: bool, flatpak_id: Option<&str>) -> bool {
+        let _ = (flatpak_info_exists, flatpak_id);
+        false
     }
 
     /// The `app_icon` argument: an absolute path becomes a `file://` URI
