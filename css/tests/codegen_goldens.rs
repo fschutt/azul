@@ -122,6 +122,12 @@ fn check_lang(lang: &str) {
     for file in backend.emit_project_files(&codegen_cases::dom_app_module()) {
         compare(&format!("{lang}/dom_app/{}", file.path), &file.contents, &mut failures);
     }
+    // Component boundaries: one function per component, calls, a widget.
+    compare(
+        &format!("{lang}/dom_components.{ext}"),
+        &backend.emit_module(&codegen_cases::dom_components_module()),
+        &mut failures,
+    );
     for (case, css) in CASES {
         let (parsed, _warnings) = azul_css::parser2::new_from_str(css);
         let got = backend.emit_css(&parsed);

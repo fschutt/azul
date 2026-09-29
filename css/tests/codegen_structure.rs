@@ -566,8 +566,41 @@ fn dom_outputs() -> Vec<(String, String, String)> {
         for f in backend.emit_project_files(&codegen_cases::dom_app_module()) {
             out.push((lang.clone(), format!("dom_app {}", f.path), f.contents));
         }
+        out.push((
+            lang.clone(),
+            "dom_components".to_string(),
+            backend.emit_module(&codegen_cases::dom_components_module()),
+        ));
     }
     out
+}
+
+#[test]
+fn every_dom_printer_defines_each_component_once_and_calls_it() {
+    // `render_card` calls `render_badge(tag)`: in any casing a language
+    // gives its functions (render_badge, renderBadge, RenderBadge,
+    // render-badge, Render_Badge), the badge's function is written once and
+    // called once. The badge's own markup (its class "badge") is written
+    // once: nothing is inlined into the card.
+    for backend in all_backends().into_iter().filter(|b| b.exports_dom()) {
+        let src = backend.emit_module(&codegen_cases::dom_components_module());
+        let folded: String = src
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| *c != '_' && *c != '-')
+            .collect();
+        assert!(
+            folded.matches("renderbadge").count() >= 2,
+            "{}: render_badge is not both defined and called:\n{src}",
+            backend.lang()
+        );
+        assert_eq!(
+            src.matches("\"badge\"").count() + src.matches("'badge'").count(),
+            1,
+            "{}: the badge's markup must be written once:\n{src}",
+            backend.lang()
+        );
+    }
 }
 
 #[test]

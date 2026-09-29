@@ -482,3 +482,78 @@ pub fn dom_app_module() -> azul_css::codegen::ir::Module {
         library: None,
     }
 }
+
+/// Component boundaries: what the component-aware lowering
+/// (`azul_core::codegen::dom::lower_components_fragment`) produces for
+///
+///     <body><user:card title="Hi" tag="Beta"/><widgets:button label="OK"/></body>
+///
+/// where `user:card` is `<div class="card"><h2>{title}</h2><user:badge text="{tag}"/></div>`,
+/// `user:badge` is `<span class="badge">{text}</span>` and `widgets:button`
+/// is the widget `Button::create(label).dom()`: one function per component,
+/// callees first, the page calls them (the card passes its own `tag` on),
+/// nothing inlined.
+pub fn dom_components_module() -> azul_css::codegen::ir::Module {
+    use azul_css::codegen::ir::{Expr, Ident, Item, ItemParam, Module};
+    let s = Expr::str;
+    let p = Expr::param;
+    let dom = |m: &str, args: Vec<Expr>| Expr::call("Dom", m, args);
+    let with = |recv: Expr, m: &str, args: Vec<Expr>| Expr::method(recv, "Dom", m, args);
+    let badge = with(
+        dom("create_span_with_text", vec![p("text")]),
+        "with_class",
+        vec![s("badge")],
+    );
+    let card = with(
+        with(
+            with(dom("create_div", vec![]), "with_class", vec![s("card")]),
+            "with_child",
+            vec![dom("create_h2_with_text", vec![p("title")])],
+        ),
+        "with_child",
+        vec![Expr::item_call("render_badge", vec![p("tag")])],
+    );
+    let ui = with(
+        with(
+            dom("create_body", vec![]),
+            "with_child",
+            vec![Expr::item_call("render_card", vec![s("Hi"), s("Beta")])],
+        ),
+        "with_child",
+        vec![Expr::method(
+            Expr::call("Button", "create", vec![s("OK")]),
+            "Button",
+            "dom",
+            vec![],
+        )],
+    );
+    Module {
+        items: vec![
+            Item {
+                name: Ident::from_text("render_badge"),
+                doc: vec!["`user:badge` (Badge)".to_string()],
+                ty: "Dom".to_string(),
+                params: vec![ItemParam::string("text", "New")],
+                value: badge,
+            },
+            Item {
+                name: Ident::from_text("render_card"),
+                doc: vec!["`user:card` (Card)".to_string()],
+                ty: "Dom".to_string(),
+                params: vec![
+                    ItemParam::string("title", "Hello"),
+                    ItemParam::string("tag", "New"),
+                ],
+                value: card,
+            },
+            Item {
+                name: Ident::from_text("render_ui"),
+                doc: Vec::new(),
+                ty: "Dom".to_string(),
+                params: Vec::new(),
+                value: ui,
+            },
+        ],
+        ..Module::default()
+    }
+}
