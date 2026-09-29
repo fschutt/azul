@@ -2213,6 +2213,15 @@ impl ChangeAccumulator {
                     max_scope = scope;
                 }
             }
+            // The node's `var()` / `env()` references count as their
+            // property (a changed `display: var(..)` is as Full as a static
+            // one); the static view above skips them.
+            for (reference, _conds) in non_static_declarations(new_node).0 {
+                let scope = reference.default_value.get_type().relayout_scope(true);
+                if scope > max_scope {
+                    max_scope = scope;
+                }
+            }
             return if max_scope == RelayoutScope::None {
                 RelayoutScope::SizingOnly // conservative fallback
             } else {

@@ -26,6 +26,11 @@
 //! hovered. A resting declaration that reads a variable redefined for a state
 //! is re-resolved for that state (a "state variant"), so `.btn:hover { --bg: ..
 //! } .btn { background: var(--bg) }` repaints on hover like on the web.
+//! Known limit, the same one inherited state properties have in this engine:
+//! a descendant sees its ancestor's `:hover` variables in ITS OWN hover
+//! state, so `.card:hover { --fg } .card .label { color: var(--fg) }`
+//! recolours the label while the pointer is over the label, not over the
+//! card's padding.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
