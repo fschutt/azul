@@ -111,6 +111,8 @@ trait Unit: Clone + PartialEq {
     /// It inside `theme`'s block.
     #[must_use]
     fn into_block(self, theme: UiTheme) -> Self;
+    /// The conditions it applies under (`@theme(<name>)` among them).
+    fn conditions(&self) -> &DynamicSelectorVec;
 }
 
 impl Unit for CssPropertyWithConditions {
@@ -125,6 +127,10 @@ impl Unit for CssPropertyWithConditions {
     fn into_block(self, theme: UiTheme) -> Self {
         // The css crate's own helper: the theme name first, then the rest.
         self.in_theme(theme.name())
+    }
+
+    fn conditions(&self) -> &DynamicSelectorVec {
+        &self.apply_if
     }
 }
 
@@ -149,6 +155,10 @@ impl Unit for CssRuleBlock {
     fn into_block(mut self, theme: UiTheme) -> Self {
         self.conditions = theme_first(&self.conditions, theme);
         self
+    }
+
+    fn conditions(&self) -> &DynamicSelectorVec {
+        &self.conditions
     }
 }
 
@@ -1322,5 +1332,142 @@ mod follow_tests {
         for structure in [UiTheme::Flat, UiTheme::Flora] {
             assert!(follow_dom(structure, same.clone(), same.clone()) == same, "{structure:?}");
         }
+    }
+}
+
+// ==== one node's parts: a later shared declaration against an earlier themed one ====
+
+/// The theme names `conditions` puts a declaration in (`@theme(<name>)`).
+fn themes_of(conditions: &DynamicSelectorVec) -> Vec<&str> {
+    conditions
+        .as_slice()
+        .iter()
+        .filter_map(|c| match c {
+            DynamicSelector::Theme(ThemeCondition::Custom(name)) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `units` - one node's declarations, in source order - with every one
+/// outside the theme blocks that comes AFTER a themed one of the same
+/// property also written into that theme's block, at its own place.
+///
+/// The cascade ranks a declaration in the live theme's block above one
+/// outside every block, whatever their order (`@layer` semantics,
+/// `azul_css::css::winning_inline_in`). [`follow_props`] merges ONE part, so
+/// a widget that stacks parts on a node (the backstage's nav item, then its
+/// gap) can get a property themed by the first part (the two looks' margins
+/// differ) and shared by a later one (both gaps are 22px). Outside the
+/// blocks, the later declaration lost to the earlier themed one; in the
+/// theme's block it wins by source order, as it does on the pinned widget.
+/// The declaration outside the blocks stays too, for a theme that themes
+/// nothing before it. Declarations without theme blocks come back as they
+/// are.
+fn settle<T: Unit>(units: Vec<T>) -> Vec<T> {
+    if units.iter().all(|u| themes_of(u.conditions()).is_empty()) {
+        return units;
+    }
+    let mut out: Vec<T> = Vec::with_capacity(units.len());
+    for (i, unit) in units.iter().enumerate() {
+        if themes_of(unit.conditions()).is_empty() {
+            let types = types_of(unit);
+            let mut earlier: Vec<&str> = Vec::new();
+            for before in &units[..i] {
+                if !types.iter().any(|t| before.declares(*t)) {
+                    continue;
+                }
+                for name in themes_of(before.conditions()) {
+                    if !earlier.contains(&name) {
+                        earlier.push(name);
+                    }
+                }
+            }
+            for theme in earlier.into_iter().filter_map(UiTheme::from_name) {
+                out.push(unit.clone().into_block(theme));
+            }
+        }
+        out.push(unit.clone());
+    }
+    out
+}
+
+/// `extra` stacked onto `base` - one node's style from two merged parts
+/// ([`follow_props`]), `extra` overriding `base` where they collide, under
+/// every app theme ([`settle`]). THE way a widget that follows the app
+/// theme puts a state part (active, gap, selected) after its base part.
+#[must_use]
+pub(crate) fn stack_parts(
+    base: &CssPropertyWithConditionsVec,
+    extra: &CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    if extra.as_ref().is_empty() {
+        return base.clone();
+    }
+    let mut v: Vec<CssPropertyWithConditions> = base.as_ref().to_vec();
+    v.extend_from_slice(extra.as_ref());
+    CssPropertyWithConditionsVec::from_vec(settle(v))
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use azul_css::{
+        dynamic_selector::{
+            CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
+        },
+        props::{
+            layout::LayoutMarginTop,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use super::{follow_props, stack_parts, UiTheme};
+
+    fn margin_top(px: isize) -> CssPropertyWithConditions {
+        CssPropertyWithConditions::simple(CssProperty::const_margin_top(
+            LayoutMarginTop::const_px(px),
+        ))
+    }
+
+    /// `style`'s `margin-top` under the app theme `theme`, as the cascade
+    /// ranks it.
+    fn resolved_margin_top(
+        style: &CssPropertyWithConditionsVec,
+        theme: UiTheme,
+    ) -> Option<CssProperty> {
+        let ctx = DynamicSelectorContext::default().with_app_theme(theme.name());
+        azul_css::css::winning_inline_in(
+            style.as_slice().iter().map(|d| (&d.property, &d.apply_if)),
+            CssPropertyType::MarginTop,
+            |c| c.as_slice().iter().all(|s| s.matches(&ctx)),
+            |c| ctx.cascade_rank(c),
+        )
+        .cloned()
+    }
+
+    #[test]
+    fn a_later_part_shared_by_both_looks_beats_an_earlier_themed_one() {
+        // The item part: the looks' margins differ, so they are themed.
+        let item = follow_props(&[margin_top(1)], &[margin_top(4)]);
+        // The gap part: alike in both looks, so it is shared.
+        let gap = follow_props(&[margin_top(22)], &[margin_top(22)]);
+        let style = stack_parts(&item, &gap);
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            assert_eq!(
+                resolved_margin_top(&style, theme),
+                Some(margin_top(22).property),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parts_without_theme_blocks_stack_as_they_are() {
+        let base = CssPropertyWithConditionsVec::from_vec(vec![margin_top(1)]);
+        let extra = CssPropertyWithConditionsVec::from_vec(vec![margin_top(22)]);
+        assert_eq!(
+            stack_parts(&base, &extra).as_slice(),
+            &[margin_top(1), margin_top(22)]
+        );
     }
 }

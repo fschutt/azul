@@ -1108,12 +1108,7 @@ fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
-    }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
 }
 
 /// The parts an UNPINNED backstage renders with, so it follows the app
