@@ -12,12 +12,29 @@ Nothing is compiled here (house rule). If resumed: read this file first.
   `AZ_LAYOUT_CHECK(offsetof(..) == N, ..)` blocks, c_layout models the padded structs, doc fixed.
   Hand-checked on a scratch copy of azul.h with clang (C99/C11/C17/C++03/11/20 all pass).
 
+- fd2ce2478 test RED + 7b2dd2fdd fix: azul.h compiles as C (AzString_fromStaticBytes /
+  AzString_trStaticBytes; bug class no name is macro+function or static+extern).
+- e865f4590 fix(zig): comptime String.tr keyed on TypeCategory::String (`handwritten` set).
+- 2f44856a5 fix(core): `from_handle_byref_fn` mandatory in impl_managed_callback! (5 forms);
+  tree_view.rs, video.rs, host_invoker_test.rs name theirs.
+- b7d1f01ef fix(d): `&mut self` of a native type = `ref` receiver + write back
+  (`stringLocalizable(ref string self, bool)`).
+
 ## IN PROGRESS
 
-- P0 bindings: 3 read-only Explore agents survey every binding's union layout emission
-  (groups: go/pascal/node/crystal/odin/v/racket; java/kotlin/csharp/d/zig/nim/julia/
-  smalltalk/swift; ada/algol68/cobol/freebasic/haskell/lisp/ocaml/perl/red/ruby/vb6/fortran/
-  python/lua/php). Then edit each binding to ask c_layout for the padding.
+- P0 bindings. Survey (3 Explore agents) result:
+  - NEED `_pad0[N]` (C-aligned records, from c_layout padding): go, node/koffi (Deno resolve()
+    cannot parse arrays -> emit N uint8_t members or teach resolve), crystal, odin, v, racket
+    (define-cstruct positional make-* arity changes), java (+@FieldOrder), kotlin
+    (+getFieldOrder), csharp (N byte fields, no arrays), d, zig (thread ir), nim (leading `_`
+    maybe illegal), julia, smalltalk (tag typed as FFIExternalEnumeration, width?), lisp.
+  - NEED the offset itself: ocaml (Option/Result extractor uses own alignment,
+    lang_ocaml/types.rs:571-578).
+  - ALREADY RIGHT (tag + union of tag-less payloads / variant records): pascal, freebasic, ruby,
+    ada (probably; GNAT variant part). Do not pad them.
+  - AUTOMATIC via azul.h: c++, swift, lua, php, haskell (cshim offsetof oracle).
+  - OPAQUE/unaffected: fortran, cobol, perl, red, vb6 (comment says payload at 4: doc fix),
+    algol68, python.
 
 ## NEXT
 
