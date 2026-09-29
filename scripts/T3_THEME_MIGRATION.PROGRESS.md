@@ -78,9 +78,13 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
 - switch: guard 421fe7c4d (green before: the two looks are one), impl: see git log (DOM merge;
   merges to the flat DOM unchanged today)
 
+- spinner: RED 0348d8c3e, impl: see git log (DOM merge; `Auto` differs in STRUCTURE (flat ring /
+  flora spokes) - the structure theme's subtree is kept, its own component sheet (@keyframes) too;
+  no pin needed changing)
+
 ## IN PROGRESS
 
-- spinner
+- progressbar
 
 ## NEXT
 

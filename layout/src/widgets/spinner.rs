@@ -135,8 +135,8 @@ pub struct Spinner {
     pub spinner_style: OptionCssPropertyWithConditionsVec,
     /// Which native indicator to draw; `Auto` lets the theme pick.
     pub indicator: SpinnerStyle,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`, flat by default).
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// The indicator's ink - the spokes, or the ring's arc - or `None` for the
     /// native one: pure black / white spokes (flora: its ink), the desktop
@@ -276,8 +276,8 @@ impl Spinner {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the spinner renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the spinner follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -302,15 +302,19 @@ impl Spinner {
 
     /// Converts this spinner into its DOM, root classed
     /// `__azul-native-spinner`. The look comes from the theme module
-    /// (`themes::flat::spinner` / `themes::flora::spinner`); `None` renders
-    /// flat.
+    /// (`themes::flat::spinner` / `themes::flora::spinner`). Unpinned
+    /// (`None`), the spinner follows the APP theme: built in the structure of
+    /// the theme its DOM is built for (flat's ring, flora's spokes for
+    /// `Auto`), every node the two share carrying flat's and flora's blocks
+    /// (`themes::flat::follow_app_theme`).
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::UiTheme;
+        use crate::widgets::themes::{flat, flora, UiTheme};
         match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::spinner(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::spinner(self),
+            Some(UiTheme::Flora) => flora::spinner(self),
+            Some(UiTheme::Flat) => flat::spinner(self),
+            None => flat::follow_app_theme(self, flat::spinner, flora::spinner),
         }
     }
 }
