@@ -4271,3 +4271,24 @@ pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
         },
     )
 }
+
+// ==== breadcrumb ====
+
+/// The flat breadcrumb.
+#[must_use]
+pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
+    use crate::widgets::breadcrumb::{
+        BreadcrumbLook, BREADCRUMB_CURRENT_STYLE, BREADCRUMB_ITEM_STYLE,
+        BREADCRUMB_SEPARATOR_STYLE, SEPARATOR_GLYPH,
+    };
+    crate::widgets::breadcrumb::build(
+        b,
+        &BreadcrumbLook {
+            item: BREADCRUMB_ITEM_STYLE.to_vec(),
+            current: BREADCRUMB_CURRENT_STYLE.to_vec(),
+            separator: BREADCRUMB_SEPARATOR_STYLE.to_vec(),
+            separator_glyph: SEPARATOR_GLYPH,
+            marker: None,
+        },
+    )
+}

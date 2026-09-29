@@ -4807,3 +4807,11 @@ pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
         },
     )
 }
+
+// ==== breadcrumb ====
+
+/// The flora breadcrumb.
+#[must_use]
+pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
+    super::flat::breadcrumb(b)
+}
