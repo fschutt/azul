@@ -1051,8 +1051,8 @@ impl TextInput {
             .into();
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -1174,15 +1174,31 @@ impl TextInput {
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
+    ///
+    /// Unpinned (`theme: None`), the field follows the APP theme: built in
+    /// the structure of the theme its DOM is built for, every node carrying
+    /// flat's and flora's blocks (`themes::flat::follow_app_theme`).
     #[must_use]
-    pub fn dom(mut self) -> Dom {
-        // `UiTheme::default()` is Flat, and so is every other widget's fallback:
-        // an unset theme here used to reach FLORA, which is why an unthemed
-        // TextInput rendered skeuomorphic next to a flat Button.
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::flat;
+        match self.theme.into_option() {
+            Some(theme) => self.dom_in(theme),
+            None => flat::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+        }
+    }
+
+    /// [`Self::dom_in`] the flat theme.
+    fn dom_flat(self) -> Dom {
+        self.dom_in(crate::widgets::themes::UiTheme::Flat)
+    }
+
+    /// [`Self::dom_in`] the flora theme.
+    fn dom_flora(self) -> Dom {
+        self.dom_in(crate::widgets::themes::UiTheme::Flora)
+    }
+
+    /// Renders the field in `theme`.
+    fn dom_in(mut self, theme: crate::widgets::themes::UiTheme) -> Dom {
         // The state is built fresh from the app's value, so its validity is
         // too: an app handing in a malformed e-mail gets an invalid state
         // (and FormData) before the user has touched the field.
@@ -3507,9 +3523,12 @@ mod autotest_generated {
     fn dom_keeps_the_configured_styles_on_the_nodes_they_were_set_for() {
         let label_style = style(2);
         let container_style = style(3);
+        // One theme's field: unpinned, the field follows the app theme and
+        // repeats a property the themes twin differently in each theme's block.
         let dom = TextInput::create()
             .with_label_style(label_style.clone())
             .with_container_style(container_style.clone())
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
             .dom();
 
         let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
@@ -4694,10 +4713,16 @@ mod autotest_generated {
 
         #[test]
         fn the_clear_button_is_hidden_while_the_search_field_is_empty() {
-            let empty = TextInput::create_search().dom();
+            // One theme's field: the flat and flora buttons show as different
+            // displays, so unpinned the shown one is written per theme.
+            let flat = crate::widgets::themes::UiTheme::Flat;
+            let empty = TextInput::create_search().with_theme(flat).dom();
             assert_eq!(built_display(clear_of(&empty)), Some(LayoutDisplay::None));
 
-            let filled = TextInput::create_search().with_text("abc".into()).dom();
+            let filled = TextInput::create_search()
+                .with_text("abc".into())
+                .with_theme(flat)
+                .dom();
             let shown = built_display(clear_of(&filled));
             assert!(
                 shown.is_some() && shown != Some(LayoutDisplay::None),

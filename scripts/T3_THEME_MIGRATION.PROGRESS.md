@@ -62,9 +62,15 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   flat::number_input, flora::number_input)`; no pin needed changing. NOTE: ColorInput's R/G/B/A
   fields and node_graph's fields build unpinned NumberInputs - they now follow the app theme)
 
+- text_input: RED dec340a25, impl: see git log (`dom()` = `dom_in(theme)` pinned, else DOM
+  merge of `dom_flat` / `dom_flora`; constrained fields keep the structure theme's marker for
+  the invalid ring; 2 pins: the configured-styles test and the search clear-button display test
+  pin flat. NOTE: a caller's container/label style is repeated in both theme blocks for the
+  properties the two themes twin differently (dark bg/ink/borders) - see report)
+
 ## IN PROGRESS
 
-- text_input
+- text_area
 
 ## NEXT
 
