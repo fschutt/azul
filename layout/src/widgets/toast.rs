@@ -319,23 +319,10 @@ pub(crate) fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec
     let (bg, border, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        // Float pinned to the bottom-right corner of the positioned parent.
-        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        CssPropertyWithConditions::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(
-            TOAST_INSET,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_right(LayoutRight::const_px(
-            TOAST_INSET,
-        ))),
+    // The card's structure and placement is the widget's (`TOAST_CARD_BASE`);
+    // flat's skin follows it.
+    let mut v = TOAST_CARD_BASE.to_vec();
+    v.extend([
         // Cap the width so the toast hugs its content rather than spanning the page.
         CssPropertyWithConditions::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(
             TOAST_MAX_WIDTH,
@@ -420,7 +407,8 @@ pub(crate) fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The dark twins of [`build_toast_style`]'s kind colours - the four border
@@ -453,12 +441,43 @@ pub(crate) static TOAST_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
-/// Close-button ("x") style: a small pointer-cursor box on the right.
-pub(crate) static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
+// ---- R5: the parts' BASE - the structure every theme's toast shares ----
+//
+// A theme's card and close button are the base below, THEN its skin (paint
+// and metrics): `build_toast_style` / `TOAST_CLOSE_STYLE` for flat, and
+// `themes::flora::toast_skin` for flora. The base comes first in every
+// theme, so an unpinned toast (`follow_skin`) declares it once, outside
+// every `@theme` block. The message has no skin: `TOAST_MESSAGE_STYLE` is
+// its whole style in every theme.
+
+/// The card's structure and placement: a row (message, then close) that
+/// floats in the bottom-right corner of its positioned parent, in every
+/// theme.
+pub(crate) static TOAST_CARD_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
+    // Float pinned to the bottom-right corner of the positioned parent.
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(
+        TOAST_INSET,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_right(LayoutRight::const_px(TOAST_INSET))),
+];
+
+/// The close button's structure: it keeps its size at the row's end, under
+/// the pointer, and its "x" is never a text selection.
+pub(crate) static TOAST_CLOSE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Close-button ("x") style: flat's small box on the right, on
+/// [`TOAST_CLOSE_BASE`].
+pub(crate) static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         12,
     ))),
@@ -1969,8 +1988,10 @@ mod autotest_generated {
             .iter()
             .map(|p| p.property.clone())
             .collect();
-        let want_close: Vec<CssProperty> = TOAST_CLOSE_STYLE
+        // R5: the close button is the widget's base, then flat's static.
+        let want_close: Vec<CssProperty> = TOAST_CLOSE_BASE
             .iter()
+            .chain(TOAST_CLOSE_STYLE.iter())
             .map(|p| p.property.clone())
             .collect();
 

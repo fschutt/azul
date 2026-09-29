@@ -3641,13 +3641,12 @@ pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
     use crate::widgets::toast as t;
     type P = CssPropertyWithConditions;
 
-    let mut close = vec![
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // The widget's close base (`toast::TOAST_CLOSE_BASE`), then flora's skin.
+    let mut close = t::TOAST_CLOSE_BASE.to_vec();
+    close.extend([
         kit::font_size(18),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
         P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(12))),
-    ];
+    ]);
     close.extend(kit::padding(0, 5, 0, 5));
     close.extend(kit::radius(3));
     close.extend(kit::themed_ink(LIGHT_QT, DARK_QT));
@@ -3672,19 +3671,14 @@ fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithCon
     type P = CssPropertyWithConditions;
 
     let (thread, thread_dark) = toast_thread(kind);
-    let mut v = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        // Where every theme's toast floats: the positioned parent's corner.
-        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        P::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(t::TOAST_INSET))),
-        P::simple(CssProperty::const_right(LayoutRight::const_px(t::TOAST_INSET))),
+    // The card's structure and placement - where every theme's toast floats,
+    // the positioned parent's corner - is the widget's (`TOAST_CARD_BASE`).
+    let mut v = t::TOAST_CARD_BASE.to_vec();
+    v.extend([
         P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(t::TOAST_MAX_WIDTH))),
         kit::font_size(14),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    ];
+    ]);
     v.extend(kit::padding(12, 12, 12, 14));
     let hairline = kit::Edges {
         top: true,

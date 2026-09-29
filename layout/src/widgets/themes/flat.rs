@@ -3755,7 +3755,9 @@ pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
 pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
     use crate::widgets::toast as t;
 
-    let mut close = t::TOAST_CLOSE_STYLE.to_vec();
+    // The widget's close base, then flat's static; the card's base is laid by
+    // `build_toast_style` itself.
+    let mut close = on_base(t::TOAST_CLOSE_BASE, t::TOAST_CLOSE_STYLE).into_library_owned_vec();
     close.extend(super::style_kit::focus_halo(FIELD_RING, DARK_ACC));
 
     t::ToastSkin {
