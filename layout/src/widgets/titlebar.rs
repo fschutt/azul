@@ -338,16 +338,17 @@ impl Titlebar {
         // (KDE's `Colors:Header`). Falling straight through to the window
         // text made a client-side decoration the right shape in the wrong
         // colour, which is exactly what makes it read as foreign beside a
-        // native neighbour. Window text, then the theme default, remain the
-        // fallbacks for a platform that states no titlebar colour.
+        // native neighbour. Window text, then the default, remain the
+        // fallbacks for a platform that states no titlebar colour. The
+        // default is the LIGHT one, which `build_title_style` gives its dark
+        // twin: the cascade picks between them by the mode the WINDOW shows
+        // (after the app's / `AZ_THEME` pin), where picking here by the
+        // desktop's theme baked the desktop's mode into the bar.
         let title_color = tm
             .text_active
             .into_option()
             .or_else(|| system_style.colors.text.into_option())
-            .unwrap_or(match system_style.theme {
-                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-            });
+            .unwrap_or(DEFAULT_TITLE_COLOR_LIGHT);
 
         Self {
             title,
@@ -382,15 +383,13 @@ impl Titlebar {
             .title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
-        let title_color =
-            system_style
-                .colors
-                .text
-                .into_option()
-                .unwrap_or(match system_style.theme {
-                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-                });
+        // The default follows the WINDOW's mode through its dark twin - see
+        // `from_system_style`.
+        let title_color = system_style
+            .colors
+            .text
+            .into_option()
+            .unwrap_or(DEFAULT_TITLE_COLOR_LIGHT);
         Self {
             title,
             height,
@@ -676,10 +675,12 @@ impl Titlebar {
                 inner: self.title_color,
             }),
         ));
-        // `Titlebar::new` has no desktop to ask, so its title colour is the
-        // LIGHT default: #4c4c4c, which on a dark window reads 1.6:1. Give
-        // that default its dark counterpart. A colour `from_system_style`
-        // picked is the desktop's own for its theme and gets no twin.
+        // The default title colour is the LIGHT one (`Titlebar::new` has no
+        // desktop to ask, and `from_system_style` falls back to it when the
+        // desktop states no text colour): #4c4c4c, which on a dark window
+        // reads 1.6:1. Give that default its dark counterpart, so the WINDOW's
+        // mode picks - a restyle-only mode switch included. A colour
+        // `from_system_style` read is the desktop's own and gets no twin.
         if self.title_color == DEFAULT_TITLE_COLOR_LIGHT {
             props.push(CssPropertyWithConditions::dark_theme(
                 CssProperty::const_text_color(StyleTextColor {
@@ -2669,7 +2670,10 @@ mod autotest_generated {
         assert_eq!(csd.height, title_only.height);
         assert_eq!(csd.font_size, title_only.font_size);
         assert_eq!(csd.title_color, title_only.title_color);
-        assert_eq!(csd.title_color, DEFAULT_TITLE_COLOR_DARK);
+        // Not the dark default on a dark desktop: the light one, whose dark
+        // twin lets the WINDOW's mode pick (see
+        // `the_fallback_title_colour_follows_the_windows_mode_not_the_desktops`).
+        assert_eq!(csd.title_color, DEFAULT_TITLE_COLOR_LIGHT);
 
         // The buttons are DOM children in CSD mode, so no space is reserved.
         assert_eq!(csd.padding_left.to_bits(), 0_f32.to_bits());
