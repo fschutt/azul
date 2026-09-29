@@ -4824,6 +4824,37 @@ mod autotest_generated {
             );
             assert!(displays_pushed_to(&changes, CLEAR).is_empty());
         }
+
+        /// The first character SHOWS the clear button as the box a filled
+        /// field builds it as, in every theme: the live show and a rebuild
+        /// must not disagree on what the button is.
+        #[test]
+        fn the_clear_button_shows_with_the_display_a_filled_field_builds_it_with() {
+            use crate::widgets::themes::UiTheme;
+            for theme in [UiTheme::Flat, UiTheme::Flora] {
+                let filled = TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_theme(theme)
+                    .dom();
+                let built = built_display(clear_of(&filled));
+                assert!(
+                    built.is_some() && built != Some(LayoutDisplay::None),
+                    "{theme:?}: a filled field shows its clear button: {built:?}"
+                );
+
+                let (styled_dom, state) =
+                    rendered_search(TextInput::create_search().with_theme(theme));
+                let (_, changes, _) = run(
+                    Env::new(styled_dom).hit(dom_node(FIELD)).insert("a"),
+                    |info| default_on_text_input(state.clone(), info),
+                );
+                assert_eq!(
+                    displays_pushed_to(&changes, CLEAR).first().copied(),
+                    built,
+                    "{theme:?}: the live show writes another display than the build"
+                );
+            }
+        }
     }
 
     // ==================================================================
