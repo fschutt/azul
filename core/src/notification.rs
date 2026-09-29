@@ -274,8 +274,11 @@ pub struct NotificationEvent {
     /// `true` when this event is what started the process: a tap on a
     /// notification of an app that was not running. Set where the platform
     /// says so (the Android launch `Intent`, macOS's
-    /// `NSApplicationLaunchUserNotificationKey`); `false` elsewhere, and on
-    /// iOS, whose delegate cannot tell a launch from a resume.
+    /// `NSApplicationLaunchUserNotificationKey`, a Windows toast activator
+    /// that COM started the app for with `-ToastActivated`) and on iOS, which
+    /// names nothing for a local notification, for the first response that
+    /// arrives before the app first became active. `false` elsewhere (on
+    /// Linux a click on a notification of an exited app reaches no process).
     pub launched_app: bool,
 }
 
