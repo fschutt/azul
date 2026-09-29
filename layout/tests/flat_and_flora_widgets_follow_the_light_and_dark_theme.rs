@@ -415,3 +415,26 @@ fn chips_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn alerts_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::alert::{Alert, AlertKind};
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for kind in [
+            AlertKind::Info,
+            AlertKind::Success,
+            AlertKind::Warning,
+            AlertKind::Danger,
+        ] {
+            widgets.push((
+                format!("{look} alert {kind:?}"),
+                Alert::with_kind(AzString::from("Message"), kind)
+                    .with_dismissible(true)
+                    .with_theme(theme)
+                    .dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}

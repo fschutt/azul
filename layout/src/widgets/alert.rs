@@ -1870,3 +1870,263 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look an alert renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::basic::pixel::PixelValue,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    const KINDS: [AlertKind; 4] = [
+        AlertKind::Info,
+        AlertKind::Success,
+        AlertKind::Warning,
+        AlertKind::Danger,
+    ];
+
+    fn alert(kind: AlertKind, theme: UiTheme) -> Dom {
+        Alert::with_kind(AzString::from_const_str("Saved"), kind)
+            .with_dismissible(true)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The focus ring's colour, light and dark (a `:focus` shadow or top
+    /// border).
+    fn focus_ring(node: &Dom) -> (Option<ColorU>, Option<ColorU>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [PseudoStateType::Focus] {
+                continue;
+            }
+            let colour = shadow_colour(&d.property).or(match &d.property {
+                CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            });
+            if colour.is_none() {
+                continue;
+            }
+            if d.is_dark_twin() {
+                dark = colour;
+            } else {
+                light = colour;
+            }
+        }
+        (light, dark)
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn left_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderLeftColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn left_width(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderLeftWidth(v) => v.get_property().map(|w| w.inner),
+            _ => None,
+        }
+    }
+
+    fn close(dom: &Dom) -> &Dom {
+        dom.children
+            .as_ref()
+            .iter()
+            .find(|c| c.root.has_class("__azul-native-alert-close"))
+            .expect("a dismissible alert has a close button")
+    }
+
+    /// Each kind's flora stone: its tint, its face (the thread by day) and its
+    /// glow (the thread at night).
+    fn stone(kind: AlertKind) -> (ColorU, ColorU, ColorU) {
+        match kind {
+            AlertKind::Info => (flora::LIGHT_SOFT, flora::LIGHT_ACC, flora::LIGHT_GLOW),
+            AlertKind::Success => (
+                ColorU::rgb(0xE1, 0xE6, 0xE1),
+                ColorU::rgb(0x44, 0x68, 0x4F),
+                ColorU::rgb(0x7F, 0xA9, 0x8C),
+            ),
+            AlertKind::Warning => (
+                ColorU::rgb(0xF1, 0xE6, 0xD6),
+                ColorU::rgb(0x8A, 0x5A, 0x1E),
+                ColorU::rgb(0xC4, 0x93, 0x5A),
+            ),
+            AlertKind::Danger => (
+                ColorU::rgb(0xEA, 0xE0, 0xDD),
+                ColorU::rgb(0x7E, 0x4A, 0x42),
+                ColorU::rgb(0xB3, 0x83, 0x7A),
+            ),
+        }
+    }
+
+    #[test]
+    fn an_alert_without_a_theme_renders_flat() {
+        let plain = Alert::create(AzString::from_const_str("Saved"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Alert::create(AzString::from_const_str("Saved"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Alert::create(AzString::from_const_str("Saved")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_alerts_close_button_shows_a_focus_ring_by_day_and_night() {
+        for kind in KINDS {
+            let dom = alert(kind, UiTheme::Flat);
+            let (light, dark) = focus_ring(close(&dom));
+            assert!(light.is_some(), "{kind:?}: the x takes the keyboard and shows no ring");
+            assert!(dark.is_some(), "{kind:?}: the ring has no night twin");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_is_a_paper_leaf_washed_with_its_kind_and_threaded_in_its_stone() {
+        for kind in KINDS {
+            let (soft, face, _) = stone(kind);
+            let rest = theme_probe::unconditional(&alert(kind, UiTheme::Flora));
+            assert_eq!(
+                last(&rest, bg),
+                Some(vec![StyleBackgroundContent::Color(soft)]),
+                "{kind:?}: a pale wash of the stone, never a saturated field"
+            );
+            assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD), "{kind:?}: a hairline");
+            assert_eq!(last(&rest, left_edge), Some(face), "{kind:?}: the thread");
+            assert_eq!(
+                last(&rest, left_width),
+                Some(PixelValue::const_px(3)),
+                "{kind:?}: the thread is heavier than the hairline"
+            );
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_at_night_sits_on_the_night_surface_with_a_glowing_thread() {
+        for kind in KINDS {
+            let (_, _, glow) = stone(kind);
+            let dark = theme_probe::dark(&alert(kind, UiTheme::Flora));
+            assert_eq!(
+                last(&dark, bg),
+                Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)]),
+                "{kind:?}: no pastel island at night"
+            );
+            assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD), "{kind:?}");
+            assert_eq!(last(&dark, left_edge), Some(glow), "{kind:?}: the thread glows");
+            assert_eq!(last(&dark, ink), Some(flora::DARK_INK), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_lies_on_the_page_with_flora_s_shadow_in_both_modes() {
+        let dom = alert(AlertKind::Info, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        let dark = theme_probe::dark(&dom);
+        assert!(last(&rest, shadow_colour).is_some(), "--fl-shadow-1 by day");
+        assert!(last(&dark, shadow_colour).is_some(), "and its night value");
+    }
+
+    #[test]
+    fn a_flora_alerts_close_button_rings_in_flora_s_focus_colour() {
+        let dom = alert(AlertKind::Danger, UiTheme::Flora);
+        assert_eq!(
+            focus_ring(close(&dom)),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW))
+        );
+    }
+
+    #[test]
+    fn a_flora_alert_keeps_the_close_buttons_behaviour() {
+        let dom = alert(AlertKind::Warning, UiTheme::Flora);
+        let x = close(&dom);
+        assert!(x.root.get_tab_index().is_some());
+        assert_eq!(x.root.get_callbacks().as_ref().len(), 1);
+        assert!(x
+            .root
+            .get_accessibility_info()
+            .and_then(|a| a.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+            .is_some_and(|n| n == "Close"));
+    }
+
+    #[test]
+    fn a_flora_alert_carries_the_flora_theme_marker() {
+        let dom = alert(AlertKind::Info, UiTheme::Flora);
+        assert!(dom.root.has_class("__azul-native-alert"));
+        assert!(dom.root.has_class("__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_container_style_wins_over_the_flora_look() {
+        let own = Alert::create(AzString::from_const_str("m"))
+            .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(own.root.style.iter_inline_properties().count(), 0);
+    }
+}
