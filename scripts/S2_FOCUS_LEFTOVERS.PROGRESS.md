@@ -40,14 +40,14 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 - 1430889fe audit (this file).
 - Item 6: a74bcd02e RED (3 focus_return_tests + 1 guard), 370f9c0d8 fix.
 - Item 5c: ce6b04250 widgets.c sets `AzTreeView_setOnNodeToggle`.
+- Item 3: cc315ff95 RED (layout/tests/backdrop_follows_window_activation.rs x4 + css parser test), 6e28a514d fix (parser name, cascade collection + inheritance tier, resolver tier, `StyledDom::sync_backdrop_state`).
 
 ## IN PROGRESS
 
-- Item 3.
+- Item 4.
 
 ## NEXT
 
-3. Item 3: stylesheet `:backdrop` (prop_cache collection + resolver tier), layout test.
 4. Item 4: stepper one tab stop + arrows (roving); decide on the time-picker columns.
 5. Item 5a: a11y live states in radio / segmented / tabs / list / tree.
 6. Items 1+2: combobox active descendant + non-activating keep-focus popups.
