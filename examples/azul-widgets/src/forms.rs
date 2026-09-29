@@ -261,7 +261,8 @@ fn output(title: &str, lines: &[String], verdict: &str) -> Dom {
         );
     }
     for line in lines {
-        block = block.with_child(Dom::create_span_with_text(line.as_str()).with_css(OUTPUT_LINE_CSS));
+        block =
+            block.with_child(Dom::create_span_with_text(line.as_str()).with_css(OUTPUT_LINE_CSS));
     }
     captioned(
         title,
@@ -276,7 +277,7 @@ fn output(title: &str, lines: &[String], verdict: &str) -> Dom {
 /// submitted in the clear (as in HTML); the page shows one bullet per
 /// character instead.
 fn describe(form_data: &FormData) -> (Vec<String>, String) {
-    let lines = form_data
+    let lines: Vec<String> = form_data
         .entries
         .as_slice()
         .iter()
@@ -315,7 +316,12 @@ fn describe(form_data: &FormData) -> (Vec<String>, String) {
 
 /// The `n`-th option of the select, counting through both optgroups.
 fn food_label(n: usize) -> &'static str {
-    FRUIT.iter().chain(VEGETABLES.iter()).nth(n).copied().unwrap_or("")
+    FRUIT
+        .iter()
+        .chain(VEGETABLES.iter())
+        .nth(n)
+        .copied()
+        .unwrap_or("")
 }
 
 /// `#rrggbb`, as `<input type=color>` submits it.
@@ -578,7 +584,11 @@ pub(crate) fn every_input_section(data: &RefAny, demo: &FormDemo, theme: UiTheme
             .with_theme(theme)
             .dom(),
         ),
-        field("Newsletter", "type=checkbox", beside(checkbox, "Send me the newsletter")),
+        field(
+            "Newsletter",
+            "type=checkbox",
+            beside(checkbox, "Send me the newsletter"),
+        ),
         field(
             "Plan",
             "type=radio",
@@ -613,7 +623,9 @@ pub(crate) fn every_input_section(data: &RefAny, demo: &FormDemo, theme: UiTheme
         field(
             "Form id",
             "type=hidden (invisible, submitted as form-id = sign-up)",
-            HiddenInput::create("form-id", "sign-up").with_theme(theme).dom(),
+            HiddenInput::create("form-id", "sign-up")
+                .with_theme(theme)
+                .dom(),
         ),
     ]);
 
@@ -814,7 +826,9 @@ fn xml_controls() -> Dom {
         .first()
         .map(|body| body.children.clone());
     match body_content {
-        Some(children) => Dom::create_div().with_css(COLUMN_CSS).with_children(children),
+        Some(children) => Dom::create_div()
+            .with_css(COLUMN_CSS)
+            .with_children(children),
         None => document,
     }
 }
@@ -824,8 +838,14 @@ fn xml_controls() -> Dom {
 pub(crate) fn raw_inputs_section(data: &RefAny, demo: &FormDemo, theme: UiTheme) -> Dom {
     let form = Form::create(vec![Dom::create_div()
         .with_css(COLUMNS_CSS)
-        .with_child(captioned("Built in Rust (Dom::create_input)", rust_controls()))
-        .with_child(captioned("Parsed from XML (Dom::create_from_parsed_xml)", xml_controls()))])
+        .with_child(captioned(
+            "Built in Rust (Dom::create_input)",
+            rust_controls(),
+        ))
+        .with_child(captioned(
+            "Parsed from XML (Dom::create_from_parsed_xml)",
+            xml_controls(),
+        ))])
     .with_on_submit(data.clone(), on_raw_submit)
     .with_on_reset(data.clone(), on_raw_reset)
     .with_accessibility_name("Raw HTML inputs")
@@ -883,28 +903,60 @@ fn keep(data: &mut RefAny, put: impl FnOnce(&mut FormValues)) -> Update {
     }
 }
 
-extern "C" fn on_full_name(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_full_name(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.full_name = t)
 }
-extern "C" fn on_password(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_password(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.password = t)
 }
-extern "C" fn on_query(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_query(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.query = t)
 }
-extern "C" fn on_email(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_email(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.email = t)
 }
-extern "C" fn on_phone(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_phone(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.phone = t)
 }
-extern "C" fn on_website(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_website(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.website = t)
 }
-extern "C" fn on_postcode(mut data: RefAny, _: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_postcode(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     keep_text(&mut data, state.get_text(), |v, t| v.postcode = t)
 }
-extern "C" fn on_notes(mut data: RefAny, _: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
+extern "C" fn on_notes(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextAreaState,
+) -> OnTextInputReturn {
     keep_text(&mut data, text_area_text(&state).into(), |v, t| v.notes = t)
 }
 extern "C" fn on_browser(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
@@ -992,9 +1044,13 @@ extern "C" fn on_form_submit(mut data: RefAny, _: CallbackInfo, form_data: FormD
 /// Everything the user TYPED is still held by the engine until the app's
 /// rebuilt page carries it - an edit the app has not acknowledged outranks a
 /// rebuilt field that says otherwise. Acknowledge every edit, so the rebuild
-/// that follows (from the initial values) is what every field shows. Every
-/// other text field on the page hands its text back on each rebuild, so
-/// nothing else changes.
+/// that follows (from the initial values) is what every field shows.
+///
+/// The ack is for the whole window, so every other text field must be
+/// rebuilt with its text: the page's TextInputs and TextAreas hand theirs
+/// back, and the engine's form memory holds what was typed into the raw
+/// fields. (Text typed into a ComboBox but never picked is the exception: it
+/// falls back to the last pick.)
 fn ack_typed_text(info: &mut CallbackInfo) {
     let revision = info.get_document_text_revision();
     info.mark_text_revision_synced(revision);
@@ -1002,14 +1058,18 @@ fn ack_typed_text(info: &mut CallbackInfo) {
 
 /// The form's own reset has already emptied its text fields; this puts every
 /// value back to where the page started (the controls are rebuilt from them).
-extern "C" fn on_form_reset(mut data: RefAny, mut info: CallbackInfo, _initial: FormData) -> Update {
+extern "C" fn on_form_reset(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _initial: FormData,
+) -> Update {
     ack_typed_text(&mut info);
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
             s.form.values = FormValues::initial();
             s.form.submitted = Vec::new();
-            s.form.verdict = "Reset: every field is back at the value the page started with."
-                .to_string();
+            s.form.verdict =
+                "Reset: every field is back at the value the page started with.".to_string();
             s.interactions += 1;
             Update::RefreshDom
         }
@@ -1037,7 +1097,8 @@ extern "C" fn on_raw_reset(mut data: RefAny, mut info: CallbackInfo, _initial: F
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
             s.form.raw_submitted = Vec::new();
-            s.form.raw_verdict = "Reset: every raw control is back at its HTML default.".to_string();
+            s.form.raw_verdict =
+                "Reset: every raw control is back at its HTML default.".to_string();
             s.interactions += 1;
             Update::RefreshDom
         }
