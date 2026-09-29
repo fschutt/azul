@@ -122,7 +122,7 @@ pub struct TimePicker {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the frame, spinners and
     /// toggle are built from, so switching it rebuilds the picker.
     pub theme: OptionUiTheme,
@@ -440,6 +440,35 @@ pub(crate) fn skin_for(theme: UiTheme) -> TimePickerSkin {
     }
 }
 
+/// The skin an UNPINNED time picker is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the frame) and every part
+/// in BOTH themes' blocks (`themes::flat::follow_props`).
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> TimePickerSkin {
+    use crate::widgets::themes::flat::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    TimePickerSkin {
+        theme: structure,
+        container: both(flat.container.as_slice(), flora.container.as_slice()),
+        spinner: both(flat.spinner.as_slice(), flora.spinner.as_slice()),
+        arrow: both(flat.arrow.as_slice(), flora.arrow.as_slice()),
+        display: both(flat.display.as_slice(), flora.display.as_slice()),
+        separator: both(flat.separator.as_slice(), flora.separator.as_slice()),
+        ampm: both(flat.ampm.as_slice(), flora.ampm.as_slice()),
+    }
+}
+
+/// The skin a picker carrying `theme` renders with: the pinned theme's, or
+/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
+/// built for. What the render and `resolved_container_style` both ask.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> TimePickerSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
+    }
+}
+
 impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
@@ -468,8 +497,8 @@ impl TimePicker {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the picker renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the picker follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -489,9 +518,10 @@ impl TimePicker {
     /// same skin the render uses, so the two cannot drift.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
-        self.container_style.clone().into_option().unwrap_or_else(|| {
-            skin_for(self.theme.into_option().unwrap_or_default()).container
-        })
+        self.container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).container)
     }
 
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
@@ -556,13 +586,16 @@ impl TimePicker {
     }
 
     /// Renders the picker. Rendering goes through the theme modules (as
-    /// `Button::dom` does): each hands [`Self::build`] its skin.
-    /// `UiTheme::default()` is flat.
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the picker follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::time_picker(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::time_picker(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::time_picker(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -1884,8 +1917,9 @@ mod autotest_generated {
     #[test]
     fn create_uses_the_shared_const_container_style() {
         // A per-instance style vec would allocate on every rebuild; the widget is
-        // deliberately built from a `'static` slice.
-        let p = TimePicker::create(9, 15);
+        // deliberately built from a `'static` slice. (The flat frame: an
+        // unpinned picker carries every theme's blocks.)
+        let p = TimePicker::create(9, 15).with_theme(UiTheme::Flat);
         assert_eq!(
             properties(&p.resolved_container_style()),
             CONTAINER_STYLE

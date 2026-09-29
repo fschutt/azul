@@ -37,13 +37,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   extracted; `radio_group::{skin_for, follow_skin}`; no existing pin needed changing - the
   default-widget tests read properties both looks declare alike)
 
+- time_picker: RED 9764b7244, impl: see git log (`time_picker::{follow_skin, skin_of}`;
+  `resolved_container_style` answers the follow skin; the const-container pin pins
+  `with_theme(Flat)`)
+
 ## IN PROGRESS
 
-- time_picker
+- toast
 
 ## NEXT
 
-time_picker, toast,
+toast,
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
