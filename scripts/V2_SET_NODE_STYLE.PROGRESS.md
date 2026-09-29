@@ -14,7 +14,7 @@ Branch `wt/v2-set-node-style`, base `d240a1b1d`.
 - none
 
 ## NEXT
-- Report `scripts/V2_SET_NODE_STYLE_2026_09_29.md` (api.json list, inline-vs-component audit).
+- none: report `scripts/V2_SET_NODE_STYLE_2026_09_29.md` committed. Parent: api.json autofix + codegen, run tests.
 
 ## Open questions
 - api.json still lists `set_node_inline_style`: the parent must run autofix + `codegen all`
