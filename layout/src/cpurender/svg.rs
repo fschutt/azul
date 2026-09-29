@@ -2862,7 +2862,7 @@ mod autotest_generated {
             "a shape with no fill is black, a literal colour"
         );
         assert!(!svg_uses_only_current_color(
-            br#"<svg><path d="M0 0h4v4z" fill="#ff0000"/></svg>"#
+            br##"<svg><path d="M0 0h4v4z" fill="#ff0000"/></svg>"##
         ));
         assert!(
             !svg_uses_only_current_color(br#"<svg><path d="M0 0h4v4z" fill="none"/></svg>"#),

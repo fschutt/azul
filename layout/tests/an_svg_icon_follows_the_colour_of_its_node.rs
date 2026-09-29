@@ -33,7 +33,7 @@ use azul_layout::{
 };
 
 const DOT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" fill="currentColor"/></svg>"#;
-const TWO_TONE: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="8" height="16" fill="#000000"/><rect x="8" width="8" height="16" fill="#00ff00"/></svg>"#;
+const TWO_TONE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="8" height="16" fill="#000000"/><rect x="8" width="8" height="16" fill="#00ff00"/></svg>"##;
 
 const BLUE: ColorU = ColorU {
     r: 20,
