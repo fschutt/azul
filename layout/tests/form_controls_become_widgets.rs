@@ -1252,3 +1252,329 @@ mod dedicated_widgets {
         );
     }
 }
+
+// ── <form> ──────────────────────────────────────────────────────────────────
+
+/// A raw `<form>` - `Dom::create_form*` or XML - becomes a `Form`: its
+/// controls are collected into `FormData`, Enter in a field and a submit
+/// button submit it, a reset button resets it, and the app's own `Submit` /
+/// `Reset` handlers on the raw form run exactly when a `Form`'s `on_submit` /
+/// `on_reset` would - once each.
+mod forms {
+    use std::collections::HashMap;
+
+    use azul_core::window::VirtualKeyCode;
+    use azul_layout::{
+        solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::form::{
+            collect_form_data, default_on_form_button_click, default_on_form_submit_event,
+            reset_form, submit_form, Form, FormData, FormOnSubmitCallbackType, FormStateWrapper,
+        },
+        window::DomLayoutResult,
+    };
+
+    use super::*;
+
+    /// Make `styled` the window's root DOM the way a layout pass leaves it,
+    /// without laying it out: the form handlers only walk the node tree and
+    /// read datasets and attributes.
+    pub(super) fn mount(lw: &mut LayoutWindow, styled: StyledDom) {
+        lw.layout_results.insert(
+            DomId::ROOT_ID,
+            DomLayoutResult {
+                styled_dom: styled,
+                layout_tree: LayoutTree {
+                    nodes: Vec::new(),
+                    warm: Vec::new(),
+                    cold: Vec::new(),
+                    root: 0,
+                    dom_to_layout: BTreeMap::new(),
+                    children_arena: Vec::new(),
+                    children_offsets: Vec::new(),
+                    subtree_needs_intrinsic: Vec::new(),
+                },
+                calculated_positions: Vec::new(),
+                viewport: LogicalRect::zero(),
+                display_list: Arc::new(DisplayList::default()),
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+            },
+        );
+    }
+
+    /// `<input type=ty name=name>`.
+    pub(super) fn named(ty: &str, name: &str) -> Dom {
+        Dom::create_input_no_a11y(ty.into(), name.into(), name.into())
+    }
+
+    pub(super) fn pairs(data: &FormData) -> Vec<(String, String)> {
+        data.entries
+            .as_ref()
+            .iter()
+            .map(|e| (e.name.as_str().to_string(), e.value.as_str().to_string()))
+            .collect()
+    }
+
+    pub(super) fn owned(expected: &[(&str, &str)]) -> Vec<(String, String)> {
+        expected
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// The one form node of `styled`.
+    pub(super) fn the_form(styled: &StyledDom) -> NodeId {
+        let forms: Vec<NodeId> = all_nodes(styled)
+            .into_iter()
+            .filter(|id| matches!(node(styled, *id).get_node_type(), NodeType::Form))
+            .collect();
+        assert_eq!(forms.len(), 1, "one form: {:?}", node_types(styled));
+        forms[0]
+    }
+
+    /// The initial values the form node recorded at build, if it is a `Form`.
+    pub(super) fn initial_values(styled: &StyledDom, form: NodeId) -> Option<Vec<(String, String)>> {
+        let mut ds = node(styled, form).get_dataset().cloned()?;
+        let initial = ds
+            .downcast_ref::<FormStateWrapper>()
+            .map(|state| pairs(&state.initial));
+        initial
+    }
+
+    /// What the app's raw-form handlers saw.
+    #[derive(Default)]
+    pub(super) struct Calls {
+        pub(super) submits: Vec<Vec<(String, String)>>,
+        pub(super) resets: usize,
+    }
+
+    /// The app's `Submit` handler on a RAW form: a plain callback. It reads
+    /// the values from whichever node the event hit (the form, a button, a
+    /// field) - `collect_form_data` finds the enclosing form.
+    pub(super) extern "C" fn app_on_submit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+        let hit = info.get_hit_node();
+        let values = collect_form_data(&mut info, hit)
+            .map(|d| pairs(&d))
+            .unwrap_or_default();
+        if let Some(mut calls) = data.downcast_mut::<Calls>() {
+            calls.submits.push(values);
+        }
+        Update::RefreshDom
+    }
+
+    pub(super) extern "C" fn app_on_reset(mut data: RefAny, _info: CallbackInfo) -> Update {
+        if let Some(mut calls) = data.downcast_mut::<Calls>() {
+            calls.resets += 1;
+        }
+        Update::DoNothing
+    }
+
+    pub(super) fn submits(calls: &RefAny) -> Vec<Vec<(String, String)>> {
+        let mut calls = calls.clone();
+        let submits = calls.downcast_ref::<Calls>().expect("calls").submits.clone();
+        submits
+    }
+
+    pub(super) fn resets(calls: &RefAny) -> usize {
+        let mut calls = calls.clone();
+        let resets = calls.downcast_ref::<Calls>().expect("calls").resets;
+        resets
+    }
+
+    /// `<form id=signup>` around `children`, with the app's own Submit and
+    /// Reset handlers on it.
+    pub(super) fn raw_form(calls: &RefAny, children: Vec<Dom>) -> Dom {
+        let mut form = Dom::create_form_no_a11y()
+            .with_id("signup".into())
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Submit),
+                calls.clone(),
+                Callback::from_ptr(app_on_submit).to_core(),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Reset),
+                calls.clone(),
+                Callback::from_ptr(app_on_reset).to_core(),
+            );
+        for child in children {
+            form = form.with_child(child);
+        }
+        form
+    }
+
+    fn signup(calls: &RefAny) -> Dom {
+        page(raw_form(
+            calls,
+            vec![
+                named("text", "user").with_attribute(AttributeType::Value("ann".into())),
+                named("submit", "go"),
+                named("reset", "clear"),
+            ],
+        ))
+    }
+
+    /// The node carrying a callback to `cb`, and that callback's payload.
+    fn with_callback_to(styled: &StyledDom, cb: usize) -> (NodeId, RefAny) {
+        all_nodes(styled)
+            .into_iter()
+            .find_map(|id| {
+                node(styled, id)
+                    .get_callbacks()
+                    .as_slice()
+                    .iter()
+                    .find(|c| c.callback.cb == cb)
+                    .map(|c| (id, c.refany.clone()))
+            })
+            .expect("no node carries that callback")
+    }
+
+    #[test]
+    fn a_raw_form_becomes_a_form_that_records_its_initial_values() {
+        let calls = RefAny::new(Calls::default());
+        let lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let form = the_form(&styled);
+        assert_eq!(
+            initial_values(&styled, form),
+            Some(owned(&[("user", "ann")])),
+            "the form node carries the form state (buttons submit no value)"
+        );
+        assert!(node(&styled, form).has_id("signup"), "the form keeps its identity");
+    }
+
+    #[test]
+    fn submitting_a_raw_form_runs_the_apps_submit_handler_once_with_the_values() {
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let form = the_form(&styled);
+        mount(&mut lw, styled);
+        let (update, _) = with_info(&lw, dom_node(form), |mut info| {
+            submit_form(&mut info, dom_node(form))
+        });
+        assert_eq!(update, Update::RefreshDom, "the app's verdict");
+        assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
+    }
+
+    #[test]
+    fn the_engines_submit_event_reaches_the_apps_handler_exactly_once() {
+        // The engine dispatches `Submit` to EVERY Submit handler on the form
+        // node. The app's handler runs as the form's `on_submit`, so it must
+        // not also stay on the node, or it would run twice.
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let form = the_form(&styled);
+        let submit_handlers: Vec<_> = node(&styled, form)
+            .get_callbacks()
+            .as_slice()
+            .iter()
+            .filter(|c| c.event == EventFilter::Hover(HoverEventFilter::Submit))
+            .cloned()
+            .collect();
+        assert_eq!(submit_handlers.len(), 1, "only the form's own Submit handler");
+        assert_eq!(
+            submit_handlers[0].callback.cb,
+            default_on_form_submit_event as usize
+        );
+        mount(&mut lw, styled);
+        let payload = submit_handlers[0].refany.clone();
+        let _ = with_info(&lw, dom_node(form), |info| {
+            default_on_form_submit_event(payload, info)
+        });
+        assert_eq!(submits(&calls).len(), 1);
+    }
+
+    #[test]
+    fn a_submit_button_in_a_raw_form_submits_it() {
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let (button, payload) = with_callback_to(&styled, default_on_form_button_click as usize);
+        mount(&mut lw, styled);
+        let _ = with_info(&lw, dom_node(button), |info| {
+            default_on_form_button_click(payload, info)
+        });
+        assert_eq!(
+            submits(&calls),
+            vec![owned(&[("user", "ann")])],
+            "values read from the BUTTON's event"
+        );
+    }
+
+    #[test]
+    fn enter_in_a_text_field_of_a_raw_form_submits_it() {
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        let state = node(&styled, field)
+            .get_dataset()
+            .cloned()
+            .expect("the field's state");
+        mount(&mut lw, styled);
+        lw.current_window_state.keyboard_state.current_virtual_keycode =
+            Some(VirtualKeyCode::Return).into();
+        let _ = with_info(&lw, dom_node(field), |info| {
+            azul_layout::widgets::text_input::default_on_virtual_key_down(state, info)
+        });
+        assert_eq!(submits(&calls).len(), 1, "HTML's implicit submission");
+    }
+
+    #[test]
+    fn resetting_a_raw_form_runs_the_apps_reset_handler_once() {
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(signup(&calls));
+        let form = the_form(&styled);
+        mount(&mut lw, styled);
+        let _ = with_info(&lw, dom_node(form), |mut info| {
+            reset_form(&mut info, dom_node(form))
+        });
+        assert_eq!(resets(&calls), 1);
+        assert!(submits(&calls).is_empty());
+    }
+
+    #[test]
+    fn an_xml_form_becomes_a_form() {
+        let xml = r#"<html><body>
+            <form id="search">
+                <input name="q" value="rust" />
+                <input type="submit" value="Go" />
+            </form>
+        </body></html>"#;
+        let parsed = azul_layout::xml::parse_xml(xml).expect("parses");
+        let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+        let lw = styling_window();
+        let styled = lw.style_user_dom(dom);
+        let form = the_form(&styled);
+        assert_eq!(initial_values(&styled, form), Some(owned(&[("q", "rust")])));
+    }
+
+    extern "C" fn app_form_data(mut data: RefAny, _info: CallbackInfo, form_data: FormData) -> Update {
+        if let Some(mut calls) = data.downcast_mut::<Calls>() {
+            calls.submits.push(pairs(&form_data));
+        }
+        Update::DoNothing
+    }
+
+    #[test]
+    fn a_form_the_app_built_is_left_as_it_is() {
+        // A `Form` widget renders a form node too; it is not a raw form, and
+        // replacing it would drop the app's `on_submit`.
+        let calls = RefAny::new(Calls::default());
+        let built = Form::create(vec![named("text", "user")
+            .with_attribute(AttributeType::Value("ann".into()))]
+        .into())
+        .with_on_submit(calls.clone(), app_form_data as FormOnSubmitCallbackType)
+        .dom();
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(page(built));
+        let form = the_form(&styled);
+        mount(&mut lw, styled);
+        let _ = with_info(&lw, dom_node(form), |mut info| {
+            submit_form(&mut info, dom_node(form))
+        });
+        assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
+    }
+}
