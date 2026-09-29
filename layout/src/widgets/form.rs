@@ -14,7 +14,15 @@
 //!   holds its state as its dataset - `TextInput::with_name`,
 //!   `DatePicker::with_name`, `DateTimeLocalPicker::with_name`,
 //!   `HiddenInput`. Any other node with `name` and `value` attributes
-//!   contributes its `value`. Controls without a name are left out, as in HTML.
+//!   contributes its `value`. Controls without a name, and disabled ones,
+//!   are left out, as in HTML.
+//! * A RAW control (`<input>`, `<select>`, `<textarea>`) participates too:
+//!   the form-control replacement (`crate::form_controls`) turns it into a
+//!   widget and knows how HTML spells its value - a checkbox's `value` ("on"
+//!   by default) only while checked, a radio group's checked value, a
+//!   select's chosen option VALUE, a range's number - both for the form's
+//!   initial values (its HTML default) and for a submit (the user's value,
+//!   read from the window's `FormControlMemory`).
 //! * [`Form`] renders a `NodeType::Form` node (so the engine's defaults find
 //!   it) holding a [`FormStateWrapper`] as its dataset. At BUILD it records
 //!   each named control's value as the form's INITIAL [`FormData`] - HTML's
@@ -54,10 +62,12 @@ use azul_css::{
 
 use crate::{
     callbacks::CallbackInfo,
+    form_controls::Submission,
     widgets::{
         button::ButtonFormAction,
         date_picker::DatePickerData,
         datetime_local::DateTimeLocalPickerStateWrapper,
+        text_area::TextAreaStateWrapper,
         text_input::TextInputStateWrapper,
     },
 };
@@ -425,41 +435,90 @@ struct ControlValue {
     valid: bool,
 }
 
+/// The LIVE value of the control whose state is `dataset`, if it is a widget
+/// this module knows: the text the user typed, the date they picked.
+fn probe_state(dataset: Option<RefAny>) -> Option<ControlValue> {
+    let mut dataset = dataset?;
+    // One probe per statement: each shared borrow of the state ends before
+    // the next one is taken.
+    let text = dataset
+        .downcast_ref::<TextInputStateWrapper>()
+        .map(|w| ControlValue {
+            value: AzString::from(w.inner.get_text()),
+            valid: w.inner.compute_validity().is_valid(),
+        });
+    if text.is_some() {
+        return text;
+    }
+    let area = dataset
+        .downcast_ref::<TextAreaStateWrapper>()
+        .map(|w| ControlValue {
+            value: AzString::from(w.inner.get_text()),
+            valid: true,
+        });
+    if area.is_some() {
+        return area;
+    }
+    let date = dataset
+        .downcast_ref::<DatePickerData>()
+        .map(|d| ControlValue {
+            value: AzString::from(d.form_value()),
+            valid: true,
+        });
+    if date.is_some() {
+        return date;
+    }
+    let date_time = dataset
+        .downcast_ref::<DateTimeLocalPickerStateWrapper>()
+        .map(|w| ControlValue {
+            value: AzString::from(w.inner.to_html_value()),
+            valid: true,
+        });
+    date_time
+}
+
 /// The value of the control whose state is `dataset` (if it is a widget this
 /// module knows) or, failing that, its `value` attribute.
 fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> Option<ControlValue> {
-    // One probe per statement: each shared borrow of the state ends before
-    // the next one is taken.
-    if let Some(mut dataset) = dataset {
-        let text = dataset
-            .downcast_ref::<TextInputStateWrapper>()
-            .map(|w| ControlValue {
-                value: AzString::from(w.inner.get_text()),
-                valid: w.inner.compute_validity().is_valid(),
-            });
-        if text.is_some() {
-            return text;
-        }
-        let date = dataset
-            .downcast_ref::<DatePickerData>()
-            .map(|d| ControlValue {
-                value: AzString::from(d.form_value()),
-                valid: true,
-            });
-        if date.is_some() {
-            return date;
-        }
-        let date_time = dataset
-            .downcast_ref::<DateTimeLocalPickerStateWrapper>()
-            .map(|w| ControlValue {
-                value: AzString::from(w.inner.to_html_value()),
-                valid: true,
-            });
-        if date_time.is_some() {
-            return date_time;
-        }
+    probe_state(dataset).or_else(|| value_attribute.map(|value| ControlValue { value, valid: true }))
+}
+
+/// What the form-control replacement (`crate::form_controls`) reports for a
+/// raw control, as this module's [`ControlValue`] - `None` for "submits
+/// nothing"; `unknown` answers when it knows nothing of the node.
+fn from_submission(
+    submission: Submission,
+    unknown: impl FnOnce() -> Option<ControlValue>,
+) -> Option<ControlValue> {
+    match submission {
+        Submission::Value(value) => Some(ControlValue {
+            value: AzString::from(value),
+            valid: true,
+        }),
+        Submission::Nothing => None,
+        Submission::Unknown => unknown(),
     }
-    value_attribute.map(|value| ControlValue { value, valid: true })
+}
+
+/// What the replacement's memory says the RENDERED replaced control `node`
+/// submits now (by the [`crate::form_controls::MEMORY_KEY_ATTRIBUTE`] on its
+/// root). [`Submission::Unknown`] for any other node.
+fn replaced_submission(info: &CallbackInfo, node: DomNodeId) -> Submission {
+    let Some(id) = node.node.into_crate_internal() else {
+        return Submission::Unknown;
+    };
+    let layout_window = info.get_layout_window();
+    let Some(layout) = layout_window.get_layout_result(&node.dom) else {
+        return Submission::Unknown;
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    let Some(key) = node_data
+        .get(id)
+        .and_then(|data| memory_key_of(data.attributes().as_ref()))
+    else {
+        return Submission::Unknown;
+    };
+    layout_window.form_control_memory.submission(key)
 }
 
 /// Whether `dataset` is the state of a control this module reads.
@@ -470,11 +529,19 @@ fn is_control_state(dataset: &RefAny) -> bool {
     if d.downcast_ref::<TextInputStateWrapper>().is_some() {
         return true;
     }
+    if d.downcast_ref::<TextAreaStateWrapper>().is_some() {
+        return true;
+    }
     if d.downcast_ref::<DatePickerData>().is_some() {
         return true;
     }
     let is_datetime = d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some();
     is_datetime
+}
+
+/// HTML leaves a DISABLED control out of the form data set.
+fn is_disabled(attributes: &[AttributeType]) -> bool {
+    attributes.iter().any(|a| matches!(a, AttributeType::Disabled))
 }
 
 /// The dataset of an UNSTYLED named node: its own, or - for a widget whose
@@ -528,14 +595,24 @@ fn value_attribute_of(attributes: &[AttributeType]) -> Option<AzString> {
 
 /// Collects `name`/value pairs from the UNSTYLED children of a form being
 /// built. A named control's own subtree is its business and is not searched.
+///
+/// A RAW control (`<input>`, `<select>`, `<textarea>` the form-control
+/// replacement turns into a widget once the form is built) contributes its
+/// HTML default, spelled as that widget will submit it: a checkbox only
+/// while checked, a select its chosen option's value.
 fn collect_initial(children: &[Dom], entries: &mut Vec<FormEntry>, invalid: &mut Vec<AzString>) {
     for child in children {
         let attributes = child.root.attributes();
         if let Some(name) = name_of(attributes.as_ref()) {
-            let value = control_value(
-                built_control_state(child),
-                value_attribute_of(attributes.as_ref()),
-            );
+            if name.as_str().is_empty() || is_disabled(attributes.as_ref()) {
+                continue;
+            }
+            let value = from_submission(crate::form_controls::default_submission(child), || {
+                control_value(
+                    built_control_state(child),
+                    value_attribute_of(attributes.as_ref()),
+                )
+            });
             if let Some(value) = value {
                 if !value.valid {
                     invalid.push(name.clone());
@@ -591,9 +668,23 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
     let mut invalid = Vec::new();
     let mut invalid_nodes = Vec::new();
     for (node, name) in named_controls(info, form) {
+        // HTML: no entry for an unnamed or a disabled control.
+        if name.as_str().is_empty() || info.get_node_attribute(node, "disabled").is_some() {
+            continue;
+        }
         let (field, dataset) = control_state(info, node);
-        let value_attribute = info.get_node_attribute(node, "value");
-        if let Some(value) = control_value(dataset, value_attribute) {
+        // The widget's live state first (typed text, a picked date); then
+        // what the form-control replacement knows of a raw control whose
+        // widget keeps nothing readable on its root (a checkbox, a slider,
+        // a drop-down); then the node's `value` attribute.
+        let value = match probe_state(dataset) {
+            Some(live) => Some(live),
+            None => from_submission(replaced_submission(info, node), || {
+                info.get_node_attribute(node, "value")
+                    .map(|value| ControlValue { value, valid: true })
+            }),
+        };
+        if let Some(value) = value {
             if !value.valid {
                 invalid.push(name.clone());
                 invalid_nodes.push(field);

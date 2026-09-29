@@ -149,11 +149,14 @@ use crate::{
     widgets::{
         button::{Button, ButtonFormAction},
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
-        color_input::{color_from_hex, ColorInput, ColorInputOnValueChangeCallbackType, ColorInputState},
+        color_input::{
+            color_from_hex, color_to_hex, ColorInput, ColorInputOnValueChangeCallbackType,
+            ColorInputState,
+        },
         combobox::{ComboBox, ComboBoxOnSelectCallbackType, ComboBoxState},
         date_picker::{
-            iso_week_monday, iso_week_of, iso_weeks_in_year, DatePicker, DatePickerMode,
-            DatePickerOnChangeCallbackType, DatePickerState,
+            format_value, iso_week_monday, iso_week_of, iso_weeks_in_year, DatePicker,
+            DatePickerMode, DatePickerOnChangeCallbackType, DatePickerState,
         },
         datetime_local::{
             DateTimeLocalPicker, DateTimeLocalPickerOnChangeCallbackType, DateTimeLocalPickerState,
@@ -365,6 +368,89 @@ struct Remembered {
     touched: u64,
 }
 
+/// What a replaced control contributes to its form's `FormData`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Submission {
+    /// Not a control this memory built (or not a raw control at all): ask
+    /// the node itself.
+    Unknown,
+    /// Nothing: an unchecked checkbox or radio, a button.
+    Nothing,
+    /// This value, spelled as HTML submits it.
+    Value(String),
+}
+
+/// How a replaced control's value is spelled in its form's `FormData`.
+#[derive(Debug, Clone, PartialEq)]
+struct Spelling {
+    kind: FormWidget,
+    /// A checkbox's or radio's `value` ("on" by default): what it submits
+    /// while checked.
+    own_value: String,
+    /// A select's option VALUES, by choice index.
+    choice_values: Vec<String>,
+}
+
+impl Spelling {
+    fn of(kind: FormWidget, spec: &Spec, node: &NodeData) -> Self {
+        Self {
+            kind,
+            own_value: radio_value(node),
+            choice_values: if kind == FormWidget::DropDown {
+                spec.choices.iter().map(|c| c.value.clone()).collect()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    /// `value` as HTML's form data set spells it, or `None` for no entry.
+    fn spell(&self, value: &FormValue) -> Option<String> {
+        match (self.kind, value) {
+            (FormWidget::CheckBox | FormWidget::Radio, FormValue::Checked(checked)) => {
+                checked.then(|| self.own_value.clone())
+            }
+            // A radio group's memory holds WHICH radio is checked.
+            (FormWidget::Radio, FormValue::Text(checked)) => {
+                (*checked == self.own_value).then(|| self.own_value.clone())
+            }
+            (FormWidget::DropDown, FormValue::Choice(index)) => {
+                self.choice_values.get(*index).cloned()
+            }
+            (FormWidget::DatePicker(mode), FormValue::Date { year, month, day }) => {
+                let date = DatePickerState {
+                    year: *year,
+                    month: *month,
+                    day: *day,
+                };
+                Some(format_value(&date, mode))
+            }
+            (_, FormValue::Text(text)) => Some(text.clone()),
+            (_, FormValue::Number(number)) => Some(alloc::format!("{number}")),
+            (_, FormValue::Color(color)) => Some(color_to_hex(*color)),
+            (_, FormValue::Date { year, month, day }) => {
+                Some(alloc::format!("{year:04}-{month:02}-{day:02}"))
+            }
+            (_, FormValue::Time { hour, minute }) => Some(alloc::format!("{hour:02}:{minute:02}")),
+            (
+                _,
+                FormValue::DateTime {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                },
+            ) => Some(alloc::format!(
+                "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}"
+            )),
+            // HTML: a file input with nothing picked is an empty file.
+            (_, FormValue::Path(path)) => Some(path.clone().unwrap_or_default()),
+            (_, FormValue::Checked(_) | FormValue::Choice(_)) => None,
+        }
+    }
+}
+
 /// A replaced control of a recent build, by the key on its root
 /// ([`MEMORY_KEY_ATTRIBUTE`]).
 #[derive(Debug, Clone)]
@@ -372,6 +458,11 @@ struct Registered {
     /// The entry holding the user's value: the control's own, or - for a
     /// radio of a named group - its group's.
     value_key: u64,
+    spelling: Spelling,
+    /// The value the control was built with - the user's, or the default.
+    built: FormValue,
+    /// The app's default: what a reset brings back.
+    default: FormValue,
     /// `MemoryInner::clock` at the last build that produced the control.
     touched: u64,
 }
@@ -468,19 +559,64 @@ impl FormControlMemory {
         };
         // An unregistered control (a memory that never built it) is keyed
         // by its own entry, as every control but a grouped radio is.
-        let value_key = inner.controls.get(&control).map_or(control, |r| r.value_key);
+        let value_key = match inner.controls.get_mut(&control) {
+            Some(registered) => {
+                // Until the rebuild, the control reads as its default.
+                registered.built = registered.default.clone();
+                registered.value_key
+            }
+            None => control,
+        };
         inner.entries.remove(&value_key).is_some()
     }
 
-    /// Note that a build produced the replaced control `control`, whose
-    /// user value lives under `value_key`.
-    fn register(&self, control: u64, value_key: u64) {
+    /// What the replaced control whose root carries `control` in its
+    /// [`MEMORY_KEY_ATTRIBUTE`] contributes to its form's `FormData` NOW:
+    /// the user's latest value, else the one it was built with.
+    #[must_use]
+    pub fn submission(&self, control: u64) -> Submission {
+        let Ok(inner) = self.inner.lock() else {
+            return Submission::Unknown;
+        };
+        let Some(registered) = inner.controls.get(&control) else {
+            return Submission::Unknown;
+        };
+        let current = inner
+            .entries
+            .get(&registered.value_key)
+            .map_or(&registered.built, |r| &r.value);
+        registered
+            .spelling
+            .spell(current)
+            .map_or(Submission::Nothing, Submission::Value)
+    }
+
+    /// Note that a build produced the replaced control `control`: its user
+    /// value lives under `value_key`, it was built with `built`, and the
+    /// app's default is `default`.
+    fn register(
+        &self,
+        control: u64,
+        value_key: u64,
+        spelling: Spelling,
+        built: FormValue,
+        default: FormValue,
+    ) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
         inner.clock = inner.clock.wrapping_add(1);
         let touched = inner.clock;
-        inner.controls.insert(control, Registered { value_key, touched });
+        inner.controls.insert(
+            control,
+            Registered {
+                value_key,
+                spelling,
+                built,
+                default,
+                touched,
+            },
+        );
         evict_beyond_bound(&mut inner.controls, |r| r.touched);
     }
 
@@ -1287,21 +1423,25 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         }
         None => (identity_key(ctx.scope, path, node, kind), spec.defaults(kind)),
     };
-    let remembered = ctx.memory.recall(key, defaults);
+    let own_value = radio_value(node);
+    // What the widget is built with: the user's value while the app's
+    // defaults are the ones it was given under, else the default. `None`
+    // for the controls that hold no value.
+    let default = default_value(kind, spec);
+    let value = default
+        .as_ref()
+        .map(|d| resolved_value(ctx.memory.recall(key, defaults), d, &own_value));
     let recorder = RefAny::new(Recorder {
         memory: ctx.memory.clone(),
         key,
         defaults,
-        radio_value: radio_value(node),
+        radio_value: own_value.clone(),
     });
     let name = spec.label.clone();
 
     let mut dom = match kind {
         FormWidget::TextInput(text_kind) => {
-            let text = match remembered {
-                Some(FormValue::Text(t)) => t,
-                _ => spec.value.clone().unwrap_or_default(),
-            };
+            let text = text_of(value.as_ref());
             // The kind masks a password, adds a search's clear button and
             // checks an e-mail or URL; `name` / `type` reach the root by the
             // graft, like every other attribute.
@@ -1322,10 +1462,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.with_on_text_input(recorder, hook).dom()
         }
         FormWidget::TextArea => {
-            let text = match remembered {
-                Some(FormValue::Text(t)) => t,
-                _ => spec.text.clone(),
-            };
+            let text = text_of(value.as_ref());
             let mut w = TextArea::create().with_text(text.into());
             if let Some(p) = &spec.placeholder {
                 w = w.with_placeholder(p.clone().into());
@@ -1340,11 +1477,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.with_on_text_input(recorder, hook).dom()
         }
         FormWidget::NumberInput => {
-            let number = match remembered {
-                Some(FormValue::Number(n)) => n,
-                _ => parse_f32(spec.value.as_ref()).unwrap_or(0.0),
-            };
-            let mut w = NumberInput::create(number);
+            let mut w = NumberInput::create(number_of(value.as_ref()));
             if let Some(min) = parse_f32(spec.min.as_ref()) {
                 w.number_input_state.inner.min = min;
             }
@@ -1361,10 +1494,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.with_on_value_change(recorder, hook).dom()
         }
         FormWidget::CheckBox => {
-            let checked = match remembered {
-                Some(FormValue::Checked(c)) => c,
-                _ => spec.checked,
-            };
+            let checked = matches!(value, Some(FormValue::Checked(true)));
             let hook: CheckBoxOnToggleCallbackType = record_check_box;
             let mut w = CheckBox::create(checked).with_on_toggle(recorder, hook);
             if let Some(n) = name {
@@ -1375,12 +1505,10 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         FormWidget::Radio => {
             // One raw radio is one radio: a single-option group whose option
             // is selected (index 0) or not (an index past the end). The
-            // label is the page's business (`<label>`), as in HTML.
-            let own = radio_value(node);
-            let checked = match remembered {
-                Some(FormValue::Text(v)) => v == own,
-                _ => spec.checked,
-            };
+            // label is the page's business (`<label>`), as in HTML. A group
+            // remembers which radio is checked; `resolved_value` turned that
+            // into this radio's flag.
+            let checked = matches!(value, Some(FormValue::Checked(true)));
             let hook: RadioGroupOnChangeCallbackType = record_radio;
             let mut w = RadioGroup::create(StringVec::from_vec(alloc::vec![AzString::from(
                 String::new()
@@ -1393,14 +1521,9 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.dom()
         }
         FormWidget::ColorInput => {
-            let color = match remembered {
+            let color = match value {
                 Some(FormValue::Color(c)) => c,
-                // HTML's default colour is black.
-                _ => spec
-                    .value
-                    .as_deref()
-                    .and_then(color_from_hex)
-                    .unwrap_or(BLACK),
+                _ => BLACK,
             };
             let hook: ColorInputOnValueChangeCallbackType = record_color;
             let mut w = ColorInput::create(color).with_on_value_change(recorder, hook);
@@ -1412,8 +1535,8 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         FormWidget::FileInput => {
             // A file input's value cannot be set by the page (HTML); only
             // the user's pick is shown.
-            let path = match remembered {
-                Some(FormValue::Path(p)) => p,
+            let path = match &value {
+                Some(FormValue::Path(p)) => p.clone(),
                 _ => None,
             };
             let hook: FileInputOnPathChangeCallbackType = record_file;
@@ -1422,31 +1545,19 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
                 .dom()
         }
         FormWidget::Slider => {
-            // HTML's range defaults: [0, 100], the midpoint, step 1.
-            let min = parse_f32(spec.min.as_ref()).unwrap_or(0.0);
-            let max = parse_f32(spec.max.as_ref()).unwrap_or(100.0).max(min);
-            let default = parse_f32(spec.value.as_ref()).unwrap_or(min + (max - min) / 2.0);
-            let value = match remembered {
-                Some(FormValue::Number(n)) => n,
-                _ => snap_to_step(default, min, max, spec.step.as_ref()),
-            };
+            let (min, max) = slider_range(spec);
             let hook: SliderOnValueChangeCallbackType = record_slider;
-            let mut w = Slider::create(value, min, max).with_on_value_change(recorder, hook);
+            let mut w = Slider::create(number_of(value.as_ref()), min, max)
+                .with_on_value_change(recorder, hook);
             if let Some(n) = name {
                 w = w.with_accessibility_name(n);
             }
             w.dom()
         }
         FormWidget::DatePicker(mode) => {
-            let ty = mode.html_type();
-            let (year, month, day) = match remembered {
+            let (year, month, day) = match value {
                 Some(FormValue::Date { year, month, day }) => (year, month, day),
-                _ => spec
-                    .value
-                    .as_deref()
-                    .and_then(|v| parse_date(ty, v))
-                    .or_else(|| spec.min.as_deref().and_then(|v| parse_date(ty, v)))
-                    .unwrap_or_else(|| fallback_date(mode)),
+                _ => fallback_date(mode),
             };
             let picker = match mode {
                 DatePickerMode::Date => DatePicker::create(year, month, day),
@@ -1466,7 +1577,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.dom()
         }
         FormWidget::DateTimeLocal => {
-            let ((year, month, day), (hour, minute)) = match remembered {
+            let ((year, month, day), (hour, minute)) = match value {
                 Some(FormValue::DateTime {
                     year,
                     month,
@@ -1474,12 +1585,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
                     hour,
                     minute,
                 }) => ((year, month, day), (hour, minute)),
-                _ => spec
-                    .value
-                    .as_deref()
-                    .and_then(parse_datetime)
-                    .or_else(|| spec.min.as_deref().and_then(parse_datetime))
-                    .unwrap_or(((2000, 1, 1), (0, 0))),
+                _ => ((2000, 1, 1), (0, 0)),
             };
             let hook: DateTimeLocalPickerOnChangeCallbackType = record_datetime_local;
             let mut w = DateTimeLocalPicker::create(year, month, day, hour, minute)
@@ -1490,9 +1596,9 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.dom()
         }
         FormWidget::TimePicker => {
-            let (hour, minute) = match remembered {
+            let (hour, minute) = match value {
                 Some(FormValue::Time { hour, minute }) => (hour, minute),
-                _ => spec.value.as_deref().and_then(parse_time).unwrap_or((0, 0)),
+                _ => (0, 0),
             };
             let hook: TimePickerOnChangeCallbackType = record_time;
             let mut w = TimePicker::create(hour, minute)
@@ -1534,7 +1640,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         }
         FormWidget::DropDown => {
             let count = spec.choices.len();
-            let selected = match remembered {
+            let selected = match value {
                 Some(FormValue::Choice(i)) if i < count => i,
                 _ => default_choice(&spec.choices),
             };
@@ -1557,10 +1663,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
                         .collect()
                 })
                 .unwrap_or_default();
-            let text = match remembered {
-                Some(FormValue::Text(t)) => t,
-                _ => spec.value.clone().unwrap_or_default(),
-            };
+            let text = text_of(value.as_ref());
             let selected = items.iter().position(|i| i.as_str() == text);
             let hook: ComboBoxOnSelectCallbackType = record_combobox;
             let mut w = ComboBox::new(StringVec::from_vec(items))
@@ -1604,18 +1707,152 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         }
     }
 
-    // How a form finds this control's user value in the memory: a reset
-    // forgets it there. One key per CONTROL - for a grouped radio its own,
-    // not the group's, which the memory maps it to.
-    if kind.has_value() {
+    // How a form finds this control in the memory: a reset forgets its user
+    // value there, a submit reads its value there. One key per CONTROL - for
+    // a grouped radio its own, not the group's, which the memory maps it to.
+    if let (Some(default), Some(built)) = (default, value) {
         let control = identity_key(ctx.scope, path, node, kind);
-        ctx.memory.register(control, key);
+        let spelling = Spelling::of(kind, spec, node);
+        ctx.memory.register(control, key, spelling, built, default);
         dom = dom.with_attribute(AttributeType::Data(AttributeNameValue {
             attr_name: AzString::from_const_str(MEMORY_KEY_ATTRIBUTE),
             value: AzString::from(control.to_string()),
         }));
     }
     dom
+}
+
+fn text_of(value: Option<&FormValue>) -> String {
+    match value {
+        Some(FormValue::Text(text)) => text.clone(),
+        _ => String::new(),
+    }
+}
+
+fn number_of(value: Option<&FormValue>) -> f32 {
+    match value {
+        Some(FormValue::Number(number)) => *number,
+        _ => 0.0,
+    }
+}
+
+/// The value a control of `kind` starts as when the user gave it none: the
+/// app's attributes, with HTML's defaults and sanitation. `None` for the
+/// controls that hold no value of the user's (buttons, a hidden input, a
+/// form).
+fn default_value(kind: FormWidget, spec: &Spec) -> Option<FormValue> {
+    let value = match kind {
+        FormWidget::TextInput(_) | FormWidget::ComboBox => {
+            FormValue::Text(spec.value.clone().unwrap_or_default())
+        }
+        FormWidget::TextArea => FormValue::Text(spec.text.clone()),
+        FormWidget::NumberInput => {
+            FormValue::Number(parse_f32(spec.value.as_ref()).unwrap_or(0.0))
+        }
+        FormWidget::CheckBox | FormWidget::Radio => FormValue::Checked(spec.checked),
+        // HTML's default colour is black.
+        FormWidget::ColorInput => FormValue::Color(
+            spec.value
+                .as_deref()
+                .and_then(color_from_hex)
+                .unwrap_or(BLACK),
+        ),
+        // A file input's value cannot be set by the page (HTML).
+        FormWidget::FileInput => FormValue::Path(None),
+        FormWidget::Slider => {
+            // HTML's range default: the midpoint, snapped to the step.
+            let (min, max) = slider_range(spec);
+            let value = parse_f32(spec.value.as_ref()).unwrap_or(min + (max - min) / 2.0);
+            FormValue::Number(snap_to_step(value, min, max, spec.step.as_ref()))
+        }
+        FormWidget::DatePicker(mode) => {
+            let ty = mode.html_type();
+            let (year, month, day) = spec
+                .value
+                .as_deref()
+                .and_then(|v| parse_date(ty, v))
+                .or_else(|| spec.min.as_deref().and_then(|v| parse_date(ty, v)))
+                .unwrap_or_else(|| fallback_date(mode));
+            FormValue::Date { year, month, day }
+        }
+        FormWidget::DateTimeLocal => {
+            let ((year, month, day), (hour, minute)) = spec
+                .value
+                .as_deref()
+                .and_then(parse_datetime)
+                .or_else(|| spec.min.as_deref().and_then(parse_datetime))
+                .unwrap_or(((2000, 1, 1), (0, 0)));
+            FormValue::DateTime {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+            }
+        }
+        FormWidget::TimePicker => {
+            let (hour, minute) = spec.value.as_deref().and_then(parse_time).unwrap_or((0, 0));
+            FormValue::Time { hour, minute }
+        }
+        FormWidget::DropDown => FormValue::Choice(default_choice(&spec.choices)),
+        FormWidget::Button(_) | FormWidget::ImageButton | FormWidget::Hidden | FormWidget::Form => {
+            return None;
+        }
+    };
+    Some(value)
+}
+
+/// HTML's range bounds: `[0, 100]` unless given; a `max` below `min` is
+/// `min`.
+fn slider_range(spec: &Spec) -> (f32, f32) {
+    let min = parse_f32(spec.min.as_ref()).unwrap_or(0.0);
+    let max = parse_f32(spec.max.as_ref()).unwrap_or(100.0).max(min);
+    (min, max)
+}
+
+/// What a control is built with: the user's `remembered` value when it fits
+/// the control, else the `default`. A radio group remembers WHICH radio is
+/// checked (its value); each radio turns that into its own flag.
+fn resolved_value(
+    remembered: Option<FormValue>,
+    default: &FormValue,
+    own_radio_value: &str,
+) -> FormValue {
+    match remembered {
+        Some(FormValue::Text(checked)) if matches!(default, FormValue::Checked(_)) => {
+            FormValue::Checked(checked == own_radio_value)
+        }
+        Some(user) if core::mem::discriminant(&user) == core::mem::discriminant(default) => user,
+        _ => default.clone(),
+    }
+}
+
+/// What a RAW form control contributes to its form's INITIAL `FormData`:
+/// its HTML default, spelled the way the widget it becomes will submit it
+/// (a `Form` records its initial values before its content is replaced).
+/// [`Submission::Unknown`] for a node that is no raw control, or opted out.
+#[must_use]
+pub(crate) fn default_submission(raw: &Dom) -> Submission {
+    let node = &raw.root;
+    if opted_out(node) {
+        return Submission::Unknown;
+    }
+    let Some(kind) = widget_for(node, &Prepass::default()) else {
+        return Submission::Unknown;
+    };
+    let spec = Spec::read(raw, kind);
+    match kind {
+        FormWidget::Form => Submission::Unknown,
+        // The app's value, submitted as it is.
+        FormWidget::Hidden => Submission::Value(spec.value.clone().unwrap_or_default()),
+        _ => match default_value(kind, &spec) {
+            Some(default) => Spelling::of(kind, &spec, node)
+                .spell(&default)
+                .map_or(Submission::Nothing, Submission::Value),
+            // A button submits nothing unless it is the submitter.
+            None => Submission::Nothing,
+        },
+    }
 }
 
 /// One average character of the UI font, in em.
