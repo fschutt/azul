@@ -4753,3 +4753,11 @@ pub fn card(c: crate::widgets::card::Card) -> Dom {
         IdOrClassVec::from_const_slice(FLORA_CARD_CLASSES),
     )
 }
+
+// ==== frame ====
+
+/// The flora frame.
+#[must_use]
+pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+    super::flat::frame(f)
+}

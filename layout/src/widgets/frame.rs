@@ -91,6 +91,7 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutFlexDirection::Column,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_15775557796860201720: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15775557796860201720_PROPERTIES);
 
@@ -117,6 +118,7 @@ const CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutAlignItems::End,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_16739370686243728873: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_16739370686243728873_PROPERTIES);
 
@@ -146,6 +148,7 @@ const CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &
         },
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_4236783900531286611: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4236783900531286611_PROPERTIES);
 
@@ -172,6 +175,7 @@ const CSS_MATCH_8602559445190067154_PROPERTIES: &[CssPropertyWithConditions] = &
         },
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_8602559445190067154: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8602559445190067154_PROPERTIES);
 
@@ -233,6 +237,7 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
         LayoutFlexDirection::Column,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9156589477016488419_PROPERTIES);
 
@@ -341,7 +346,49 @@ pub struct Frame {
     pub title: AzString,
     pub flex_grow: f32,
     pub content: Dom,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// What a theme decides about a frame: the style of each of its parts.
+/// [`build`] assembles them; `themes::flat::frame` and
+/// `themes::flora::frame` supply them.
+pub(crate) struct FrameLook {
+    /// The frame's outer box.
+    pub root: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The header row that holds the title between its two rules.
+    pub header: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The rule left of the title (its top and left edges).
+    pub before: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The title's `<p>`.
+    pub title: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The rule right of the title (its top and right edges).
+    pub after: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The bordered content area, after the frame's own `flex-grow`.
+    pub content: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the frame, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The established (flat) style of each part, for the theme modules.
+pub(crate) const FRAME_ROOT_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_8602559445190067154_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_HEADER_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_16739370686243728873_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_BEFORE_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_15775557796860201720_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_TITLE_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_4236783900531286611_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_AFTER_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_9156589477016488419_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_CONTENT_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_CONTENT_AREA_PROPERTIES;
 
 impl Frame {
     /// Creates a new `Frame` with the given title and content DOM.
@@ -351,7 +398,21 @@ impl Frame {
             title,
             content,
             flex_grow: 0.0,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the frame renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Replaces `self` with a default frame and returns the original.
@@ -374,18 +435,37 @@ impl Frame {
         self
     }
 
+    /// Converts this frame into its DOM (classed `__azul-native-frame`). The
+    /// look comes from the theme module (`themes::flat::frame` /
+    /// `themes::flora::frame`); `None` renders flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::frame(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::frame(self),
+        }
+    }
+}
+
+/// The frame's DOM in `look`: the header (a rule, the title, a rule) above
+/// the bordered content area.
+pub(crate) fn build(frame: Frame, look: &FrameLook) -> Dom {
+    let mut classes: alloc::vec::Vec<IdOrClass> =
+        alloc::vec![Class(AzString::from_const_str("__azul-native-frame"))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let css = |v: &alloc::vec::Vec<CssPropertyWithConditions>| {
+        CssPropertyWithConditionsVec::from_vec(v.clone())
+    };
+    {
         Dom::create_div()
-            .with_css_props(CSS_MATCH_8602559445190067154)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_14615537625743340639: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("__azul-native-frame"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_14615537625743340639)
-            })
+            .with_css_props(css(&look.root))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_children(DomVec::from_vec(vec![
                 Dom::create_div()
-                    .with_css_props(CSS_MATCH_16739370686243728873)
+                    .with_css_props(css(&look.header))
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_17776797146874875377: &[IdOrClass] = &[Class(
                             AzString::from_const_str("__azul-native-frame-header"),
@@ -394,7 +474,7 @@ impl Frame {
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_div()
-                            .with_css_props(CSS_MATCH_15775557796860201720)
+                            .with_css_props(css(&look.before))
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_15264202958442287530: &[IdOrClass] =
                                     &[Class(AzString::from_const_str(
@@ -403,10 +483,10 @@ impl Frame {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15264202958442287530)
                             })
                             .with_children(DomVec::from_vec(vec![Dom::create_div()])),
-                        crate::widgets::widget_p_with_text(self.title)
-                            .with_css_props(CSS_MATCH_4236783900531286611),
+                        crate::widgets::widget_p_with_text(frame.title)
+                            .with_css_props(css(&look.title)),
                         Dom::create_div()
-                            .with_css_props(CSS_MATCH_9156589477016488419)
+                            .with_css_props(css(&look.after))
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5689091102265932280: &[IdOrClass] = &[Class(
                                     AzString::from_const_str("__azul-native-frame-header-after"),
@@ -419,10 +499,10 @@ impl Frame {
                     .with_css_props({
                         let mut props = vec![CssPropertyWithConditions::simple(
                             CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                                inner: FloatValue::new(self.flex_grow),
+                                inner: FloatValue::new(frame.flex_grow),
                             })),
                         )];
-                        props.extend_from_slice(CSS_MATCH_CONTENT_AREA_PROPERTIES);
+                        props.extend_from_slice(&look.content);
                         CssPropertyWithConditionsVec::from_vec(props)
                     })
                     .with_ids_and_classes({
@@ -431,7 +511,7 @@ impl Frame {
                         )];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9898887665724137124)
                     })
-                    .with_children(vec![self.content].into()),
+                    .with_children(vec![frame.content].into()),
             ]))
     }
 }
