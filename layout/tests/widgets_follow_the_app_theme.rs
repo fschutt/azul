@@ -474,3 +474,48 @@ fn number_inputs_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn text_inputs_of_every_kind_follow_the_app_theme() {
+    use azul_layout::widgets::text_input::{TextInput, TextInputKind};
+    for kind in [
+        TextInputKind::Text,
+        TextInputKind::Password,
+        TextInputKind::Search,
+        TextInputKind::Email,
+        TextInputKind::Tel,
+        TextInputKind::Url,
+    ] {
+        for text in ["", "abc"] {
+            assert_follows_the_app_theme(&format!("text input {kind:?} {text:?}"), |t| {
+                pinned(
+                    TextInput::create_with_kind(kind)
+                        .with_text(AzString::from_const_str(text))
+                        .with_accessibility_name("Field"),
+                    t,
+                    TextInput::with_theme,
+                )
+                .dom()
+            });
+        }
+    }
+}
+
+/// A constrained field built unpinned for flora is marked flora's, so its
+/// handlers paint the invalid ring in flora's colours.
+#[test]
+fn an_unpinned_constrained_field_built_for_flora_is_marked_flora() {
+    use azul_core::dom::IdOrClass;
+    use azul_layout::widgets::text_input::{TextInput, THEME_FLAT_CLASS, THEME_FLORA_CLASS};
+    let marked = |dom: &Dom, class: &str| {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+    };
+    let flora = built_for(UiTheme::Flora, &|| TextInput::create_email().dom());
+    assert!(marked(&flora, THEME_FLORA_CLASS) && !marked(&flora, THEME_FLAT_CLASS));
+    let flat = built_for(UiTheme::Flat, &|| TextInput::create_email().dom());
+    assert!(marked(&flat, THEME_FLAT_CLASS) && !marked(&flat, THEME_FLORA_CLASS));
+}
