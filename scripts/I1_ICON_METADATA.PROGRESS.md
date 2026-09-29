@@ -27,8 +27,12 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `5f169baf9` RED: loader (layout/tests/user_icon_rules_follow_the_theme_chain.rs)
 - `775790a2a` impl: layout/src/icon_remap.rs (walk_theme_dirs, load_user_icon_rules, ...), dll wiring
 
+- `308e0893d` guide doc/guide/en/styling/icon-packs.md (+ two tiny review fixes)
+- `e972f00af` fix: Option<&str> in the loader
+- report `scripts/I1_ICON_METADATA_2026_09_29.md`
+
 ## IN PROGRESS
-- self-review pass, guide update, report
+- applying the compile-review agent's findings (report section 7)
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
