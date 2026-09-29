@@ -30,13 +30,17 @@ Nothing is compiled here (house rule). The parent compiles once.
   FIX f5ee65096 (`NestedDomPlacement` + `ScrollManager::{set_nested_dom_placements, dom_window_origin}`,
   `headless::nested_dom_viewports`, `scroll_registration::publish_nested_dom_placements`).
 
+- item 4: RED c670d805f (`layout/tests/a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it.rs`),
+  FIX e2e586796 (paint_scrollbars reads this layout's extent + caret gutter; `caret_scroll_node`; GPU
+  updater reads the published extent; funnel refreshes thumb transforms after registration).
+
 ## IN PROGRESS
 
-- item 4 (thumb lag)
+- item 6 (R5 scroll-parent search via ScrollChain)
 
 ## NEXT
 
-4, 6, 3 (guard), 8 (implement small or plan), report.
+6, 3 (guard), 8 (implement small or plan), report.
 
 ## Open questions
 
