@@ -3511,13 +3511,9 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     use crate::widgets::time_picker as t;
     type P = CssPropertyWithConditions;
 
-    let mut container = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    ];
+    // Every part is the widget's base (`time_picker::CONTAINER_BASE`,
+    // `CLICKABLE_BASE`, `READOUT_BASE`: its structure), then flora's skin.
+    let mut container = t::CONTAINER_BASE.to_vec();
     container.extend(kit::padding(4, 6, 4, 6));
     container.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
     container.extend(kit::radius(3));
@@ -3530,16 +3526,15 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
         NUMBER_INPUT_WELL_DARK,
     ));
 
-    let mut arrow = vec![
+    let mut arrow = t::CLICKABLE_BASE.to_vec();
+    arrow.extend([
         P::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
         P::simple(CssProperty::const_height(LayoutHeight::const_px(16))),
         kit::font_size(11),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
         P::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
-    ];
+    ]);
     arrow.extend(kit::radius(3));
     arrow.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON));
     // States last.
@@ -3554,30 +3549,29 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     ));
     arrow.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
 
-    let mut display = vec![
+    let mut display = t::READOUT_BASE.to_vec();
+    display.extend([
         kit::font_size(18),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
         P::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
-    ];
+    ]);
     display.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
 
-    let mut separator = vec![
+    let mut separator = t::READOUT_BASE.to_vec();
+    separator.extend([
         kit::font_size(18),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
         P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
         P::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
-    ];
+    ]);
     separator.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
-    let mut ampm = vec![
+    let mut ampm = t::CLICKABLE_BASE.to_vec();
+    ampm.extend([
         kit::font_size(13),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
         P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(8))),
-    ];
+    ]);
     ampm.extend(kit::padding(4, 8, 4, 8));
     ampm.extend(kit::radius(3));
     ampm.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));

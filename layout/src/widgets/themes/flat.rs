@@ -3715,23 +3715,24 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     use super::style_kit as kit;
     use crate::widgets::time_picker as t;
 
-    let mut arrow = t::ARROW_STYLE.to_vec();
+    // Every part is the widget's base, then flat's established const skin.
+    let mut arrow = on_base(t::CLICKABLE_BASE, t::ARROW_STYLE).into_library_owned_vec();
     arrow.extend(kit::radius(3));
     // States last: the resting dark twin matches in every state.
     arrow.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
     arrow.extend(kit::active_bg(LIGHT_PT, DARK_PT));
     arrow.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
 
-    let mut ampm = t::AMPM_STYLE.to_vec();
+    let mut ampm = on_base(t::CLICKABLE_BASE, t::AMPM_STYLE).into_library_owned_vec();
     ampm.extend(kit::focus_shadow_ring(LIGHT_ON_ACC, DARK_ON_ACC));
 
     t::TimePickerSkin {
         theme: super::UiTheme::Flat,
-        container: CssPropertyWithConditionsVec::from_const_slice(t::CONTAINER_STYLE),
+        container: on_base(t::CONTAINER_BASE, t::CONTAINER_STYLE),
         spinner: CssPropertyWithConditionsVec::from_const_slice(t::SPINNER_STYLE),
         arrow: CssPropertyWithConditionsVec::from_vec(arrow),
-        display: CssPropertyWithConditionsVec::from_const_slice(t::DISPLAY_STYLE),
-        separator: CssPropertyWithConditionsVec::from_const_slice(t::SEPARATOR_STYLE),
+        display: on_base(t::READOUT_BASE, t::DISPLAY_STYLE),
+        separator: on_base(t::READOUT_BASE, t::SEPARATOR_STYLE),
         ampm: CssPropertyWithConditionsVec::from_vec(ampm),
     }
 }
@@ -4485,33 +4486,20 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 // at night. The panel is white in the same rule, open at the top, the
 // desktop's window surface at night.
 
-/// A flat tab part: the widget's `base` (its structure, R5), then flat's
-/// established const `skin`. Both are plain declarations - the `@theme`
-/// blocks of an unpinned bar are made from the whole part afterwards
-/// (`TabHeaderLook::of`) - so the part is the two lists one after the other.
-fn tab_part(
-    base: &[CssPropertyWithConditions],
-    skin: CssPropertyWithConditionsVec,
-) -> CssPropertyWithConditionsVec {
-    let mut v = base.to_vec();
-    v.extend_from_slice(skin.as_slice());
-    CssPropertyWithConditionsVec::from_vec(v)
-}
-
-/// Flat's tab-bar look: the widget's base under each part, then the tab
-/// bar's established const styles.
+/// Flat's tab-bar look: the widget's base under each part ([`on_base`]),
+/// then the tab bar's established const styles.
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     use crate::widgets::tabs as t;
     t::TabHeaderLook {
-        header: tab_part(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263),
+        header: on_base(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263.as_slice()),
         // No base: flat's spacer grows (`flex-grow: 1`), flora's does not.
         before: t::CSS_MATCH_17290739305197504468,
-        after: tab_part(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418),
-        active: tab_part(t::TAB_BASE, t::CSS_MATCH_14575853790110873394),
-        before_active: tab_part(t::TAB_BASE, t::CSS_MATCH_4415083954137121609),
-        after_active: tab_part(t::TAB_BASE, t::CSS_MATCH_13824480602841492081),
-        inactive: tab_part(t::TAB_BASE, t::CSS_MATCH_11510695043643111367),
+        after: on_base(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418.as_slice()),
+        active: on_base(t::TAB_BASE, t::CSS_MATCH_14575853790110873394.as_slice()),
+        before_active: on_base(t::TAB_BASE, t::CSS_MATCH_4415083954137121609.as_slice()),
+        after_active: on_base(t::TAB_BASE, t::CSS_MATCH_13824480602841492081.as_slice()),
+        inactive: on_base(t::TAB_BASE, t::CSS_MATCH_11510695043643111367.as_slice()),
         marker: None,
     }
 }
@@ -4522,8 +4510,11 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
 pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
     use crate::widgets::tabs as t;
     t::TabContentLook {
-        padded: tab_part(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977),
-        unpadded: tab_part(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977_NO_PADDING),
+        padded: on_base(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977.as_slice()),
+        unpadded: on_base(
+            t::PANEL_BASE,
+            t::CSS_MATCH_18014909903571752977_NO_PADDING.as_slice(),
+        ),
         marker: None,
     }
 }
@@ -4561,3 +4552,22 @@ pub(crate) fn titlebar_look(
 
 /// The fill of a flat combobox's active option, `[light, dark]`.
 pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] = [LIGHT_OPTION_HOVER, DARK_ROW_HOVER];
+
+// ==== R5-D: a flat part is the widget's base, then flat's skin ====
+
+/// A part as flat builds it from a widget's const styles: the widget's
+/// `base` (its structure, the same in every theme - R5), then flat's `skin`
+/// (paint and metrics). Both are plain declarations: the `@theme` blocks of
+/// an unpinned widget are made from the whole part afterwards
+/// (`theme_blocks::follow_props`), so the part is simply the two lists one
+/// after the other - no `@theme` rank to keep (`theme_blocks::stack_parts`
+/// is for stacking parts that already carry theme blocks).
+fn on_base(
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    let mut v = Vec::with_capacity(base.len() + skin.len());
+    v.extend_from_slice(base);
+    v.extend_from_slice(skin);
+    CssPropertyWithConditionsVec::from_vec(v)
+}

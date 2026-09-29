@@ -220,13 +220,39 @@ const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Col
 const ACCENT_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
 
-/// Container: a horizontal row that hugs its content.
-pub(crate) static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+// ---- R5: the parts' BASE - the structure every theme's picker shares ----
+//
+// A theme's part is its base below, THEN its skin (paint and metrics): the
+// `*_STYLE` statics for flat (`themes::flat::time_picker_skin`), and
+// `themes::flora::time_picker_skin` for flora. The base comes first in every
+// theme, so an unpinned picker (`follow_skin`) declares it once, outside
+// every `@theme` block. The spinner column has no skin: `SPINNER_STYLE` is
+// its whole style in every theme.
+
+/// The frame's structure: a horizontal row that hugs its content (the parent
+/// decides where it goes, `align-self: start`).
+pub(crate) static CONTAINER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// A clickable part's structure (an arrow, the AM/PM toggle): the pointer,
+/// never a text selection.
+pub(crate) static CLICKABLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A readout's structure (the value, the `:`): never a text selection.
+pub(crate) static READOUT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Container: flat's frame, on [`CONTAINER_BASE`].
+pub(crate) static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         4,
     ))),
@@ -313,7 +339,7 @@ pub(crate) static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
 ];
 
-/// Up/down arrow cell.
+/// Up/down arrow cell: flat's, on [`CLICKABLE_BASE`].
 pub(crate) static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     // An EXPLICIT hit box. Without it the arrow `<p>` is shrink-to-fit inside an
     // `align-items: center` column, so its target was the advance of the glyph
@@ -323,8 +349,6 @@ pub(crate) static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ARROW_COLOR,
     })),
@@ -337,11 +361,10 @@ pub(crate) static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The value display in the middle of a spinner.
+/// The value display in the middle of a spinner: flat's, on [`READOUT_BASE`].
 pub(crate) static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
@@ -354,10 +377,10 @@ pub(crate) static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The `:` separator between the hour and minute spinners.
+/// The `:` separator between the hour and minute spinners: flat's, on
+/// [`READOUT_BASE`].
 pub(crate) static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
@@ -370,12 +393,11 @@ pub(crate) static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The clickable AM/PM toggle (12-hour mode only).
+/// The clickable AM/PM toggle (12-hour mode only): flat's, on
+/// [`CLICKABLE_BASE`].
 pub(crate) static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: WHITE,
     })),
@@ -1919,11 +1941,13 @@ mod autotest_generated {
         // A per-instance style vec would allocate on every rebuild; the widget is
         // deliberately built from a `'static` slice. (The flat frame: an
         // unpinned picker carries every theme's blocks.)
+        // R5: the frame is the widget's `CONTAINER_BASE`, then flat's const.
         let p = TimePicker::create(9, 15).with_theme(UiTheme::Flat);
         assert_eq!(
             properties(&p.resolved_container_style()),
-            CONTAINER_STYLE
+            CONTAINER_BASE
                 .iter()
+                .chain(CONTAINER_STYLE.iter())
                 .map(|c| c.property.clone())
                 .collect::<Vec<_>>(),
             "the container style is not the shared const declaration",
