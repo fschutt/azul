@@ -35,14 +35,19 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
    (ScopeEntry window + nested, `BlockContent::flat_window_of`, `text_block::enclosing_block`,
    accessible_selection host from the caret's text node).
 
+9. caret_at_byte: already gone on the base; 71bd030cf deletes the dead
+   `DenseText::byte_offset_to_cursor` and its equivalence check.
+10. Review §5 #5 / #7 re-verified FIXED on the base (see the report).
+
 ## IN PROGRESS
 
-9. `TextTarget::caret_at_byte` caller switch + dead code.
+(none)
 
 ## NEXT
 
-10. Re-verify review §5 #5 / #7.
+Done. Report: scripts/SEL2_SELECTION_LEFTOVERS_2026_09_29.md (N4 / N8 plans there).
 
 ## Open questions
 
-(none)
+- RED premises asserted in the tests (layout run numbering around `<br>`, a lone-`<br>`
+  paragraph being a text block, the inline-block being its own block).
