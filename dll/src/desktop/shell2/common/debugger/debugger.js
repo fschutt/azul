@@ -169,7 +169,6 @@ const app = {
             'get_component_render_tree': { desc: 'Get component render output tree', examples: ['/get_component_render_tree library mylib name mycomp'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
             'get_component_source':      { desc: 'Get component source code',       examples: ['/get_component_source library mylib name mycomp source_type render_fn', '/get_component_source library mylib name mycomp source_type compile_fn language rust'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source_type', type: 'text', placeholder: 'render_fn' }, { name: 'language', type: 'text', placeholder: 'rust', optional: true }] },
             'update_component_render_fn': { desc: 'Update component render_fn',     examples: ['/update_component_render_fn library mylib name mycomp source "fn render..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }] },
-            'update_component_compile_fn': { desc: 'Update component compile_fn',   examples: ['/update_component_compile_fn library mylib name mycomp language rust source "fn compile..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }, { name: 'language', type: 'text', placeholder: 'rust' }] },
 
             // ── File ──
             'open_file':      { desc: 'Open source file in editor',             examples: ['/open_file file /path/to/file.rs', '/open_file file /path/to/file.rs line 42'], params: [{ name: 'file', type: 'text', placeholder: '/path/to/file.rs' }, { name: 'line', type: 'number', placeholder: '0', optional: true }] },
@@ -2426,19 +2425,17 @@ const app = {
                 });
                 srcDetails.appendChild(renderBtn);
 
-                // E2: Edit compile_fn dropdown
+                // The component as code in any language: "Component → code"
+                // (debugger-export.js; the code generator derives it from the
+                // component, there is no per-language source to edit).
                 var compileBtn = document.createElement('button');
                 compileBtn.className = 'azd-btn-small';
                 compileBtn.style.marginRight = '8px';
-                compileBtn.textContent = 'Edit compile_fn \u25BE';
+                compileBtn.textContent = 'As code\u2026';
                 compileBtn.addEventListener('click', function() {
-                    var rect = compileBtn.getBoundingClientRect();
-                    app.widgets.ContextMenu.show(rect.left, rect.bottom + 2, [
-                        { label: 'Rust', action: function() { app.handlers._openCompileFnEditor(component, 'rust'); } },
-                        { label: 'C', action: function() { app.handlers._openCompileFnEditor(component, 'c'); } },
-                        { label: 'C++', action: function() { app.handlers._openCompileFnEditor(component, 'cpp'); } },
-                        { label: 'Python', action: function() { app.handlers._openCompileFnEditor(component, 'python'); } },
-                    ]);
+                    if (window.azExport) {
+                        window.azExport.openComponentDialog(compileBtn, { library: app.state.selectedLibrary, name: component.tag });
+                    }
                 });
                 srcDetails.appendChild(compileBtn);
 
@@ -2963,61 +2960,6 @@ const app = {
                         } catch(e) {
                             app.log('Save error: ' + e.message, 'error');
                         }
-                    },
-                    onClose: function() {}
-                }
-            );
-        },
-
-        _openCompileFnEditor: async function(component, language) {
-            // E2: Load compile_fn source for given language and open popup editor
-            var code = '';
-            try {
-                var res = await app.api.post({
-                    op: 'get_component_source',
-                    library: app.state.selectedLibrary,
-                    name: component.tag,
-                    source_type: 'compile_fn',
-                    language: language,
-                });
-                if (res.status === 'ok' && res.data && res.data.value) {
-                    code = res.data.value.source || '';
-                }
-            } catch(e) {
-                app.log('Failed to load compile_fn source: ' + e.message, 'error');
-            }
-
-            var languages = ['rust', 'c', 'cpp', 'python'];
-            app.widgets.SourceEditor.open(
-                {
-                    title: 'Edit compile_fn — ' + (component.display_name || component.tag),
-                    language: language,
-                    languages: languages
-                },
-                { code: code },
-                {
-                    onSave: async function(newCode) {
-                        try {
-                            var res = await app.api.post({
-                                op: 'update_component_compile_fn',
-                                library: app.state.selectedLibrary,
-                                name: component.tag,
-                                source: newCode,
-                                language: language,
-                            });
-                            if (res.status === 'ok') {
-                                app.log('compile_fn (' + language + ') saved for ' + component.tag, 'info');
-                                app.widgets.SourceEditor.close();
-                            } else {
-                                app.log('Save failed: ' + (res.message || ''), 'error');
-                            }
-                        } catch(e) {
-                            app.log('Save error: ' + e.message, 'error');
-                        }
-                    },
-                    onLanguageChange: function(newLang) {
-                        app.widgets.SourceEditor.close();
-                        app.handlers._openCompileFnEditor(component, newLang);
                     },
                     onClose: function() {}
                 }

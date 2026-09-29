@@ -1145,9 +1145,8 @@ fn apply_component(
                 fields: ComponentDataFieldVec::from_vec(fields),
             },
             render_fn: azul_core::xml::user_defined_render_fn,
-            compile_fn: azul_core::xml::user_defined_compile_fn,
+            codegen: azul_core::xml::ComponentCodegen::RenderFunction,
             render_fn_source: None.into(),
-            compile_fn_source: None.into(),
         },
     };
     upsert_component(map, &library, def)?;

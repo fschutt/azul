@@ -3052,16 +3052,18 @@ pub enum DebugEvent {
         /// Component tag name
         name: String,
     },
-    /// Get the source code of a component's render_fn or compile_fn.
+    /// Get the source code of a component's render_fn, or the component as
+    /// code (`compile_fn` / `code`: printed by the code generator for
+    /// `language`, the same as `export_component_code`).
     GetComponentSource {
         /// Library name
         library: String,
         /// Component tag name
         name: String,
-        /// "render_fn" or "compile_fn"
+        /// "render_fn", or "compile_fn" / "code"
         source_type: String,
-        /// Target language for compile_fn (ignored for render_fn). E.g. "rust", "c", "cpp",
-        /// "python".
+        /// Any code generator's language (see `get_codegen_languages`; ignored
+        /// for render_fn). Default: rust.
         #[serde(default)]
         language: Option<String>,
     },
@@ -3073,17 +3075,6 @@ pub enum DebugEvent {
         name: String,
         /// New source code for the render_fn
         source: String,
-    },
-    /// Update a component's compile_fn source code for a specific language.
-    UpdateComponentCompileFn {
-        /// Library name
-        library: String,
-        /// Component tag name
-        name: String,
-        /// New source code for the compile_fn
-        source: String,
-        /// Target language: "rust", "c", "cpp", "python"
-        language: String,
     },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
@@ -18757,9 +18748,8 @@ pub fn process_debug_event(
                         fields: ComponentDataFieldVec::from_vec(validated_fields),
                     },
                     render_fn: azul_core::xml::user_defined_render_fn,
-                    compile_fn: azul_core::xml::user_defined_compile_fn,
+                    codegen: azul_core::xml::ComponentCodegen::RenderFunction,
                     render_fn_source: None.into(),
-                    compile_fn_source: None.into(),
                 };
                 // A component made in AzBuilder comes back as its template,
                 // not as a div of its default texts.
@@ -19021,9 +19011,8 @@ pub fn process_debug_event(
                             fields: ComponentDataFieldVec::from_const_slice(&[]),
                         },
                         render_fn: azul_core::xml::user_defined_render_fn,
-                        compile_fn: azul_core::xml::user_defined_compile_fn,
+                        codegen: azul_core::xml::ComponentCodegen::RenderFunction,
                         render_fn_source: None.into(),
-                        compile_fn_source: None.into(),
                     };
                     // The builder UI's "create component from subtree" sends the
                     // subtree here; it used to be dropped by serde without a word
@@ -19425,25 +19414,18 @@ pub fn process_debug_event(
                                 format!("// Built-in render function for '{}'", name)
                             })
                     }
-                    "compile_fn" => {
-                        // Generate the compile_fn output for the requested language
+                    // The component as code in any language: the same printers
+                    // as "Component → code" (`ComponentDef::codegen`, no
+                    // per-language string hook any more). "compile_fn" is the
+                    // protocol's old name for it.
+                    "compile_fn" | "code" => {
                         let lang = language.as_deref().unwrap_or("rust");
-                        let target = match lang {
-                            "c" => azul_core::xml::CompileTarget::C,
-                            "cpp" | "c++" => azul_core::xml::CompileTarget::Cpp,
-                            "python" => azul_core::xml::CompileTarget::Python,
-                            _ => azul_core::xml::CompileTarget::Rust,
-                        };
                         let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-                        let result = (comp.compile_fn)(&comp, &target, &comp.data_model, 0);
+                        let result = super::export::component_code(&map_guard, library, name, lang);
                         drop(map_guard);
                         match result {
-                            azul_core::xml::ResultStringCompileError::Ok(s) => {
-                                s.as_str().to_string()
-                            }
-                            azul_core::xml::ResultStringCompileError::Err(e) => {
-                                format!("// Compile error: {:?}", e)
-                            }
+                            Ok(code) => code.code,
+                            Err(e) => format!("// {e}"),
                         }
                     }
                     _ => format!("// Unknown source_type: {}", source_type),
@@ -19498,7 +19480,7 @@ pub fn process_debug_event(
                             .starts_with(super::builder::TEMPLATE_MARKER)
                         {
                             comp.render_fn = super::builder::builder_template_render_fn;
-                            comp.compile_fn = super::export::builder_template_compile_fn;
+                            comp.codegen = azul_core::xml::ComponentCodegen::RenderFunction;
                         }
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
@@ -19506,53 +19488,6 @@ pub fn process_debug_event(
                         let _ = remount_builder_if_active(callback_info, component_map);
                         send_ok(request, None, None);
                         needs_update = true;
-                    } else {
-                        lib.components = comps.into();
-                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                        drop(map_guard);
-                        send_err(request, format!("Component '{}' not found", name));
-                    }
-                }
-            } else {
-                map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
-            }
-        }
-
-        DebugEvent::UpdateComponentCompileFn {
-            library,
-            name,
-            source,
-            language,
-        } => {
-            // E4: Store compile_fn source for a specific language
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs =
-                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
-
-            if let Some(lib) = libs
-                .iter_mut()
-                .find(|l| l.name.as_str() == library.as_str())
-            {
-                if !lib.modifiable {
-                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
-                } else {
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
-                        .into_library_owned_vec();
-                    if let Some(comp) = comps
-                        .iter_mut()
-                        .find(|c| c.id.name.as_str() == name.as_str())
-                    {
-                        comp.compile_fn_source =
-                            Some(azul_css::corety::AzString::from(source.as_str())).into();
-                        lib.components = comps.into();
-                        map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                        drop(map_guard);
-                        send_ok(request, None, None);
                     } else {
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);

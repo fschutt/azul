@@ -46,10 +46,10 @@ use azul_core::{
     id::NodeId,
     styled_dom::StyledDom,
     xml::{
-        ComponentDataField, ComponentDataFieldVec, ComponentDataModel, ComponentDef,
-        ComponentDefVec, ComponentDefaultValue, ComponentFieldType, ComponentId, ComponentLibrary,
-        ComponentLibraryVec, ComponentMap, ComponentSource, OptionComponentDefaultValue,
-        ResultStyledDomRenderDomError, XmlNodeChild,
+        ComponentCodegen, ComponentDataField, ComponentDataFieldVec, ComponentDataModel,
+        ComponentDef, ComponentDefVec, ComponentDefaultValue, ComponentFieldType, ComponentId,
+        ComponentLibrary, ComponentLibraryVec, ComponentMap, ComponentSource,
+        OptionComponentDefaultValue, ResultStyledDomRenderDomError, XmlNodeChild,
     },
 };
 use azul_css::{css::Css, AzString};
@@ -1521,9 +1521,10 @@ fn rendered_roots(sd: &StyledDom) -> Vec<BuilderNode> {
 
 // ── for the code export (layout/src/e2e/export.rs) ──
 
-/// A node and its subtree as plain XML for the code export: component
-/// instances expanded (like the mount), NO `azb-<uid>` markers; plus the CSS
-/// of every component it uses.
+/// A node and its subtree as plain XML: component instances expanded (like
+/// the mount), NO `azb-<uid>` markers; plus the CSS of every component it
+/// uses (the code export takes that CSS; its markup is
+/// [`export_node_markup`]).
 #[must_use]
 pub fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, String) {
     let mut w = XmlWriter::new(map);
@@ -1532,48 +1533,15 @@ pub fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, Strin
     (out, w.css)
 }
 
-/// A component's markup for the code export, `(xml, css, is_template)`: a
-/// template component's template WITH its `{placeholders}` (nested instances
-/// expanded), else what its `render_fn` draws for its default data. `css` is
-/// the component's own CSS, then that of the components it uses.
-///
-/// # Errors
-/// A template that does not parse, a failing `render_fn`.
-pub fn component_export_xml(
-    def: &ComponentDef,
-    map: &ComponentMap,
-) -> Result<(String, String, bool), String> {
-    let mut w = XmlWriter::new(map);
+/// A node and its subtree as markup for the COMPONENT-AWARE code export
+/// (`azul_core::codegen::dom`): component instances stay tags
+/// `<library:name field="value" ..>` (the export calls each component's
+/// function instead of inlining it), no `azb-<uid>` markers.
+#[must_use]
+pub fn export_node_markup(node: &BuilderNode) -> String {
     let mut out = String::new();
-    let is_template = if let Some(template) = template_of(def) {
-        for r in &parse_fragment(template)? {
-            w.write_node(&mut out, r, false, 0);
-        }
-        true
-    } else {
-        let sd = match (def.render_fn)(def, &def.data_model, map) {
-            ResultStyledDomRenderDomError::Ok(sd) => sd,
-            ResultStyledDomRenderDomError::Err(e) => {
-                return Err(format!(
-                    "render_fn failed for '{}:{}': {e:?}",
-                    def.id.collection.as_str(),
-                    def.id.name.as_str()
-                ))
-            }
-        };
-        for r in &rendered_roots(&sd) {
-            w.write_node(&mut out, r, false, 0);
-        }
-        false
-    };
-    let mut css = def.css.as_str().trim().to_string();
-    if !w.css.trim().is_empty() {
-        if !css.is_empty() {
-            css.push('\n');
-        }
-        css.push_str(&w.css);
-    }
-    Ok((out, css, is_template))
+    write_template(&mut out, node, None, "div");
+    out
 }
 
 /// One live `StyledDom` node (and its subtree) as a document node. `import`:
@@ -2065,21 +2033,21 @@ pub fn template_component_def(
             fields: ComponentDataFieldVec::from_vec(fields),
         },
         render_fn: azul_core::xml::user_defined_render_fn,
-        compile_fn: azul_core::xml::user_defined_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     };
     set_template(&mut def, template);
     def
 }
 
 /// Make `def` a template component: `template` (placeholders and all) is its
-/// markup, it renders through [`builder_template_render_fn`] and compiles
-/// through `export::builder_template_compile_fn` (the template as code, not
-/// its default texts).
+/// markup and it renders through [`builder_template_render_fn`]. The code
+/// export calls it through its render function
+/// (`ComponentCodegen::RenderFunction`), defined from this template (see
+/// `export::template_markup`).
 pub fn set_template(def: &mut ComponentDef, template: &str) {
     def.render_fn = builder_template_render_fn;
-    def.compile_fn = super::export::builder_template_compile_fn;
+    def.codegen = ComponentCodegen::RenderFunction;
     def.render_fn_source = Some(AzString::from(
         format!("{TEMPLATE_MARKER}\n{template}").as_str(),
     ))
