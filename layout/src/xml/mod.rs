@@ -218,7 +218,7 @@ pub fn parse_xml_to_styled_dom_resolving_icons(
     styled_xml_document(xml, provider, system_style, resolve_form_controls_detached)
 }
 
-/// A `Dom` built outside any window - AzBuilder's component previews - styled
+/// A `Dom` built outside any window - `AzBuilder`'s component previews - styled
 /// the way [`parse_xml_to_styled_dom_resolving_icons`] styles a parsed
 /// document: raw form controls become widgets (with a memory of their own),
 /// `<icon>`s resolve against `provider` (without one they stay as they are),

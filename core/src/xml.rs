@@ -4210,7 +4210,7 @@ fn builtin_map_render_fn(
 // The builtin HTML elements: ONE table (name, text default, preview)
 // ============================================================================
 
-/// What a builtin element's PREVIEW shows - its palette card in AzBuilder
+/// What a builtin element's PREVIEW shows - its palette card in `AzBuilder`
 /// (`get_component_thumbnail`) and the Components view's preview. Configured
 /// once per element in [`BUILTIN_ELEMENTS`], next to its text default, and
 /// rendered by [`builtin_preview_dom`].
@@ -4285,7 +4285,7 @@ impl PreviewNode {
     }
 
     /// `<tag>children</tag>`
-    const fn holding(tag: &'static str, children: &'static [PreviewNode]) -> Self {
+    const fn holding(tag: &'static str, children: &'static [Self]) -> Self {
         Self {
             tag,
             attrs: &[],
@@ -4305,7 +4305,7 @@ impl PreviewNode {
     }
 
     /// This node as parsed markup, for `xml_node_to_dom_fast`.
-    fn to_xml(&self) -> XmlNode {
+    fn markup(&self) -> XmlNode {
         preview_xml(self.tag, self.attrs, self.text, self.children)
     }
 }
@@ -4547,7 +4547,7 @@ fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[Previe
     if !text.is_empty() {
         kids.push(XmlNodeChild::Text(AzString::from(text)));
     }
-    kids.extend(children.iter().map(|c| XmlNodeChild::Element(c.to_xml())));
+    kids.extend(children.iter().map(|c| XmlNodeChild::Element(c.markup())));
     XmlNode {
         node_type: XmlTagName::from(tag),
         attributes: XmlAttributeMap::from(StringPairVec::from_vec(
