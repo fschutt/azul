@@ -752,18 +752,11 @@ mod autotest_generated {
 
     /// `ImageIconData` with explicitly-chosen (possibly hostile) f32 dimensions.
     fn image_icon(width: f32, height: f32) -> ImageIconData {
-        ImageIconData {
-            image: null_img(1, 1),
-            width,
-            height,
-        }
+        ImageIconData::with_meta(null_img(1, 1), width, height, IconMeta::for_image())
     }
 
     fn font_icon(icon_char: &str) -> FontIconData {
-        FontIconData {
-            font: dummy_font_ref(),
-            icon_char: icon_char.to_string(),
-        }
+        FontIconData::new(dummy_font_ref(), icon_char)
     }
 
     fn grayscale_style() -> SystemStyle {
@@ -937,10 +930,7 @@ mod autotest_generated {
     #[test]
     fn resolver_font_icon_yields_text_node_with_font_family() {
         let font = dummy_font_ref();
-        let data = RefAny::new(FontIconData {
-            font: font.clone(),
-            icon_char: "\u{e88a}".to_string(),
-        });
+        let data = RefAny::new(FontIconData::new(font.clone(), "\u{e88a}"));
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         // TWO nodes: the <span> and its text leaf. It was one when the glyph
@@ -1217,7 +1207,7 @@ mod autotest_generated {
     #[test]
     fn icon_filters_default_style_adds_nothing() {
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &SystemStyle::default());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &SystemStyle::default());
         assert!(
             props.is_empty(),
             "default SystemStyle must not synthesise a filter"
@@ -1227,7 +1217,7 @@ mod autotest_generated {
     #[test]
     fn icon_filters_grayscale_uses_quantised_luminance_matrix() {
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &grayscale_style());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &grayscale_style());
 
         let filters = filters_of(&props);
         assert_eq!(filters.len(), 1);
@@ -1258,7 +1248,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn icon_filters_tint_emits_flood_even_when_fully_transparent() {
+    fn icon_filters_tint_on_a_mask_floods_even_when_fully_transparent() {
         // a == 0 is still forwarded — the resolver does not treat it as "no tint".
         let transparent = ColorU {
             r: 1,
@@ -1267,15 +1257,39 @@ mod autotest_generated {
             a: 0,
         };
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &tint_style(transparent));
+        apply_icon_style_filters(&mut props, &IconMeta::for_mask(), &tint_style(transparent));
 
         let filters = filters_of(&props);
-        assert_eq!(filters.len(), 1);
-        assert!(matches!(filters[0], StyleFilter::Flood(c) if c == transparent));
+        assert_eq!(
+            filters,
+            vec![
+                StyleFilter::Flood(transparent),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ]
+        );
     }
 
     #[test]
-    fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood() {
+    fn icon_filters_tint_on_full_colour_artwork_is_ignored() {
+        // An image registered without metadata is full-colour artwork: a tint
+        // cannot recolour it (it gets `variants`, never a flood), so the
+        // request is dropped rather than painting a coloured box.
+        let mut props = Vec::new();
+        apply_icon_style_filters(
+            &mut props,
+            &IconMeta::for_image(),
+            &tint_style(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        );
+        assert!(filters_of(&props).is_empty());
+    }
+
+    #[test]
+    fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood_in() {
         let tint = ColorU {
             r: 255,
             g: 0,
@@ -1286,9 +1300,9 @@ mod autotest_generated {
         style.icon_style.tint_color = OptionColorU::Some(tint);
 
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &style);
+        apply_icon_style_filters(&mut props, &IconMeta::for_mask(), &style);
 
-        // Both filters must live in ONE `filter:` declaration (a second declaration
+        // All filters must live in ONE `filter:` declaration (a second declaration
         // would overwrite the first in the cascade, silently dropping the grayscale).
         let filter_decls = props
             .iter()
@@ -1297,9 +1311,13 @@ mod autotest_generated {
         assert_eq!(filter_decls, 1);
 
         let filters = filters_of(&props);
-        assert_eq!(filters.len(), 2);
+        assert_eq!(filters.len(), 3);
         assert!(matches!(filters[0], StyleFilter::ColorMatrix(_)));
         assert!(matches!(filters[1], StyleFilter::Flood(c) if c == tint));
+        assert!(matches!(
+            filters[2],
+            StyleFilter::Composite(StyleCompositeFilter::In)
+        ));
     }
 
     #[test]
@@ -1307,7 +1325,7 @@ mod autotest_generated {
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::width(
             LayoutWidth::px(4.0),
         ))];
-        apply_icon_style_filters(&mut props, &grayscale_style());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &grayscale_style());
 
         assert_eq!(props.len(), 2);
         assert!(
@@ -1336,7 +1354,7 @@ mod autotest_generated {
     #[test]
     fn font_icon_color_default_style_adds_nothing() {
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &SystemStyle::default());
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &SystemStyle::default());
         assert!(props.is_empty());
     }
 
@@ -1347,7 +1365,7 @@ mod autotest_generated {
         let mut style = SystemStyle::default();
         style.icon_style.inherit_text_color = true;
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &style);
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &style);
         assert!(props.is_empty());
     }
 
@@ -1360,7 +1378,7 @@ mod autotest_generated {
             a: 6,
         };
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &tint_style(tint));
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &tint_style(tint));
 
         assert_eq!(props.len(), 1);
         assert_eq!(text_color_of(&props), Some(tint));
@@ -1378,7 +1396,7 @@ mod autotest_generated {
         style.icon_style.inherit_text_color = true;
 
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &style);
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &style);
         assert_eq!(text_color_of(&props), Some(tint));
     }
 
@@ -1625,5 +1643,292 @@ mod autotest_generated {
             text_of(&out).is_some(),
             "a material icon must resolve to a text node"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // icon metadata: defaults, the variant per mode, request x capability
+    // (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md 8.1/8.2)
+    // ---------------------------------------------------------------------
+
+    use azul_core::icon::IconDesignedFor;
+
+    fn dark_style() -> SystemStyle {
+        let mut s = SystemStyle::default();
+        s.theme = azul_css::system::Theme::Dark;
+        s
+    }
+
+    fn masked_image(meta: IconMeta) -> RefAny {
+        RefAny::new(ImageIconData::with_meta(null_img(4, 4), 4.0, 4.0, meta))
+    }
+
+    /// The icon spec a resolution redirected to, if it is an icon node.
+    fn icon_name_of(dom: &Dom) -> Option<String> {
+        match dom.root.get_node_type() {
+            NodeType::Icon(n) => Some(n.as_str().to_string()),
+            _ => None,
+        }
+    }
+
+    /// The LAST `color:` of the resolved icon (later declarations win).
+    fn last_text_color(dom: &Dom) -> Option<ColorU> {
+        all_props(dom).iter().rev().find_map(|p| match &p.property {
+            CssProperty::TextColor(CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        })
+    }
+
+    fn with_css_color(color: ColorU) -> NodeData {
+        original_with(vec![CssPropertyWithConditions::simple(
+            CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor { inner: color })),
+        )])
+    }
+
+    const CSS_RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const JSON_BLUE: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
+
+    #[test]
+    fn a_font_icon_follows_the_text_colour_by_default() {
+        let icon = FontIconData::new(dummy_font_ref(), "\u{e88a}");
+        assert_eq!(icon.meta.recolor, IconRecolor::CurrentColor);
+        assert!(icon.meta.monochrome, "a glyph is one colour by construction");
+        assert_eq!(icon.meta.designed_for, IconDesignedFor::Any);
+        assert_eq!(icon.meta, IconMeta::for_font());
+    }
+
+    #[test]
+    fn an_image_icon_is_never_recoloured_by_default() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "app", "logo", null_img(8, 8));
+        let mut data = provider.lookup("logo").expect("registered");
+        {
+            let img = data
+                .downcast_ref::<ImageIconData>()
+                .expect("an image icon");
+            assert_eq!(img.meta.recolor, IconRecolor::None);
+            assert!(!img.meta.monochrome);
+            assert_eq!(img.meta, IconMeta::for_image());
+        }
+        // A tint request cannot touch full-colour artwork: no flood, no filter.
+        let out = resolve(data, &Dom::create_div().root, &tint_style(CSS_RED));
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn registering_an_image_with_metadata_keeps_the_metadata() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon_with_meta(
+            &mut provider,
+            "app",
+            "glyph",
+            null_img(16, 16),
+            IconMeta::for_mask(),
+        );
+        let mut data = provider.lookup("glyph").expect("registered");
+        let img = data.downcast_ref::<ImageIconData>().expect("an image icon");
+        assert_eq!(img.meta, IconMeta::for_mask());
+        assert_eq!((img.width, img.height), (16.0, 16.0));
+    }
+
+    #[test]
+    fn the_dark_mode_picks_the_dark_variant_and_the_light_mode_keeps_the_icon() {
+        let meta = IconMeta::for_image().with_dark_variant("home-dark");
+        let original = Dom::create_icon("home").root;
+
+        let dark = resolve(masked_image(meta.clone()), &original, &dark_style());
+        assert_eq!(
+            icon_name_of(&dark).as_deref(),
+            Some("home-dark"),
+            "dark mode must redirect to the dark artwork"
+        );
+
+        let light = resolve(masked_image(meta), &original, &SystemStyle::default());
+        assert!(has_image_node(&light), "light mode draws the icon itself");
+    }
+
+    #[test]
+    fn a_light_to_dark_switch_swaps_the_artwork_through_the_provider() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon_with_meta(
+            &mut provider,
+            "app",
+            "home",
+            null_img(4, 4),
+            IconMeta::for_image().with_dark_variant("home-dark"),
+        );
+        register_image_icon(&mut provider, "app", "home-dark", null_img(9, 9));
+        let shared = azul_core::icon::SharedIconProvider::from_handle(provider);
+
+        let mut light = Dom::create_icon("home");
+        azul_core::icon::resolve_icons_in_dom(&mut light, &shared, &SystemStyle::default());
+        assert_eq!(width_px(&light), Some(4.0));
+
+        // Same provider, same cache: the mode flip alone must swap the artwork.
+        let mut dark = Dom::create_icon("home");
+        azul_core::icon::resolve_icons_in_dom(&mut dark, &shared, &dark_style());
+        assert_eq!(width_px(&dark), Some(9.0), "the dark variant's own artwork");
+    }
+
+    #[test]
+    fn the_high_contrast_variant_wins_when_high_contrast_is_asked_for() {
+        let meta = IconMeta::for_image()
+            .with_dark_variant("home-dark")
+            .with_high_contrast_variant("home-hc");
+        let mut style = dark_style();
+        style.prefers_high_contrast = azul_css::dynamic_selector::BoolCondition::True;
+        let out = resolve(masked_image(meta), &Dom::create_icon("home").root, &style);
+        assert_eq!(icon_name_of(&out).as_deref(), Some("home-hc"));
+    }
+
+    #[test]
+    fn a_variant_that_names_the_icon_itself_is_not_followed() {
+        let meta = IconMeta::for_image().with_dark_variant("HOME");
+        let out = resolve(masked_image(meta), &Dom::create_icon("home").root, &dark_style());
+        assert!(has_image_node(&out), "a self-reference draws the icon itself");
+    }
+
+    #[test]
+    fn a_tint_on_a_mask_icon_floods_it_through_its_own_alpha() {
+        let tint = ColorU {
+            r: 200,
+            g: 10,
+            b: 10,
+            a: 255,
+        };
+        let out = resolve(
+            masked_image(IconMeta::for_mask()),
+            &Dom::create_div().root,
+            &tint_style(tint),
+        );
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(tint),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "a bare flood paints the whole box (E15); composite(in) keeps it inside the \
+             artwork's alpha"
+        );
+    }
+
+    #[test]
+    fn a_mask_icon_without_a_request_is_drawn_as_it_is() {
+        let out = resolve(
+            masked_image(IconMeta::for_mask()),
+            &Dom::create_div().root,
+            &SystemStyle::default(),
+        );
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn current_colour_on_a_monochrome_raster_floods_with_the_css_colour() {
+        let meta = IconMeta::for_image()
+            .with_recolor(IconRecolor::CurrentColor)
+            .with_monochrome(true);
+        let out = resolve(masked_image(meta), &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "the flood carries the currentColor token; the display list swaps in the node's \
+             cascaded `color`"
+        );
+    }
+
+    #[test]
+    fn current_colour_on_full_colour_raster_artwork_is_not_honoured() {
+        // `monochrome: false` says the artwork is not an alpha mask: flooding
+        // it would erase its own colours, so only variants apply.
+        let meta = IconMeta::for_image().with_recolor(IconRecolor::CurrentColor);
+        let out = resolve(masked_image(meta), &Dom::create_div().root, &tint_style(CSS_RED));
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn a_mask_icon_drawn_for_light_follows_the_text_colour_in_dark_mode() {
+        let meta = IconMeta::for_mask().with_designed_for(IconDesignedFor::Light);
+
+        let light = resolve(
+            masked_image(meta.clone()),
+            &Dom::create_div().root,
+            &SystemStyle::default(),
+        );
+        assert!(
+            filters_of(&all_props(&light)).is_empty(),
+            "in the mode it was drawn for, the artwork is drawn as it is"
+        );
+
+        let dark = resolve(masked_image(meta), &Dom::create_div().root, &dark_style());
+        assert_eq!(
+            filters_of(&all_props(&dark)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "dark ink on a dark background: follow the text colour instead"
+        );
+    }
+
+    #[test]
+    fn a_fixed_recolour_picks_the_colour_of_the_mode() {
+        let colors = IconModeColors {
+            light: ColorU {
+                r: 1,
+                g: 1,
+                b: 1,
+                a: 255,
+            },
+            dark: ColorU {
+                r: 250,
+                g: 250,
+                b: 250,
+                a: 255,
+            },
+        };
+        let meta = IconMeta::for_mask().with_recolor(IconRecolor::Fixed(colors));
+        let dark = resolve(masked_image(meta.clone()), &Dom::create_div().root, &dark_style());
+        assert_eq!(filters_of(&all_props(&dark))[0], StyleFilter::Flood(colors.dark));
+        let light = resolve(masked_image(meta), &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(filters_of(&all_props(&light))[0], StyleFilter::Flood(colors.light));
+    }
+
+    /// Pitfall 10: a rice can set `color` on the `<icon>` (CSS) and `recolor`
+    /// in `remap.json`. An explicit recolour colour beats the CSS `color`.
+    #[test]
+    fn an_explicit_recolour_colour_beats_the_css_colour_on_a_font_icon() {
+        let icon = FontIconData::new(dummy_font_ref(), "x").with_meta(
+            IconMeta::for_font().with_recolor(IconRecolor::Fixed(IconModeColors::same(JSON_BLUE))),
+        );
+        let out = resolve(RefAny::new(icon), &with_css_color(CSS_RED), &SystemStyle::default());
+        assert_eq!(last_text_color(&out), Some(JSON_BLUE));
+    }
+
+    /// ...and `recolor: currentColor` means "take the CSS colour".
+    #[test]
+    fn current_color_recolour_takes_the_css_colour_on_a_font_icon() {
+        let icon = FontIconData::new(dummy_font_ref(), "x");
+        let out = resolve(RefAny::new(icon), &with_css_color(CSS_RED), &SystemStyle::default());
+        assert_eq!(last_text_color(&out), Some(CSS_RED));
+    }
+
+    #[test]
+    fn a_font_icon_that_refuses_recolouring_ignores_the_tint() {
+        let icon = FontIconData::new(dummy_font_ref(), "x")
+            .with_meta(IconMeta::for_font().with_recolor(IconRecolor::None));
+        let out = resolve(RefAny::new(icon), &Dom::create_div().root, &tint_style(JSON_BLUE));
+        assert_eq!(last_text_color(&out), None);
     }
 }
