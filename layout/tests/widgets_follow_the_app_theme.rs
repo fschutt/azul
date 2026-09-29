@@ -296,3 +296,19 @@ fn dialogs_modals_and_popovers_follow_the_app_theme() {
         .dom()
     });
 }
+
+#[test]
+fn tooltips_follow_the_app_theme() {
+    use azul_layout::widgets::tooltip::Tooltip;
+    assert_follows_the_app_theme("tooltip", |t| {
+        pinned(
+            Tooltip::new(
+                Dom::create_p_with_text("Anchor"),
+                AzString::from_const_str("Explains it"),
+            ),
+            t,
+            Tooltip::with_theme,
+        )
+        .dom()
+    });
+}
