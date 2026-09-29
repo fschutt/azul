@@ -185,7 +185,7 @@ impl ExprSyntax for D {
     /// `renderCard("Hi", title)`: another function of the module (D
     /// resolves module-level functions in any order; the `string`
     /// arguments are the default `native_string`).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.lower_camel(), args, broken)
     }
 }

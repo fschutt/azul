@@ -209,7 +209,7 @@ impl WrapperDomSyntax for KotlinDom {
 
     /// `renderCard("Hi", title)`: another top-level function of the file
     /// (named like `dom_item_fn` names it).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.lower_camel(), args, broken)
     }
 }

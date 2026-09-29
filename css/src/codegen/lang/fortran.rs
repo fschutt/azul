@@ -333,7 +333,7 @@ impl LinearSyntax for Fortran {
     }
 
     /// `render_card('Hi', title)`: another function of the module.
-    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+    fn item_call_expr(&self, item: &Ident, _params: &[Ident], args: &[String]) -> Option<String> {
         Some(apply(&fn_name_of(item), args))
     }
 }

@@ -306,7 +306,7 @@ impl ExprSyntax for Crystal {
     /// `render_card("Hi", title)`: another class method of the module,
     /// called on the module's `self` (the native `String` arguments are the
     /// default `native_string`).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         apply(item.snake(), args, broken)
     }
 

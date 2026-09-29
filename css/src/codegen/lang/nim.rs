@@ -215,7 +215,7 @@ impl ExprSyntax for Nim {
 
     /// `renderCard("Hi", title)`: another proc of the module (the module
     /// lists callees first, so it is declared above its caller).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.lower_camel(), args, broken)
     }
 

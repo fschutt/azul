@@ -233,7 +233,7 @@ impl LinearSyntax for FreeBasic {
 
     /// `RenderCard("Hi", title)`: another function of the file (defined
     /// above it: the module lists callees first).
-    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+    fn item_call_expr(&self, item: &Ident, _params: &[Ident], args: &[String]) -> Option<String> {
         Some(apply(&fn_name_of(item), args))
     }
 }

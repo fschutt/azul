@@ -435,7 +435,7 @@ impl ExprSyntax for PascalDom {
     /// `RenderCard('Hi', Title)`: another function of the unit (its
     /// interface declares them all); the arguments are the default
     /// `native_string` (Pascal strings, as the wrapper classes take).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         let f = pas_item_name(item);
         if args.is_empty() {
             Doc::text(f)

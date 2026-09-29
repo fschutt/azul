@@ -223,7 +223,7 @@ impl ExprSyntax for Odin {
 
     /// `render_card("Hi", title)`: another proc of the package (Odin
     /// resolves package-level declarations in any order).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         odin_call(item.snake(), args, broken)
     }
 

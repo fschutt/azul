@@ -41,7 +41,7 @@ package body Ui is
 
    function Render_Ui return Az_Dom is
       t1 : Az_Dom;
-      t2 : Az_Button;
+      t2 : Az_Dom;
    begin
       t1 := Az_Dom_With_Child (Az_Dom_Create_Body, Render_Card ("Hi", "Beta"));
       t2 := Az_Button_Dom (Az_Button_Create (To_Az_String ("OK")));

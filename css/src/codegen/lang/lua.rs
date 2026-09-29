@@ -228,7 +228,7 @@ impl WrapperDomSyntax for LuaDom {
 
     /// `M.render_card("Hi", title)`: another function of the module table
     /// (named like `dom_item_fn` names it).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(format!("M.{}", item.snake()), args, broken)
     }
 }

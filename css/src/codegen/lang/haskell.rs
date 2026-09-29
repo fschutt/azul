@@ -339,7 +339,7 @@ impl HsDom {
             Expr::Unsupported { what } => Err(what.clone()),
             // Another DOM function of the module: an `IO` action taking
             // Haskell `String`s (`renderBadge tag`), bound like a child.
-            Expr::ItemCall { item, args } => {
+            Expr::ItemCall { item, args, .. } => {
                 let args = args
                     .iter()
                     .map(|a| self.arg(a))

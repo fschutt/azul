@@ -278,7 +278,7 @@ impl ExprSyntax for Zig {
 
     /// `renderCard("Hi", title)`: another function of the file (Zig
     /// resolves top-level declarations in any order).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.lower_camel(), args, broken)
     }
 

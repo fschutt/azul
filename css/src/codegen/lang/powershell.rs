@@ -226,7 +226,7 @@ impl ExprSyntax for PowerShell {
     /// function of the script (positional arguments), parenthesized as an
     /// argument of a method call. Never broken: a command's arguments
     /// continue on the next line only after a backtick.
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, _broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, _broken: bool) -> Doc {
         let name = fn_name_of(item);
         if args.is_empty() {
             return Doc::text(format!("({name})"));

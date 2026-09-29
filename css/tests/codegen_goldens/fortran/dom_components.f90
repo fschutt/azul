@@ -34,7 +34,7 @@ contains
   function render_ui() result(r)
     type(AzDom) :: r
     type(AzDom) :: t1
-    type(AzButton) :: t2
+    type(AzDom) :: t2
     t1 = az_dom_with_child(az_dom_create_body(), render_card('Hi', 'Beta'))
     t2 = az_button_dom(az_button_create(azul_string('OK')))
     t1 = az_dom_with_child(t1, t2)

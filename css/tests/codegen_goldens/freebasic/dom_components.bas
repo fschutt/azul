@@ -23,7 +23,7 @@ End Function
 
 Function RenderUi() As AzDom
     Dim t1 As AzDom
-    Dim t2 As AzButton
+    Dim t2 As AzDom
     t1 = AzDom_withChild(AzDom_createBody(), RenderCard("Hi", "Beta"))
     t2 = AzButton_dom(AzButton_create(CssStr("OK")))
     t1 = AzDom_withChild(t1, t2)

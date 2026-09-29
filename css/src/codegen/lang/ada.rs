@@ -415,7 +415,7 @@ impl LinearSyntax for Ada {
 
     /// `Render_Card ("Hi", Title)`: another function of the package (its
     /// spec declares them all), without parentheses when nullary.
-    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+    fn item_call_expr(&self, item: &Ident, _params: &[Ident], args: &[String]) -> Option<String> {
         Some(apply(&unit_name_of(item), args))
     }
 }

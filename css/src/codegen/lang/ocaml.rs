@@ -292,12 +292,11 @@ fn ml_apply(f: String, args: Vec<Doc>) -> Doc {
     Doc::cat(parts)
 }
 
-/// The DOM through the idiomatic modules (`Dom`, `SmallAriaInfo`), for the
-/// items of module `.0` (an item call passes its callee's labels).
-#[derive(Debug, Copy, Clone)]
-struct OCamlDom<'a>(&'a Module);
+/// The DOM through the idiomatic modules (`Dom`, `SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct OCamlDom;
 
-impl WrapperDomSyntax for OCamlDom<'_> {
+impl WrapperDomSyntax for OCamlDom {
     fn base(&self) -> &dyn ExprSyntax {
         &OCaml
     }
@@ -358,17 +357,10 @@ impl WrapperDomSyntax for OCamlDom<'_> {
     /// parameters are labelled, so every argument goes by its callee
     /// parameter's label, and `()` applies it. Not an atom: as an argument
     /// (`|> Fun.flip Dom.with_child (..)`) `ml_arg` parenthesizes it.
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, _broken: bool) -> Doc {
-        let labels: Vec<String> = self
-            .0
-            .item(item)
-            .map(|callee| callee.params.iter().map(|p| ml_param(&p.name)).collect())
-            .unwrap_or_default();
+    fn item_call(&self, item: &Ident, params: &[Ident], args: Vec<Doc>, _broken: bool) -> Doc {
         let mut parts = vec![Doc::text(ml_ident(item.snake()))];
-        for (i, a) in args.into_iter().enumerate() {
-            parts.push(Doc::text(
-                labels.get(i).map_or_else(|| " ".to_string(), |l| format!(" ~{l}:")),
-            ));
+        for (p, a) in params.iter().zip(args) {
+            parts.push(Doc::text(format!(" ~{}:", ml_param(p))));
             parts.push(ml_arg(a));
         }
         parts.push(Doc::text(" ()"));
@@ -376,10 +368,10 @@ impl WrapperDomSyntax for OCamlDom<'_> {
     }
 }
 
-/// A DOM item of module `m`: a function of optional labelled strings
-/// (defaulting to the values the item was made with) and `()`.
-fn dom_item_fn(m: &Module, item: &Item) -> String {
-    let syntax = WrapperDom(OCamlDom(m));
+/// A DOM item: a function of optional labelled strings (defaulting to the
+/// values the item was made with) and `()`.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(OCamlDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
         out.push_str(&format!("(* {} *)\n", ml_comment(line)));
@@ -501,7 +493,7 @@ impl CodegenBackend for OCaml {
         for item in &m.items {
             out.push('\n');
             if is_dom_item(item) {
-                out.push_str(&dom_item_fn(m, item));
+                out.push_str(&dom_item_fn(item));
             } else {
                 out.push_str(&item_fn(item));
             }

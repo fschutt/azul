@@ -210,7 +210,7 @@ impl WrapperDomSyntax for NodeDom {
 
     /// `renderCard("Hi", title)`: another function of the module (named
     /// like `dom_item_fn` names it).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.lower_camel(), args, broken)
     }
 }

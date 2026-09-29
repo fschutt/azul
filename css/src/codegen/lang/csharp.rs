@@ -237,7 +237,7 @@ impl WrapperDomSyntax for CSharpDom {
 
     /// `RenderCard("Hi", title)`: another static method of the same class
     /// (named like `dom_item_method` names it).
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.upper_camel(), args, broken)
     }
 }

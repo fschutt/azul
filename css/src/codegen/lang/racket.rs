@@ -223,7 +223,7 @@ impl ExprSyntax for Racket {
     }
 
     /// `(render-card "Hi" title)`: another function of the module.
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         form(fn_name_of(item), args, broken)
     }
 
