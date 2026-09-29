@@ -19,12 +19,15 @@ Branch `wt/m2-azmeet-audio` (base d9ce25179). Worker: `/Users/fschutt/Developmen
   stand-in: PASS).
 - `6b2843642` feat(azmeet): audio over iroh, mute/deafen, Leave (lib.rs; new glue type-checked in a stub
   harness, see the report).
+- `165e73eb9` docs(guide): realtime-media AzMeet section + backends; networking two sentences.
+- Report `scripts/M2_AZMEET_AUDIO_2026_09_29.md`.
 
 ## IN PROGRESS
-- guide rewrite (doc/guide/en/system/realtime-media.md)
+- nothing
 
-## NEXT
-- report scripts/M2_AZMEET_AUDIO_2026_09_29.md
+## NEXT (for the parent)
+- `node --test` in the Worker; `cargo test -p AzMeet --lib`; build AzMeet + libazul with the debug server; run
+  two-clients.mjs (see the report).
 
 ## Open questions
 - AudioSink / MicrophoneWidget are not mocked under headless (the app guards itself); should the library mock
