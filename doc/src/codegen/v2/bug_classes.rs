@@ -1059,6 +1059,78 @@ fn azul_h_checks_every_padded_variant_payload_at_compile_time() {
     assert_none("padded union variants without a compile-time offset check", offenders);
 }
 
+/// The leading identifier of `s` (`AzFoo_bar(...` -> `AzFoo_bar`).
+fn leading_ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// The name a C function declaration or definition line declares: the last
+/// identifier before its first `(`. `None` for a variable whose initializer
+/// calls something (`static AzString x = AzString_fromConstStr(..)`).
+fn declared_fn_name(decl: &str) -> Option<&str> {
+    let head = decl.split_once('(')?.0.trim_end();
+    if head.contains('=') {
+        return None;
+    }
+    let start = head
+        .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map_or(0, |i| i + 1);
+    Some(&head[start..]).filter(|n| !n.is_empty())
+}
+
+/// azul.h compiles as C on its own: no name is both a macro and a function,
+/// and no function is declared both `static` (a header-only helper) and
+/// `extern` (a libazul export). The header defined `AzString_fromConstStr`
+/// as a macro AND as a `static inline` function, and `AzString_tr` as a
+/// `static inline` helper while api.json exports `AzString_tr` - four errors
+/// in every C translation unit that included it (B3, 2026-09-29).
+#[test]
+fn azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages() {
+    let mut macros = BTreeMap::new();
+    let mut statics = BTreeMap::new();
+    let mut externs = BTreeMap::new();
+    for (i, line) in azul_h().lines().enumerate() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix('#') {
+            if let Some(def) = rest.trim_start().strip_prefix("define") {
+                let name = leading_ident(def.trim_start());
+                if !name.is_empty() {
+                    macros.entry(name.to_string()).or_insert(i + 1);
+                }
+            }
+        } else if t.starts_with("static ") {
+            if let Some(name) = declared_fn_name(t) {
+                statics.entry(name.to_string()).or_insert(i + 1);
+            }
+        } else if t.starts_with("extern ") && !t.starts_with("extern \"C\"") {
+            if let Some(name) = declared_fn_name(t) {
+                externs.entry(name.to_string()).or_insert(i + 1);
+            }
+        }
+    }
+    let mut offenders = Vec::new();
+    for (name, line) in &macros {
+        for (what, fns) in [("static", &statics), ("extern", &externs)] {
+            if let Some(fn_line) = fns.get(name) {
+                offenders.push(format!(
+                    "{name}: a macro (line {line}) and a {what} function (line {fn_line})"
+                ));
+            }
+        }
+    }
+    for (name, line) in &statics {
+        if let Some(extern_line) = externs.get(name) {
+            offenders.push(format!(
+                "{name}: static (line {line}) and extern (line {extern_line})"
+            ));
+        }
+    }
+    assert_none("azul.h names with two meanings", offenders);
+}
+
 /// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
 /// every tagged union exactly as Rust does.
 #[test]
