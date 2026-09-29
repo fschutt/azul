@@ -532,6 +532,8 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
+                    // The offsets the clip was projected with.
+                    &scroll_offsets,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);

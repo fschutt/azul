@@ -1803,6 +1803,157 @@ fn shift_diagonal_2d(
     }
 }
 
+/// The scroll frames and clips open at one point of a display-list walk,
+/// and how far the frames move what is painted there: an item inside
+/// frames scrolled by a total of [`Self::scrolled`] is painted that far up
+/// and left of its display-list bounds (`pos - offset`, the rule the raster
+/// paints with), and only inside [`Self::visible`].
+///
+/// THE walk the scroll-damage producers share ([`collect_scroll_shifts`],
+/// [`scroll_fast_path_eligible_in`], [`overlay_rects_after_frame_in`]), so
+/// "where is this item on screen" has one answer among them.
+struct ScrollStack<'a> {
+    offsets: &'a ScrollOffsetMap,
+    /// The frames open here: id, offset, and clip on screen.
+    open: Vec<(LocalScrollId, (f32, f32), LogicalRect)>,
+    /// The `PushClip`s open here, on screen.
+    clips: Vec<LogicalRect>,
+    scrolled: (f32, f32),
+}
+
+impl<'a> ScrollStack<'a> {
+    fn new(offsets: &'a ScrollOffsetMap) -> Self {
+        Self {
+            offsets,
+            open: Vec::new(),
+            clips: Vec::new(),
+            scrolled: (0.0, 0.0),
+        }
+    }
+
+    /// How far the frames open here move what is painted here. Read it
+    /// BEFORE stepping over an item: a `PushScrollFrame`'s clip is in the
+    /// space around the frame it opens.
+    const fn scrolled(&self) -> (f32, f32) {
+        self.scrolled
+    }
+
+    /// The part of the screen what is painted here can show in: every open
+    /// frame's and clip's rect on screen, intersected. `None` when nothing
+    /// is open.
+    fn visible(&self) -> Option<LogicalRect> {
+        self.open
+            .iter()
+            .map(|(_, _, clip)| *clip)
+            .chain(self.clips.iter().copied())
+            .reduce(intersect_logical_rects)
+    }
+
+    /// Is a push of `scroll_id` open here?
+    fn is_open(&self, scroll_id: LocalScrollId) -> bool {
+        self.open.iter().any(|(id, ..)| *id == scroll_id)
+    }
+
+    /// Walk over `item`: a push opens its frame or clip, a pop closes the
+    /// innermost one.
+    fn step(&mut self, item: &DisplayListItem) {
+        match item {
+            DisplayListItem::PushScrollFrame {
+                scroll_id,
+                clip_bounds,
+                ..
+            } => {
+                let offset = self
+                    .offsets
+                    .get(scroll_id)
+                    .copied()
+                    .unwrap_or((0.0, 0.0));
+                let on_screen = moved_by(*clip_bounds.inner(), self.scrolled);
+                self.open.push((*scroll_id, offset, on_screen));
+                self.scrolled.0 += offset.0;
+                self.scrolled.1 += offset.1;
+            }
+            DisplayListItem::PopScrollFrame => {
+                if let Some((_, offset, _)) = self.open.pop() {
+                    self.scrolled.0 -= offset.0;
+                    self.scrolled.1 -= offset.1;
+                }
+            }
+            DisplayListItem::PushClip { bounds, .. } => {
+                self.clips.push(moved_by(*bounds.inner(), self.scrolled));
+            }
+            DisplayListItem::PopClip => {
+                self.clips.pop();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Do two rects agree to a hundredth of a pixel?
+fn same_rect(a: &LogicalRect, b: &LogicalRect) -> bool {
+    (a.origin.x - b.origin.x).abs() < 0.01
+        && (a.origin.y - b.origin.y).abs() < 0.01
+        && (a.size.width - b.size.width).abs() < 0.01
+        && (a.size.height - b.size.height).abs() < 0.01
+}
+
+/// `r` as painted inside frames that moved it by `by`.
+const fn moved_by(r: LogicalRect, by: (f32, f32)) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition {
+            x: r.origin.x - by.0,
+            y: r.origin.y - by.1,
+        },
+        size: r.size,
+    }
+}
+
+/// Every push of `scroll_id` with the index of its matching pop, in list
+/// order. More than one for a SPLIT frame: the display list closes a frame
+/// around a box painted outside it (a fixed header, an escaping absolute
+/// box) and reopens it after (`DisplayListGenerator::enter_scroll_chain`).
+fn frame_pushes(display_list: &DisplayList, scroll_id: LocalScrollId) -> Vec<(usize, usize)> {
+    let items = &display_list.items;
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| {
+            matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
+        })
+        .map(|(i, _)| {
+            (
+                i,
+                find_matching_pop(items, i, MatchKind::ScrollFrame).min(items.len()),
+            )
+        })
+        .collect()
+}
+
+/// Decide whether scroll frame `scroll_id` may use the [`scroll_shift_region`]
+/// memmove fast path, or whether the caller must full-repaint the clip instead.
+///
+/// [`scroll_fast_path_eligible_in`] with no other frame's offset known: every
+/// frame around `scroll_id` counts as unscrolled, so a frame nested in a
+/// scrolled one (a clip the caller projected) is refused.
+#[must_use]
+pub fn scroll_fast_path_eligible(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offset: (f32, f32),
+    prev_offset: (f32, f32),
+) -> bool {
+    scroll_fast_path_eligible_in(
+        display_list,
+        scroll_id,
+        clip_bounds,
+        scroll_offset,
+        prev_offset,
+        &ScrollOffsetMap::new(),
+    )
+}
+
 /// Decide whether scroll frame `scroll_id` may use the [`scroll_shift_region`]
 /// memmove fast path, or whether the caller must full-repaint the clip instead.
 ///
@@ -1813,11 +1964,17 @@ fn shift_diagonal_2d(
 /// proven — i.e. fall back ONLY when (a) something is painted behind the frame
 /// within the clip AND (b) the scrolling content does not opaquely cover the clip.
 ///
-/// `scroll_offset` is the frame's current offset and `prev_offset` the offset
-/// the pixels being moved were rendered at; both are used to project the
-/// content's opaque fills (stored at content coords) into viewport space for
-/// the coverage test — coverage must hold at BOTH offsets, since the memmove
-/// drags pixels that were composited at the OLD offset. A scroll frame over
+/// `clip_bounds` is the frame's clip ON SCREEN, where the memmove runs - what
+/// [`collect_scroll_shifts`] hands over. `scroll_offset` is the frame's
+/// current offset and `prev_offset` the offset the pixels being moved were
+/// rendered at; `scroll_offsets` are the current offsets of every frame (the
+/// map the clip was projected with). Every item the check reads is moved
+/// onto the screen by the frames open around it (`ScrollStack`), so a
+/// scroll box keeps the fast path on a SCROLLED page: it used to give up on
+/// every frame nested in a scrolled one, and each scroll step of a box on a
+/// page taller than its window repainted the whole box. Coverage must hold at
+/// BOTH offsets, since the memmove drags pixels composited at the OLD one. A
+/// SPLIT frame's content is every push of it. A scroll frame over
 /// nothing-but-the-clear-color is always eligible (no backdrop to drag).
 /// Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
@@ -1825,79 +1982,97 @@ fn shift_diagonal_2d(
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
 #[must_use]
-pub fn scroll_fast_path_eligible(
+pub fn scroll_fast_path_eligible_in(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
     scroll_offset: (f32, f32),
     prev_offset: (f32, f32),
+    scroll_offsets: &ScrollOffsetMap,
 ) -> bool {
     let _p = crate::probe::Probe::span("scroll_fastpath_check");
 
-    // Locate the frame's content range [start+1, end).
-    let start = display_list.items.iter().position(|it| {
-        matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
-    });
-    let Some(start) = start else {
+    let items = &display_list.items;
+    let pushes = frame_pushes(display_list, scroll_id);
+    let Some(&(start, _)) = pushes.first() else {
         return true; // no frame for this id → nothing to shift
     };
-    let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
-        .min(display_list.items.len());
 
-    // NESTED frame. An inner frame's clip_bounds are the OUTER frame's content
-    // coords, and so is everything around it this check reads: with the outer
-    // frame scrolled, the memmove would shift a region displaced from the real
-    // on-screen clip by the outer offset - conservative full-clip repaint
-    // instead. But the caller hands over the clip where it is ON SCREEN
-    // (`collect_scroll_shifts` projects it); while that IS the display-list
-    // clip, nothing around the frame is scrolled and every coordinate here is
-    // already on screen. That is every scroll box on a page taller than its
-    // window (they all sit inside the PAGE's frame) while the page is at rest,
-    // and it must not cost them the fast path.
-    let mut depth = 0i32;
-    for it in &display_list.items[..start] {
-        match it {
-            DisplayListItem::PushScrollFrame { .. } => depth += 1,
-            DisplayListItem::PopScrollFrame => depth -= 1,
-            _ => {}
-        }
+    // The backdrop - what is painted before the frame - each item with the
+    // offset of the frames open around it.
+    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(start);
+    for it in &items[..start] {
+        backdrop.push((it, stack.scrolled()));
+        stack.step(it);
     }
-    if depth > 0 {
-        let unscrolled = match &display_list.items[start] {
-            DisplayListItem::PushScrollFrame {
-                clip_bounds: own, ..
-            } => {
-                (own.inner().origin.x - clip_bounds.origin.x).abs() < 0.01
-                    && (own.inner().origin.y - clip_bounds.origin.y).abs() < 0.01
-            }
-            _ => false,
-        };
-        if !unscrolled {
-            return false;
+    // The frames AROUND this one, and the part of the frame's clip they let
+    // show - what `collect_scroll_shifts` hands over. A clip placed anywhere
+    // else was placed by offsets this map does not hold (a caller that passes
+    // none, for a frame nested in a scrolled one), and nothing read below
+    // would be on screen: the conservative full-clip repaint.
+    let around = stack.scrolled();
+    let own_clip = match &items[start] {
+        DisplayListItem::PushScrollFrame {
+            clip_bounds: own, ..
+        } => moved_by(*own.inner(), around),
+        _ => return false,
+    };
+    let visible = stack
+        .visible()
+        .map_or(own_clip, |outer| intersect_logical_rects(own_clip, outer));
+    if !same_rect(&visible, clip_bounds) {
+        return false;
+    }
+
+    // The frame's CONTENT, every push of it, each item with what the frames
+    // nested INSIDE this one add: the item is painted at
+    // `bounds - around - offset - inner` for this frame's `offset`.
+    let own_in_map = scroll_offsets
+        .get(&scroll_id)
+        .copied()
+        .unwrap_or((0.0, 0.0));
+    let mut content: Vec<(&DisplayListItem, (f32, f32))> = Vec::new();
+    let mut stack = ScrollStack::new(scroll_offsets);
+    for (i, it) in items.iter().enumerate() {
+        if pushes.iter().any(|&(s, e)| i > s && i < e) {
+            let at = stack.scrolled();
+            content.push((
+                it,
+                (
+                    at.0 - around.0 - own_in_map.0,
+                    at.1 - around.1 - own_in_map.1,
+                ),
+            ));
         }
+        stack.step(it);
     }
 
     // NOTE on overlays: anything painted AFTER the frame that overlaps the
-    // clip (the frame's own scrollbar, an open dropdown, a tooltip) gets
-    // dragged by the memmove. That does NOT make the frame ineligible — the
-    // caller repaints those regions after the shift via
-    // [`overlay_rects_after_frame`] (a scrollbar would otherwise disable the
-    // fast path for every scroll container).
+    // clip (the frame's own scrollbar, an open dropdown, a tooltip, a fixed
+    // header between the halves of a split frame) gets dragged by the
+    // memmove. That does NOT make the frame ineligible — the caller repaints
+    // those regions after the shift via [`overlay_rects_after_frame_in`] (a
+    // scrollbar would otherwise disable the fast path for every scroll
+    // container).
 
     // (a) Best case: the SCROLLING content opaquely covers the clip (projected
-    // into viewport space by the scroll offset — at BOTH the old offset, where
-    // the dragged pixels were rendered, and the new one). Then nothing behind
-    // can ever show through, so the shift is always safe.
+    // onto the screen — at BOTH the old offset, where the dragged pixels were
+    // rendered, and the new one). Then nothing behind can ever show through,
+    // so the shift is always safe.
     let covered_at = |off: (f32, f32)| {
-        let fills: Vec<LogicalRect> = display_list.items[start + 1..end]
+        let fills: Vec<LogicalRect> = content
             .iter()
-            .filter_map(opaque_fill_rect)
-            .map(|r| LogicalRect {
-                origin: LogicalPosition {
-                    x: r.origin.x - off.0,
-                    y: r.origin.y - off.1,
-                },
-                size: r.size,
+            .filter_map(|&(it, inner)| {
+                opaque_fill_rect(it).map(|r| {
+                    moved_by(
+                        r,
+                        (
+                            around.0 + off.0 + inner.0,
+                            around.1 + off.1 + inner.1,
+                        ),
+                    )
+                })
             })
             .collect();
         rect_covered_by(clip_bounds, &fills)
@@ -1919,14 +2094,17 @@ pub fn scroll_fast_path_eligible(
     let clip_area = (clip_bounds.size.width * clip_bounds.size.height).max(1.0);
     let mut backdrop_fills: Vec<LogicalRect> = Vec::new();
     let mut backdrop_color: Option<ColorU> = None;
-    for it in &display_list.items[..start] {
+    for &(it, at) in &backdrop {
         if it.is_state_management() {
             continue;
         }
         let b = match it.bounds() {
-            Some(b) if rects_overlap_or_adjacent(&b, clip_bounds, 0.0) => b,
-            _ => continue,
+            Some(b) => moved_by(b, at),
+            None => continue,
         };
+        if !rects_overlap_or_adjacent(&b, clip_bounds, 0.0) {
+            continue;
+        }
         // Area of this item within the clip; ignore negligible coverage.
         let ix = b.origin.x.max(clip_bounds.origin.x);
         let iy = b.origin.y.max(clip_bounds.origin.y);
@@ -2199,9 +2377,12 @@ pub fn gpu_value_damage(
 /// "repaint the whole clip" rect land `outer offset` pixels away from the
 /// field: the field kept its old horizontal offset while a correctly placed
 /// caret strip beside it rendered at the new one (the seam, 2026-08-31).
-/// The walk keeps an offset stack of the enclosing frames' CURRENT offsets
-/// and subtracts it, so top-level frames are unchanged and nested ones land
-/// where they are on screen. Returns `(scroll_id, clip, delta, offset)`.
+/// The walk (`ScrollStack`) keeps an offset stack of the enclosing frames'
+/// CURRENT offsets and subtracts it, so top-level frames are unchanged and
+/// nested ones land where they are on screen - and cuts each clip to the
+/// enclosing frames' and clips' on-screen rects, the part the frame can show
+/// in (a box half scrolled out of its container moves only its visible
+/// half). Returns `(scroll_id, clip, delta, offset)`.
 #[must_use]
 pub fn collect_scroll_shifts(
     display_list: &DisplayList,
@@ -2221,43 +2402,38 @@ pub fn collect_scroll_shifts(
         ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
     };
     let mut out: Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
-    let mut stack: Vec<(f32, f32)> = Vec::new();
-    let mut acc = (0.0f32, 0.0f32);
+    let mut stack = ScrollStack::new(scroll_offsets);
     for item in &display_list.items {
-        match item {
-            DisplayListItem::PushScrollFrame {
-                clip_bounds,
-                scroll_id,
-                ..
-            } => {
-                let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
-                // A split frame (pushed again after a box painted outside it,
-                // `DisplayListGenerator::enter_scroll_chain`) is ONE frame:
-                // shifting its clip once per push would move the pixels
-                // twice as far as the content went.
-                let already_shifted = out.iter().any(|(id, ..)| id == scroll_id);
-                if let Some(delta) = scroll_offsets
-                    .get(scroll_id)
-                    .and_then(|o| moved(scroll_id, o))
-                    .filter(|_| !already_shifted)
-                {
-                    let mut clip = *clip_bounds.inner();
-                    clip.origin.x -= acc.0;
-                    clip.origin.y -= acc.1;
-                    out.push((*scroll_id, clip, delta, offset));
-                }
-                stack.push(offset);
-                acc.0 += offset.0;
-                acc.1 += offset.1;
+        if let DisplayListItem::PushScrollFrame {
+            clip_bounds,
+            scroll_id,
+            ..
+        } = item
+        {
+            let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+            // A split frame (pushed again after a box painted outside it,
+            // `DisplayListGenerator::enter_scroll_chain`) is ONE frame:
+            // shifting its clip once per push would move the pixels
+            // twice as far as the content went.
+            let already_shifted = out.iter().any(|(id, ..)| id == scroll_id);
+            if let Some(delta) = scroll_offsets
+                .get(scroll_id)
+                .and_then(|o| moved(scroll_id, o))
+                .filter(|_| !already_shifted)
+            {
+                // The clip is in the space around the frame: moved by the
+                // frames open around it (read before stepping over the
+                // push), and cut to what they let show. The memmove may only
+                // move pixels the frame paints: past an enclosing clip lie
+                // other boxes' pixels, which it would drag along.
+                let projected = moved_by(*clip_bounds.inner(), stack.scrolled());
+                let clip = stack
+                    .visible()
+                    .map_or(projected, |outer| intersect_logical_rects(projected, outer));
+                out.push((*scroll_id, clip, delta, offset));
             }
-            DisplayListItem::PopScrollFrame => {
-                if let Some(off) = stack.pop() {
-                    acc.0 -= off.0;
-                    acc.1 -= off.1;
-                }
-            }
-            _ => {}
         }
+        stack.step(item);
     }
     out
 }
@@ -2368,6 +2544,12 @@ pub fn logical_rects_to_buffer(
 
 /// See [`ScrollShiftOutcome`].
 ///
+/// `clip` is the frame's clip ON SCREEN and `scroll_offsets` the current
+/// offsets of every frame - exactly what [`collect_scroll_shifts`] projected
+/// the clip with. Both the fast-path check and the overlay list read every
+/// item where it is painted, so a scroll box on a scrolled page, and a page
+/// split around a fixed box, keep the memmove.
+///
 /// A move is a PURE BYTE MOVE: on a target in pool byte order (a native
 /// ARGB8888 slot the commit swizzle converts in place) the moved pixels are
 /// still in pool order afterwards, and it is the CALLER that converts the
@@ -2384,11 +2566,19 @@ pub fn execute_scroll_shift(
     delta: (f32, f32),
     offset: (f32, f32),
     dpi_factor: f32,
+    scroll_offsets: &ScrollOffsetMap,
 ) -> ScrollShiftOutcome {
     let mut damage = Vec::new();
     let mut present_extra = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-    if scroll_fast_path_eligible(display_list, scroll_id, clip, offset, prev_offset) {
+    if scroll_fast_path_eligible_in(
+        display_list,
+        scroll_id,
+        clip,
+        offset,
+        prev_offset,
+        scroll_offsets,
+    ) {
         let strips = scroll_shift_region(pixmap, clip, delta, offset, dpi_factor);
         // Empty strips = the delta rounded to ZERO physical pixels: no
         // memmove ran, so nothing moved. The clip must then stay OUT of
@@ -2403,7 +2593,7 @@ pub fn execute_scroll_shift(
         let moved = !strips.is_empty();
         damage.extend(strips);
         if moved {
-            for g in overlay_rects_after_frame(display_list, scroll_id, clip) {
+            for g in overlay_rects_after_frame_in(display_list, scroll_id, clip, scroll_offsets) {
                 damage.push(g);
                 let mut ghost = g;
                 ghost.origin.x -= delta.0;
@@ -2421,37 +2611,64 @@ pub fn execute_scroll_shift(
     }
 }
 
-/// Clip-intersected bounds of every item painted AFTER scroll frame
-/// `scroll_id`'s `PopScrollFrame` that STRICTLY overlaps `clip_bounds`.
-///
-/// Anything composited over the frame inside its clip (the frame's own
-/// scrollbar, an open dropdown/context menu/tooltip, a sibling's box-shadow)
-/// gets DRAGGED by the `scroll_shift_region` memmove. Rather than making such
-/// frames ineligible for the fast path (a scrollbar would disable it for
-/// every scroll container), the caller adds these rects to the damage set so
-/// the dragged pixels are simply repainted after the shift.
-#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+/// [`overlay_rects_after_frame_in`] with no other frame's offset known: every
+/// item is taken where its display-list bounds are.
 #[must_use]
 pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
 ) -> Vec<LogicalRect> {
+    overlay_rects_after_frame_in(
+        display_list,
+        scroll_id,
+        clip_bounds,
+        &ScrollOffsetMap::new(),
+    )
+}
+
+/// Clip-intersected ON-SCREEN bounds of every item painted AFTER scroll
+/// frame `scroll_id`'s first `PopScrollFrame` that STRICTLY overlaps
+/// `clip_bounds` (the frame's clip on screen).
+///
+/// Anything composited over the frame inside its clip (the frame's own
+/// scrollbar, an open dropdown/context menu/tooltip, a sibling's box-shadow,
+/// a fixed header between the halves of a split frame) gets DRAGGED by the
+/// `scroll_shift_region` memmove. Rather than making such frames ineligible
+/// for the fast path (a scrollbar would disable it for every scroll
+/// container), the caller adds these rects to the damage set so the dragged
+/// pixels are simply repainted after the shift.
+///
+/// Each item is placed by the frames open around it (`scroll_offsets`, the
+/// map the clip was projected with): a scroll box's own bar on a scrolled
+/// page is repainted where the page paints it. What a LATER push of the same
+/// frame paints is not an overlay: it moved with the frame, by the same
+/// memmove. Counted as overlays, the cards after a fixed header - most of a
+/// page - were repainted on every scroll step.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[must_use]
+pub fn overlay_rects_after_frame_in(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offsets: &ScrollOffsetMap,
+) -> Vec<LogicalRect> {
     let mut out = Vec::new();
-    let Some(start) = display_list.items.iter().position(|it| {
-        matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
-    }) else {
+    let Some(&(_, end)) = frame_pushes(display_list, scroll_id).first() else {
         return out;
     };
-    let end = find_matching_pop(&display_list.items, start, MatchKind::ScrollFrame)
-        .min(display_list.items.len());
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
-    for it in &display_list.items[end..] {
-        if it.is_state_management() {
+    let mut stack = ScrollStack::new(scroll_offsets);
+    for (i, it) in display_list.items.iter().enumerate() {
+        let at = stack.scrolled();
+        let moved_with_the_frame = stack.is_open(scroll_id);
+        stack.step(it);
+        if i < end || moved_with_the_frame || it.is_state_management() {
             continue;
         }
         let Some(b) = it.bounds() else { continue };
+        let b = moved_by(b, at);
         // STRICT overlap: merely touching shares no pixels with the clip and
         // cannot be dragged.
         let ix = b.origin.x.max(clip_bounds.origin.x);

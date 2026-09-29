@@ -137,7 +137,7 @@ impl Raster {
             cpurender::collect_scroll_shifts(dl, after, before, 1.0)
         {
             let out = cpurender::execute_scroll_shift(
-                &mut frame, dl, scroll_id, &clip, delta, offset, 1.0,
+                &mut frame, dl, scroll_id, &clip, delta, offset, 1.0, after,
             );
             damage.extend(out.damage);
         }
