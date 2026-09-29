@@ -554,3 +554,5 @@ mod flat_and_flora_widgets_follow_the_light_and_dark_theme;
 mod app_color_scheme_override;
 #[path = "app_theme_override.rs"]
 mod app_theme_override;
+#[path = "widgets_follow_the_app_theme.rs"]
+mod widgets_follow_the_app_theme;

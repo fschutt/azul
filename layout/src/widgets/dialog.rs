@@ -2170,12 +2170,18 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_dialog_without_a_theme_renders_flat() {
+    fn a_dialog_without_a_theme_follows_the_app_theme_flat_by_default() {
         let d = Dialog::create(body());
         assert_eq!(d.theme, OptionUiTheme::None, "no opinion until the app picks one");
-        let dom = d.dom();
-        assert!(tc::has_class(&dom, FLAT), "the default theme is flat");
+        let dom = d.clone().dom();
+        assert!(tc::has_class(&dom, FLAT), "the default app theme is flat");
         assert!(!tc::has_class(&dom, FLORA));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            d.dom()
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]
