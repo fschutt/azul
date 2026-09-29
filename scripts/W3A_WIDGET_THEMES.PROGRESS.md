@@ -95,20 +95,32 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   API: `ColorInput.theme` appended after `accessibility_name`; set_theme /
   with_theme.
 
-- date_picker: 88af3dad1 (plumbing: DatePickerLook + DayPalette in the day
-  payload; established(); test-only wrappers), 3f2ab820a (RED), ac5b49d0f
-  (flat rings; flora paper calendar). API: `DatePicker.theme` appended after
-  `accessibility_name`; set_theme / with_theme.
+- date_picker (first attempt, NOT integrated - conflicted with W1's modes):
+  88af3dad1, 3f2ab820a, ac5b49d0f, 4e6e9ea25 on wt/w3a-widget-themes.
 
 - self-review: 18604cd4b (drop unused decl::border_top), 4e6e9ea25 (ASCII doc).
 - final report: fad47c6b9 (scripts/W3A_WIDGET_THEMES_2026_09_29.md).
 
+## FOLLOW-UP (branch wt/w3a-date-picker, from integrated b9cc36bee)
+Coordinator asks: (A) redo date_picker theming on W1's new date_picker.rs
+(modes date/month/week, `name`, `mode`; theme LAST after mode; look threads
+through the month grid + week selection too); (B) fix 4 failing tests at
+the root, one commit each (accordion dark header gradient, breadcrumb night
+brass, color_input flora swatch, spinner ring rotation sample).
+
+DONE:
+- A1 a6d6310ba refactor(date_picker): theme option; DatePickerLook through
+  every mode (header / year header, weekday row, day grid, week grid, month
+  grid; DayPalette in DayCellData + MonthCellData; restyle_* take it);
+  flat/flora date_picker appended (flora = flat stub).
+
 ## IN PROGRESS
-Nothing.
+B: the 4 failing tests (decide test vs impl against doc/templates/flora.css).
 
 ## NEXT
-Done - hand back to the parent (integrate, compile once, run the suites,
-api.json via autofix from the report's API list).
+B1..B4 fix commits; then A2 RED (theme_tests adapted from 3f2ab820a + month
+and week grids in both themes + integration test for all 3 modes); A3 feat
+(flat rings incl. month/week cells; flora paper calendar); report update.
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
