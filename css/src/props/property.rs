@@ -9919,3 +9919,113 @@ mod autotest_generated {
         }
     }
 }
+
+/// A `transform` tweens: two lists of the same functions interpolate
+/// function by function (CSS Transforms 1, section 9), and `none` stands for
+/// the identity of the other side's functions. It used to hold its start value
+/// until the midpoint and then jump, so a chevron turned on open / close
+/// flipped half way through the tween instead of turning.
+#[cfg(test)]
+mod transform_tween_tests {
+    use super::*;
+    use crate::props::basic::{
+        angle::AngleValue, animation::AnimationInterpolationFunction, pixel::PixelValue,
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn transform(list: Vec<StyleTransform>) -> CssProperty {
+        CssProperty::const_transform(StyleTransformVec::from_vec(list))
+    }
+
+    fn rotate(deg: isize) -> CssProperty {
+        transform(vec![StyleTransform::Rotate(AngleValue::const_deg(deg))])
+    }
+
+    fn functions(p: &CssProperty) -> Vec<StyleTransform> {
+        match p {
+            CssProperty::Transform(v) => v
+                .get_property()
+                .map(|l| l.as_ref().to_vec())
+                .unwrap_or_default(),
+            other => panic!("not a transform: {other:?}"),
+        }
+    }
+
+    fn degrees(p: &CssProperty) -> f32 {
+        match functions(p).as_slice() {
+            [StyleTransform::Rotate(a)] => a.to_degrees_raw(),
+            other => panic!("expected one rotate(), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_rotation_turns_through_the_angles_between() {
+        let r = linear();
+        let (closed, open) = (rotate(0), rotate(180));
+        for (t, want) in [(0.25, 45.0), (0.5, 90.0), (0.75, 135.0)] {
+            let got = degrees(&closed.interpolate(&open, t, &r));
+            assert!((got - want).abs() < 0.01, "t={t}: {got} deg, want {want}");
+        }
+        // ...and back, the same way round (no shortest-path folding).
+        let got = degrees(&open.interpolate(&closed, 0.25, &r));
+        assert!((got - 135.0).abs() < 0.01, "closing, t=0.25: {got}");
+    }
+
+    #[test]
+    fn a_rotation_past_a_full_turn_is_not_folded() {
+        let got = degrees(&rotate(0).interpolate(&rotate(720), 0.5, &linear()));
+        assert!((got - 360.0).abs() < 0.01, "half of two turns is one turn, got {got}");
+    }
+
+    /// No declared transform (`none`, or no value at all - what a transition
+    /// seeded from a node without one starts at) tweens from the identity.
+    #[test]
+    fn none_tweens_from_the_identity_of_the_other_side() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::Transform);
+        let got = degrees(&none.interpolate(&rotate(180), 0.25, &r));
+        assert!((got - 45.0).abs() < 0.01, "none -> rotate(180deg) at 1/4: {got}");
+        let got = degrees(&rotate(180).interpolate(&none, 0.25, &r));
+        assert!((got - 135.0).abs() < 0.01, "rotate(180deg) -> none at 1/4: {got}");
+    }
+
+    #[test]
+    fn matching_translations_tween_per_function() {
+        let from = transform(vec![
+            StyleTransform::TranslateX(PixelValue::px(0.0)),
+            StyleTransform::Rotate(AngleValue::const_deg(0)),
+        ]);
+        let to = transform(vec![
+            StyleTransform::TranslateX(PixelValue::px(10.0)),
+            StyleTransform::Rotate(AngleValue::const_deg(90)),
+        ]);
+        match functions(&from.interpolate(&to, 0.5, &linear())).as_slice() {
+            [StyleTransform::TranslateX(x), StyleTransform::Rotate(a)] => {
+                assert!((x.number.get() - 5.0).abs() < 0.01, "{x:?}");
+                assert!((a.to_degrees_raw() - 45.0).abs() < 0.01, "{a:?}");
+            }
+            other => panic!("the function list must keep its shape: {other:?}"),
+        }
+    }
+
+    /// Lists of different functions have no per-function tween: they keep
+    /// the old discrete half-way switch (CSS would decompose the matrices; a
+    /// turn is not ambiguous there, but a mixed list is a different feature).
+    #[test]
+    fn mismatched_lists_still_switch_half_way() {
+        let r = linear();
+        let turn = rotate(90);
+        let shift = transform(vec![StyleTransform::TranslateY(PixelValue::px(10.0))]);
+        assert_eq!(turn.interpolate(&shift, 0.25, &r), turn);
+        assert_eq!(turn.interpolate(&shift, 0.75, &r), shift);
+    }
+}
