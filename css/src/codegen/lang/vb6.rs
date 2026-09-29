@@ -88,9 +88,9 @@ impl ExprSyntax for Vb6 {
 }
 
 /// Why the VB6 printer does not export a DOM.
-const DOM_REASON: &str = "a VB6 `Declare` is stdcall while libazul exports cdecl functions, so VB6 \
-                          cannot call libazul at all, and a `Declare` can neither pass nor return \
-                          the Dom (a user-defined type) by value that every builder method takes";
+const DOM_REASON: &str = "a VB6 `Declare` is stdcall while libazul exports cdecl functions (and \
+                          VB6 needs a 32-bit libazul), so VB6 cannot call libazul at all - the \
+                          `..Byref` twins the binding declares for the Dom functions included";
 
 const REASON: &str = "a VB6 Declare cannot pass or return a user-defined type by value, so the \
                       bindings skip every CSS constructor (AzCssProperty_width, ...) and do not \

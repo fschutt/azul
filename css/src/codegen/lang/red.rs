@@ -105,10 +105,12 @@ impl ExprSyntax for Red {
     }
 }
 
-/// Why the Red/System printer does not export a DOM.
-const DOM_REASON: &str = "the binding declares every tagged union as an 8-byte opaque \
-                          placeholder, so a Dom - whose NodeData holds the NodeType union - \
-                          crosses the FFI by value with the wrong size";
+/// Why the Red/System printer does not export a DOM. (F1 sized the
+/// binding's unions like C, but in LP64 units: `usize` / `u64` fields and
+/// union blobs are pointer-width `byte-ptr!` slots.)
+const DOM_REASON: &str = "Red/System builds 32-bit executables only, which cannot load the \
+                          64-bit libazul whose LP64 layouts the binding mirrors (usize and u64 \
+                          as pointer-width slots), so no Dom can cross the FFI by value";
 
 const UNION_REASON: &str = "the Red/System bindings declare every tagged union (CssProperty, \
                             LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS \
