@@ -20,13 +20,85 @@
 //!
 //! The mode's words (`light`, `dark`, `system`, `auto`) are never theme
 //! names: in a chain they are errors and are dropped (§9.1 pitfall 5).
+//!
+//! Two environment variables choose them for every app a user runs
+//! ([`theme_env`]):
+//!
+//! - `AZ_THEME=<theme>` names the chain's HEAD, and outranks the app's own
+//!   choice: `AZ_THEME` > `AppConfig::with_theme` / `CallbackInfo::set_theme`
+//!   > the default theme ([`resolve_theme_head`]).
+//! - `AZ_MODE=light|dark|system` pins the MODE (screenshots, reftests, CI):
+//!   `AZ_MODE` > the app's mode > the window's > the desktop's. `system`
+//!   pins nothing.
+//!
+//! `AZ_THEME=light|dark` was the mode pin before `AZ_THEME` named the theme;
+//! for one release it still pins the mode, with a deprecation line pointing
+//! at `AZ_MODE`.
 
 use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
 
-use crate::AzString;
+use crate::{
+    dynamic_selector::{ThemeCondition, DEFAULT_APP_THEME},
+    AzString,
+};
+
+/// What the environment asks of the theme and the mode: `AZ_THEME` and
+/// `AZ_MODE`, read once per process ([`theme_env`]).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ThemeEnv {
+    /// The theme chain's head `AZ_THEME` names (`xyz:pink`); `None` leaves
+    /// the app's choice. Never a mode word: those are the deprecated alias.
+    pub theme: Option<String>,
+    /// The mode `AZ_MODE` pins (or, deprecated, `AZ_THEME=light|dark`):
+    /// [`ThemeCondition::Light`] or [`ThemeCondition::Dark`]; `None` pins
+    /// nothing.
+    pub mode: Option<ThemeCondition>,
+    /// One line per value that is not taken as written (the deprecated
+    /// alias, an unknown `AZ_MODE`), for the app to log once.
+    pub warnings: Vec<String>,
+}
+
+impl ThemeEnv {
+    /// The request made by the VALUES of `AZ_THEME` and `AZ_MODE` (`None`:
+    /// unset) - the testable core of [`theme_env`], which reads them from the
+    /// process environment. Values are trimmed; a blank one is unset.
+    #[must_use]
+    pub fn from_values(az_theme: Option<&str>, az_mode: Option<&str>) -> Self {
+        let _ = (az_theme, az_mode);
+        Self::default()
+    }
+}
+
+/// The environment's request ([`ThemeEnv`]), read from `AZ_THEME` and
+/// `AZ_MODE` on first use and kept for the life of the process: the theme
+/// chain is a startup decision, and a pin that changed mid-run would make a
+/// screenshot disagree with itself.
+#[must_use]
+pub fn theme_env() -> &'static ThemeEnv {
+    static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let theme = std::env::var("AZ_THEME").ok();
+        let mode = std::env::var("AZ_MODE").ok();
+        ThemeEnv::from_values(theme.as_deref(), mode.as_deref())
+    })
+}
+
+/// THE app-theme decision: the head of the theme chain.
+///
+/// ```text
+/// AZ_THEME  >  the app's choice (AppConfig::with_theme, CallbackInfo::set_theme)  >  DEFAULT_APP_THEME
+/// ```
+///
+/// The environment outranks the app, as the old `AZ_THEME` mode pin did: it
+/// is the user's choice for every app they run, and a screenshot run's.
+#[must_use]
+pub const fn resolve_theme_head<'a>(env: Option<&'a str>, app: Option<&'a str>) -> &'a str {
+    let _ = (env, app);
+    DEFAULT_APP_THEME
+}
 
 /// A theme chain, most specific first, and what building it had to drop or
 /// cut (a reserved or malformed name, a `fallback:` cycle), as log lines.
@@ -371,5 +443,104 @@ mod tests {
         let chain = expand_chain("abc", &fallback_of, "flat");
         assert_eq!(names(&chain), ["abc", "flat"]);
         assert_eq!(chain.warnings.len(), 1, "{:?}", chain.warnings);
+    }
+
+    // ── AZ_THEME / AZ_MODE ────────────────────────────────────────────────
+    //
+    // Through `ThemeEnv::from_values`, never `std::env::set_var`: the
+    // environment is process-global, and a test that set it would race every
+    // other test thread of the binary (the rule `system.rs`'s `AZ_RICING`
+    // tests follow). `theme_env()` itself only reads the variables.
+
+    #[test]
+    fn az_mode_pins_the_mode() {
+        for (value, mode) in [
+            ("dark", ThemeCondition::Dark),
+            ("light", ThemeCondition::Light),
+            (" Dark ", ThemeCondition::Dark),
+            ("LIGHT", ThemeCondition::Light),
+        ] {
+            let env = ThemeEnv::from_values(None, Some(value));
+            assert_eq!(env.mode, Some(mode), "AZ_MODE={value:?}");
+            assert_eq!(env.theme, None, "AZ_MODE={value:?} names no theme");
+            assert!(env.warnings.is_empty(), "AZ_MODE={value:?}: {:?}", env.warnings);
+        }
+    }
+
+    #[test]
+    fn az_mode_system_pins_nothing() {
+        for value in ["system", "System", "auto"] {
+            let env = ThemeEnv::from_values(None, Some(value));
+            assert_eq!(env.mode, None, "AZ_MODE={value}");
+            assert!(env.warnings.is_empty(), "AZ_MODE={value}: {:?}", env.warnings);
+        }
+    }
+
+    #[test]
+    fn an_unknown_az_mode_pins_nothing_and_says_so() {
+        let env = ThemeEnv::from_values(None, Some("blue"));
+        assert_eq!(env.mode, None);
+        assert_eq!(env.warnings.len(), 1, "{:?}", env.warnings);
+        assert!(env.warnings[0].contains("AZ_MODE=blue"), "{:?}", env.warnings);
+    }
+
+    /// The one-release alias: `AZ_THEME=light|dark` was the mode pin.
+    #[test]
+    fn az_theme_dark_still_pins_the_mode_and_points_at_az_mode() {
+        for (value, mode, instead) in [
+            ("dark", ThemeCondition::Dark, "AZ_MODE=dark"),
+            ("Light", ThemeCondition::Light, "AZ_MODE=light"),
+        ] {
+            let env = ThemeEnv::from_values(Some(value), None);
+            assert_eq!(env.mode, Some(mode), "AZ_THEME={value}");
+            assert_eq!(env.theme, None, "AZ_THEME={value} is a mode, never a theme");
+            assert_eq!(env.warnings.len(), 1, "AZ_THEME={value}: {:?}", env.warnings);
+            assert!(
+                env.warnings[0].contains("deprecated") && env.warnings[0].contains(instead),
+                "AZ_THEME={value}: {:?}",
+                env.warnings
+            );
+        }
+        // `system` / `auto` were never pins; as `AZ_THEME` they are still mode words.
+        let env = ThemeEnv::from_values(Some("system"), None);
+        assert_eq!((env.mode, env.theme), (None, None));
+        assert_eq!(env.warnings.len(), 1, "{:?}", env.warnings);
+    }
+
+    #[test]
+    fn az_mode_outranks_the_deprecated_az_theme_alias() {
+        let env = ThemeEnv::from_values(Some("dark"), Some("light"));
+        assert_eq!(env.mode, Some(ThemeCondition::Light));
+        assert_eq!(env.theme, None);
+        assert_eq!(env.warnings.len(), 1, "the alias is still reported: {:?}", env.warnings);
+
+        let env = ThemeEnv::from_values(Some("dark"), Some("system"));
+        assert_eq!(env.mode, None, "AZ_MODE=system is a decision too: no pin");
+    }
+
+    #[test]
+    fn az_theme_names_the_head_of_the_theme_chain() {
+        let env = ThemeEnv::from_values(Some("xyz:pink"), None);
+        assert_eq!(env.theme.as_deref(), Some("xyz:pink"));
+        assert_eq!(env.mode, None, "a theme is not a mode");
+        assert!(env.warnings.is_empty(), "{:?}", env.warnings);
+
+        let both = ThemeEnv::from_values(Some(" flora "), Some("dark"));
+        assert_eq!(both.theme.as_deref(), Some("flora"));
+        assert_eq!(both.mode, Some(ThemeCondition::Dark));
+        assert!(both.warnings.is_empty(), "{:?}", both.warnings);
+    }
+
+    #[test]
+    fn unset_or_blank_variables_ask_for_nothing() {
+        assert_eq!(ThemeEnv::from_values(None, None), ThemeEnv::default());
+        assert_eq!(ThemeEnv::from_values(Some(""), Some("  ")), ThemeEnv::default());
+    }
+
+    #[test]
+    fn the_environment_outranks_the_app_which_outranks_the_default() {
+        assert_eq!(resolve_theme_head(Some("xyz:pink"), Some("flora")), "xyz:pink");
+        assert_eq!(resolve_theme_head(None, Some("flora")), "flora");
+        assert_eq!(resolve_theme_head(None, None), DEFAULT_APP_THEME);
     }
 }
