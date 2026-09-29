@@ -350,6 +350,18 @@ pub fn plan_dylib_tree(
     tree
 }
 
+/// `identifier` of `[package.metadata.bundle]` (RED stub).
+pub fn configured_identifier(cargo_toml: &str) -> Option<String> {
+    let _ = cargo_toml;
+    None
+}
+
+/// The default `CFBundleIdentifier` (RED stub).
+pub fn default_bundle_id(cargo_toml: Option<&str>, binary_name: &str) -> String {
+    let _ = cargo_toml;
+    bundle_id_for(binary_name)
+}
+
 // ────────── The icon ───────────────────────────────────────────────────
 
 /// The icon files a crate configures: `icon` of `[package.metadata.bundle]`,
@@ -1332,6 +1344,45 @@ mod tests {
         assert!(configured_icons("[package]\nname = \"x\"\n").is_empty());
         let elsewhere = "[package.metadata.other]\nicon = [\"no.png\"]\n";
         assert!(configured_icons(elsewhere).is_empty());
+    }
+
+    #[test]
+    fn the_bundle_identifier_is_read_from_the_bundle_metadata() {
+        // The build-time declaration of the id the app sets as
+        // `AppConfig::app_id` - the `cargo-bundle` key, next to the icon.
+        let toml = "[package]\nname = \"editor\"\n\n[package.metadata.bundle]\n\
+                    identifier = \"org.example.Editor\"\nicon = [\"icons/128.png\"]\n\n\
+                    [dependencies]\nidentifier = \"9\"\n";
+        assert_eq!(
+            configured_identifier(toml).as_deref(),
+            Some("org.example.Editor")
+        );
+        assert_eq!(configured_icons(toml), vec!["icons/128.png"], "the same table, another key");
+        assert_eq!(configured_identifier("[package]\nname = \"x\"\n"), None);
+        let elsewhere = "[package.metadata.other]\nidentifier = \"no.such.App\"\n";
+        assert_eq!(configured_identifier(elsewhere), None);
+        let another_key = "[package.metadata.bundle]\nidentifiers = \"x.y\"\n";
+        assert_eq!(configured_identifier(another_key), None);
+        let blank = "[package.metadata.bundle]\nidentifier = \"  \"\n";
+        assert_eq!(configured_identifier(blank), None, "a blank id is none");
+    }
+
+    #[test]
+    fn the_configured_identifier_is_the_default_bundle_id() {
+        let toml = "[package.metadata.bundle]\nidentifier = \"org.example.Editor\"\n";
+        assert_eq!(default_bundle_id(Some(toml), "Editor"), "org.example.Editor");
+        let underscore = "[package.metadata.bundle]\nidentifier = \"org.example.my_app\"\n";
+        assert_eq!(
+            default_bundle_id(Some(underscore), "my_app"),
+            "org.example.my-app",
+            "its Apple form: a CFBundleIdentifier has no underscore"
+        );
+        assert_eq!(
+            default_bundle_id(Some("[package]\nname = \"x\"\n"), "AzWidgets"),
+            "com.azul.azwidgets",
+            "no identifier: the id derived from the binary, as before"
+        );
+        assert_eq!(default_bundle_id(None, "AzWidgets"), "com.azul.azwidgets");
     }
 
     #[test]

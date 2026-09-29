@@ -588,3 +588,5 @@ mod a_replaced_inline_style_follows_the_mode;
 mod a_clicked_control_takes_the_new_mode_after_a_scheme_switch;
 #[path = "app_set_text_beats_typing.rs"]
 mod app_set_text_beats_typing;
+#[path = "an_app_names_itself_with_app_id.rs"]
+mod an_app_names_itself_with_app_id;

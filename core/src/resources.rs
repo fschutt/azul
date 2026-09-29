@@ -1034,6 +1034,21 @@ pub struct AppConfig {
     ///
     /// 8-aligned (a string), so it sits with the other 8-aligned fields.
     pub theme: AzString,
+    /// Reverse-DNS id of the app (`org.example.Editor`): the Windows toast
+    /// AUMID (and the COM activator derived from it), the freedesktop
+    /// `desktop-entry` hint, and the default Wayland `app_id` / X11
+    /// `WM_CLASS`. macOS, iOS and Android keep the id their bundle / package
+    /// declares, and a Flatpak its `FLATPAK_ID`; a different `app_id` there
+    /// is logged as a warning. Set the same string as the bundle's
+    /// `[package.metadata.bundle] identifier`, which the build tools
+    /// (`azul-doc bundle macos`, `azul-doc mobile build`) default to.
+    ///
+    /// Empty (the default): not declared - the id is the platform's
+    /// declaration, else `com.azul.<executable name>`. Read once, when the
+    /// `App` is created.
+    ///
+    /// 8-aligned (a string), so it sits with the other 8-aligned fields.
+    pub app_id: AzString,
     /// The app's MODE: `None` (the default, "system") follows the desktop's
     /// light / dark setting, and every change of it; `Some(mode)` pins every
     /// window of the app to light or dark, whatever the desktop says. Not
@@ -1196,6 +1211,21 @@ impl AppConfig {
         self.theme = name;
     }
 
+    /// Name the app: `app_id` is its reverse-DNS id (`org.example.Editor`).
+    /// See [`Self::app_id`] for where each OS uses it and where the
+    /// platform's own declaration wins.
+    #[must_use]
+    pub fn with_app_id(mut self, app_id: AzString) -> Self {
+        self.set_app_id(app_id);
+        self
+    }
+
+    /// In-place [`Self::with_app_id`].
+    pub fn set_app_id(&mut self, app_id: AzString) {
+        // RED stub: the id is not stored yet.
+        let _ = app_id;
+    }
+
     #[must_use]
     pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
@@ -1239,6 +1269,8 @@ impl AppConfig {
             // Today's look; `native` becomes the default by changing the
             // one constant.
             theme: AzString::from_const_str(azul_css::dynamic_selector::DEFAULT_APP_THEME),
+            // Not declared: the platform's id, else the executable's.
+            app_id: AzString::from_const_str(""),
             // Follow the desktop.
             mode: crate::window::OptionWindowTheme::None,
         };

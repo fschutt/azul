@@ -1516,8 +1516,9 @@ pub mod wire {
     pub enum AppIdSource {
         /// Nobody named the app: the id is derived from the executable's name.
         Executable,
-        /// The platform named it: a bundle's `CFBundleIdentifier`, `FLATPAK_ID`, the Android
-        /// package. (An `AppConfig::app_id` would be this too - a proposal, not built.)
+        /// Someone named it: the platform (a bundle's `CFBundleIdentifier`, `FLATPAK_ID`, the
+        /// Android package) or the app itself (`AppConfig::app_id`) - see
+        /// [`AppIdentity::resolve`].
         Declared,
     }
 
@@ -1579,7 +1580,7 @@ pub mod wire {
             }
         }
 
-        /// The platform (or, one day, the app) named it. An empty (or blank)
+        /// The platform or the app named it. An empty (or blank)
         /// declaration is none: the id is then derived as
         /// [`AppIdentity::from_executable`] does.
         #[must_use]
@@ -1639,6 +1640,66 @@ pub mod wire {
                 String::from("Azul")
             } else {
                 self.exe_name.clone()
+            }
+        }
+    }
+
+    /// What the PLATFORM declares the app to be. It outranks the app's own
+    /// `AppConfig::app_id`: the OS keys its services on it (the notification
+    /// permission, TCC and LaunchServices on a bundle id; everything on the
+    /// Android package; the portal and the sandbox's `.desktop` file on the
+    /// Flatpak id), and an app cannot change it at run time.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum PlatformAppId {
+        /// The running `.app`'s `CFBundleIdentifier` (macOS, iOS).
+        AppleBundle(String),
+        /// The package of the Android manifest.
+        AndroidPackage(String),
+        /// `FLATPAK_ID`, inside a Flatpak sandbox (Linux).
+        Flatpak(String),
+    }
+
+    impl PlatformAppId {
+        /// The id the platform declared.
+        #[must_use]
+        pub fn id(&self) -> &str {
+            match self {
+                Self::AppleBundle(id) | Self::AndroidPackage(id) | Self::Flatpak(id) => id,
+            }
+        }
+
+        /// Where the id comes from, for the person reading the log.
+        #[must_use]
+        pub fn origin(&self) -> &'static str {
+            match self {
+                Self::AppleBundle(_) => "the app bundle's CFBundleIdentifier",
+                Self::AndroidPackage(_) => "the Android manifest package",
+                Self::Flatpak(_) => "FLATPAK_ID (the Flatpak sandbox)",
+            }
+        }
+    }
+
+    /// The app's identity, and what became of the app's own declaration.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ResolvedAppIdentity {
+        pub identity: AppIdentity,
+        /// Set when the platform's id overrode a DIFFERENT `app_id`: the app
+        /// asked for one name and runs under another.
+        pub warning: Option<String>,
+    }
+
+    impl AppIdentity {
+        /// Who the app is, from everything that may name it (RED stub).
+        #[must_use]
+        pub fn resolve(
+            app_id: &str,
+            platform: Option<&PlatformAppId>,
+            exe_path: &str,
+        ) -> ResolvedAppIdentity {
+            let _ = (app_id, platform);
+            ResolvedAppIdentity {
+                identity: Self::from_executable(exe_path),
+                warning: None,
             }
         }
     }

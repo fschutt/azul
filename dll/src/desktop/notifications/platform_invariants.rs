@@ -14,6 +14,7 @@ const AZUL_PERMISSIONS_JAVA: &str =
 const RUN_RS: &str = include_str!("../shell2/run.rs");
 const IOS_RS: &str = include_str!("../shell2/ios/mod.rs");
 const NOTIFY_LINUX_RS: &str = include_str!("linux.rs");
+const APP_RS: &str = include_str!("../app.rs");
 
 /// COM hands the click that started the process to the toast activator only
 /// once its class object is registered - so the Windows `run()` registers it
@@ -95,4 +96,22 @@ fn the_android_permission_dialog_is_requested_on_the_ui_thread() {
         "the helper runs the request on the UI thread:\n{java}"
     );
     assert!(java.contains("requestPermissions("), "{java}");
+}
+
+/// `AppConfig::app_id` names the app on every run path - the windowed run,
+/// the tray-only run, the crash reporter, iOS's `UIApplicationMain` - and
+/// the toast activator, the launch hooks and the first window read the
+/// identity. The one place the AppConfig is in hand before all of them is
+/// `App::create`, so it declares the id there.
+#[test]
+fn the_app_declares_its_app_id_when_it_is_created() {
+    let start = APP_RS
+        .find("    pub fn create(initial_data: RefAny, mut app_config: AppConfig)")
+        .expect("App::create");
+    let body = &APP_RS[start..];
+    let body = &body[..body.find("\n    }\n").unwrap_or(body.len())];
+    assert!(
+        body.contains("app_identity::declare(app_config.app_id.as_str())"),
+        "App::create does not declare AppConfig::app_id:\n{body}"
+    );
 }

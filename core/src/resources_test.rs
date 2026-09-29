@@ -688,6 +688,7 @@ mod autotest_generated {
             global_hotkeys,
             global_hotkeys_callback,
             theme,
+            app_id,
             mode,
             log_level,
             natural_scroll,
@@ -716,6 +717,7 @@ mod autotest_generated {
             + size_of_field(global_hotkeys)
             + size_of_field(global_hotkeys_callback)
             + size_of_field(theme)
+            + size_of_field(app_id)
             + size_of_field(mode)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
@@ -756,6 +758,26 @@ mod autotest_generated {
         let mut config = AppConfig::create();
         config.set_theme(AzString::from_const_str("monokai"));
         assert_eq!(config.theme.as_str(), "monokai");
+    }
+
+    /// The app's own id (`AppConfig::app_id`) is empty - not declared - until
+    /// the app names itself, and naming it touches nothing else.
+    #[test]
+    fn an_app_config_declares_no_app_id_until_the_app_names_itself() {
+        let config = AppConfig::create();
+        assert_eq!(
+            config.app_id.as_str(),
+            "",
+            "empty = the platform's id, else com.azul.<executable>, as before"
+        );
+
+        let named = AppConfig::create().with_app_id(AzString::from_const_str("org.example.Editor"));
+        assert_eq!(named.app_id.as_str(), "org.example.Editor");
+        assert_eq!(named.theme.as_str(), config.theme.as_str());
+
+        let mut config = AppConfig::create();
+        config.set_app_id(AzString::from_const_str("org.example.Viewer"));
+        assert_eq!(config.app_id.as_str(), "org.example.Viewer");
     }
 
     // =====================================================================
