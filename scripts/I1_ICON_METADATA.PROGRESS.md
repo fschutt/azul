@@ -24,8 +24,11 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `044a79ec8` RED: remap rules / apply-if at lookup / window mode (core icon_test.rs remap_rules_tests)
 - `063c8c62a` impl: IconRemapRule, parse_icon_apply_if, lookup_spec_in_context, resolve_icons_in_dom_with_context
 
+- `5f169baf9` RED: loader (layout/tests/user_icon_rules_follow_the_theme_chain.rs)
+- `775790a2a` impl: layout/src/icon_remap.rs (walk_theme_dirs, load_user_icon_rules, ...), dll wiring
+
 ## IN PROGRESS
-- step 5b: the remap.json loader (layout, feature json), injectable root, traversal checks
+- self-review pass, guide update, report
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
