@@ -13,8 +13,13 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `4452689d9` fix: filter => stacking context; currentColor flood token per node; CPU flood + composite +
   isolated filter group; WR fold_flood_in + column-major colour matrix
 
+- `e2ca23f73` RED: SVG currentColor / palette (cpurender/svg.rs unit tests, layout icon.rs unit tests,
+  layout/tests/an_svg_icon_follows_the_colour_of_its_node.rs)
+- `0d61a4568` impl: SvgPaintContext, render_svg_to_imageref_painted, svg_natural_size,
+  svg_uses_only_current_color; SvgIconData, register_svg_icon, default_svg_icon_meta
+
 ## IN PROGRESS
-- step 3: SVG currentColor + palette + register_svg_icon
+- step 4: pack rank, then registration order
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
