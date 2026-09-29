@@ -10,7 +10,7 @@
 //   * INTO is unmistakable: the whole row is tinted and outlined, and a line one
 //     indent level deeper shows where the new child lands (after the row's
 //     last visible descendant: `into` appends);
-//   * BEFORE / AFTER are a line at the row's own indent, at the gap the node
+//   * BEFORE / AFTER are a line at the row's own indent (its label's x), at the gap the node
 //     lands in (AFTER an expanded container is after its whole subtree);
 //   * nothing is left behind by dragleave, drop or dragend.
 //
@@ -123,8 +123,8 @@ window.__t = {
     return { top: r.top - t.top + this.tree().scrollTop, bottom: r.bottom - t.top + this.tree().scrollTop,
              left: r.left - t.left, height: r.height, width: r.width };
   },
-  /** The row's own indent: where its toggle starts (depth * 16 + 4 px of .tree-indent). */
-  indentOf(uid) { const ind = this.row(uid).querySelector('.tree-indent'); return this.rel(ind).left + ind.getBoundingClientRect().width; },
+  /** Where the row's label starts: a line at this x lands a node at the row's depth. */
+  indentOf(uid) { return this.rel(this.row(uid).querySelector('.tree-label')).left; },
   /** What the tree shows right now. */
   state() {
     const zones = [];

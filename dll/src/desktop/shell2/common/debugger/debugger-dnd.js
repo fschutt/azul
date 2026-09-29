@@ -99,6 +99,51 @@
         return { parent: row.parent, index: zone === 'before' ? row.index : row.index + 1 };
     }
 
+    /**
+     * THE rule for a drop on a node's row (the tree) or on its box (the
+     * window's picture): `dropZone` at `relY`, and where INTO is refused (a
+     * <div> in a <p>, a row into its own subtree) the row's halves instead.
+     * `{zone, msg}`, `msg` null when nothing may drop there.
+     */
+    function rowDrop(payload, row, relY, docRoot) {
+        var zone = dropZone(relY, row.node, row.parent == null);
+        var msg = dropMessage(payload, dropTarget(row, zone), docRoot);
+        if (!msg && zone === 'into' && row.parent != null) {
+            zone = relY < 0.5 ? 'before' : 'after';
+            msg = dropMessage(payload, dropTarget(row, zone), docRoot);
+        }
+        return { zone: zone, msg: msg };
+    }
+
+    /** Where a row of `depth` starts (its toggle): the rows and the drop line both use it. */
+    function indentPx(depth) {
+        return depth * 16 + 4;
+    }
+
+    /** Where the label of a row of `depth` starts: after its 16px toggle (.tree-toggle). */
+    function labelPx(depth) {
+        return indentPx(depth) + 16;
+    }
+
+    /**
+     * Where the drop line goes for `zone` on the row of `uid`, among the
+     * visible `rows` (`flatten`): at the gap the node lands in, at the depth
+     * it lands at. `{anchor, edge, depth}`: the line is on the `edge` ('top' |
+     * 'bottom') of the row `anchor`. BEFORE: the row's top. AFTER: below its
+     * whole visible subtree (a sibling lands after all of it). INTO: appended,
+     * so below the last visible descendant, one level deeper.
+     */
+    function dropLine(rows, uid, zone) {
+        var i = -1;
+        for (var k = 0; k < rows.length; k++) if (rows[k].uid === uid) { i = k; break; }
+        if (i < 0) return null;
+        var row = rows[i];
+        if (zone === 'before') return { anchor: row.uid, edge: 'top', depth: row.depth };
+        var last = i;
+        while (last + 1 < rows.length && rows[last + 1].depth > row.depth) last++;
+        return { anchor: rows[last].uid, edge: 'bottom', depth: zone === 'into' ? row.depth + 1 : row.depth };
+    }
+
     function findNode(node, uid) {
         if (!node) return null;
         if (node.uid === uid) return node;
@@ -441,14 +486,8 @@
         if (!row) {
             return { uid: 0, zone: 'into', msg: dropMessage(p, { parent: 0, index: null }, docRoot) };
         }
-        var relY = typeof hit.rel_y === 'number' ? hit.rel_y : 0.5;
-        var zone = dropZone(relY, row.node, row.parent == null);
-        var msg = dropMessage(p, dropTarget(row, zone), docRoot);
-        if (!msg && zone === 'into' && row.parent != null) {
-            zone = relY < 0.5 ? 'before' : 'after';
-            msg = dropMessage(p, dropTarget(row, zone), docRoot);
-        }
-        return { uid: row.uid, zone: zone, msg: msg };
+        var at = rowDrop(p, row, typeof hit.rel_y === 'number' ? hit.rel_y : 0.5, docRoot);
+        return { uid: row.uid, zone: at.zone, msg: at.msg };
     }
 
     /**
@@ -473,7 +512,8 @@
     var logic = {
         NON_VISUAL: NON_VISUAL, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
         acceptsChildren: acceptsChildren, canContain: canContain, dropZone: dropZone, flatten: flatten,
-        dropTarget: dropTarget, findNode: findNode, rowOf: rowOf,
+        dropTarget: dropTarget, rowDrop: rowDrop, dropLine: dropLine, indentPx: indentPx, labelPx: labelPx,
+        findNode: findNode, rowOf: rowOf,
         isSelfOrDescendant: isSelfOrDescendant, normalizePayload: normalizePayload,
         dropMessage: dropMessage, stepMessage: stepMessage, insertTarget: insertTarget,
         paletteEntries: paletteEntries, suggestComponentName: suggestComponentName,
@@ -507,6 +547,7 @@
         collapsed: new Set(),
         drag: null,              // payload of the drag in progress (dataTransfer is unreadable in dragover)
         dropAt: null,            // {uid, zone} under the pointer
+        rows: [],                // the tree's visible rows (flatten), as rendered
         expandTimer: null,
         thumbs: {},              // 'lib:name' -> {data, width, height} | 'pending' | 'empty'
         thumbQueue: [],
@@ -718,7 +759,8 @@
             container.innerHTML = '<div class="placeholder-text">No builder document — is the app running with AZ_DEBUG?</div>';
             return;
         }
-        flatten(S.doc.root, S.collapsed).forEach(function (row) {
+        S.rows = flatten(S.doc.root, S.collapsed);
+        S.rows.forEach(function (row) {
             container.appendChild(buildRow(row));
         });
         if (!(S.doc.root.children || []).length) {
@@ -784,12 +826,11 @@
             + (node.kind === 'component' ? ' component-root' : '');
         el.dataset.uid = node.uid;
         el.dataset.type = node.kind === 'text' ? 'text' : 'element';
-        el.style.setProperty('--azb-indent', (row.depth * 16 + 20) + 'px');
         el.draggable = row.parent != null;
 
         var indent = document.createElement('span');
         indent.className = 'tree-indent';
-        indent.style.width = (row.depth * 16 + 4) + 'px';
+        indent.style.width = indentPx(row.depth) + 'px';
         el.appendChild(indent);
 
         var toggle = document.createElement('span');
@@ -833,8 +874,10 @@
         // Drop on a row: before / into / after.
         el.addEventListener('dragover', function (e) { onRowDragOver(e, row, el); });
         el.addEventListener('dragleave', function (e) {
+            // Onto its own label: still this row. Anywhere else: the next
+            // row's dragover draws again (dragleave comes first).
             if (e.relatedTarget && el.contains(e.relatedTarget)) return;
-            el.classList.remove('azb-drop-before', 'azb-drop-after', 'azb-drop-into');
+            clearIndicators();
         });
         el.addEventListener('drop', function (e) { onRowDrop(e, row, el); });
         return el;
@@ -845,7 +888,36 @@
             n.classList.remove('azb-drop-before', 'azb-drop-after', 'azb-drop-into');
         });
         var c = document.getElementById('dom-tree-container');
-        if (c) c.classList.remove('azb-drop-end');
+        if (c) {
+            c.classList.remove('azb-drop-end');
+            c.querySelectorAll('.azb-drop-marker').forEach(function (m) { m.remove(); });
+        }
+    }
+
+    /**
+     * The drop line (`dropLine`) for `zone` on the row of `uid`: a 2px line
+     * with a ring at its start, from where the landed node's label will start,
+     * over the gap it lands in. Positioned in the tree's own box, so it scrolls with it.
+     */
+    function showDropLine(uid, zone) {
+        var c = document.getElementById('dom-tree-container');
+        if (!c) return;
+        var line = dropLine(S.rows || [], uid, zone);
+        var anchor = line ? c.querySelector('.azb-row[data-uid="' + line.anchor + '"]') : null;
+        var m = c.querySelector('.azb-drop-marker');
+        if (!anchor) {
+            if (m) m.remove();
+            return;
+        }
+        if (!m) {
+            m = document.createElement('div');
+            m.className = 'azb-drop-marker';
+            m.setAttribute('aria-hidden', 'true');
+            c.appendChild(m);
+        }
+        m.dataset.zone = zone;
+        m.style.left = labelPx(line.depth) + 'px';
+        m.style.top = (anchor.offsetTop + (line.edge === 'bottom' ? anchor.offsetHeight : 0) - 1) + 'px';
     }
 
     function endDrag() {
@@ -880,10 +952,10 @@
         var payload = currentPayload(e);
         if (!payload) return;
         var rect = el.getBoundingClientRect();
-        var zone = dropZone((e.clientY - rect.top) / Math.max(rect.height, 1), row.node, row.parent == null);
-        var msg = dropMessage(payload, dropTarget(row, zone), S.doc.root);
+        var at = rowDrop(payload, row, (e.clientY - rect.top) / Math.max(rect.height, 1), S.doc.root);
+        var zone = at.zone;
         clearIndicators();
-        if (!msg) {
+        if (!at.msg) {
             e.dataTransfer.dropEffect = 'none';
             S.dropAt = null;
             return;
@@ -892,6 +964,7 @@
         e.stopPropagation();
         e.dataTransfer.dropEffect = payload.type === 'builder-node' ? 'move' : 'copy';
         el.classList.add('azb-drop-' + zone);
+        showDropLine(row.uid, zone);
         var same = S.dropAt && S.dropAt.uid === row.uid && S.dropAt.zone === zone;
         S.dropAt = { uid: row.uid, zone: zone };
         // Hovering INTO a collapsed row opens it, as file managers do.
@@ -911,10 +984,11 @@
         e.preventDefault();
         e.stopPropagation();
         var rect = el.getBoundingClientRect();
+        var payload = readPayload(e);
+        // The zone the indicator showed, else the rule at the drop point.
         var zone = S.dropAt && S.dropAt.uid === row.uid
             ? S.dropAt.zone
-            : dropZone((e.clientY - rect.top) / Math.max(rect.height, 1), row.node, row.parent == null);
-        var payload = readPayload(e);
+            : rowDrop(payload, row, (e.clientY - rect.top) / Math.max(rect.height, 1), S.doc && S.doc.root).zone;
         endDrag();
         var msg = dropMessage(payload, dropTarget(row, zone), S.doc && S.doc.root);
         if (msg) await send(msg);
@@ -932,10 +1006,11 @@
             e.preventDefault();
             clearIndicators();
             c.classList.add('azb-drop-end');
+            showDropLine(0, 'into');
             e.dataTransfer.dropEffect = payload.type === 'builder-node' ? 'move' : 'copy';
         });
         c.addEventListener('dragleave', function (e) {
-            if (e.target === c) c.classList.remove('azb-drop-end');
+            if (e.target === c) clearIndicators();
         });
         c.addEventListener('drop', async function (e) {
             if (S.mode !== 'document' || !S.doc) return;
@@ -1939,11 +2014,11 @@
             '.azb-doc-tree{position:relative}',
             '.azb-row{position:relative}',
             '.azb-row.azb-dragging{opacity:.4}',
-            '.azb-row.azb-drop-before::before,.azb-row.azb-drop-after::after{content:"";position:absolute;left:var(--azb-indent,20px);right:4px;height:2px;background:var(--accent);pointer-events:none;border-radius:1px}',
-            '.azb-row.azb-drop-before::before{top:-1px}',
-            '.azb-row.azb-drop-after::after{bottom:-1px}',
-            '.azb-row.azb-drop-into{background:rgba(0,122,204,.22);box-shadow:inset 0 0 0 1px var(--accent)}',
-            '.azb-doc-tree.azb-drop-end{box-shadow:inset 0 -2px 0 var(--accent)}',
+            // Drop indicators: INTO tints and outlines the whole row; every
+            // zone draws the line where the node lands (showDropLine).
+            '.azb-row.azb-drop-into{background:rgba(0,122,204,.32);background:color-mix(in srgb,var(--accent) 32%,transparent);box-shadow:inset 0 0 0 1px var(--accent)}',
+            '.azb-drop-marker{position:absolute;right:4px;height:2px;background:var(--accent);border-radius:1px;pointer-events:none;z-index:2}',
+            '.azb-drop-marker::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;box-sizing:border-box;border:2px solid var(--accent);border-radius:50%;background:var(--bg-sidebar)}',
             '.azb-hint{color:var(--text-muted);font:11px/1.4 sans-serif;padding:10px 12px}',
             '.azb-palette-filter{width:100%;box-sizing:border-box;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border);border-radius:3px;padding:3px 6px;font-size:11px;margin:2px 0 4px}',
             '.azb-palette-lib{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin:6px 0 3px}',

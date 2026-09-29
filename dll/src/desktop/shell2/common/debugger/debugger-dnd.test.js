@@ -310,6 +310,9 @@ test('the indent of a depth is the one place rows and the line take it from', ()
     assert.strictEqual(L.indentPx(0), 4);
     assert.strictEqual(L.indentPx(1), 20);
     assert.strictEqual(L.indentPx(3), 52);
+    // The line starts where the landed node's label will: after the 16px toggle.
+    assert.strictEqual(L.labelPx(0), 20);
+    assert.strictEqual(L.labelPx(2), 52);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

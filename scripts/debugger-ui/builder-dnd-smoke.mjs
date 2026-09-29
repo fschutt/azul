@@ -320,6 +320,19 @@ window.__t = {
     src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
     return { indicator, accepted };
   },
+  /** A drag that is held over \`dst\` and then cancelled (dragend, no drop). */
+  hoverOnly(src, dst, rel) {
+    const dt = new DataTransfer();
+    const r = dst.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 12, clientY: r.top + r.height * rel };
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    dst.dispatchEvent(new DragEvent('dragenter', o));
+    const over = new DragEvent('dragover', o);
+    dst.dispatchEvent(over);
+    const indicator = ['before', 'after', 'into'].find(z => dst.classList.contains('azb-drop-' + z)) || null;
+    src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return { indicator, accepted: over.defaultPrevented };
+  },
   key(key, mods) {
     document.body.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, mods || {})));
   },
@@ -384,11 +397,12 @@ async function main() {
             JSON.stringify(lastSent('builder_insert')) === JSON.stringify({ op: 'builder_insert', parent: 0, component: 'div', index: 0 })
             && await cdp.eval(`JSON.stringify(__t.rows()) === '[0,2,1]'`), lastSent('builder_insert'));
 
-        // 3. A <div> into a <p> is refused before anything is sent.
+        // 3. A <div> cannot go INTO a <p>: the middle of the row is its halves
+        //    (B7; the drag is cancelled here, so nothing is sent).
         const before = mock.sent.length;
-        r = await cdp.eval(`__t.drag(__t.card('builtin:div'), __t.row(1), 0.5)`);
-        check('a <div> INTO a <p> is refused (no indicator, no message)',
-            !r.accepted && r.indicator === null && mock.sent.length === before, r);
+        r = await cdp.eval(`__t.hoverOnly(__t.card('builtin:div'), __t.row(1), 0.5)`);
+        check('a <div> over the middle of a <p> is never INTO: the row\'s halves instead (AFTER here)',
+            r.accepted && r.indicator === 'after' && mock.sent.length === before, r);
 
         // 4. A <span> into the <p> is fine.
         r = await cdp.eval(`__t.drag(__t.card('builtin:span'), __t.row(1), 0.5)`);
