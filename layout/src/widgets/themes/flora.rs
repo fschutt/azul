@@ -3936,6 +3936,15 @@ pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
 // the look is the theme's. Flora's button is the recessed round badge of a
 // native search field: a grey disc with a light cross.
 
+/// The dark-theme disc of the search clear badge under the pointer: a step
+/// lighter than [`DARK_BD`], still well inside the dark range.
+const SEARCH_CLEAR_DARK_HOVER: ColorU = ColorU {
+    r: 96,
+    g: 96,
+    b: 96,
+    a: 255,
+};
+
 /// The clear button (`×`) of a `type=search` field, shown only while the field
 /// holds text (`visible`). The widget flips `display` live on the
 /// empty/non-empty transition; this is the state it is BUILT in.
@@ -3978,26 +3987,28 @@ pub fn search_clear_button(visible: bool) -> Dom {
             StyleBorderBottomRightRadius::const_px(7),
         )),
     ];
-    // The disc: the icon grey, a shade deeper under the pointer; the cross
-    // is the page colour on it, in both modes.
+    // The disc: the icon grey in the light theme, the border grey in the dark
+    // one (a light disc there would be a light island on the dark field), a
+    // step towards the ink under the pointer; the cross is the page colour in
+    // the light theme and the ink in the dark one.
     style.extend(CssPropertyWithConditions::themed(
         CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(LIGHT_ICON),
         ])),
         CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
-            StyleBackgroundContent::Color(DARK_ICON),
+            StyleBackgroundContent::Color(DARK_BD),
         ])),
     ));
     style.extend(CssPropertyWithConditions::themed(
         CssProperty::const_text_color(StyleTextColor { inner: LIGHT_PG }),
-        CssProperty::const_text_color(StyleTextColor { inner: DARK_PG }),
+        CssProperty::const_text_color(StyleTextColor { inner: DARK_INK }),
     ));
     style.extend(CssPropertyWithConditions::themed_on_hover(
         CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(LIGHT_INK),
         ])),
         CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
-            StyleBackgroundContent::Color(DARK_INK),
+            StyleBackgroundContent::Color(SEARCH_CLEAR_DARK_HOVER),
         ])),
     ));
 
