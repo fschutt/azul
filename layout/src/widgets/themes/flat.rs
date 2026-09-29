@@ -4188,3 +4188,30 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
         },
     )
 }
+
+// ==== alert ====
+
+/// The flat banner for an alert kind: the widget's own pastel face, then its
+/// dark twins (Bootstrap's dark alert palette).
+fn flat_alert_container(
+    kind: crate::widgets::alert::AlertKind,
+) -> Vec<CssPropertyWithConditions> {
+    let mut style = crate::widgets::alert::build_alert_style(kind).into_library_owned_vec();
+    style.extend(crate::widgets::alert::build_alert_dark_twins(kind));
+    style
+}
+
+/// The flat alert.
+#[must_use]
+pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
+    use crate::widgets::alert::{AlertLook, ALERT_CLOSE_STYLE, ALERT_MESSAGE_STYLE};
+    crate::widgets::alert::build(
+        a,
+        &AlertLook {
+            container: flat_alert_container,
+            message: ALERT_MESSAGE_STYLE.to_vec(),
+            close: ALERT_CLOSE_STYLE.to_vec(),
+            marker: None,
+        },
+    )
+}

@@ -4595,3 +4595,11 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
         },
     )
 }
+
+// ==== alert ====
+
+/// The flora alert.
+#[must_use]
+pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
+    super::flat::alert(a)
+}

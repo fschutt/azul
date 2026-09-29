@@ -256,6 +256,24 @@ pub struct Alert {
     /// widget picks, the second means the caller asked for no properties at
     /// all and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// What a theme decides about an alert; [`build`] turns it and the widget's
+/// state into the DOM. Built by `themes::flat::alert` and
+/// `themes::flora::alert`.
+pub(crate) struct AlertLook {
+    /// The banner's style for a kind (light face and dark twins), used when
+    /// the alert has no `container_style` of its own.
+    pub container: fn(AlertKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The message's style.
+    pub message: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The close button's style, focus ring included.
+    pub close: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the banner, if it has one.
+    pub marker: Option<&'static str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -284,7 +302,7 @@ impl Default for AlertState {
 /// Builds the container style for a given [`AlertKind`]. The colours are the
 /// only kind-dependent properties, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
     let (bg, border, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
@@ -389,7 +407,7 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
 /// `dom()` appends them AFTER the light style, and only to the widget's own
 /// style: inline declarations resolve last-match-wins, and a caller's
 /// `container_style` owns every property, dark ones included.
-fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditions; 6] {
+pub(crate) fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditions; 6] {
     use crate::widgets::themes::system_palette::{
         dark_background_color, dark_border_bottom, dark_border_left, dark_border_right,
         dark_border_top, dark_text,
@@ -407,13 +425,13 @@ fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditions; 6] {
 }
 
 /// Message-text style: takes the remaining horizontal space, left-aligned.
-static ALERT_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ALERT_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
 /// Close-button ("x") style: a small pointer-cursor box on the right.
-static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -441,6 +459,7 @@ impl Alert {
             kind,
             dismissible: false,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -526,28 +545,62 @@ impl Alert {
         s
     }
 
-    /// Converts this alert into a DOM subtree with the `__azul-native-alert` class.
+    /// Pick the widget theme. Unset (`None`), the alert renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this alert into a DOM subtree with the `__azul-native-alert`
+    /// class. The look comes from the theme module (`themes::flat::alert` /
+    /// `themes::flora::alert`); `None` renders flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::alert(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::alert(self),
+        }
+    }
+}
+
+/// The alert's DOM in `look`: the banner, its message and (when dismissible)
+/// its close button, which carries the state.
+pub(crate) fn build(alert: Alert, look: &AlertLook) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    {
+        // A caller's `container_style` owns every property, dark ones
+        // included; otherwise the theme's banner for the kind.
+        let container_style = match alert.container_style.clone().into_option() {
+            Some(own) => own,
+            None => CssPropertyWithConditionsVec::from_vec((look.container)(alert.kind)),
         };
 
-        let message = crate::widgets::widget_p_with_text(self.message)
+        let message = crate::widgets::widget_p_with_text(alert.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                ALERT_MESSAGE_STYLE,
-            ));
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(look.message.clone()));
 
         let mut children = alloc::vec![message];
 
-        if self.dismissible {
+        if alert.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_CLOSE_STYLE))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.close.clone()))
                 .with_tab_index(TabIndex::Auto)
                 // This is the CLOSE BUTTON, not the alert — the tab stop is on
                 // the dismiss affordance. Its visible label is "\u{00D7}", a
@@ -567,22 +620,21 @@ impl Alert {
                             cb: default_on_alert_dismiss as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: RefAny::new(self.alert_state),
+                        refany: RefAny::new(alert.alert_state),
                     }]
                     .into(),
                 );
             children.push(close);
         }
 
+        let mut classes: alloc::vec::Vec<IdOrClass> = ALERT_CONTAINER_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CONTAINER_CLASS))
-            .with_css_props(self.container_style.clone().into_option().unwrap_or_else(|| {
-                // The kind's face, then its dark twins: a pastel banner is a
-                // light island on a dark window.
-                let mut style = build_alert_style(self.kind).into_library_owned_vec();
-                style.extend(build_alert_dark_twins(self.kind));
-                CssPropertyWithConditionsVec::from_vec(style)
-            }))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
