@@ -1,0 +1,318 @@
+//! The app's colour-scheme choice (`CallbackInfo::set_color_scheme`) through
+//! the real shell pipeline (`HeadlessWindow`).
+//!
+//! What the layout-crate tests (`layout/tests/app_color_scheme_override.rs`)
+//! cannot see: that the switch reaches the window's theme at once, that it is
+//! a RESTYLE of the retained DOM (the app's `layout()` is not run again) unless
+//! `layout()` read the scheme, that the desktop's own theme is remembered while
+//! the app pins one, and that windows opened afterwards start in the choice.
+//!
+//! The desktop here is the macOS light preset whatever the host runs, and
+//! `HeadlessWindow::set_system_theme` is the desktop flipping.
+
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex, MutexGuard,
+    },
+};
+
+use azul::desktop::shell2::{
+    common::{event::SharedUndoManager, PlatformWindow},
+    headless::HeadlessWindow,
+};
+use azul_core::{
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackType},
+    dom::{Dom, DomId},
+    events::ProcessEventResult,
+    icon::{IconProviderHandle, SharedIconProvider},
+    refany::{OptionRefAny, RefAny},
+    resources::AppConfig,
+    window::{OptionWindowTheme, WindowTheme},
+};
+use azul_css::props::basic::color::ColorU;
+use azul_layout::{
+    callbacks::CallbackChange, solver3::display_list::DisplayListItem,
+    window_state::WindowCreateOptions,
+};
+use rust_fontconfig::FcFontCache;
+
+const PIN_LIGHT: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::LightMode);
+const PIN_DARK: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+const FOLLOW: OptionWindowTheme = OptionWindowTheme::None;
+
+/// The choice is APP-wide (every window of the App shares it), so the tests
+/// of this binary take turns, and each starts from "follow the desktop".
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn fresh_app() -> MutexGuard<'static, ()> {
+    let guard = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    azul_layout::window::set_app_color_scheme(FOLLOW);
+    guard
+}
+
+/// `AZ_THEME` outranks the app's choice; under it there is nothing to test.
+fn env_pinned() -> bool {
+    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+}
+
+#[derive(Clone)]
+struct Model {
+    layout_calls: Arc<AtomicU32>,
+    /// What the last `layout()` read through `get_theme`: 0 nothing, 1
+    /// light, 2 dark.
+    seen: Arc<AtomicU32>,
+}
+
+impl Model {
+    fn new() -> Self {
+        Self {
+            layout_calls: Arc::new(AtomicU32::new(0)),
+            seen: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    fn calls(&self) -> u32 {
+        self.layout_calls.load(Ordering::SeqCst)
+    }
+
+    fn seen(&self) -> u32 {
+        self.seen.load(Ordering::SeqCst)
+    }
+}
+
+/// A `layout()` that never looks at the scheme: its DOM is the same in both,
+/// every colour comes from the cascade.
+extern "C" fn scheme_blind_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    if let Some(model) = data.downcast_ref::<Model>() {
+        model.layout_calls.fetch_add(1, Ordering::SeqCst);
+    }
+    Dom::create_body().with_child(Dom::create_p_with_text("ink"))
+}
+
+/// A `layout()` whose DOM depends on the scheme: it asks (`get_theme`).
+extern "C" fn scheme_reading_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let theme = info.get_theme();
+    if let Some(model) = data.downcast_ref::<Model>() {
+        model.layout_calls.fetch_add(1, Ordering::SeqCst);
+        model.seen.store(
+            match theme {
+                WindowTheme::LightMode => 1,
+                WindowTheme::DarkMode => 2,
+            },
+            Ordering::SeqCst,
+        );
+    }
+    Dom::create_body().with_child(Dom::create_p_with_text(match theme {
+        WindowTheme::LightMode => "light",
+        WindowTheme::DarkMode => "dark",
+    }))
+}
+
+fn make_window(model: Model, layout: LayoutCallbackType) -> HeadlessWindow {
+    let mut config = AppConfig::default();
+    // Hermetic: a light desktop whatever the host is in.
+    config.system_style = azul_css::system::defaults::macos_modern_light();
+
+    let mut options = WindowCreateOptions::default();
+    options.window_state.layout_callback = LayoutCallback {
+        cb: layout,
+        ctx: OptionRefAny::None,
+    };
+
+    HeadlessWindow::new(
+        options,
+        Arc::new(RefCell::new(RefAny::new(model))),
+        SharedUndoManager::new(),
+        config,
+        SharedIconProvider::from_handle(IconProviderHandle::default()),
+        Arc::new(FcFontCache::default()),
+        None,
+    )
+    .expect("HeadlessWindow construction must succeed")
+}
+
+fn theme_of(window: &HeadlessWindow) -> WindowTheme {
+    window.common.current_window_state().theme
+}
+
+fn set_color_scheme(window: &mut HeadlessWindow, scheme: OptionWindowTheme) -> ProcessEventResult {
+    window.apply_user_change(&CallbackChange::SetColorScheme { scheme })
+}
+
+/// `service_frame`'s routing, without the render: a regenerate-tier result
+/// re-invokes the app's `layout()`, an incremental one re-lays the existing
+/// tree.
+fn honor(window: &mut HeadlessWindow, tier: ProcessEventResult) {
+    if tier >= ProcessEventResult::ShouldRegenerateDomCurrentWindow {
+        window
+            .regenerate_layout()
+            .expect("regenerate_layout after a rebuild request");
+    } else if tier == ProcessEventResult::ShouldIncrementalRelayout {
+        window.relayout_only().expect("relayout_only after a restyle");
+    }
+}
+
+fn painted_text(window: &HeadlessWindow) -> Vec<ColorU> {
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("a layout window")
+        .layout_results
+        .get(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text { color, .. } => Some(*color),
+            _ => None,
+        })
+        .collect()
+}
+
+fn is_light(c: &ColorU) -> bool {
+    c.r >= 0xd0 && c.g >= 0xd0 && c.b >= 0xd0
+}
+
+#[test]
+fn a_scheme_switch_restyles_without_running_layout_again() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let model = Model::new();
+    let mut window = make_window(model.clone(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(theme_of(&window), WindowTheme::LightMode, "premise: a light desktop");
+    let calls = model.calls();
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    assert_eq!(
+        theme_of(&window),
+        WindowTheme::DarkMode,
+        "the window takes the app's dark pin at once"
+    );
+    assert_eq!(
+        result,
+        ProcessEventResult::ShouldIncrementalRelayout,
+        "a layout() that never read the scheme is RE-STYLED, not rebuilt"
+    );
+    honor(&mut window, result);
+
+    assert_eq!(
+        model.calls(),
+        calls,
+        "the scheme switch must not run the app's layout() again"
+    );
+    let text = painted_text(&window);
+    assert!(!text.is_empty(), "the text run must be painted");
+    assert!(
+        text.iter().all(is_light),
+        "the retained DOM re-styled dark paints near-white text, got {text:?}"
+    );
+}
+
+#[test]
+fn a_layout_that_read_the_scheme_is_rebuilt_and_sees_the_pin() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let model = Model::new();
+    let mut window = make_window(model.clone(), scheme_reading_layout);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(model.seen(), 1, "premise: layout() saw light");
+    let calls = model.calls();
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    assert_eq!(
+        result,
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow,
+        "layout() read the scheme (get_theme), so its DOM depends on it"
+    );
+    honor(&mut window, result);
+    assert!(model.calls() > calls, "layout() ran again");
+    assert_eq!(model.seen(), 2, "and the rebuilt layout() saw the dark pin");
+}
+
+#[test]
+fn a_desktop_flip_while_pinned_does_not_flip_the_window() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let model = Model::new();
+    let mut window = make_window(model, scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+
+    let result = set_color_scheme(&mut window, PIN_LIGHT);
+    assert_eq!(
+        result,
+        ProcessEventResult::DoNothing,
+        "pinning the scheme the window already shows costs nothing"
+    );
+
+    assert!(
+        !window.set_system_theme(WindowTheme::DarkMode),
+        "the desktop went dark: the pinned-light window's theme must not move"
+    );
+    assert_eq!(theme_of(&window), WindowTheme::LightMode);
+}
+
+#[test]
+fn switching_back_to_system_follows_the_desktop_immediately() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let model = Model::new();
+    let mut window = make_window(model, scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+
+    let _ = set_color_scheme(&mut window, PIN_LIGHT);
+    // The desktop goes dark while the app is pinned light: remembered, not shown.
+    let _ = window.set_system_theme(WindowTheme::DarkMode);
+    assert_eq!(theme_of(&window), WindowTheme::LightMode, "premise: still pinned");
+
+    let result = set_color_scheme(&mut window, FOLLOW);
+    assert_eq!(
+        theme_of(&window),
+        WindowTheme::DarkMode,
+        "back on System the window takes the desktop's CURRENT theme at once - no desktop \
+         event is needed"
+    );
+    assert_eq!(result, ProcessEventResult::ShouldIncrementalRelayout);
+}
+
+#[test]
+fn a_window_opened_after_the_switch_starts_in_the_apps_choice() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut first = make_window(Model::new(), scheme_blind_layout);
+    first.regenerate_layout().expect("first layout");
+    let _ = set_color_scheme(&mut first, PIN_DARK);
+
+    let second = make_window(Model::new(), scheme_blind_layout);
+    assert_eq!(
+        theme_of(&second),
+        WindowTheme::DarkMode,
+        "a window created after the app pinned dark starts dark on the light desktop"
+    );
+    assert_eq!(
+        second
+            .common
+            .layout_window
+            .as_ref()
+            .expect("a layout window")
+            .color_scheme,
+        PIN_DARK,
+        "and holds the app's choice"
+    );
+}

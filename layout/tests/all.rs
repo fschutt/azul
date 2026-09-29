@@ -550,3 +550,5 @@ mod zero_width_selection;
 mod form_controls_become_widgets;
 #[path = "flat_and_flora_widgets_follow_the_light_and_dark_theme.rs"]
 mod flat_and_flora_widgets_follow_the_light_and_dark_theme;
+#[path = "app_color_scheme_override.rs"]
+mod app_color_scheme_override;

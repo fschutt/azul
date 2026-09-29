@@ -7830,6 +7830,53 @@ mod autotest_generated {
         assert!(with_info_on(lw, node0(), |info| info.get_deepest_hovered_node()).is_none());
     }
 
+    /// `set_color_scheme` queues ONE app-wide change (applied after the
+    /// callback returns). `get_color_scheme` reads the CHOICE the window
+    /// holds, `get_resolved_color_scheme` the light/dark that choice gives
+    /// this window - the pair an app needs to show "System (dark)".
+    #[test]
+    fn set_color_scheme_queues_the_choice_and_the_getters_tell_choice_from_result() {
+        use azul_core::window::{OptionWindowTheme, WindowTheme};
+
+        let queued = with_info(node_none(), |info| {
+            info.set_color_scheme(OptionWindowTheme::Some(WindowTheme::DarkMode));
+            info.take_changes()
+        });
+        assert_eq!(queued.len(), 1, "expected exactly one queued change");
+        assert!(
+            matches!(
+                queued[0],
+                CallbackChange::SetColorScheme {
+                    scheme: OptionWindowTheme::Some(WindowTheme::DarkMode)
+                }
+            ),
+            "queued the wrong CallbackChange: {:?}",
+            queued[0]
+        );
+
+        if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
+            return; // AZ_THEME outranks the choice; nothing to tell apart
+        }
+        // A dark pin on a window whose own state is light (the desktop's).
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.color_scheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+        let (choice, resolved) = with_info_on(lw, node0(), |info| {
+            (info.get_color_scheme(), info.get_resolved_color_scheme())
+        });
+        assert_eq!(choice, OptionWindowTheme::Some(WindowTheme::DarkMode));
+        assert_eq!(resolved, WindowTheme::DarkMode, "the pin outranks the window's light");
+
+        // Following the system: the choice says so, the result is the
+        // window's own theme (`FullWindowState::default()` is light).
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.color_scheme = OptionWindowTheme::None;
+        let (choice, resolved) = with_info_on(lw, node0(), |info| {
+            (info.get_color_scheme(), info.get_resolved_color_scheme())
+        });
+        assert_eq!(choice, OptionWindowTheme::None);
+        assert_eq!(resolved, WindowTheme::LightMode);
+    }
+
     /// `DomNodeId` pointing at node 0 of the root DOM.
     fn node0() -> DomNodeId {
         DomNodeId {
