@@ -10,13 +10,14 @@ segmented, slider, spinner, split_pane.
   fixture). Expected red: pagination, segmented (cursor / user-select cross), split_pane
   (flora-only box-sizing).
 
+- 0d05c508d GREEN pagination (`PAGINATION_BUTTON_BASE`), segmented (`SEGMENT_BASE`), split_pane
+  (`divider_base`, `divider_thickness`; flat's divider gains `box-sizing: border-box`).
+
 ## IN PROGRESS
-- GREEN pagination + segmented.
+- Dedup of structure both theme files spell out: radio_group circle/dot, popover panel,
+  progressbar container + mount.
 
 ## NEXT
-- GREEN per widget: pagination + segmented (cursor / user-select cross), split_pane (flora's
-  box-sizing), then the dedup of structure authored in both theme files (radio_group circle/dot,
-  popover panel, progressbar container + mount).
 - Report `scripts/R5C_BASE_AND_SKINS_2026_09_29.md`.
 
 ## Open questions
