@@ -612,3 +612,5 @@ mod an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in;
 mod a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in;
 #[path = "the_ime_caret_rect_is_where_the_raster_paints_the_caret.rs"]
 mod the_ime_caret_rect_is_where_the_raster_paints_the_caret;
+#[path = "a_layout_blit_repaints_what_is_painted_over_its_mover.rs"]
+mod a_layout_blit_repaints_what_is_painted_over_its_mover;
