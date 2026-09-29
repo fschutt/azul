@@ -6622,4 +6622,67 @@ mod autotest_generated {
             Update::DoNothing,
         );
     }
+
+    /// The node graph has one look and no theme option: the fields it builds
+    /// wear that look (`UiTheme::SINGLE_LOOK`), so a node renders the same
+    /// under every app theme - the fields' classes (their theme markers) and
+    /// styles included, and no app-theme block anywhere.
+    #[test]
+    fn a_nodes_fields_render_the_same_under_every_app_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{theme_names, under},
+            theme_checks::nodes,
+            UiTheme,
+        };
+        fn outline(dom: &Dom) -> Vec<String> {
+            nodes(dom)
+                .into_iter()
+                .map(|(path, n)| {
+                    format!(
+                        "{path} {:?} {:?} {:?}",
+                        n.root.get_ids_and_classes(),
+                        n.root.style,
+                        n.css
+                    )
+                })
+                .collect()
+        }
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.fields = vec![
+            NodeTypeField {
+                key: AzString::from_const_str("text"),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("hello")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("number"),
+                value: NodeTypeFieldValue::NumberInput(1.5),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("check"),
+                value: NodeTypeFieldValue::CheckBox(true),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("color"),
+                value: NodeTypeFieldValue::ColorInput(ColorU {
+                    r: 9,
+                    g: 8,
+                    b: 7,
+                    a: 6,
+                }),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("file"),
+                value: NodeTypeFieldValue::FileInput(OptionString::None),
+            },
+        ]
+        .into();
+        let flat = under(UiTheme::Flat, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        let flora = under(UiTheme::Flora, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        assert!(
+            theme_names(&flat).is_empty(),
+            "a field follows the app theme: {:?}",
+            theme_names(&flat)
+        );
+        assert_eq!(outline(&flat), outline(&flora));
+    }
 }

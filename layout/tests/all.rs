@@ -556,3 +556,5 @@ mod app_color_scheme_override;
 mod app_theme_override;
 #[path = "widgets_follow_the_app_theme.rs"]
 mod widgets_follow_the_app_theme;
+#[path = "a_widget_without_a_theme_option_pins_what_it_embeds.rs"]
+mod a_widget_without_a_theme_option_pins_what_it_embeds;
