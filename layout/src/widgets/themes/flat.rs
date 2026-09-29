@@ -3946,3 +3946,100 @@ pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
         CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
     ]
 }
+
+// ==== datetime-local ====
+
+/// The four border edges of a 1 px solid outline in `light`, each with its
+/// dark twin in `dark` - one call so no edge ships without its twin.
+fn outline_pairs(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    let mut v = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+            StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ];
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
+    ));
+    v
+}
+
+/// `<input type=datetime-local>`: the date part and the time part in one row,
+/// held together by a hairline outline so the pair reads as ONE control.
+#[must_use]
+pub fn datetime_local(date: Dom, time: Dom) -> Dom {
+    let mut style: Vec<CssPropertyWithConditions> = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+        CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(8),
+            },
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(4),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(4),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+            2,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(2),
+        )),
+    ];
+    style.extend(outline_pairs(LIGHT_BD, system_palette::SEPARATOR));
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::datetime_local::DATETIME_LOCAL_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_children(vec![date, time].into())
+}

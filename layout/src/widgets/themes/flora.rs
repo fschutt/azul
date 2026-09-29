@@ -4068,3 +4068,112 @@ pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
         CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
     ]
 }
+
+// ==== datetime-local ====
+
+/// `<input type=datetime-local>`: the date part and the time part in one row,
+/// on flora's field paper inside one rounded outline so the pair reads as ONE
+/// control.
+#[must_use]
+pub fn datetime_local(date: Dom, time: Dom) -> Dom {
+    let mut style: Vec<CssPropertyWithConditions> = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+        CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(6),
+            },
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+            3,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(3),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
+            StyleBorderTopLeftRadius::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
+            StyleBorderTopRightRadius::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+            StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ];
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(LIGHT_FLD),
+        ])),
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(DARK_FLD),
+        ])),
+    ));
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD }),
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
+    ));
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_BD }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
+    ));
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_BD }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD }),
+    ));
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LIGHT_BD }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: DARK_BD }),
+    ));
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::datetime_local::DATETIME_LOCAL_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_children(vec![date, time].into())
+}
