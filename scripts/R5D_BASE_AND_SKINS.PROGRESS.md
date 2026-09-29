@@ -6,15 +6,15 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
 ## DONE
 
 - c19e2ef1d RED: one `structure_tests` test per widget (`a_<widget>_declares_its_structure_once_for_every_theme`).
+- cfd4b8836 GREEN stepper: `CIRCLE_BASE` / `CONNECTOR_BASE` / `LABEL_BASE`; circle box-sizing unified to
+  border-box; `circle_style_declares_the_same_property_set_for_both_states` 18 -> 19.
 
 ## IN PROGRESS
 
-- GREEN stepper.
+- GREEN tabs.
 
 ## NEXT
 
-1. GREEN stepper: `CIRCLE_BASE` / connector / label bases in stepper.rs; flora uses them; circle box-sizing
-   unified to border-box.
 2. GREEN tabs: `TAB_BASE` (box-sizing content-box, align-items center, cursor pointer), header / after /
    panel bases; allow header align-items (flora end) and before-tabs flex-grow (flat 1, flora 0).
 3. GREEN text_input: search row base + clear-button base (display flex/none, justify/align center);
