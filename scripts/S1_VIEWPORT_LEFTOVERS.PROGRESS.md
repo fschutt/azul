@@ -22,13 +22,17 @@ Nothing is compiled here (house rule). The parent compiles once.
   compositor.rs; `scroll_fast_path_eligible_in`, `overlay_rects_after_frame_in`, `execute_scroll_shift`
   gained `scroll_offsets`; dll headless + e2e cpu_backend + scroll_shift_ghost.rs call sites).
 
+- item 5: RED 62667f7ec (`layout/tests/a_layout_blit_repaints_the_scrollbar_it_dragged.rs`, shares the
+  pixel helpers of the item-1 file), FIX 7a7a7a78a (`execute_translate_blit` damages every scrollbar
+  crossing a blit clip + its dragged copy).
+
 ## IN PROGRESS
 
-- item 5 (move-blit)
+- item 2 (VirtualView child bars)
 
 ## NEXT
 
-5, 2, 4, 6, 3 (guard), 8 (implement small or plan), report.
+2, 4, 6, 3 (guard), 8 (implement small or plan), report.
 
 ## Open questions
 
