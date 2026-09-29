@@ -28,13 +28,17 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   FIX 0881fd44e (`spatial_navigation_action` on the chain; `scroll_chain::is_css_scroll_container` +
   `ScrollChain::innermost_scroll_container`; focus_cursor / scroll_registration twins call it)
 
+- 1c: RED 1ca24e1b4 (3 unit tests in `solver3/positioning.rs` `with_ctx`), FIX d37bc38d6
+  (`nearest_scrollport` replaces `find_nearest_scrollport` + `find_nearest_scroll_offset`; their unit
+  tests adapted)
+
 ## IN PROGRESS
 
-- 1c RED (sticky)
+- 1d RED (spatial nav container chain + is_visible)
 
 ## NEXT
 
-- 1c (sticky, unit tests in positioning.rs), 1d (containers + is_visible; focus_cursor
+- 1d (containers + is_visible; focus_cursor
   unit fixture -> mirroring_dom), 2, 3, 4, (5), report
 
 ## Open questions
