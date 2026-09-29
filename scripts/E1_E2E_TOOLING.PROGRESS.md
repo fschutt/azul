@@ -21,21 +21,22 @@ Branch `wt/e1-e2e-tooling`, based on `0a326afe5`. Nothing compiled (house rule).
   run.rs uses `render_report` + `load_e2e_tests`, loader reads arrays, CI sed, debugger icon),
   `c562b79f8` scenario split + guide, `841921086` RED (`parse_summary` stub),
   `b89b1ecc5` fix (dispatcher sums the children's tallies; mobile reader uses `parse_summary`)
-
 - item 2 + 7: `352b4a7c7` RED (3 tests), `d3b67c318` feat (op, payload, OP_POLICY row DENIED,
   guide section, demo payload + `examples/azul-widgets/e2e/notifications.json`),
   `2593ccbb3` hotkey scenario's vacuous `find_node_by_text` now asserted
+- item 5: `84ca05c0a` RED (2 tests), `a1b1d0002` fix (`LayoutWindow::scroll_focused_container_by_keyboard`,
+  runner arm, dll arm uses it, 3 dll constants gone), `6a467e6e8` anchor = `current_hover_node_full`
+- item 6: `35b86f818` RED, `5fd9a69ac` fix (runner dispatches `Dismissed` on Escape dismissal)
+- item 3 residual: `09b13683a` RED, `28513c2cb` fix (`get_cursor_state` via `selection_range_info`)
+- report `scripts/E1_E2E_TOOLING_2026_09_29.md`
 
 ## IN PROGRESS
 
-- item 5 RED
+- none
 
 ## NEXT
 
-3. item 5: RED, `LayoutWindow::scroll_focused_container_by_keyboard` used by runner and dll
-4. item 6: RED, runner fires `Dismissed`
-5. item 3 residual (`get_cursor_state.position`) if consumers allow
-6. report
+- parent: compile + run the commands in the report
 
 ## Open questions
 
