@@ -481,7 +481,7 @@ fn evict_beyond_bound<V>(map: &mut BTreeMap<u64, V>, touched: impl Fn(&V) -> u64
     if map.len() <= MAX_REMEMBERED {
         return;
     }
-    let oldest = map.iter().min_by_key(|(_, v)| touched(v)).map(|(k, _)| *k);
+    let oldest = map.iter().min_by_key(|&(_, v)| touched(v)).map(|(k, _)| *k);
     if let Some(oldest) = oldest {
         map.remove(&oldest);
     }
@@ -643,7 +643,8 @@ impl FormControlMemory {
 // ── The pass ────────────────────────────────────────────────────────────────
 
 /// Replace every raw `<input>` / `<select>` / `<textarea>` in `dom` by the
-/// widget its type names. Returns how many were replaced.
+/// widget its type names, and every raw `<form>` by a [`Form`]; give every
+/// `<datalist>` HTML's `display: none`. Returns how many were replaced.
 ///
 /// `memory` supplies the values users gave the controls on earlier builds
 /// and receives the new ones; `scope` keeps one DOM's controls apart from
