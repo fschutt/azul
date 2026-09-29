@@ -1523,10 +1523,19 @@ mod autotest_generated {
 
     /// Every colour the live restyle wrote, as `(flattened node index, "bg" |
     /// "text", colour)` in emission order. Panics on any property other than the
-    /// two the handler is documented to write.
+    /// two the handler is documented to write. The roving Tab stop and the
+    /// announced value a step change also writes are not colours and are
+    /// skipped (the spin-button tests below check them).
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
         let mut out = Vec::new();
         for change in changes {
+            if matches!(
+                change,
+                CallbackChange::SetNodeTabIndex { .. }
+                    | CallbackChange::ChangeNodeAccessibilityValue { .. }
+            ) {
+                continue;
+            }
             let CallbackChange::ChangeNodeCssProperties {
                 node_id,
                 properties,
@@ -3100,13 +3109,16 @@ mod autotest_generated {
         );
     }
 
+    /// Every step is clickable and carries the spin button's key handler, but
+    /// only the CURRENT step is a Tab stop: a spin button is one stop (WAI-ARIA
+    /// APG), the others stay focusable by click and from code.
     #[test]
-    fn dom_makes_every_step_clickable_and_keyboard_reachable() {
+    fn dom_makes_every_step_clickable_and_the_current_step_the_one_tab_stop() {
         let n = 3;
-        let dom = Stepper::create(n_labels(n)).dom();
+        let dom = Stepper::create(n_labels(n)).with_current_step(1).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let cbs = cell.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "step {i}: exactly one handler");
+            assert_eq!(cbs.as_ref().len(), 2, "step {i}: a click and a key handler");
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -3114,9 +3126,17 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref()[0].callback.cb, on_step_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
+                cbs.as_ref()[1].event,
+                EventFilter::Focus(azul_core::dom::FocusEventFilter::VirtualKeyDown)
+            );
+            assert_eq!(
                 cell.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "step {i} must be tab-reachable"
+                Some(if i == 1 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "step {i}: only the current step is a Tab stop"
             );
 
             // Only the cell is clickable — a handler on an inner node would
@@ -3936,6 +3956,206 @@ mod autotest_generated {
             _ => None,
         });
         assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "a reached step wears flora's stone ink");
+    }
+
+    // ------------------------------------------------------------------
+    // A spin button is ONE Tab stop (WAI-ARIA APG spinbutton): the stepper
+    // declares itself one (every step's role is `SpinButton`, its value
+    // "step N of M"), so Tab lands on the current step and leaves the
+    // stepper with the next Tab, and the arrow keys change the value.
+    // ------------------------------------------------------------------
+
+    use azul_core::{dom::TabIndex, window::VirtualKeyCode};
+
+    use crate::widgets::roving::test_support as rv;
+
+    /// A plain tab stop, the stepper, another plain tab stop. Flattened:
+    /// root 0, before 1, stepper 2, step `i` at `3 + 8 * i`, after at
+    /// `3 + 8 * n`. Also hands back the stepper's shared state.
+    fn page(s: Stepper) -> (StyledDom, RefAny) {
+        let dom = s.dom();
+        let state = step_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_before() -> DomNodeId {
+        node(1)
+    }
+
+    fn page_step(i: usize) -> DomNodeId {
+        node(3 + NODES_PER_STEP * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        node(3 + NODES_PER_STEP * n)
+    }
+
+    /// Presses `key` on step `i` of `page`; panics when the step has no key
+    /// handler - every step before the spin-button model.
+    fn press_step(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_step(i), key, held)
+            .expect("every step must carry the spin button's key handler")
+    }
+
+    /// The values the change announced, per node, in emission order.
+    fn announced(changes: &[CallbackChange]) -> Vec<(usize, String)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => node_id
+                    .node
+                    .into_crate_internal()
+                    .map(|n| (n.index(), value.as_str().to_string())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tab_lands_on_the_current_step_and_the_next_tab_leaves_the_stepper() {
+        let (styled, _) = page(Stepper::create(n_labels(3)).with_current_step(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_step(1), page_after(3)],
+            "the stepper is ONE tab stop: the current step, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_step(1), page_before()],
+        );
+    }
+
+    #[test]
+    fn the_arrow_keys_step_like_a_spin_button_and_hold_at_the_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            (1, K::Right, 2),
+            (1, K::Up, 2),
+            (1, K::Left, 0),
+            (1, K::Down, 0),
+            (1, K::Home, 0),
+            (1, K::End, 2),
+            (0, K::Left, 0),
+            (0, K::Down, 0),
+            (2, K::Right, 2),
+            (2, K::Up, 2),
+        ] {
+            let (styled, state) = page(Stepper::create(n_labels(3)).with_current_step(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_step(&styled, from, key, &[]);
+            assert_eq!(
+                current_step_of(&mut probe),
+                to,
+                "{key:?} on step {from} must land on step {to}",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on step {from} is the stepper's");
+            assert_eq!(
+                rv::focus_request(&changes),
+                (to != from).then(|| page_step(to)),
+                "{key:?} on step {from}: focus follows the value",
+            );
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_current_step_is_the_only_tab_stop() {
+        let (mut styled, _) = page(Stepper::create(n_labels(3)));
+        let (_, changes) = press_step(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_step(2), page_after(3)],
+        );
+    }
+
+    /// An arrow is a click in every other way: the user hears it, and the
+    /// row repaints for the new step.
+    #[test]
+    fn a_step_taken_with_the_arrow_keys_is_heard_and_repainted_like_a_click() {
+        let mut log = RefAny::new(StepLog { seen: Vec::new() });
+        let (styled, _) = page(
+            Stepper::create(n_labels(3)).with_on_step_change(log.clone(), cb(record_step)),
+        );
+        let (update, changes) = press_step(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(
+            logged(&mut log),
+            vec![StepperState {
+                current_step: 1,
+                total_steps: 3
+            }]
+        );
+        assert_eq!(update, Update::RefreshDom, "the user callback's update");
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            5 * 3,
+            "every step's circle, connectors and label are repainted"
+        );
+    }
+
+    /// The spin button's value is live: every step announces the new one,
+    /// by arrow and by click alike, without waiting for a rebuild.
+    #[test]
+    fn a_step_change_announces_the_new_value_on_every_step() {
+        let expected: Vec<(usize, String)> = (0..3)
+            .map(|i| {
+                let step = page_step(i).node.into_crate_internal().unwrap();
+                (step.index(), "step 3 of 3".to_string())
+            })
+            .collect();
+
+        let (styled, _) = page(Stepper::create(n_labels(3)));
+        let (_, changes) = press_step(&styled, 0, VirtualKeyCode::End, &[]);
+        assert_eq!(announced(&changes), expected, "by arrow");
+
+        let (styled, state) = flatten(Stepper::create(n_labels(3)));
+        let (_, changes) = run_click(Some(styled), node(cell_node(2)), state);
+        let by_click: Vec<(usize, String)> = (0..3)
+            .map(|i| (cell_node(i), "step 3 of 3".to_string()))
+            .collect();
+        assert_eq!(announced(&changes), by_click, "by click");
+    }
+
+    #[test]
+    fn clicking_a_step_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(Stepper::create(n_labels(3)));
+        let (_, changes) = run_click(Some(styled.clone()), node(cell_node(2)), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let stop = node(cell_node(2));
+        assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_step_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Right, Some(K::RControl)),
+            (K::Left, Some(K::LWin)),
+            (K::Left, Some(K::LShift)),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Space, None),
+        ] {
+            let (styled, state) = page(Stepper::create(n_labels(3)).with_current_step(1));
+            let mut probe = state.clone();
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_step(&styled, 1, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(current_step_of(&mut probe), 1, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
     }
 }
 
