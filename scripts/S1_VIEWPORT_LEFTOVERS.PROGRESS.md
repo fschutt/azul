@@ -45,13 +45,16 @@ Nothing is compiled here (house rule). The parent compiles once.
   point_from_window}`), FIX 6186093cc (`selection_handle_geometry` in window space; twin `rect_for_cursor_in`
   removed).
 
+- self-review: 9cfaeed2a (explicit collect types), 23bd8fc14 (item-4 test box tall enough for distinct thumbs).
+- report: `scripts/S1_VIEWPORT_LEFTOVERS_2026_09_29.md`.
+
 ## IN PROGRESS
 
-- self-review of every diff for compile risks
+- none
 
 ## NEXT
 
-report `scripts/S1_VIEWPORT_LEFTOVERS_2026_09_29.md`.
+- none: the task is done. The parent compiles and runs the suites (report §6).
 
 ## Open questions
 
