@@ -1069,21 +1069,16 @@ mod autotest_generated {
         }
     }
 
-    /// `DomLayoutResult` with an empty layout tree — every function under test
-    /// here reads only `styled_dom`, so no real layout (and no font) is needed.
+    /// `DomLayoutResult` whose layout tree MIRRORS the DOM
+    /// (`LayoutTree::mirroring_dom`): one unsized box per node, parented like
+    /// the DOM - the structure the spatial-navigation container chain reads
+    /// (`ScrollChain`) - and no geometry, so no real layout (and no font) is
+    /// needed.
     fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        let layout_tree = LayoutTree::mirroring_dom(&styled_dom);
         DomLayoutResult {
             styled_dom,
-            layout_tree: LayoutTree {
-                nodes: Vec::new(),
-                warm: Vec::new(),
-                cold: Vec::new(),
-                root: 0,
-                dom_to_layout: BTreeMap::new(),
-                children_arena: Vec::new(),
-                children_offsets: Vec::new(),
-                subtree_needs_intrinsic: Vec::new(),
-            },
+            layout_tree,
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: std::sync::Arc::new(DisplayList::default()),
@@ -2555,16 +2550,25 @@ mod autotest_generated {
 /// listed: the caller falls back to the whole candidate pool after the chain,
 /// so an arrow at the edge of the innermost box still escapes it.
 ///
+/// A scroll container counts only when `from` is painted in it: a link of
+/// `from`'s `ScrollChain` (by CONTAINING BLOCK). An `absolute` box escapes
+/// a non-positioned scroll box, a `fixed` box every one; the DOM walk
+/// searched such a box inside a scroller it is not clipped or scrolled by.
+/// `contain` is the author's grouping and stays a DOM-ancestor rule; the
+/// walk up the DOM only orders the two (every chain link is a DOM ancestor).
+///
 /// Self-inclusive: `contain` on the focused node, or a focused scroll
 /// container, counts as its own innermost container.
 fn spatial_navigation_containers(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     from: DomNodeId,
 ) -> Vec<DomNodeId> {
+    use azul_core::spaces::Inclusivity;
     use azul_css::props::style::spatial_nav::StyleSpatialNavigationContain;
 
-    use crate::solver3::getters::{
-        get_overflow_x, get_overflow_y, get_spatial_navigation_contain, MultiValue,
+    use crate::solver3::{
+        getters::{get_spatial_navigation_contain, MultiValue},
+        scroll_chain::{is_css_scroll_container, ScrollChain},
     };
 
     let mut chain = Vec::new();
@@ -2576,6 +2580,23 @@ fn spatial_navigation_containers(
     let Some(mut node) = from.node.into_crate_internal() else {
         return chain;
     };
+    // The scroll containers `from` is painted in.
+    let scrolled_in: Vec<NodeId> = ScrollChain::of_node(
+        &lr.layout_tree,
+        &lr.styled_dom,
+        &lr.scroll_ids,
+        node,
+        Inclusivity::SelfAndAncestors,
+    )
+    .map(|scroll_chain| {
+        scroll_chain
+            .links
+            .iter()
+            .map(|link| link.node)
+            .filter(|n| is_css_scroll_container(&lr.styled_dom, *n))
+            .collect()
+    })
+    .unwrap_or_default();
     // Bounded by the node count: a corrupt hierarchy whose parent chain loops
     // must not hang the event loop, and a valid chain can never be longer.
     for _ in 0..hierarchy.internal.len().saturating_add(1) {
@@ -2584,11 +2605,9 @@ fn spatial_navigation_containers(
             let is_container = match get_spatial_navigation_contain(&lr.styled_dom, node, state) {
                 MultiValue::Exact(StyleSpatialNavigationContain::Contain) => true,
                 // `auto`, and unset (whose initial value is `auto`): a
-                // container exactly when the box is a scroll container.
-                _ => {
-                    get_overflow_x(&lr.styled_dom, node, state).is_scroll_container()
-                        || get_overflow_y(&lr.styled_dom, node, state).is_scroll_container()
-                }
+                // container exactly when the box is a scroll container
+                // `from` is painted in.
+                _ => scrolled_in.contains(&node),
             };
             if is_container {
                 chain.push(DomNodeId {
@@ -3027,18 +3046,22 @@ fn can_manually_scroll(env: &SpatialNavigationEnv<'_>, node: DomNodeId, dir: Foc
 /// css-nav-1 "find focusable areas ... visibleOnly": is any part of `rect`
 /// (the painted rect of `node`) on screen?
 ///
-/// Clipped by the scrollport of EVERY scroll-container ancestor and, for the
-/// window's own DOM, by the viewport - the spec's example of `focusableAreas`
-/// "recursively finds focusable areas" inside nested containers and drops the
-/// ones outside their scrollports. A nested DOM is not clipped by its
-/// `VirtualView` host here (see the audit's open list).
+/// Clipped by the scrollport of EVERY scroll container the node's box is
+/// painted in - its `ScrollChain`, by containing block (an `absolute` box is
+/// not clipped by a non-positioned scroller it escapes, a `fixed` box by
+/// none) - and, for the window's own DOM, by the viewport: the spec's example
+/// of `focusableAreas` "recursively finds focusable areas" inside nested
+/// containers and drops the ones outside their scrollports. A nested DOM is
+/// not clipped by its `VirtualView` host here (see the audit's open list).
 fn is_visible(
     env: &SpatialNavigationEnv<'_>,
     geom: &SpatialGeometry<'_>,
     node: DomNodeId,
     rect: LogicalRect,
 ) -> bool {
-    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+    use azul_core::spaces::Inclusivity;
+
+    use crate::solver3::scroll_chain::{is_css_scroll_container, ScrollChain};
 
     let Some(lr) = env.layout_results.get(&node.dom) else {
         return false;
@@ -3056,35 +3079,29 @@ fn is_visible(
             }
         }
     }
-    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-    let states = lr.styled_dom.styled_nodes.as_container();
-    let mut current = start;
-    // Bounded by the node count, like every other parent walk in this file.
-    for _ in 0..hierarchy.internal.len().saturating_add(1) {
-        let Some(parent) = hierarchy
-            .get(current)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        else {
-            break;
-        };
-        if let Some(sn) = states.get(parent) {
-            let state = &sn.styled_node_state;
-            let scrolls = get_overflow_x(&lr.styled_dom, parent, state).is_scroll_container()
-                || get_overflow_y(&lr.styled_dom, parent, state).is_scroll_container();
-            if scrolls {
-                let port = geom.rect(DomNodeId {
-                    dom: node.dom,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
-                });
-                if let Some(port) = port {
-                    match seen.intersect(&Edges::of(port)) {
-                        Some(common) => seen = common,
-                        None => return false,
-                    }
-                }
+    let Some(scroll_chain) = ScrollChain::of_node(
+        &lr.layout_tree,
+        &lr.styled_dom,
+        &lr.scroll_ids,
+        start,
+        Inclusivity::AncestorsOnly,
+    ) else {
+        return true;
+    };
+    for link in &scroll_chain.links {
+        if !is_css_scroll_container(&lr.styled_dom, link.node) {
+            continue;
+        }
+        let port = geom.rect(DomNodeId {
+            dom: node.dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(link.node)),
+        });
+        if let Some(port) = port {
+            match seen.intersect(&Edges::of(port)) {
+                Some(common) => seen = common,
+                None => return false,
             }
         }
-        current = parent;
     }
     true
 }
