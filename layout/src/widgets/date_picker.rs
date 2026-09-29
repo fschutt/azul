@@ -237,21 +237,22 @@ pub(crate) struct DatePickerLook {
     pub day_selected: Vec<CssPropertyWithConditions>,
     /// The face of every other cell.
     pub day_other: Vec<CssPropertyWithConditions>,
-    /// What a click repaints the grid with (an override outranks the faces'
-    /// dark twins, so the repaint picks the theme's colours itself).
-    pub day_palette: DayPalette,
     /// The theme's marker class on the field, if it has one.
     pub marker: Option<&'static str>,
 }
 
-/// The fill and ink of a grid cell, `[light, dark]`, for a selected cell and
-/// for every other one - what the click handlers write after a pick.
+/// The two faces the cells of one grid are built in - the pick and every
+/// other cell - exactly as built (dark twins and states included). Every
+/// cell's payload carries them, so a pick repaints the grid with the faces a
+/// build of it in the new state would give it
+/// (`CallbackInfo::set_node_inline_style`): the cascade, not the handler,
+/// picks the mode's colours.
 #[derive(Debug, Clone)]
-pub(crate) struct DayPalette {
-    /// A selected cell, `[light, dark]`.
-    pub selected: [(StyleBackgroundContentVec, ColorU); 2],
-    /// Every other cell, `[light, dark]`.
-    pub other: [(StyleBackgroundContentVec, ColorU); 2],
+pub(crate) struct CellFaces {
+    /// A picked cell (the day, every day of the week, the month).
+    pub selected: CssPropertyWithConditionsVec,
+    /// Every other cell.
+    pub other: CssPropertyWithConditionsVec,
 }
 
 impl DatePickerLook {
@@ -271,21 +272,22 @@ impl DatePickerLook {
             blank: BLANK_CELL_STYLE.to_vec(),
             day_selected: day_cell_style(true).into_library_owned_vec(),
             day_other: day_cell_style(false).into_library_owned_vec(),
-            day_palette: DayPalette::established(),
             marker: None,
         }
     }
-}
 
-impl DayPalette {
-    /// The widget's established repaint colours ([`day_cell_colours`]).
-    pub(crate) fn established() -> Self {
-        Self {
-            selected: [day_cell_colours(true, false), day_cell_colours(true, true)],
-            other: [
-                day_cell_colours(false, false),
-                day_cell_colours(false, true),
-            ],
+    /// The faces a grid cell of this look is built in, with `extra`
+    /// declarations after each (a month cell's width): what the day and month
+    /// builders render AND what their payloads repaint with - one source.
+    fn cell_faces(&self, extra: &[CssPropertyWithConditions]) -> CellFaces {
+        let face = |base: &[CssPropertyWithConditions]| {
+            let mut v = base.to_vec();
+            v.extend_from_slice(extra);
+            CssPropertyWithConditionsVec::from_vec(v)
+        };
+        CellFaces {
+            selected: face(&self.day_selected),
+            other: face(&self.day_other),
         }
     }
 }
@@ -927,36 +929,14 @@ fn day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// The fill and ink `restyle_days` writes onto a day cell, in the window's
-/// theme. A `set_css_property` override outranks every inline declaration,
-/// dark twins included, so the restyle has to pick the dark face itself.
-fn day_cell_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
-    match (selected, dark) {
-        (true, false) => (DAY_SELECTED_BG_VEC, WHITE),
-        (false, false) => (TRANSPARENT_BG_VEC, TEXT_COLOR),
-        (true, true) => (sys::ACCENT_BACKGROUND, sys::ACCENT_TEXT),
-        (false, true) => (TRANSPARENT_BG_VEC, sys::TEXT),
-    }
-}
-
-/// Whether the window a callback runs in cascades in the dark theme - the
-/// answer `LayoutWindow::dynamic_selector_context` gives: the `AZ_MODE` pin
-/// first, then the window's own theme.
-pub(crate) fn window_is_dark(info: &CallbackInfo) -> bool {
-    azul_css::dynamic_selector::mode_pinned_by_env().map_or_else(
-        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
-        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
-    )
-}
-
 /// Per-day-cell callback payload: the cell's day number + a clone of the shared
 /// state handle (so the handler can update `state.day` + fire `on_change`).
 struct DayCellData {
     day: u32,
     state: RefAny,
-    /// The theme's repaint colours: the handler has no other way to know
-    /// which look the grid it restyles was built in.
-    palette: DayPalette,
+    /// The faces the grid was built in: the handler has no other way to
+    /// know which look the grid it restyles was built in.
+    faces: CellFaces,
 }
 
 /// What every date-picker callback shares.
@@ -1467,8 +1447,8 @@ const HEADER_CLASS_NAME: &str = "__azul-native-date-picker-header";
 struct MonthCellData {
     month: u32,
     state: RefAny,
-    /// The theme's repaint colours (see `DayCellData::palette`).
-    palette: DayPalette,
+    /// The faces the month grid was built in (see `DayCellData::faces`).
+    faces: CellFaces,
 }
 
 /// A header button (the previous / next arrow) that says what it does - its
@@ -1575,22 +1555,23 @@ fn build_month_cell(
 ) -> Dom {
     use azul_core::events::FocusEventFilter;
 
+    // A month is the look's day face, three day cells wide.
+    let faces = look.cell_faces(&[CssPropertyWithConditions::simple(
+        CssProperty::const_width(LayoutWidth::const_px(MONTH_CELL_W)),
+    )]);
+    let style = if selected {
+        faces.selected.clone()
+    } else {
+        faces.other.clone()
+    };
     let data = RefAny::new(MonthCellData {
         month,
         state: shared,
-        palette: look.day_palette.clone(),
+        faces,
     });
-    let mut style = if selected {
-        look.day_selected.clone()
-    } else {
-        look.day_other.clone()
-    };
-    style.push(CssPropertyWithConditions::simple(CssProperty::const_width(
-        LayoutWidth::const_px(MONTH_CELL_W),
-    )));
     crate::widgets::widget_p_with_text(AzString::from(abbreviation))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_css_props(style)
         .with_callbacks(
             alloc::vec![
                 CoreCallbackData {
@@ -1627,11 +1608,11 @@ fn build_month_cell(
 /// the field and close the calendar - the day click's steps, for a month.
 extern "C" fn on_month_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let clicked = info.get_hit_node();
-    let (month, mut shared, palette) = {
+    let (month, mut shared, faces) = {
         let Some(cell) = data.downcast_ref::<MonthCellData>() else {
             return Update::DoNothing;
         };
-        (cell.month, cell.state.clone(), cell.palette.clone())
+        (cell.month, cell.state.clone(), cell.faces.clone())
     };
 
     let (update, label) = {
@@ -1653,7 +1634,7 @@ extern "C" fn on_month_click(mut data: RefAny, mut info: CallbackInfo) -> Update
         (update, label)
     };
 
-    restyle_days(&mut info, clicked, &palette);
+    restyle_days(&mut info, clicked, &faces);
     close_calendar_showing(&mut info, clicked, label);
     update
 }
@@ -1825,19 +1806,20 @@ fn build_day_cell_in(day: u32, selected: bool, shared: RefAny, look: &DatePicker
         events::FocusEventFilter,
     };
 
+    let faces = look.cell_faces(&[]);
+    let face = if selected {
+        faces.selected.clone()
+    } else {
+        faces.other.clone()
+    };
     let data = RefAny::new(DayCellData {
         day,
         state: shared,
-        palette: look.day_palette.clone(),
+        faces,
     });
-    let face = if selected {
-        look.day_selected.clone()
-    } else {
-        look.day_other.clone()
-    };
     crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(face))
+        .with_css_props(face)
         .with_callbacks(
             alloc::vec![
                 CoreCallbackData {
@@ -1873,12 +1855,12 @@ fn build_day_cell_in(day: u32, selected: bool, shared: RefAny, look: &DatePicker
 extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let clicked = info.get_hit_node();
 
-    // Read the baked day + clone the shared-state handle and the palette.
-    let (day, mut shared, palette) = {
+    // Read the baked day + clone the shared-state handle and the faces.
+    let (day, mut shared, faces) = {
         let Some(cell) = data.downcast_ref::<DayCellData>() else {
             return Update::DoNothing;
         };
-        (cell.day, cell.state.clone(), cell.palette.clone())
+        (cell.day, cell.state.clone(), cell.faces.clone())
     };
 
     let (update, new_label, mode) = {
@@ -1901,9 +1883,9 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
 
     if mode == DatePickerMode::Week {
-        restyle_week(&mut info, clicked, &palette);
+        restyle_week(&mut info, clicked, &faces);
     } else {
-        restyle_days(&mut info, clicked, &palette);
+        restyle_days(&mut info, clicked, &faces);
     }
     close_calendar_showing(&mut info, clicked, new_label);
     update
@@ -2060,35 +2042,29 @@ extern "C" fn on_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// Accents the clicked cell and neutralises every other grid cell (blanks
-/// included — for them transparent bg + a colour on empty text is a no-op).
-fn restyle_days(
-    info: &mut CallbackInfo,
-    clicked: azul_core::dom::DomNodeId,
-    palette: &DayPalette,
-) {
-    restyle_grid(info, clicked, false, palette);
+/// Gives the clicked cell the picked face and every other cell of the grid
+/// the other one.
+fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId, faces: &CellFaces) {
+    restyle_grid(info, clicked, false, faces);
 }
 
 /// [`restyle_days`] for the week picker: every DAY in the clicked cell's row
-/// (one row is one ISO week in the Monday-first grid) takes the accent.
-fn restyle_week(
-    info: &mut CallbackInfo,
-    clicked: azul_core::dom::DomNodeId,
-    palette: &DayPalette,
-) {
-    restyle_grid(info, clicked, true, palette);
+/// (one row is one ISO week in the Monday-first grid) takes the picked face.
+fn restyle_week(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId, faces: &CellFaces) {
+    restyle_grid(info, clicked, true, faces);
 }
 
-/// Accent the picked cell - or, with `whole_row`, every day cell of its row -
-/// and neutralise every other cell of the grid, in the colours of the look
-/// the grid was built in (`palette`). Works for the day grid and the month
-/// grid alike: both are `grid > rows > cells`.
+/// The picked cell - or, with `whole_row`, every day cell of its row - takes
+/// the picked face, every other cell of the grid the other one: the faces the
+/// look BUILT the grid in (`faces`), dark twins and states included, so the
+/// cascade keeps picking the mode's colours - now and after a light / dark
+/// switch. Works for the day grid and the month grid alike: both are
+/// `grid > rows > cells`. A blank cell (no text child) keeps its own style.
 fn restyle_grid(
     info: &mut CallbackInfo,
     clicked: azul_core::dom::DomNodeId,
     whole_row: bool,
-    palette: &DayPalette,
+    faces: &CellFaces,
 ) {
     let Some(row) = info.get_parent(clicked) else {
         return;
@@ -2096,28 +2072,20 @@ fn restyle_grid(
     let Some(grid) = info.get_parent(row) else {
         return;
     };
-    let mode = usize::from(window_is_dark(info));
 
     let mut week = info.get_first_child(grid);
     while let Some(w) = week {
         let mut cellopt = info.get_first_child(w);
         while let Some(cell) = cellopt {
-            // A blank cell has no text child and never takes the accent.
-            let selected = if whole_row {
-                w == row && info.get_first_child(cell).is_some()
-            } else {
-                cell == clicked
-            };
-            let (bg, text) = if selected {
-                palette.selected[mode].clone()
-            } else {
-                palette.other[mode].clone()
-            };
-            info.set_css_property(cell, CssProperty::const_background_content(bg));
-            info.set_css_property(
-                cell,
-                CssProperty::const_text_color(StyleTextColor { inner: text }),
-            );
+            if info.get_first_child(cell).is_some() {
+                let selected = if whole_row { w == row } else { cell == clicked };
+                let face = if selected {
+                    faces.selected.clone()
+                } else {
+                    faces.other.clone()
+                };
+                info.set_node_inline_style(cell, face);
+            }
             cellopt = info.get_next_sibling(cell);
         }
         week = info.get_next_sibling(w);
@@ -2747,49 +2715,71 @@ mod autotest_generated {
             })
     }
 
-    /// The background colours pushed onto nodes by `restyle_days`, in push order.
-    fn pushed_backgrounds(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
+    /// The cell faces `restyle_days` wrote (`set_node_inline_style`), in push
+    /// order. No restyle may pin a value: a `ChangeNodeCssProperties` colour
+    /// would outlive a light / dark switch.
+    fn pushed_faces(changes: &[CallbackChange]) -> Vec<(NodeId, CssPropertyWithConditionsVec)> {
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ChangeNodeCssProperties { .. })),
+            "a restyle pinned a value: {changes:?}"
+        );
         changes
             .iter()
             .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => {
-                    let col = properties.as_ref().iter().find_map(|p| match p {
-                        CssProperty::BackgroundContent(b) => {
-                            b.get_property().and_then(|v| match v.as_ref().first() {
-                                Some(StyleBackgroundContent::Color(c)) => Some(*c),
-                                _ => None,
-                            })
-                        }
-                        _ => None,
-                    })?;
-                    Some((*node_id, col))
+                CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
+                    Some((*node_id, style.clone()))
                 }
                 _ => None,
             })
             .collect()
     }
 
-    /// The text colours pushed onto nodes by `restyle_days`, in push order.
-    fn pushed_text_colours(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
-        changes
+    /// The last UNCONDITIONAL declaration `pick` finds in a face - what the
+    /// face shows by day at rest.
+    fn resting<T>(
+        face: &CssPropertyWithConditionsVec,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
+        face.as_ref()
             .iter()
-            .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => {
-                    let col = properties.as_ref().iter().find_map(|p| match p {
-                        CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
-                        _ => None,
-                    })?;
-                    Some((*node_id, col))
-                }
-                _ => None,
+            .filter(|p| p.apply_if.as_ref().is_empty())
+            .filter_map(|p| pick(&p.property))
+            .last()
+    }
+
+    /// The background colours `restyle_days` gave the cells (by day, at
+    /// rest), in push order.
+    fn pushed_backgrounds(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
+        pushed_faces(changes)
+            .into_iter()
+            .filter_map(|(node, face)| {
+                let col = resting(&face, |p| match p {
+                    CssProperty::BackgroundContent(b) => {
+                        b.get_property().and_then(|v| match v.as_ref().first() {
+                            Some(StyleBackgroundContent::Color(c)) => Some(*c),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })?;
+                Some((node, col))
+            })
+            .collect()
+    }
+
+    /// The text colours `restyle_days` gave the cells (by day, at rest), in
+    /// push order.
+    fn pushed_text_colours(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
+        pushed_faces(changes)
+            .into_iter()
+            .filter_map(|(node, face)| {
+                let col = resting(&face, |p| match p {
+                    CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
+                    _ => None,
+                })?;
+                Some((node, col))
             })
             .collect()
     }
@@ -4148,7 +4138,9 @@ mod autotest_generated {
     fn clicking_a_day_selects_it_and_restyles_the_whole_grid() {
         let (styled, shared) = laid_out(DatePicker::create(2024, 2, 1));
         let (cell, payload) = day_cell(&styled, 17);
-        let rows = 5; // February 2024: 4 leading blanks + 29 days = 33 -> 5 rows
+        // February 2024: 29 days (the blank cells around them keep their own
+        // style - they have no face to change).
+        let days = 29;
 
         let (update, changes) = click(styled, &payload, cell);
 
@@ -4170,8 +4162,8 @@ mod autotest_generated {
         let bgs = pushed_backgrounds(&changes);
         assert_eq!(
             bgs.len(),
-            rows * 7,
-            "restyle_days must repaint every cell of every week row",
+            days,
+            "restyle_days must repaint every day of the grid",
         );
         let accented: Vec<NodeId> = bgs
             .iter()
@@ -4193,8 +4185,8 @@ mod autotest_generated {
         let texts = pushed_text_colours(&changes);
         assert_eq!(
             texts.len(),
-            rows * 7,
-            "every cell needs its text colour resynced too"
+            days,
+            "every day needs its text colour resynced too"
         );
         assert_eq!(
             texts
@@ -5666,16 +5658,35 @@ mod theme_tests {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The payload palette a grid cell carries (day or month cell).
-    fn palette_of(cell: &Dom) -> DayPalette {
+    /// The faces a grid cell's payload repaints the grid with (day or month
+    /// cell).
+    fn faces_of(cell: &Dom) -> CellFaces {
         let mut payload = cell.root.get_callbacks().as_ref()[0].refany.clone();
         if let Some(day) = payload.downcast_ref::<DayCellData>() {
-            return day.palette.clone();
+            return day.faces.clone();
         }
         let month = payload
             .downcast_ref::<MonthCellData>()
             .expect("a grid cell carries a day or a month payload");
-        month.palette.clone()
+        month.faces.clone()
+    }
+
+    /// A pick repaints each cell with the face the look BUILT it in: the
+    /// payload's faces are the rendered picked face (cell `picked`) and the
+    /// rendered other face (cell 3), declaration for declaration - dark twins
+    /// and states included.
+    fn assert_faces_are_the_built_ones(what: &str, dom: &Dom, picked: usize) {
+        let faces = faces_of(cell(dom, 3));
+        assert_eq!(
+            faces.selected.as_ref().to_vec(),
+            declarations(cell(dom, picked)),
+            "{what}: the picked face"
+        );
+        assert_eq!(
+            faces.other.as_ref().to_vec(),
+            declarations(cell(dom, 3)),
+            "{what}: every other face"
+        );
     }
 
     /// Asserts a flora stone face: the accent's own colour under its rig, the
@@ -5946,38 +5957,35 @@ mod theme_tests {
 
     #[test]
     fn a_flora_pick_repaints_with_flora_s_stone_in_every_mode() {
-        for (mode, dom) in [
-            ("date", picker(UiTheme::Flora)),
-            ("month", month_picker(UiTheme::Flora)),
-            ("week", week_picker(UiTheme::Flora)),
+        for (mode, dom, picked) in [
+            ("date", picker(UiTheme::Flora), 15),
+            ("month", month_picker(UiTheme::Flora), 9),
+            ("week", week_picker(UiTheme::Flora), 28),
         ] {
-            let palette = palette_of(cell(&dom, 3));
-            for night in 0..2 {
-                let (fill, text) = &palette.selected[night];
-                assert_eq!(
-                    fill.as_ref().first(),
-                    Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
-                    "{mode}, night={night}: the stone"
-                );
-                assert_eq!(*text, flora::LIGHT_ON_ACC, "{mode}, night={night}");
-            }
-            assert_eq!(palette.other[0].1, flora::LIGHT_INK, "{mode}");
-            assert_eq!(palette.other[1].1, flora::DARK_INK, "{mode}");
+            assert_faces_are_the_built_ones(mode, &dom, picked);
+            let faces = faces_of(cell(&dom, 3));
+            // The pick is the stone by day and by night; every other cell is
+            // flora ink, lifted at night.
+            assert_flora_stone(
+                &Dom::create_div().with_css_props(faces.selected),
+                &format!("{mode}: the repainted pick"),
+            );
+            assert_eq!(
+                at_rest(&Dom::create_div().with_css_props(faces.other), ink),
+                (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+                "{mode}: every other cell"
+            );
         }
     }
 
     #[test]
-    fn a_flat_pick_repaints_with_the_established_colours_in_every_mode() {
-        for dom in [
-            picker(UiTheme::Flat),
-            month_picker(UiTheme::Flat),
-            week_picker(UiTheme::Flat),
+    fn a_flat_pick_repaints_with_the_established_faces_in_every_mode() {
+        for (mode, dom, picked) in [
+            ("date", picker(UiTheme::Flat), 15),
+            ("month", month_picker(UiTheme::Flat), 9),
+            ("week", week_picker(UiTheme::Flat), 28),
         ] {
-            let palette = palette_of(cell(&dom, 3));
-            assert_eq!(palette.selected[0], day_cell_colours(true, false));
-            assert_eq!(palette.selected[1], day_cell_colours(true, true));
-            assert_eq!(palette.other[0], day_cell_colours(false, false));
-            assert_eq!(palette.other[1], day_cell_colours(false, true));
+            assert_faces_are_the_built_ones(mode, &dom, picked);
         }
     }
 

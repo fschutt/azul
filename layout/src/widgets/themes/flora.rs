@@ -5068,7 +5068,7 @@ fn flora_day_geometry(selected: bool) -> Vec<CssPropertyWithConditions> {
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     use super::decl;
-    use crate::widgets::date_picker::{DatePickerLook, DayPalette};
+    use crate::widgets::date_picker::DatePickerLook;
 
     let mut look = DatePickerLook::established();
 
@@ -5122,19 +5122,6 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     ));
     other.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
     look.day_other = other;
-
-    let clear = || {
-        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
-            ColorU::TRANSPARENT,
-        )])
-    };
-    look.day_palette = DayPalette {
-        selected: [
-            (StyleBackgroundContentVec::from_vec(stone()), LIGHT_ON_ACC),
-            (StyleBackgroundContentVec::from_vec(stone()), LIGHT_ON_ACC),
-        ],
-        other: [(clear(), LIGHT_INK), (clear(), DARK_INK)],
-    };
     look.marker = Some("__azul-theme-flora");
 
     crate::widgets::date_picker::build(d, &look)

@@ -1664,7 +1664,10 @@ fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bo
             .as_ref()
             .iter()
             .any(|c| c.as_str() == THEME_FLORA_CLASS);
-        let dark = crate::widgets::date_picker::window_is_dark(info);
+        // The one light / dark decision (`resolve_window_theme`, I1), not a
+        // widget's own re-implementation of it.
+        let dark =
+            info.get_resolved_color_scheme() == azul_core::window::WindowTheme::DarkMode;
         if flora {
             crate::widgets::themes::flora::text_input_invalid_ring(dark)
         } else {
