@@ -48,13 +48,15 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   FIX a21d17411 (`NestedDomPlacement.host_transform` + per-viewport transforms; `ScrollManager::dom_rect_to_window`;
   `ScreenMapAffine::map_rect`; `nested_dom_viewports(.., resolve_transform)`)
 
+- report: `scripts/SCR2_SCROLL_LEFTOVERS_2026_09_29.md`
+
 ## IN PROGRESS
 
-- self-review, report
+- none
 
 ## NEXT
 
-- report `scripts/SCR2_SCROLL_LEFTOVERS_2026_09_29.md`
+- none: the task is done. The parent compiles and runs the suites (report section 5).
 
 ## Open questions
 
