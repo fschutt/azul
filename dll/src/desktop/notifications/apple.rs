@@ -250,7 +250,8 @@ pub(super) fn bundle_status() -> Result<String, String> {
                  UNUserNotificationCenter needs an app bundle whose Info.plist sets \
                  CFBundleIdentifier, and an unbundled binary such as target/release/<app> would \
                  abort inside +[UNUserNotificationCenter currentNotificationCenter]. Run the app \
-                 from a .app bundle to get notifications"
+                 from a signed, registered .app bundle to get notifications: `azul-doc bundle \
+                 macos <crate>` builds one in ~/Applications"
             ));
         }
         if id.is_empty() {

@@ -64,31 +64,121 @@ pub struct BundledDylib {
     pub source: Option<PathBuf>,
 }
 
+/// Escape text for a plist `<string>`.
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// The `Info.plist` of the bundle.
 pub fn info_plist(spec: &MacBundleSpec) -> String {
-    let _ = spec;
-    unimplemented!("info_plist")
+    let name = xml_escape(&spec.app_name);
+    let executable = xml_escape(&spec.executable);
+    let id = xml_escape(&spec.bundle_id);
+    let version = xml_escape(&bundle_version(&spec.version));
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>{name}</string>
+    <key>CFBundleExecutable</key>
+    <string>{executable}</string>
+    <key>CFBundleIdentifier</key>
+    <string>{id}</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>{name}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{version}</string>
+    <key>CFBundleVersion</key>
+    <string>{version}</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+"#
+    )
 }
 
 /// `CFBundleShortVersionString` / `CFBundleVersion` from a crate version:
 /// the numeric `major.minor.patch` prefix (`1.0.0-beta.2` -> `1.0.0`).
 pub fn bundle_version(cargo_version: &str) -> String {
-    let _ = cargo_version;
-    unimplemented!("bundle_version")
+    let numeric: String = cargo_version
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let numeric = numeric.trim_end_matches('.');
+    if numeric.is_empty() {
+        "0".to_string()
+    } else {
+        numeric.to_string()
+    }
 }
 
 /// The default `CFBundleIdentifier` of a crate: `com.azul.<name>`, using
 /// only what Apple allows in one (letters, digits, `-`, `.`).
 pub fn bundle_id_for(crate_name: &str) -> String {
-    let _ = crate_name;
-    unimplemented!("bundle_id_for")
+    let mut tail = String::with_capacity(crate_name.len());
+    for c in crate_name.chars() {
+        if c.is_ascii_alphanumeric() {
+            tail.push(c.to_ascii_lowercase());
+        } else if !tail.is_empty() && !tail.ends_with('-') {
+            tail.push('-');
+        }
+    }
+    while tail.ends_with('-') {
+        tail.pop();
+    }
+    if tail.is_empty() {
+        tail.push_str("app");
+    }
+    format!("com.azul.{tail}")
 }
 
 /// `version = "..."` of the `[package]` table; `None` when the table has
 /// none or inherits it (`version.workspace = true`).
+///
+/// A line scan, like `mobile::run::Target::resolve`: azul-doc has no TOML
+/// parser, and this one field is all it needs.
 pub fn package_version(cargo_toml: &str) -> Option<String> {
-    let _ = cargo_toml;
-    unimplemented!("package_version")
+    let mut in_package = false;
+    for line in cargo_toml.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_package = t == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        let Some(rest) = t.strip_prefix("version") else {
+            continue;
+        };
+        // `versioned = ..` and `version.workspace = true` are not it.
+        let Some(value) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let value = value.trim().strip_prefix('"')?;
+        return value.split('"').next().map(str::to_string);
+    }
+    None
 }
 
 /// The dylibs from `otool -L <binary>` that the bundle must carry: every
@@ -96,27 +186,396 @@ pub fn package_version(cargo_toml: &str) -> Option<String> {
 /// absolute one inside the build's `target_dir`. The system's libraries and
 /// anything installed elsewhere stay where they are.
 pub fn plan_dylibs(otool_l: &str, target_dir: &Path) -> Vec<BundledDylib> {
-    let _ = (otool_l, target_dir);
-    unimplemented!("plan_dylibs")
+    let mut out: Vec<BundledDylib> = Vec::new();
+    for line in otool_l.lines() {
+        // Dependencies are indented; an unindented line names the file (or,
+        // for a fat binary, one of its architectures).
+        if !line.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let entry = line.trim();
+        let reference = match entry.rsplit_once(" (compatibility version") {
+            Some((path, _)) => path.trim(),
+            None => entry,
+        };
+        let name = match reference.rsplit('/').next() {
+            Some(n) if !n.is_empty() => n.to_string(),
+            _ => continue,
+        };
+        let relative = ["@rpath/", "@executable_path/", "@loader_path/"]
+            .iter()
+            .any(|prefix| reference.starts_with(prefix));
+        let source = if relative {
+            None
+        } else if Path::new(reference).starts_with(target_dir) {
+            Some(PathBuf::from(reference))
+        } else {
+            continue;
+        };
+        if out.iter().any(|d| d.reference == reference) {
+            continue;
+        }
+        out.push(BundledDylib {
+            reference: reference.to_string(),
+            name,
+            source,
+        });
+    }
+    out
 }
 
 /// What the binary's reference to a bundled dylib becomes.
 pub fn relinked_reference(name: &str) -> String {
-    let _ = name;
-    unimplemented!("relinked_reference")
+    format!("@executable_path/../Frameworks/{name}")
 }
 
 /// LaunchServices registers a bundle under `/var/folders` (the per-user
 /// temporary directory) but UN refuses it there.
 pub fn is_refused_location(dir: &Path) -> bool {
-    let _ = dir;
-    unimplemented!("is_refused_location")
+    dir.starts_with("/var/folders") || dir.starts_with("/private/var/folders")
 }
 
 /// The layout of `<out_dir>/<app_name>.app`.
 pub fn bundle_paths(out_dir: &Path, spec: &MacBundleSpec) -> BundlePaths {
-    let _ = (out_dir, spec);
-    unimplemented!("bundle_paths")
+    let app = out_dir.join(format!("{}.app", spec.app_name));
+    let contents = app.join("Contents");
+    let macos = contents.join("MacOS");
+    BundlePaths {
+        executable: macos.join(&spec.executable),
+        info_plist: contents.join("Info.plist"),
+        frameworks: contents.join("Frameworks"),
+        macos,
+        contents,
+        app,
+    }
+}
+
+// ────────── The command ────────────────────────────────────────────────
+
+/// `lsregister`, which registers a bundle with LaunchServices - what Finder
+/// does when it first sees one. Without it UN answers "Notifications are not
+/// allowed for this application".
+const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Versions/A/\
+                          Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
+
+fn print_usage() {
+    println!("Usage:");
+    println!("  azul-doc bundle macos <crate> [options]");
+    println!();
+    println!("  Wrap a cargo-built binary in a signed, registered .app, so macOS treats it as an");
+    println!("  application (native notifications need that). Build the binary first.");
+    println!();
+    println!("  <crate>              a Cargo.toml, a directory with one, or an examples/ crate");
+    println!("  --release | --debug  which build to bundle (default --release)");
+    println!("  --profile <name>     a custom cargo profile's build");
+    println!("  --bin <name>         the binary, if it is not named like the package");
+    println!("  --exe <path>         bundle this binary instead of looking in target/");
+    println!("  --bundle-id <id>     CFBundleIdentifier (default com.azul.<crate>)");
+    println!("  --name <name>        the app's name (default: the binary's)");
+    println!("  --out <dir>          where the .app goes (default ~/Applications)");
+    println!("  --no-register        skip the LaunchServices registration");
+    println!("  --dry-run            print the plan, write nothing");
+}
+
+#[derive(Debug, Default)]
+struct BundleArgs {
+    spec: Option<String>,
+    profile: Option<String>,
+    bin: Option<String>,
+    exe: Option<PathBuf>,
+    bundle_id: Option<String>,
+    name: Option<String>,
+    out: Option<PathBuf>,
+    no_register: bool,
+    dry_run: bool,
+}
+
+fn parse_args(args: &[&str]) -> anyhow::Result<BundleArgs> {
+    let mut a = BundleArgs::default();
+    let mut i = 0;
+    while i < args.len() {
+        let value = |i: usize, flag: &str| -> anyhow::Result<String> {
+            args.get(i + 1)
+                .map(|v| (*v).to_string())
+                .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
+        };
+        match args[i] {
+            "--release" => a.profile = Some("release".to_string()),
+            "--debug" => a.profile = Some("debug".to_string()),
+            "--profile" => {
+                let p = value(i, "--profile")?;
+                // cargo's `dev` profile writes to target/debug.
+                a.profile = Some(if p == "dev" { "debug".to_string() } else { p });
+                i += 1;
+            }
+            "--bin" => {
+                a.bin = Some(value(i, "--bin")?);
+                i += 1;
+            }
+            "--exe" => {
+                a.exe = Some(PathBuf::from(value(i, "--exe")?));
+                i += 1;
+            }
+            "--bundle-id" => {
+                a.bundle_id = Some(value(i, "--bundle-id")?);
+                i += 1;
+            }
+            "--name" => {
+                a.name = Some(value(i, "--name")?);
+                i += 1;
+            }
+            "--out" => {
+                a.out = Some(PathBuf::from(value(i, "--out")?));
+                i += 1;
+            }
+            "--no-register" => a.no_register = true,
+            "--dry-run" | "-n" => a.dry_run = true,
+            flag if flag.starts_with('-') => anyhow::bail!("unknown option {flag}"),
+            positional => {
+                if a.spec.is_some() {
+                    anyhow::bail!("one crate at a time (got a second one: {positional})");
+                }
+                a.spec = Some(positional.to_string());
+            }
+        }
+        i += 1;
+    }
+    Ok(a)
+}
+
+/// `azul-doc bundle ...`
+pub fn handle_bundle_command(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
+    match args {
+        ["macos", rest @ ..] => bundle_macos(project_root, rest),
+        _ => {
+            print_usage();
+            Ok(())
+        }
+    }
+}
+
+/// `CARGO_TARGET_DIR` (relative to the workspace), else `<workspace>/target`.
+fn cargo_target_dir(workspace_root: &Path) -> PathBuf {
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => {
+            let dir = PathBuf::from(dir);
+            if dir.is_absolute() {
+                dir
+            } else {
+                workspace_root.join(dir)
+            }
+        }
+        None => workspace_root.join("target"),
+    }
+}
+
+/// A path the user typed. `main()` has already changed into `doc/`, so a
+/// relative one is tried as given and then against the checkout's root.
+fn user_path(project_root: &Path, p: &Path) -> PathBuf {
+    if p.is_absolute() || p.exists() {
+        return p.to_path_buf();
+    }
+    project_root.join(p)
+}
+
+fn run(cmd: &mut std::process::Command) -> anyhow::Result<()> {
+    let shown = format!("{cmd:?}");
+    let status = cmd
+        .status()
+        .map_err(|e| anyhow::anyhow!("could not start {shown}: {e}"))?;
+    if !status.success() {
+        anyhow::bail!("{shown} failed ({status})");
+    }
+    Ok(())
+}
+
+fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
+    use std::{fs, process::Command};
+
+    let a = parse_args(args)?;
+    let Some(spec_arg) = a.spec.as_deref() else {
+        print_usage();
+        anyhow::bail!("which crate? e.g. azul-doc bundle macos azul-widgets");
+    };
+    if !cfg!(target_os = "macos") && !a.dry_run {
+        anyhow::bail!(
+            "bundle macos signs with codesign and registers with lsregister - run it on macOS \
+             (--dry-run prints the plan anywhere)"
+        );
+    }
+
+    let target = crate::mobile::run::Target::resolve(
+        project_root,
+        spec_arg,
+        &crate::mobile::Opts::default(),
+    )?;
+    let manifest = target.manifest_dir.join("Cargo.toml");
+    let version = fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|text| package_version(&text))
+        .unwrap_or_else(|| "0.1.0".to_string());
+    let target_dir = cargo_target_dir(&target.workspace_root);
+    let profile = a.profile.clone().unwrap_or_else(|| "release".to_string());
+    let bin = a.bin.clone().unwrap_or_else(|| target.crate_name.clone());
+    let exe_src = match &a.exe {
+        Some(p) => user_path(project_root, p),
+        None => target_dir.join(&profile).join(&bin),
+    };
+    if !exe_src.is_file() {
+        let flag = match profile.as_str() {
+            "release" => "--release".to_string(),
+            "debug" => String::new(),
+            other => format!("--profile {other}"),
+        };
+        anyhow::bail!(
+            "{} does not exist - build it first: cargo build {flag} -p {}",
+            exe_src.display(),
+            target.crate_name
+        );
+    }
+    let executable = exe_src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| anyhow::anyhow!("{} has no usable file name", exe_src.display()))?
+        .to_string();
+    let spec = MacBundleSpec {
+        app_name: a.name.clone().unwrap_or_else(|| executable.clone()),
+        executable,
+        bundle_id: a
+            .bundle_id
+            .clone()
+            .unwrap_or_else(|| bundle_id_for(&target.crate_name)),
+        version,
+    };
+    let out_dir = match &a.out {
+        Some(p) => user_path(project_root, p),
+        None => PathBuf::from(
+            std::env::var_os("HOME")
+                .ok_or_else(|| anyhow::anyhow!("HOME is not set; pass --out <dir>"))?,
+        )
+        .join("Applications"),
+    };
+    if is_refused_location(&out_dir) {
+        anyhow::bail!(
+            "{} is under /var/folders: LaunchServices registers a bundle there, but the \
+             notification center refuses it. Use ~/Applications (the default) or another \
+             directory",
+            out_dir.display()
+        );
+    }
+    let paths = bundle_paths(&out_dir, &spec);
+
+    // Which of the binary's libraries travel with it.
+    let dylibs = if cfg!(target_os = "macos") {
+        let listing = Command::new("otool")
+            .arg("-L")
+            .arg(&exe_src)
+            .output()
+            .map_err(|e| {
+                anyhow::anyhow!("otool (Xcode command line tools) could not run: {e}")
+            })?;
+        if !listing.status.success() {
+            anyhow::bail!("otool -L {} failed", exe_src.display());
+        }
+        plan_dylibs(&String::from_utf8_lossy(&listing.stdout), &target_dir)
+    } else {
+        Vec::new()
+    };
+
+    println!("[bundle] {} -> {}", exe_src.display(), paths.app.display());
+    println!("[bundle]   CFBundleIdentifier {}", spec.bundle_id);
+    for dylib in &dylibs {
+        println!(
+            "[bundle]   {} -> Contents/Frameworks/{}",
+            dylib.reference, dylib.name
+        );
+    }
+    if a.dry_run {
+        println!("[bundle] dry run: nothing written");
+        return Ok(());
+    }
+
+    // A fresh bundle every time: a stale dylib or plist from an earlier run
+    // would be signed into this one.
+    if paths.app.is_dir() {
+        fs::remove_dir_all(&paths.app)?;
+    }
+    fs::create_dir_all(&paths.macos)?;
+    fs::copy(&exe_src, &paths.executable)?;
+    fs::write(&paths.info_plist, info_plist(&spec))?;
+    fs::write(paths.contents.join("PkgInfo"), "APPL????")?;
+
+    // The dylibs, and the binary pointed at the copies.
+    let mut bundled: Vec<PathBuf> = Vec::new();
+    for dylib in &dylibs {
+        let source = dylib.source.clone().or_else(|| {
+            [
+                target_dir.join(&profile).join(&dylib.name),
+                target_dir.join(&profile).join("deps").join(&dylib.name),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+        });
+        let Some(source) = source.filter(|p| p.is_file()) else {
+            println!(
+                "[bundle] WARN {} is not in the build output; left as {} (it must be found \
+                 there at run time)",
+                dylib.name, dylib.reference
+            );
+            continue;
+        };
+        fs::create_dir_all(&paths.frameworks)?;
+        let dest = paths.frameworks.join(&dylib.name);
+        fs::copy(&source, &dest)?;
+        // Can fail when the new reference is longer than the old one and
+        // the binary has no header padding left; it then keeps loading the
+        // original, which works on this machine.
+        if let Err(e) = run(Command::new("install_name_tool")
+            .arg("-change")
+            .arg(&dylib.reference)
+            .arg(relinked_reference(&dylib.name))
+            .arg(&paths.executable))
+        {
+            println!(
+                "[bundle] WARN could not point the binary at the bundled {} ({e}); it keeps \
+                 loading {}",
+                dylib.name, dylib.reference
+            );
+        }
+        bundled.push(dest);
+    }
+
+    // Ad-hoc signatures, inside out: every dylib, then the bundle (which
+    // signs the main executable). Never --deep (deprecated for signing).
+    for dylib in &bundled {
+        run(Command::new("codesign")
+            .args(["--force", "--sign", "-"])
+            .arg(dylib))?;
+    }
+    run(Command::new("codesign")
+        .args(["--force", "--sign", "-"])
+        .arg(&paths.app))?;
+
+    if a.no_register {
+        println!("[bundle] not registered (--no-register): open it once from Finder first");
+    } else if let Err(e) = run(Command::new(LSREGISTER).arg("-f").arg(&paths.app)) {
+        println!(
+            "[bundle] WARN LaunchServices registration failed ({e}); opening the app once \
+             from Finder registers it too"
+        );
+    }
+
+    println!("[bundle] done: {}", paths.app.display());
+    println!("[bundle]   run it:  open \"{}\"", paths.app.display());
+    println!(
+        "[bundle]   or:      \"{}\"   (logs stay in this terminal)",
+        paths.executable.display()
+    );
+    println!(
+        "[bundle]   a stale 'Don't Allow' is kept per bundle id: tccutil reset UserNotification {}",
+        spec.bundle_id
+    );
+    Ok(())
 }
 
 #[cfg(test)]

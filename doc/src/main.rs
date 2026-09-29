@@ -1980,6 +1980,11 @@ fn main() -> anyhow::Result<()> {
             // api.json, so it works in a tree that has never been codegen'd.
             return mobile::handle_mobile_command(&project_root, rest);
         }
+        ["bundle", rest @ ..] => {
+            // A cargo-built binary as a signed, registered macOS .app - what
+            // native notifications need. Takes no api.json either.
+            return bundle::handle_bundle_command(&project_root, rest);
+        }
         ["codegen"] | ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
             println!("[CODEGEN] Generating all language bindings using v2...\n");
@@ -2712,6 +2717,11 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                    --e2e replays a scenario's input ops through");
     println!("                                    adb / baguette and names every op a host");
     println!("                                    driver cannot express");
+    println!();
+    println!("  DESKTOP APPS:");
+    println!("    bundle macos <crate>          - Wrap the built binary in a signed, registered");
+    println!("                                    .app in ~/Applications (native notifications");
+    println!("                                    need one). `bundle` alone lists the options");
     println!();
     println!("  TESTING:");
     println!("    reftest                       - Run all reftests (open report in browser)");
