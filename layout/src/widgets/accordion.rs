@@ -1655,6 +1655,29 @@ mod theme_tests {
         (light, dark)
     }
 
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state) - what the node shows when nothing happens to it.
+    /// `theme_probe::dark` would also return the `:hover` / `:active` /
+    /// `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
     /// A shadow's colour, and whether it is drawn inside the box.
     fn shadow(p: &CssProperty) -> Option<(ColorU, bool)> {
         match p {
@@ -1759,12 +1782,20 @@ mod theme_tests {
         for s in sections(&dom) {
             let h = header(s);
             assert_eq!(
-                last(&theme_probe::unconditional(h), bg),
-                Some(alloc::vec![flora::RAISED_FACE_LIGHT])
+                at_rest(h, bg),
+                (
+                    Some(alloc::vec![flora::RAISED_FACE_LIGHT]),
+                    Some(alloc::vec![flora::RAISED_FACE_DARK])
+                ),
+                "at rest: flora.css's raised face, --fl-rT over --fl-rB, by day and night"
             );
             assert_eq!(
-                last(&theme_probe::dark(h), bg),
-                Some(alloc::vec![flora::RAISED_FACE_DARK])
+                in_state(h, PseudoStateType::Active, bg),
+                (
+                    Some(alloc::vec![flora::PRESSED_FACE_LIGHT]),
+                    Some(alloc::vec![flora::PRESSED_FACE_DARK])
+                ),
+                "held: the pressed face, --fl-pT over --fl-pB"
             );
             assert_eq!(
                 in_state(h, PseudoStateType::Hover, bg),
