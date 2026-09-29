@@ -46,11 +46,14 @@ microphone, screencap, map, node_graph.
 - tooltip: RED 89d72092d, impl e686346fd. API: Tooltip.theme (last),
   set_theme / with_theme.
 
+- video: RED 3b8d94b79, impl 677ecc4c9. API: VideoWidget.theme (last),
+  set_theme / with_theme; VideoWidgetState.theme (Rust-only struct).
+
 ## IN PROGRESS
-- video
+- decisions: camera / microphone / screencap / map / node_graph
 
 ## NEXT
-video -> decisions (camera/mic/screencap/map/node_graph) -> report
+decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
 (none yet)
