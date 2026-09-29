@@ -73,6 +73,10 @@ azul_core::impl_managed_callback! {
 pub struct DropDown {
     /// The list of choices presented in the popup menu.
     pub choices: StringVec,
+    /// HTML `<optgroup>`s: labelled, NON-selectable headings over runs of
+    /// `choices`. A heading is never a choice, so every index the widget
+    /// reports still counts options only. Empty for an ungrouped list.
+    pub groups: DropDownOptGroupVec,
     /// Zero-based index of the currently selected choice.
     pub selected: usize,
     /// Optional callback invoked when the user picks a different choice.
@@ -91,10 +95,48 @@ pub struct DropDown {
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
+/// One `<optgroup>` of a [`DropDown`]: a heading over the options
+/// `choices[first_choice .. first_choice + len]`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DropDownOptGroup {
+    /// The heading - shown in the menu, never selectable.
+    pub label: AzString,
+    /// Index into [`DropDown::choices`] of the group's first option.
+    pub first_choice: usize,
+    /// How many options the group holds (0 shows the heading alone).
+    pub len: usize,
+}
+
+azul_css::impl_option!(
+    DropDownOptGroup,
+    OptionDropDownOptGroup,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+azul_css::impl_vec!(
+    DropDownOptGroup,
+    DropDownOptGroupVec,
+    DropDownOptGroupVecDestructor,
+    DropDownOptGroupVecDestructorType,
+    DropDownOptGroupVecSlice,
+    OptionDropDownOptGroup
+);
+azul_css::impl_vec_clone!(
+    DropDownOptGroup,
+    DropDownOptGroupVec,
+    DropDownOptGroupVecDestructor
+);
+azul_css::impl_vec_debug!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_partialeq!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_eq!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_mut!(DropDownOptGroup, DropDownOptGroupVec);
+
 impl Default for DropDown {
     fn default() -> Self {
         Self {
             choices: StringVec::from_const_slice(&[]),
+            groups: DropDownOptGroupVec::from_const_slice(&[]),
             selected: 0,
             on_choice_change: None.into(),
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
@@ -141,6 +183,37 @@ impl DropDown {
     #[must_use]
     pub const fn with_selected(mut self, index: usize) -> Self {
         self.set_selected(index);
+        self
+    }
+
+    /// Appends an `<optgroup>`: the heading `label` over `options`, which are
+    /// appended to [`Self::choices`]. The heading is shown in the menu but is
+    /// never a choice - it cannot be picked, keyboard navigation passes over
+    /// it, and every index the widget reports keeps counting options only.
+    pub fn add_optgroup(&mut self, label: AzString, options: StringVec) {
+        let first_choice = self.choices.len();
+        let len = options.len();
+
+        let mut choices = core::mem::replace(&mut self.choices, StringVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        choices.extend(options.as_ref().iter().cloned());
+        self.choices = choices.into();
+
+        let mut groups =
+            core::mem::replace(&mut self.groups, DropDownOptGroupVec::from_const_slice(&[]))
+                .into_library_owned_vec();
+        groups.push(DropDownOptGroup {
+            label,
+            first_choice,
+            len,
+        });
+        self.groups = groups.into();
+    }
+
+    /// [`Self::add_optgroup`] for the builder chain.
+    #[must_use]
+    pub fn with_optgroup(mut self, label: AzString, options: StringVec) -> Self {
+        self.add_optgroup(label, options);
         self
     }
 
@@ -223,20 +296,7 @@ pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) 
         return Update::DoNothing;
     };
 
-    let menu_items: Vec<MenuItem> = refany
-        .choices
-        .iter()
-        .enumerate()
-        .map(|(idx, choice)| {
-            MenuItem::String(StringMenuItem::create(choice.clone()).with_callback(
-                RefAny::new(ChoiceCallbackData {
-                    choice_id: idx,
-                    on_choice_change: refany.on_choice_change.clone(),
-                }),
-                on_choice_selected as usize,
-            ))
-        })
-        .collect();
+    let menu_items = build_menu_items(&refany);
 
     let menu = Menu {
         items: menu_items.into(),
@@ -246,6 +306,49 @@ pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) 
 
     info.open_menu_for_hit_node(menu);
     Update::DoNothing
+}
+
+/// What an option inside an `<optgroup>` is indented by in the menu, so it
+/// reads as belonging to the heading above it (a menu item has no indentation
+/// of its own on every backend).
+const OPTGROUP_INDENT: &str = "\u{2003}";
+
+/// The popup menu of `dd`: one item per choice, each reporting its index; each
+/// `<optgroup>` heading right before its options as a DISABLED item without a
+/// callback (so nothing can pick it and the menu's keyboard navigation passes
+/// over it), its options indented. Without groups this is the plain list.
+pub(crate) fn build_menu_items(dd: &DropDown) -> Vec<MenuItem> {
+    let heading = |group: &DropDownOptGroup| {
+        let mut item = StringMenuItem::create(group.label.clone());
+        item.menu_item_state = azul_core::menu::MenuItemState::Disabled;
+        MenuItem::String(item)
+    };
+    let groups = dd.groups.as_ref();
+    let mut items: Vec<MenuItem> = Vec::with_capacity(dd.choices.len() + groups.len());
+
+    for (idx, choice) in dd.choices.as_ref().iter().enumerate() {
+        items.extend(groups.iter().filter(|g| g.first_choice == idx).map(heading));
+        let grouped = groups
+            .iter()
+            .any(|g| idx >= g.first_choice && idx < g.first_choice + g.len);
+        let label = if grouped {
+            AzString::from(alloc::format!("{OPTGROUP_INDENT}{}", choice.as_str()))
+        } else {
+            choice.clone()
+        };
+        items.push(MenuItem::String(StringMenuItem::create(label).with_callback(
+            RefAny::new(ChoiceCallbackData {
+                choice_id: idx,
+                on_choice_change: dd.on_choice_change.clone(),
+            }),
+            on_choice_selected as usize,
+        )));
+    }
+    // A group that starts at (or past) the end holds no options; its heading
+    // still shows, as HTML's does.
+    let end = dd.choices.len();
+    items.extend(groups.iter().filter(|g| g.first_choice >= end).map(heading));
+    items
 }
 
 extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Update {
