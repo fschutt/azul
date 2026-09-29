@@ -3612,3 +3612,123 @@ const fn stepper_label_ink(reached: bool, dark: bool) -> ColorU {
 pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
     s.build(stepper_skin())
 }
+
+// ==== time_picker ====
+//
+// A flora time picker is a WELL of field paper (`--fl-fld`, by night the night
+// field) under a `--fl-bd2` hairline, sunk by `--fl-well`, with the house radius.
+// The readouts are flora ink, the `:` soft ink, and the arrows icon ink
+// (`--fl-icon`) that turns to ink on a raised hover face and sinks on a press -
+// quiet controls, no chrome at rest. The AM/PM toggle is raised paper
+// (`.btn-secondary`) in ink. Every arrow and the toggle are ringed on focus: the
+// accent by day, the glow by night. The arrows keep the widget's 40x16 hit box.
+
+/// Flora's time picker skin.
+#[must_use]
+pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin {
+    use super::style_kit as kit;
+    use crate::widgets::time_picker as t;
+    type P = CssPropertyWithConditions;
+
+    let mut container = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
+    container.extend(kit::padding(4, 6, 4, 6));
+    container.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    container.extend(kit::radius(3));
+    container.extend(kit::themed_bg(LIGHT_FLD, DARK_FLD));
+    container.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    container.extend(kit::inset_shadow(
+        1,
+        2,
+        NUMBER_INPUT_WELL_LIGHT,
+        NUMBER_INPUT_WELL_DARK,
+    ));
+
+    let mut arrow = vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(16))),
+        kit::font_size(11),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+        P::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
+    ];
+    arrow.extend(kit::radius(3));
+    arrow.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON));
+    // States last.
+    arrow.extend(kit::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    arrow.extend(kit::hover_ink(LIGHT_INK, DARK_INK));
+    arrow.extend(kit::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    arrow.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    let mut display = vec![
+        kit::font_size(18),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+        P::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
+    ];
+    display.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut separator = vec![
+        kit::font_size(18),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
+        P::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
+    ];
+    separator.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut ampm = vec![
+        kit::font_size(13),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(8))),
+    ];
+    ampm.extend(kit::padding(4, 8, 4, 8));
+    ampm.extend(kit::radius(3));
+    ampm.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    ampm.extend(kit::themed_layers(
+        vec![RAISED_FACE_LIGHT],
+        vec![RAISED_FACE_DARK],
+    ));
+    ampm.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    // States last.
+    ampm.extend(kit::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    ampm.extend(kit::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    ampm.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    t::TimePickerSkin {
+        theme: super::UiTheme::Flora,
+        container: CssPropertyWithConditionsVec::from_vec(container),
+        spinner: CssPropertyWithConditionsVec::from_const_slice(t::SPINNER_STYLE),
+        arrow: CssPropertyWithConditionsVec::from_vec(arrow),
+        display: CssPropertyWithConditionsVec::from_vec(display),
+        separator: CssPropertyWithConditionsVec::from_vec(separator),
+        ampm: CssPropertyWithConditionsVec::from_vec(ampm),
+    }
+}
+
+/// Renders a [`crate::widgets::time_picker::TimePicker`] in the flora theme.
+#[must_use]
+pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
+    p.build(time_picker_skin())
+}

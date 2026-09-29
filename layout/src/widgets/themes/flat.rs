@@ -3708,3 +3708,45 @@ fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
 pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
     s.build(stepper_skin())
 }
+
+// ==== time_picker ====
+//
+// Flat is the established picker: a #ced4da frame (the desktop's separator in
+// the dark), grey arrows, dark readouts, the accent AM/PM pill. What it adds are
+// the states its buttons never had: an arrow hovers to `LIGHT_HT` / `DARK_HT` and
+// presses to `LIGHT_PT` / `DARK_PT`, and every arrow and the toggle are ringed on
+// focus with an inset 2px ring (`FIELD_RING` / `DARK_ACC`; white on the accent
+// pill) - no border, so the arrows keep their 40x16 hit box.
+
+/// Flat's time picker skin.
+#[must_use]
+pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin {
+    use super::style_kit as kit;
+    use crate::widgets::time_picker as t;
+
+    let mut arrow = t::ARROW_STYLE.to_vec();
+    arrow.extend(kit::radius(3));
+    // States last: the resting dark twin matches in every state.
+    arrow.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
+    arrow.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+    arrow.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+
+    let mut ampm = t::AMPM_STYLE.to_vec();
+    ampm.extend(kit::focus_shadow_ring(LIGHT_ON_ACC, DARK_ON_ACC));
+
+    t::TimePickerSkin {
+        theme: super::UiTheme::Flat,
+        container: CssPropertyWithConditionsVec::from_const_slice(t::CONTAINER_STYLE),
+        spinner: CssPropertyWithConditionsVec::from_const_slice(t::SPINNER_STYLE),
+        arrow: CssPropertyWithConditionsVec::from_vec(arrow),
+        display: CssPropertyWithConditionsVec::from_const_slice(t::DISPLAY_STYLE),
+        separator: CssPropertyWithConditionsVec::from_const_slice(t::SEPARATOR_STYLE),
+        ampm: CssPropertyWithConditionsVec::from_vec(ampm),
+    }
+}
+
+/// Renders a [`crate::widgets::time_picker::TimePicker`] in the flat theme.
+#[must_use]
+pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
+    p.build(time_picker_skin())
+}

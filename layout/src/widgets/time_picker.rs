@@ -53,7 +53,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::system_palette as sys,
+    widgets::themes::{style_kit, system_palette as sys, OptionUiTheme, UiTheme},
 };
 
 // ---- classes ----
@@ -122,6 +122,10 @@ pub struct TimePicker {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the frame, spinners and
+    /// toggle are built from, so switching it rebuilds the picker.
+    pub theme: OptionUiTheme,
 }
 
 /// Wraps [`TimePickerState`] together with its change callback.
@@ -217,7 +221,7 @@ const ACCENT_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
 
 /// Container: a horizontal row that hugs its content.
-static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -299,7 +303,7 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// One spinner column: up arrow, value, down arrow.
-static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -310,7 +314,7 @@ static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// Up/down arrow cell.
-static ARROW_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     // An EXPLICIT hit box. Without it the arrow `<p>` is shrink-to-fit inside an
     // `align-items: center` column, so its target was the advance of the glyph
     // itself (~11x17 px) — and it collapsed to ZERO WIDTH whenever U+25B2/25BC
@@ -334,7 +338,7 @@ static ARROW_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The value display in the middle of a spinner.
-static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
@@ -351,7 +355,7 @@ static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The `:` separator between the hour and minute spinners.
-static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -367,7 +371,7 @@ static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The clickable AM/PM toggle (12-hour mode only).
-static AMPM_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -407,6 +411,35 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
+/// What a theme supplies for a time picker: the style of every part (the
+/// frame is the default the app's `container_style` replaces). Built by
+/// `themes::flat::time_picker_skin` / `themes::flora::time_picker_skin`.
+pub(crate) struct TimePickerSkin {
+    pub theme: UiTheme,
+    /// The frame, unless the app brings a container style.
+    pub container: CssPropertyWithConditionsVec,
+    /// One spinner column.
+    pub spinner: CssPropertyWithConditionsVec,
+    /// An up / down arrow - a focusable button, so it owes the focus ring.
+    /// Every theme keeps its 40x16 hit box.
+    pub arrow: CssPropertyWithConditionsVec,
+    /// The value readout.
+    pub display: CssPropertyWithConditionsVec,
+    /// The `:` between the spinners.
+    pub separator: CssPropertyWithConditionsVec,
+    /// The AM/PM toggle - focusable too.
+    pub ampm: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws time pickers with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> TimePickerSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::time_picker_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::time_picker_skin(),
+    }
+}
+
 impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
@@ -431,19 +464,34 @@ impl TimePicker {
             },
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the picker renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this time picker renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift.
+    /// `None` means no opinion, so the theme's frame applies - asked of the
+    /// same skin the render uses, so the two cannot drift.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
-        self.container_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE))
+        self.container_style.clone().into_option().unwrap_or_else(|| {
+            skin_for(self.theme.into_option().unwrap_or_default()).container
+        })
     }
 
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
@@ -507,37 +555,54 @@ impl TimePicker {
         s
     }
 
+    /// Renders the picker. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::time_picker(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::time_picker(self),
+        }
+    }
+
+    /// Renders the picker with `skin` styling its parts - what
+    /// `themes::flat::time_picker` / `themes::flora::time_picker` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: TimePickerSkin) -> Dom {
         let inner = self.state.inner;
         let is_24h = inner.is_24h;
         let hour_text = AzString::from(format!("{}", inner.hour));
         let minute_text = AzString::from(format!("{:02}", inner.minute));
-        let container_style = self.resolved_container_style();
+        let container_style = self
+            .container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin.container.clone());
 
         let state = RefAny::new(self.state);
 
         let mut children = alloc::vec![
-            build_spinner(
+            build_spinner_skinned(
                 hour_text,
                 state.clone(),
                 on_hour_up as usize,
                 on_hour_down as usize,
                 on_hour_scroll as usize,
                 "hour",
+                &skin,
             ),
             crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    SEPARATOR_STYLE
-                )),
-            build_spinner(
+                .with_css_props(skin.separator.clone()),
+            build_spinner_skinned(
                 minute_text,
                 state.clone(),
                 on_minute_up as usize,
                 on_minute_down as usize,
                 on_minute_scroll as usize,
                 "minute",
+                &skin,
             ),
         ];
 
@@ -550,7 +615,7 @@ impl TimePicker {
             children.push(
                 crate::widgets::widget_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(AMPM_STYLE))
+                    .with_css_props(skin.ampm.clone())
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: azul_core::dom::EventFilter::Hover(
@@ -573,8 +638,10 @@ impl TimePicker {
             );
         }
 
+        let mut classes: Vec<IdOrClass> = TIME_PICKER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TIME_PICKER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -586,9 +653,7 @@ impl Default for TimePicker {
     }
 }
 
-/// Builds one spinner column (up arrow / value display / down arrow). The up and
-/// down arrows carry the shared `state` `RefAny` and the given click handlers; the
-/// middle display is class-tagged so handlers can re-text it.
+/// Builds one spinner column in the flat theme - see [`build_spinner_skinned`].
 fn build_spinner(
     value: AzString,
     state: RefAny,
@@ -597,12 +662,36 @@ fn build_spinner(
     scroll_cb: usize,
     unit: &str,
 ) -> Dom {
+    build_spinner_skinned(
+        value,
+        state,
+        up_cb,
+        down_cb,
+        scroll_cb,
+        unit,
+        &skin_for(UiTheme::Flat),
+    )
+}
+
+/// Builds one spinner column (up arrow / value display / down arrow). The up and
+/// down arrows carry the shared `state` `RefAny` and the given click handlers; the
+/// middle display is class-tagged so handlers can re-text it. `skin` styles the
+/// column, the arrows and the readout.
+fn build_spinner_skinned(
+    value: AzString,
+    state: RefAny,
+    up_cb: usize,
+    down_cb: usize,
+    scroll_cb: usize,
+    unit: &str,
+    skin: &TimePickerSkin,
+) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, name: String, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
+            .with_css_props(skin.arrow.clone())
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
@@ -629,7 +718,7 @@ fn build_spinner(
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SPINNER_STYLE))
+        .with_css_props(skin.spinner.clone())
         // The WHOLE column takes the wheel, not just the arrows: spinning the
         // hours by pointing at them is what a native time field does, and the
         // arrows are far too small to aim a gesture at.
@@ -649,7 +738,7 @@ fn build_spinner(
                 arrow_cell(UP_ARROW, format!("Increase {unit}"), up_cb, state.clone()),
                 crate::widgets::widget_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
+                    .with_css_props(skin.display.clone()),
                 arrow_cell(DOWN_ARROW, format!("Decrease {unit}"), down_cb, state),
             ]
             .into(),
@@ -1147,14 +1236,19 @@ mod autotest_generated {
     }
 
     /// The classes of a *flattened* node.
+    /// The widget classes of a flattened node - without the theme marker the
+    /// root also carries (`__azul-theme-flat` / `-flora`), which names the
+    /// theme that drew it rather than the part it is.
     fn flat_classes(sd: &StyledDom, idx: usize) -> Vec<String> {
         sd.node_data.as_ref()[idx]
             .get_ids_and_classes()
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                Class(s) => Some(s.as_str().to_string()),
-                IdOrClass::Id(_) => None,
+                Class(s) if !s.as_str().starts_with("__azul-theme-") => {
+                    Some(s.as_str().to_string())
+                }
+                Class(_) | IdOrClass::Id(_) => None,
             })
             .collect()
     }
@@ -2263,7 +2357,11 @@ mod autotest_generated {
     fn dom_renders_three_columns_in_24h_mode_and_four_in_12h() {
         let h24 = TimePicker::create(9, 5).dom();
         assert!(matches!(h24.root.get_node_type(), NodeType::Div));
-        assert_eq!(classes(&h24), vec![CLASS_CONTAINER.to_string()]);
+        assert_eq!(
+            classes(&h24),
+            vec![CLASS_CONTAINER.to_string(), "__azul-theme-flat".to_string()],
+            "the picker class and the marker of the theme that drew it"
+        );
         assert_eq!(
             h24.children.as_ref().len(),
             3,
