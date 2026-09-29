@@ -14047,18 +14047,6 @@ impl LayoutWindow {
         target.hittest(local)
     }
 
-    /// A cursor's caret rect in ANY laid-out text block - documented as
-    /// "absolute window coordinates", but STATIC layout space: the same body
-    /// as [`Self::cursor_rect_for`].
-    #[must_use]
-    fn rect_for_cursor_in(&self, block: TextBlock, cursor: &TextCursor) -> Option<LogicalRect> {
-        let (inline_layout, origin) = self.block_inline_geometry(block)?;
-        let mut rect = inline_layout.get_cursor_rect(cursor)?;
-        rect.origin.x += origin.x;
-        rect.origin.y += origin.y;
-        Some(rect)
-    }
-
     /// The two ends of the current selection in DOCUMENT order, each as
     /// `(block, cursor)`: the cross-block selection's anchor/focus pair sorted
     /// by `is_forward`, or the single-block primary range's two cursors on the
@@ -14170,8 +14158,17 @@ impl LayoutWindow {
         // Either shape of selection (U2-a-i): a cross-block one has its two
         // ends in different IFC roots, each resolved in its own layout.
         let [(lo_block, lo), (hi_block, hi)] = self.selection_ends_in_document_order()?;
-        let first = self.rect_for_cursor_in(lo_block, &lo)?;
-        let last = self.rect_for_cursor_in(hi_block, &hi)?;
+        // Where each end's caret is PAINTED (`TextTarget::caret_rect_on_screen`):
+        // the handles hang under it, and `selection_handle_at` hit-tests a
+        // WINDOW point against them. A static caret rect put them a
+        // field's scroll away from the selection they mark.
+        let on_screen = |block: TextBlock, cursor: &TextCursor| {
+            self.text_target(block)?
+                .caret_rect_on_screen(self, cursor)
+                .map(azul_core::spaces::WindowRect::get)
+        };
+        let first = on_screen(lo_block, &lo)?;
+        let last = on_screen(hi_block, &hi)?;
         Some([
             SelectionHandleGeometry::under(
                 SelectionHandleEnd::Start,
