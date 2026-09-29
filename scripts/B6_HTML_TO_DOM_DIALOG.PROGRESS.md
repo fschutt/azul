@@ -30,13 +30,15 @@ Branch `wt/b6-html-to-dom-dialog` from `81d31d94e` (B3 + X1a/X1b). Nothing compi
   `from_fragment(full, range)`), not of the trimmed remainder.
 
 ## DONE
-(none yet)
+- 1a RED 747bd0b59 (core tests at the new paths; dll walker tests deleted; CI step moved)
+- 1a impl 6f6ee890c (core/src/codegen/{mod,dom,dom_test}.rs; walkers deleted; features)
 
 ## IN PROGRESS
-- 1a
+- 1b design: IR `Expr::ItemCall`, typed `ItemParam`, `ComponentCodegen` replacing `compile_fn`
 
 ## NEXT
-- 1a RED + move, 1b RED + impl (+ helpers for 26 printers), 1c inventory → table, 2, 3, docs, report
+- 1b RED + impl (+ helpers for 26 printers), 1c inventory (scratchpad b6_attr_inventory.md) → table,
+  2, 3, docs, report
 
 ## Open questions
 - none yet
