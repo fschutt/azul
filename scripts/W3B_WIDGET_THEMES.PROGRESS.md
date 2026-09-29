@@ -49,11 +49,16 @@ microphone, screencap, map, node_graph.
 - video: RED 3b8d94b79, impl 677ecc4c9. API: VideoWidget.theme (last),
   set_theme / with_theme; VideoWidgetState.theme (Rust-only struct).
 
+- fixes: theme_checks loop fde9aea17; time_picker build_spinner cfg(test) 537b7742b.
+- decisions (no theme option, reasons in the report): camera, microphone, screencap
+  (no chrome), map (look = MapTheme cartography; placeholder tiles light-only =
+  follow-up), node_graph (transpiled card CSS + own NodeGraphStyle enum; plan in report).
+
 ## IN PROGRESS
-- decisions: camera / microphone / screencap / map / node_graph
+- final report scripts/W3B_WIDGET_THEMES_2026_09_29.md
 
 ## NEXT
-decisions (camera/mic/screencap/map/node_graph) -> report
+report -> done
 
 ## Open questions
 (none yet)
