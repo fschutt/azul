@@ -45,9 +45,11 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 - `1b9d2f601` fix: `reject_notification` -> own callback / app handler as a waiting delivery;
   withdraws get 2 x MAX room; dll logs a Failed the full mailbox refused
 
+- `89d51e923` RED (item 5): `loop_wakeup_invariants::a_notification_click_raises_the_wayland_window_with_its_activation_token`
+
 ## 4. IN PROGRESS
 
-- 5: RED source invariant (activation token spent by `deliver_to_linux_windows`)
+- 5 fix: `app_events::deliver_to_linux_windows` takes the token after `collect()`, spends it on a Wayland target
 
 ## 5. Open questions
 
