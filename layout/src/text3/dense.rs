@@ -1140,50 +1140,6 @@ impl DenseText {
             affinity: azul_core::selection::CursorAffinity::Trailing,
         })
     }
-
-    /// (d4) Cursor for an IFC-wide byte offset — the dense twin of the
-    /// sparse accumulation walk: byte 0 is `Leading` on the first cluster
-    /// (before it); any other offset is `Trailing` on the first cluster, in
-    /// item order and each contributing `cluster_byte_len`, whose span
-    /// reaches it; past-the-end falls to the last cluster.
-    #[must_use]
-    pub fn byte_offset_to_cursor(
-        &self,
-        byte_offset: u32,
-    ) -> Option<azul_core::selection::TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-        let cursor_at = |ci: u32| -> Option<TextCursor> {
-            let c = self.clusters.get(ci as usize)?;
-            let run = self.runs.iter().find(|r| r.clusters.contains(&ci))?;
-            Some(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: run.source_run,
-                    start_byte_in_run: c.start_byte,
-                },
-                affinity: CursorAffinity::Trailing,
-            })
-        };
-        if self.clusters.is_empty() {
-            return None;
-        }
-        if byte_offset == 0 {
-            // Before the first character, not after it.
-            return cursor_at(0).map(|cursor| TextCursor {
-                affinity: CursorAffinity::Leading,
-                ..cursor
-            });
-        }
-        let mut acc = 0u32;
-        for ci in 0..self.clusters.len() as u32 {
-            let len = self.cluster_byte_len(ci);
-            let end = acc + len;
-            if byte_offset >= acc && byte_offset <= end {
-                return cursor_at(ci);
-            }
-            acc = end;
-        }
-        cursor_at(self.clusters.len() as u32 - 1)
-    }
 }
 
 /// §3.2 step 3: the dense twin of [`super::glyphs::get_glyph_positions`]
