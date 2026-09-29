@@ -387,7 +387,13 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     out.push_str("    const Self = @This();\n");
     out.push('\n');
 
-    if s.name == "String" {
+    // Methods this wrapper writes by hand, by Zig name: a generated factory
+    // of the same name is superseded (Zig rejects duplicate members). The
+    // string type's comptime `tr` replaces the allocating `tr(String)`
+    // factory. Keyed on the IR category, not the api name.
+    let mut handwritten: HashSet<&str> = HashSet::new();
+    if matches!(s.category, TypeCategory::String) {
+        handwritten.insert("tr");
         out.push_str(
             "    /// Creates a localizable String from a string literal without allocating memory.\n",
         );
@@ -427,7 +433,7 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
                 let zig_method = sanitize_identifier(&idiomatic_method_name(f));
-                if s.name == "String" && zig_method == "tr" {
+                if handwritten.contains(zig_method.as_str()) {
                     continue;
                 }
                 if !seen.insert(zig_method.clone()) {
