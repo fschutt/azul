@@ -1,7 +1,7 @@
 //! Dynamic CSS selectors for runtime evaluation based on OS, media queries, container queries, etc.
 
 use crate::{
-    corety::{AzString, OptionString},
+    corety::{AzString, OptionString, StringVec},
     props::property::CssProperty,
 };
 
@@ -811,11 +811,80 @@ pub enum MediaType {
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
+    /// The light COLOUR SCHEME (`@theme(light)`,
+    /// `prefers-color-scheme: light`), matched against
+    /// [`DynamicSelectorContext::theme`].
     Light,
+    /// The dark COLOUR SCHEME (`@theme(dark)`,
+    /// `prefers-color-scheme: dark`), matched against
+    /// [`DynamicSelectorContext::theme`].
     Dark,
+    /// An APP THEME by name (`@theme(flora)`): `flat`, `flora`, later
+    /// `native` and user themes (`AppConfig::with_theme`). Live iff the name
+    /// is in the context's [`DynamicSelectorContext::theme_chain`] - never
+    /// compared with the colour scheme. Case-sensitive, like other CSS custom
+    /// idents; `light` / `dark` are reserved for the colour scheme.
     Custom(AzString),
     /// System preference
     SystemPreferred,
+}
+
+/// The app theme an app that chose none runs in (`AppConfig::theme`): the
+/// look every widget had before themes were selectable.
+///
+/// THE one spelling of the default. When the `native` theme exists it becomes
+/// the default here (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md
+/// §4.5), and nothing else has to change.
+pub const DEFAULT_APP_THEME: &str = "flat";
+
+/// The theme chain the app theme `name` activates, most specific first: the
+/// list `@theme(<name>)` blocks are matched against
+/// ([`DynamicSelectorContext::theme_chain`]).
+///
+/// Today the chain is `[name]` - exactly one theme is live, so a flat block
+/// and a flora block can never both apply. This is THE place the chain of the
+/// §7 design (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md)
+/// is built: `xyz:pink` expanding by prefix to `[xyz:pink, xyz]`, a theme
+/// file's `fallback:` header appending its list, the app's default theme as
+/// the implicit last entry. More than one entry needs the RANK (an entry's
+/// index) in the cascade's sort key in the same step, or two live themes'
+/// blocks would resolve by source order.
+#[must_use]
+pub fn app_theme_chain(name: &str) -> StringVec {
+    StringVec::from_vec(vec![AzString::from(name.to_string())])
+}
+
+/// The conditions of an app theme's block as a `&'static` slice, for the
+/// CONST STATICS a widget carries its theme blocks in:
+///
+/// ```ignore
+/// static FACE: &[CssPropertyWithConditions] = &[
+///     P::with_single_condition(bg(FLAT_FACE), theme_conditions!("flat")),
+///     P::with_single_condition(bg(FLORA_FACE), theme_conditions!("flora")),
+///     // the flora block's dark sub-mode, and a state inside it:
+///     P::with_single_condition(bg(FLORA_NIGHT), theme_conditions!("flora", DynamicSelector::Theme(ThemeCondition::Dark))),
+///     P::with_single_condition(bg(FLORA_HOT), theme_conditions!("flora", DynamicSelector::PseudoState(PseudoStateType::Hover))),
+/// ];
+/// ```
+///
+/// The theme name comes first, then the given conditions (all conjoin). A
+/// macro because a theme NAME is an `AzString`, which has a destructor: an
+/// `&[..]` holding one is never promoted to `'static` inside an argument list
+/// (the dark twins' `&[Theme(Dark)]` is), so the slice must be a `const` item
+/// of its own - which this writes. `$name` must be a `&'static str` constant.
+#[macro_export]
+macro_rules! theme_conditions {
+    ($name:expr $(, $condition:expr)* $(,)?) => {{
+        const CONDITIONS: &[$crate::dynamic_selector::DynamicSelector] = &[
+            $crate::dynamic_selector::DynamicSelector::Theme(
+                $crate::dynamic_selector::ThemeCondition::Custom(
+                    $crate::AzString::from_const_str($name),
+                ),
+            ),
+            $($condition,)*
+        ];
+        CONDITIONS
+    }};
 }
 
 impl_option!(
@@ -1167,6 +1236,31 @@ impl ThemeCondition {
             Theme::Dark => Self::Dark,
         }
     }
+
+    /// What the name of a `@theme <name>` / `@theme(<name>)` block stands
+    /// for (parentheses and quotes already stripped): `light` / `dark` (any
+    /// case) are the COLOUR SCHEME, any other name is an APP THEME
+    /// ([`Self::Custom`], kept as written). `None` for an empty or malformed
+    /// name - such a block gets no condition from it.
+    ///
+    /// The one decision both the stylesheet parser and the inline
+    /// declaration parser make. Name characters: ASCII letters, digits, `-`,
+    /// `_`, and `:` (the §7 spin-off separator, `xyz:pink`).
+    #[must_use]
+    pub fn from_block_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("dark") {
+            return Some(Self::Dark);
+        }
+        if name.eq_ignore_ascii_case("light") {
+            return Some(Self::Light);
+        }
+        let valid = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
+        valid.then(|| Self::Custom(AzString::from(name.to_string())))
+    }
 }
 
 /// Orientation type for `@media (orientation: ...)` CSS selectors
@@ -1347,6 +1441,19 @@ pub struct DynamicSelectorContext {
     /// the cascade epoch every style memo and the display-list cache key on,
     /// exactly like a theme flip does. APPENDED for ABI stability.
     pub system_colors: crate::system::SystemColors,
+    /// The live APP THEMES, most specific first: `@theme(<name>)` blocks
+    /// ([`ThemeCondition::Custom`]) are live iff their name is in here.
+    /// Separate from [`Self::theme`], the colour scheme: `@theme(dark)`
+    /// keeps matching light / dark under any app theme.
+    ///
+    /// Built by [`app_theme_chain`] from the window's app theme
+    /// ([`Self::with_app_theme`]); `[DEFAULT_APP_THEME]` until a window says
+    /// otherwise. A chain rather than one name because that is the shape the
+    /// fuller design needs (spin-offs, fallbacks, the default as the floor);
+    /// today it holds exactly one name. Part of the equality, like the
+    /// palette: another app theme is another context. APPENDED for ABI
+    /// stability.
+    pub theme_chain: StringVec,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1377,6 +1484,7 @@ impl PartialEq for DynamicSelectorContext {
             && self.safe_area_left.to_bits() == other.safe_area_left.to_bits()
             && self.keyboard_inset_height.to_bits() == other.keyboard_inset_height.to_bits()
             && self.system_colors == other.system_colors
+            && self.theme_chain == other.theme_chain
     }
 }
 
@@ -1408,6 +1516,7 @@ impl Default for DynamicSelectorContext {
             // No palette: every `system:` keyword answers its own light
             // default (`SystemColorRef::fallback`).
             system_colors: crate::system::SystemColors::default(),
+            theme_chain: app_theme_chain(DEFAULT_APP_THEME),
         }
     }
 }
@@ -1465,7 +1574,43 @@ impl DynamicSelectorContext {
             safe_area_left: f32::NAN,
             keyboard_inset_height: f32::NAN,
             system_colors,
+            // The app theme is the app's (`AppConfig::theme`), not the
+            // desktop's: the window's builder sets it (`with_app_theme`).
+            theme_chain: app_theme_chain(DEFAULT_APP_THEME),
         }
+    }
+
+    /// This context under the app theme `name` (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`): its [`Self::theme_chain`] becomes
+    /// [`app_theme_chain`]`(name)`. The colour scheme is untouched.
+    #[must_use]
+    pub fn with_app_theme(&self, name: &str) -> Self {
+        let mut ctx = self.clone();
+        ctx.theme_chain = app_theme_chain(name);
+        ctx
+    }
+
+    /// The app theme this context evaluates: the head of its chain (the
+    /// default theme for an empty one).
+    #[must_use]
+    pub fn app_theme(&self) -> &str {
+        self.theme_chain
+            .as_ref()
+            .first()
+            .map_or(DEFAULT_APP_THEME, AzString::as_str)
+    }
+
+    /// Is the app theme `name` live - does `@theme(<name>)` apply?
+    ///
+    /// Exact membership in the chain. When the chain grows (§7: prefix
+    /// expansion, `fallback:`), the expansion happens in [`app_theme_chain`]
+    /// and this stays a membership test.
+    #[must_use]
+    pub fn has_app_theme(&self, name: &str) -> bool {
+        self.theme_chain
+            .as_ref()
+            .iter()
+            .any(|live| live.as_str() == name)
     }
 
     /// The colour the `system:` keyword `r` stands for under this context:
@@ -1690,6 +1835,9 @@ impl DynamicSelector {
                 !ctx.container_height.is_nan() && range.matches(ctx.container_height)
             }
             Self::ContainerName(name) => ctx.container_name.as_ref() == Some(name),
+            // An app theme NAME is matched against the theme chain, never
+            // against the colour-scheme slot.
+            Self::Theme(ThemeCondition::Custom(name)) => ctx.has_app_theme(name.as_str()),
             Self::Theme(theme) => Self::match_theme(theme, &ctx.theme),
             Self::AspectRatio(range) => {
                 let ratio = ctx.viewport_width / ctx.viewport_height.max(1.0);
@@ -2256,16 +2404,72 @@ impl CssPropertyWithConditions {
     }
 
     /// Whether this declaration can be the LIGHT half of a pair: no
-    /// `Theme(Dark)` condition, and no condition other than pseudo-states and
-    /// an explicit `Theme(Light)`.
+    /// `Theme(Dark)` condition, and no condition other than pseudo-states,
+    /// an explicit `Theme(Light)` and app-theme names (`@theme(flora)`: a
+    /// theme block's resting value is the light half of that block's dark
+    /// twin - pair them by [`Self::theme_names`] as well as by
+    /// [`Self::pseudo_state_conditions`]).
     #[must_use]
     pub fn is_light_half(&self) -> bool {
         self.apply_if.as_slice().iter().all(|c| {
             matches!(
                 c,
-                DynamicSelector::PseudoState(_) | DynamicSelector::Theme(ThemeCondition::Light)
+                DynamicSelector::PseudoState(_)
+                    | DynamicSelector::Theme(ThemeCondition::Light | ThemeCondition::Custom(_))
             )
         })
+    }
+
+    /// This declaration inside the app theme `name`'s block: the runtime
+    /// form of `@theme(<name>) { ... }` for declarations a widget builds at
+    /// DOM-build time (const statics use [`crate::theme_conditions!`]). The
+    /// theme name goes FIRST; the colour scheme and pseudo-states it already
+    /// had stay (conditions conjoin).
+    #[must_use]
+    pub fn in_theme(self, name: &str) -> Self {
+        let mut conditions = Vec::with_capacity(self.apply_if.as_slice().len() + 1);
+        conditions.push(DynamicSelector::Theme(ThemeCondition::Custom(AzString::from(
+            name.to_string(),
+        ))));
+        conditions.extend(self.apply_if.as_slice().iter().cloned());
+        Self {
+            property: self.property,
+            apply_if: DynamicSelectorVec::from_vec(conditions),
+        }
+    }
+
+    /// The app-theme names this declaration is conditioned on, in order -
+    /// what a dark twin and its light counterpart must share besides their
+    /// pseudo-states.
+    #[must_use]
+    pub fn theme_names(&self) -> Vec<&str> {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .filter_map(|c| match c {
+                DynamicSelector::Theme(ThemeCondition::Custom(name)) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// This declaration without its app-theme names: live whatever the app
+    /// theme is, colour scheme and pseudo-states kept. What a widget PINNED
+    /// to one theme (`with_theme`) does with that theme's block, so the pin
+    /// holds under any app theme.
+    #[must_use]
+    pub fn without_theme_names(&self) -> Self {
+        Self {
+            property: self.property.clone(),
+            apply_if: DynamicSelectorVec::from_vec(
+                self.apply_if
+                    .as_slice()
+                    .iter()
+                    .filter(|c| !matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))))
+                    .cloned()
+                    .collect(),
+            ),
+        }
     }
 
     /// Create a property for Windows only (const version)
@@ -2625,14 +2829,25 @@ impl CssPropertyWithConditionsVec {
             }
         }
 
-        // @theme dark, @theme light
-        if let Some(rest) = rule_content.strip_prefix("theme ") {
-            let theme = rest.trim();
-            match theme {
-                "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
-                "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
-                _ => return None,
-            }
+        // @theme dark / @theme(dark) - the colour scheme; any other name,
+        // @theme flora / @theme(flora), is an app theme.
+        let theme_body = rule_content
+            .strip_prefix("theme")
+            .filter(|rest| rest.starts_with('(') || rest.starts_with(char::is_whitespace));
+        if let Some(rest) = theme_body {
+            let rest = rest.trim();
+            let body = rest
+                .strip_prefix('(')
+                .and_then(|r| r.strip_suffix(')'))
+                .unwrap_or(rest)
+                .trim();
+            let name = body
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| body.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(body);
+            return ThemeCondition::from_block_name(name)
+                .map(|theme| vec![DynamicSelector::Theme(theme)]);
         }
 
         // @lang("de-DE") or @lang de-DE

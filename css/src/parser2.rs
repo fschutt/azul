@@ -1396,7 +1396,11 @@ fn parse_container_feature(feature: &str) -> Option<DynamicSelector> {
 }
 
 /// Parses @theme condition from the content following "@theme"
-/// Format: @theme(dark) or @theme dark
+/// Format: @theme(dark) or @theme dark - the colour scheme; any other name,
+/// @theme(flora) or @theme flora, is an app theme
+/// ([`ThemeCondition::from_block_name`]). Before app themes existed an unknown
+/// name gave NO condition, and a nameless @-rule block applies
+/// unconditionally - so every widget's flora block painted in every app.
 fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
     let content = content.trim();
     let inner = content
@@ -1411,11 +1415,7 @@ fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
         .unwrap_or(inner)
         .trim();
 
-    match inner.to_lowercase().as_str() {
-        "dark" => Some(DynamicSelector::Theme(ThemeCondition::Dark)),
-        "light" => Some(DynamicSelector::Theme(ThemeCondition::Light)),
-        _ => None,
-    }
+    ThemeCondition::from_block_name(inner).map(DynamicSelector::Theme)
 }
 
 /// Parses @lang condition from the content following "@lang"
