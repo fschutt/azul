@@ -37,6 +37,9 @@ pub struct MacBundleSpec {
     pub bundle_id: String,
     /// The crate version; see [`bundle_version`].
     pub version: String,
+    /// `CFBundleIconFile`: the `.icns` in `Contents/Resources/`, if the
+    /// bundle has an icon.
+    pub icon_file: Option<String>,
 }
 
 /// Where the parts of a bundle live.
@@ -218,6 +221,78 @@ pub fn plan_dylibs(otool_l: &str, target_dir: &Path) -> Vec<BundledDylib> {
 /// What the binary's reference to a bundled dylib becomes.
 pub fn relinked_reference(name: &str) -> String {
     format!("@executable_path/../Frameworks/{name}")
+}
+
+/// Which libraries travel with the bundle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DylibScope {
+    /// The build's own dylibs ([`plan_dylibs`]): enough on the machine that built it.
+    Build,
+    /// Every library that is not the system's (`/usr/lib`, `/System`): also Homebrew's and
+    /// MacPorts' - what a bundle needs on a Mac that does not have them (`--portable`).
+    NonSystem,
+}
+
+/// The file an `install_name_tool -change` edits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelinkFile {
+    /// `Contents/MacOS/<executable>`.
+    Executable,
+    /// `Contents/Frameworks/<name>`.
+    Dylib(String),
+}
+
+/// One reference to rewrite: in `file`, `from` becomes `to`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relink {
+    pub file: RelinkFile,
+    pub from: String,
+    pub to: String,
+}
+
+/// Every dylib the bundle carries - the binary's, and theirs, and theirs -
+/// and every reference to rewrite so each finds the bundled copy.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DylibTree {
+    pub dylibs: Vec<BundledDylib>,
+    pub relinks: Vec<Relink>,
+}
+
+/// Walk the binary's dylibs and theirs.
+pub fn plan_dylib_tree(
+    exe_otool_l: &str,
+    target_dir: &Path,
+    scope: DylibScope,
+    listing_of: impl FnMut(&BundledDylib) -> Option<String>,
+) -> DylibTree {
+    let _ = (exe_otool_l, target_dir, scope, listing_of);
+    DylibTree::default()
+}
+
+// ────────── The icon ───────────────────────────────────────────────────
+
+/// The icon files a crate configures: `icon` of `[package.metadata.bundle]`.
+pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
+    let _ = cargo_toml;
+    Vec::new()
+}
+
+/// A PNG's pixel size, from its `IHDR` chunk.
+pub fn png_size(png: &[u8]) -> Option<(u32, u32)> {
+    let _ = png;
+    None
+}
+
+/// The ICNS element type that holds a PNG of this square size.
+pub fn icns_type_for(size: u32) -> Option<&'static [u8; 4]> {
+    let _ = size;
+    None
+}
+
+/// An `.icns` holding these PNGs.
+pub fn icns_from_pngs(pngs: &[Vec<u8>]) -> Result<Vec<u8>, String> {
+    let _ = pngs;
+    Err("not implemented".to_string())
 }
 
 /// LaunchServices registers a bundle under `/var/folders` (the per-user
@@ -440,6 +515,7 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
             .unwrap_or_else(|| bundle_id_for(&executable)),
         executable,
         version,
+        icon_file: None,
     };
     let out_dir = match &a.out {
         Some(p) => user_path(project_root, p),
@@ -582,6 +658,7 @@ mod tests {
             executable: "AzWidgets".to_string(),
             bundle_id: "com.azul.azwidgets".to_string(),
             version: "0.1.0".to_string(),
+            icon_file: None,
         }
     }
 
@@ -755,6 +832,255 @@ mod tests {
         assert_eq!(
             paths.frameworks,
             PathBuf::from("/Users/me/Applications/AzWidgets.app/Contents/Frameworks")
+        );
+    }
+
+    // ---- the dylibs' own dependencies ----
+
+    const TARGET: &str = "/Users/me/azul/target";
+
+    /// `otool -L <file>` output listing `deps`.
+    fn listing(file: &str, deps: &[&str]) -> String {
+        let mut out = format!("{file}:\n");
+        for dep in deps {
+            out.push_str(&format!(
+                "\t{dep} (compatibility version 1.0.0, current version 1.0.0)\n"
+            ));
+        }
+        out
+    }
+
+    #[test]
+    fn a_bundled_dylibs_own_dependencies_are_bundled_and_relinked_too() {
+        let azul = "/Users/me/azul/target/release/build/azul-dll-a0e8/out/libazul.dylib";
+        let exe = listing(
+            "/Users/me/azul/target/release/AzWidgets",
+            &[azul, "/usr/lib/libSystem.B.dylib"],
+        );
+        let mut asked: Vec<String> = Vec::new();
+        let tree = plan_dylib_tree(&exe, Path::new(TARGET), DylibScope::Build, |d| {
+            asked.push(d.name.clone());
+            match d.name.as_str() {
+                // `otool -L` on a dylib lists its own install name first.
+                "libazul.dylib" => Some(listing(
+                    azul,
+                    &[azul, "@rpath/libextra.dylib", "/usr/lib/libSystem.B.dylib"],
+                )),
+                "libextra.dylib" => Some(listing("libextra.dylib", &["@rpath/libextra.dylib"])),
+                _ => None,
+            }
+        });
+        let names: Vec<&str> = tree.dylibs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["libazul.dylib", "libextra.dylib"]);
+        assert_eq!(
+            asked,
+            vec!["libazul.dylib", "libextra.dylib"],
+            "each dylib's own listing is read once"
+        );
+        assert_eq!(
+            tree.relinks,
+            vec![
+                Relink {
+                    file: RelinkFile::Executable,
+                    from: azul.to_string(),
+                    to: "@executable_path/../Frameworks/libazul.dylib".to_string(),
+                },
+                Relink {
+                    file: RelinkFile::Dylib("libazul.dylib".to_string()),
+                    from: "@rpath/libextra.dylib".to_string(),
+                    to: "@executable_path/../Frameworks/libextra.dylib".to_string(),
+                },
+            ],
+            "a dylib's own install name is no dependency to relink (install_name_tool -id sets it)"
+        );
+    }
+
+    #[test]
+    fn a_library_two_dylibs_share_is_bundled_once_and_a_cycle_ends() {
+        let exe = listing("app", &["@rpath/liba.dylib", "@rpath/libb.dylib"]);
+        let tree = plan_dylib_tree(&exe, Path::new(TARGET), DylibScope::Build, |d| {
+            match d.name.as_str() {
+                "liba.dylib" => Some(listing(
+                    "liba.dylib",
+                    &["@rpath/liba.dylib", "@rpath/libc.dylib"],
+                )),
+                "libb.dylib" => Some(listing("libb.dylib", &["@rpath/libc.dylib"])),
+                "libc.dylib" => Some(listing("libc.dylib", &["@rpath/liba.dylib"])),
+                _ => None,
+            }
+        });
+        let names: Vec<&str> = tree.dylibs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["liba.dylib", "libb.dylib", "libc.dylib"]);
+        let into_c = tree
+            .relinks
+            .iter()
+            .filter(|r| r.to.ends_with("/libc.dylib"))
+            .count();
+        assert_eq!(
+            into_c, 2,
+            "both users of libc point at the one copy: {:?}",
+            tree.relinks
+        );
+        assert!(
+            tree.relinks.contains(&Relink {
+                file: RelinkFile::Dylib("libc.dylib".to_string()),
+                from: "@rpath/liba.dylib".to_string(),
+                to: relinked_reference("liba.dylib"),
+            }),
+            "the reference back to liba is relinked, and the walk ends: {:?}",
+            tree.relinks
+        );
+    }
+
+    #[test]
+    fn a_portable_bundle_also_carries_homebrews_libraries_but_never_the_systems() {
+        let png = "/opt/homebrew/opt/libpng/lib/libpng16.16.dylib";
+        let exe = listing(
+            "app",
+            &[
+                png,
+                "/usr/lib/libSystem.B.dylib",
+                "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            ],
+        );
+        let listing_of = |d: &BundledDylib| match d.name.as_str() {
+            "libpng16.16.dylib" => Some(listing(
+                png,
+                &[
+                    png,
+                    "/opt/homebrew/opt/zlib/lib/libz.1.dylib",
+                    "/usr/lib/libSystem.B.dylib",
+                ],
+            )),
+            _ => Some(listing("x", &[])),
+        };
+        let portable = plan_dylib_tree(&exe, Path::new(TARGET), DylibScope::NonSystem, listing_of);
+        let names: Vec<&str> = portable.dylibs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["libpng16.16.dylib", "libz.1.dylib"]);
+        assert_eq!(
+            portable.dylibs[1].source,
+            Some(PathBuf::from("/opt/homebrew/opt/zlib/lib/libz.1.dylib"))
+        );
+        let build_only = plan_dylib_tree(&exe, Path::new(TARGET), DylibScope::Build, listing_of);
+        assert!(
+            build_only.dylibs.is_empty(),
+            "the default bundles only the build's own: {build_only:?}"
+        );
+    }
+
+    // ---- the icon ----
+
+    /// The first bytes of a `w` x `h` PNG: the signature and the IHDR chunk
+    /// (all `png_size` reads), and a stand-in for the rest.
+    fn fake_png(w: u32, h: u32) -> Vec<u8> {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&w.to_be_bytes());
+        png.extend_from_slice(&h.to_be_bytes());
+        png.extend_from_slice(&[8, 6, 0, 0, 0]);
+        png.extend_from_slice(&[0, 0, 0, 0]);
+        png.extend_from_slice(b"the-rest-of-the-file");
+        png
+    }
+
+    #[test]
+    fn the_configured_icons_are_read_from_the_bundle_metadata() {
+        let toml = "[package]\nname = \"x\"\n\n[package.metadata.bundle]\nidentifier = \
+                    \"com.x\"\nicon = [\"icons/32x32.png\", \"icons/icon.icns\"]\n\n\
+                    [dependencies]\nicon = \"9\"\n";
+        assert_eq!(
+            configured_icons(toml),
+            vec!["icons/32x32.png", "icons/icon.icns"]
+        );
+        let multi_line = "[package.metadata.bundle]\nicon = [\n    \"a.png\",\n    \
+                          \"b@2x.png\",\n]\nname = \"X\"\n";
+        assert_eq!(configured_icons(multi_line), vec!["a.png", "b@2x.png"]);
+        let single = "[package.metadata.bundle]\nicon = \"app.icns\"\n";
+        assert_eq!(configured_icons(single), vec!["app.icns"]);
+        assert!(configured_icons("[package]\nname = \"x\"\n").is_empty());
+        let elsewhere = "[package.metadata.other]\nicon = [\"no.png\"]\n";
+        assert!(configured_icons(elsewhere).is_empty());
+    }
+
+    #[test]
+    fn a_png_is_read_for_its_size_and_only_a_png_is() {
+        assert_eq!(png_size(&fake_png(128, 128)), Some((128, 128)));
+        assert_eq!(png_size(&fake_png(512, 256)), Some((512, 256)));
+        assert_eq!(png_size(b"GIF89a, not a PNG at all, long enough"), None);
+        assert_eq!(png_size(&fake_png(16, 16)[..20]), None, "cut before the height");
+    }
+
+    #[test]
+    fn each_square_size_an_icns_holds_has_its_element_type() {
+        for (size, ty) in [
+            (16, b"icp4"),
+            (32, b"icp5"),
+            (64, b"icp6"),
+            (128, b"ic07"),
+            (256, b"ic08"),
+            (512, b"ic09"),
+            (1024, b"ic10"),
+        ] {
+            assert_eq!(icns_type_for(size), Some(ty), "{size}");
+        }
+        assert_eq!(icns_type_for(100), None);
+        assert_eq!(icns_type_for(2048), None);
+    }
+
+    #[test]
+    fn a_png_is_wrapped_into_an_icns_as_it_is() {
+        let png = fake_png(128, 128);
+        let icns = icns_from_pngs(&[png.clone()]).expect("a 128 px PNG has an element type");
+        assert_eq!(&icns[0..4], b"icns");
+        assert_eq!(
+            u32::from_be_bytes([icns[4], icns[5], icns[6], icns[7]]) as usize,
+            icns.len(),
+            "the header counts the whole file"
+        );
+        assert_eq!(&icns[8..12], b"ic07");
+        assert_eq!(
+            u32::from_be_bytes([icns[12], icns[13], icns[14], icns[15]]) as usize,
+            8 + png.len(),
+            "an element counts its own header"
+        );
+        assert_eq!(
+            &icns[16..],
+            &png[..],
+            "macOS 10.7+ reads a PNG element's bytes as they are"
+        );
+    }
+
+    #[test]
+    fn several_pngs_share_one_icns_and_a_size_it_has_no_type_for_is_refused() {
+        let small = fake_png(16, 16);
+        let large = fake_png(1024, 1024);
+        let icns = icns_from_pngs(&[small.clone(), large.clone(), fake_png(16, 16)])
+            .expect("two sizes");
+        assert_eq!(
+            icns.len(),
+            8 + (8 + small.len()) + (8 + large.len()),
+            "the second 16 px PNG is dropped: one element per type"
+        );
+        assert_eq!(&icns[8..12], b"icp4");
+        assert_eq!(&icns[16 + small.len()..20 + small.len()], b"ic10");
+        assert!(icns_from_pngs(&[fake_png(128, 64)]).is_err(), "not square");
+        assert!(
+            icns_from_pngs(&[fake_png(100, 100)]).is_err(),
+            "no element type"
+        );
+        assert!(icns_from_pngs(&[b"not a png".to_vec()]).is_err());
+        assert!(icns_from_pngs(&[]).is_err(), "an icns with no icon");
+    }
+
+    #[test]
+    fn the_info_plist_names_the_icon_only_when_the_bundle_has_one() {
+        assert_eq!(plist_value(&info_plist(&spec()), "CFBundleIconFile"), None);
+        let mut with_icon = spec();
+        with_icon.icon_file = Some("AppIcon.icns".to_string());
+        assert_eq!(
+            plist_value(&info_plist(&with_icon), "CFBundleIconFile").as_deref(),
+            Some("AppIcon.icns")
         );
     }
 }
