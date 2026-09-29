@@ -153,7 +153,9 @@ use crate::{
             color_from_hex, color_to_hex, ColorInput, ColorInputOnValueChangeCallbackType,
             ColorInputState,
         },
-        combobox::{ComboBox, ComboBoxOnSelectCallbackType, ComboBoxState},
+        combobox::{
+            ComboBox, ComboBoxOnSelectCallbackType, ComboBoxOnTextInputCallbackType, ComboBoxState,
+        },
         date_picker::{
             format_value, iso_week_monday, iso_week_of, iso_weeks_in_year, DatePicker,
             DatePickerMode, DatePickerOnChangeCallbackType, DatePickerState,
@@ -1769,10 +1771,13 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
                 .unwrap_or_default();
             let text = text_of(value.as_ref());
             let selected = items.iter().position(|i| i.as_str() == text);
-            let hook: ComboBoxOnSelectCallbackType = record_combobox;
+            // A pick AND typing: what the user typed is the value too.
+            let picked: ComboBoxOnSelectCallbackType = record_combobox;
+            let typed: ComboBoxOnTextInputCallbackType = record_combobox;
             let mut w = ComboBox::new(StringVec::from_vec(items))
                 .with_text(text.into())
-                .with_on_select(recorder, hook);
+                .with_on_select(recorder.clone(), picked)
+                .with_on_text_input(recorder, typed);
             if let Some(i) = selected {
                 w = w.with_selected(i);
             }

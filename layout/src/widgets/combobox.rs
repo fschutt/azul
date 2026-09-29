@@ -177,6 +177,34 @@ azul_core::impl_managed_callback! {
     extra_args:     [ state: ComboBoxState ],
 }
 
+/// Callback invoked when the user TYPES into the field (each insertion and
+/// deletion): the [`ComboBoxState`] carries the field's new `text` - HTML's
+/// `input` event on an `<input list>`. What the user typed is the value,
+/// whether or not it matches a suggestion; a pick from the list reports
+/// through `on_select`.
+pub type ComboBoxOnTextInputCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ComboBoxState) -> Update;
+impl_widget_callback!(
+    ComboBoxOnTextInput,
+    OptionComboBoxOnTextInput,
+    ComboBoxOnTextInputCallback,
+    ComboBoxOnTextInputCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ComboBoxOnTextInputCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: COMBOBOX_ON_TEXT_INPUT_INVOKER,
+    invoker_ty:     AzComboBoxOnTextInputCallbackInvoker,
+    thunk_fn:       az_combobox_on_text_input_callback_thunk,
+    setter_fn:      AzApp_setComboBoxOnTextInputCallbackInvoker,
+    from_handle_fn: AzComboBoxOnTextInputCallback_createFromHostHandle,
+    from_handle_byref_fn: AzComboBoxOnTextInputCallback_createFromHostHandleByref,
+    extra_args:     [ state: ComboBoxState ],
+}
+
 /// An editable filtered-select widget: a text field plus a click-toggled list of
 /// options.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -311,6 +339,10 @@ pub struct ComboBoxStateWrapper {
     pub items: StringVec,
     /// Optional: function to call when an option is selected.
     pub on_select: OptionComboBoxOnSelect,
+    /// Optional: function to call when the user types into the field (the
+    /// typed text is the value, picked or not). Appended at the END of the
+    /// `repr(C)` struct.
+    pub on_text_input: OptionComboBoxOnTextInput,
 }
 
 impl Default for ComboBoxStateWrapper {
@@ -319,6 +351,7 @@ impl Default for ComboBoxStateWrapper {
             inner: ComboBoxState::default(),
             items: StringVec::from_const_slice(&[]),
             on_select: None.into(),
+            on_text_input: None.into(),
         }
     }
 }
@@ -615,6 +648,7 @@ impl ComboBox {
                 inner: ComboBoxState::default(),
                 items,
                 on_select: None.into(),
+                on_text_input: None.into(),
             },
             placeholder: AzString::from_const_str(""),
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
@@ -710,6 +744,32 @@ impl ComboBox {
         on_select: C,
     ) -> Self {
         self.set_on_select(data, on_select);
+        self
+    }
+
+    /// Sets the callback invoked when the user types into the field.
+    #[inline]
+    pub fn set_on_text_input<C: Into<ComboBoxOnTextInputCallback>>(
+        &mut self,
+        data: RefAny,
+        on_text_input: C,
+    ) {
+        self.combo_state.on_text_input = Some(ComboBoxOnTextInput {
+            callback: on_text_input.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// Builder-style setter for the text-input callback.
+    #[inline]
+    #[must_use]
+    pub fn with_on_text_input<C: Into<ComboBoxOnTextInputCallback>>(
+        mut self,
+        data: RefAny,
+        on_text_input: C,
+    ) -> Self {
+        self.set_on_text_input(data, on_text_input);
         self
     }
 
@@ -978,7 +1038,7 @@ impl ComboBox {
         ));
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
-            state_ref,
+            state_ref.clone(),
             Callback::from_ptr(on_combobox_dismissed).to_core(),
         );
         let popup = Dom::create_from_data(transient).with_child(list);
@@ -988,6 +1048,9 @@ impl ComboBox {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(wrapper_style)
+            // The state on the root, where the combobox IS: a form reads its
+            // value (the field's text, typed or picked) there.
+            .with_dataset(Some(state_ref).into())
             // children: [field, popup] — the popup (holding the list) is the
             // field's next sibling, so `get_next_sibling(field)` still names it.
             .with_children(DomVec::from_vec(alloc::vec![field, popup]))
@@ -1123,7 +1186,7 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
     };
 
     info.change_node_text(text_node, new_text.into());
-    Some(Update::DoNothing)
+    Some(report_typed_text(&mut data, info))
 }
 
 /// Field key-down handler - implements backspace deletion (mirroring `text_input`).
@@ -1154,7 +1217,24 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
     };
 
     info.change_node_text(text_node, new_text.into());
-    Some(Update::DoNothing)
+    Some(report_typed_text(&mut data, info))
+}
+
+/// The user typed into the field: hand the app its new text through
+/// `on_text_input` - the typed text is the value, picked or not. Taken out of
+/// the state before it runs, so a hook that reads the combobox finds it free.
+/// Its `Update`, or `DoNothing` without a hook.
+fn report_typed_text(data: &mut RefAny, info: CallbackInfo) -> Update {
+    let (hook, state) = match data.downcast_ref::<ComboBoxStateWrapper>() {
+        Some(combo) => (combo.on_text_input.clone(), combo.inner.clone()),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(ComboBoxOnTextInput { callback, refany }) => {
+            callback.invoke(refany.clone(), info, state)
+        }
+        None => Update::DoNothing,
+    }
 }
 
 /// Down or Up on the field while its list is CLOSED opens it (WAI-ARIA
@@ -1793,6 +1873,7 @@ mod autotest_generated {
             },
             items: sv(items),
             on_select: None.into(),
+            on_text_input: None.into(),
         })
     }
 
@@ -3365,6 +3446,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            on_text_input: None.into(),
         });
 
         let (update, changes) = run(
@@ -3633,6 +3715,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            on_text_input: None.into(),
         });
 
         let (update, changes) = run(
@@ -3681,6 +3764,7 @@ mod autotest_generated {
                 refany: RefAny::new(0u8),
             })
             .into(),
+            on_text_input: None.into(),
         });
 
         SHARED_ALIAS.with(|a| *a.borrow_mut() = Some(data.clone()));

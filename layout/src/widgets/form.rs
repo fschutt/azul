@@ -71,6 +71,7 @@ use crate::{
     form_controls::{FormValue, Submission},
     widgets::{
         button::ButtonFormAction,
+        combobox::ComboBoxStateWrapper,
         date_picker::DatePickerData,
         datetime_local::DateTimeLocalPickerStateWrapper,
         text_area::TextAreaStateWrapper,
@@ -491,7 +492,17 @@ fn probe_state(dataset: Option<RefAny>) -> Option<ControlValue> {
             value: AzString::from(w.inner.to_html_value()),
             valid: true,
         });
-    date_time
+    if date_time.is_some() {
+        return date_time;
+    }
+    // A combobox (`<input list>`): its field's text, typed or picked.
+    let combo = dataset
+        .downcast_ref::<ComboBoxStateWrapper>()
+        .map(|w| ControlValue {
+            value: w.inner.text.clone(),
+            valid: true,
+        });
+    combo
 }
 
 /// The value of the control whose state is `dataset` (if it is a widget this
@@ -541,8 +552,11 @@ fn is_control_state(dataset: &RefAny) -> bool {
     if d.downcast_ref::<DatePickerData>().is_some() {
         return true;
     }
-    let is_datetime = d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some();
-    is_datetime
+    if d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some() {
+        return true;
+    }
+    let is_combobox = d.downcast_ref::<ComboBoxStateWrapper>().is_some();
+    is_combobox
 }
 
 /// HTML leaves a DISABLED control out of the form data set.

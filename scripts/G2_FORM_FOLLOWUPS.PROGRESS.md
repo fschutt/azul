@@ -44,11 +44,16 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
 - item 4: RED `bb026df70`, fix = next commit (`widgets::form::form_state_of`: dataset, else the
   node's own Submit handler payload; `form_for` puts the raw form's dataset back on the node)
 
+- item 4 fix `bd7c9ae88`
+- item 5: RED `ba2456753`, fix = next commit (`ComboBoxOnTextInput` hook + `on_text_input` field,
+  fired by the typing handlers; the state as the root's dataset; FormData probes it; the
+  replacement records picks AND typing)
+
 ## IN PROGRESS
-- item 5 (ComboBox typed text)
+- item 8c (file `accept` / `multiple`)
 
 ## NEXT
-- items 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 8c, 7 (hand-built part), 9 (list + FFI-shaped method), report
 
 ## Open questions
 - none yet
