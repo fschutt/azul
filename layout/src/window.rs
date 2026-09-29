@@ -7824,6 +7824,9 @@ impl LayoutWindow {
             | ContentChange::NodeCss {
                 dom_id, node_id, ..
             }
+            | ContentChange::NodeStyle {
+                dom_id, node_id, ..
+            }
             | ContentChange::ImageMask {
                 dom_id, node_id, ..
             } => Some((*dom_id, *node_id)),
@@ -7848,6 +7851,11 @@ impl LayoutWindow {
                 props,
                 override_only,
             } => self.apply_node_css_change(dom_id, node_id, props, override_only),
+            ContentChange::NodeStyle {
+                dom_id,
+                node_id,
+                style,
+            } => self.apply_node_style_change(dom_id, node_id, style),
             ContentChange::ImageMask {
                 dom_id,
                 node_id,
@@ -7914,6 +7922,21 @@ impl LayoutWindow {
         }
 
         result
+    }
+
+    /// The node-style arm of [`Self::apply_content_change`]: replace the
+    /// node's whole inline style.
+    fn apply_node_style_change(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+    ) -> crate::overlay::ContentChangeResult {
+        // Plumbing only: the write lands in the next commit.
+        let _ = (dom_id, node_id, style);
+        crate::overlay::ContentChangeResult {
+            tier: crate::overlay::ContentDirtyTier::Unchanged,
+        }
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].

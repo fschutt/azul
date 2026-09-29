@@ -6456,6 +6456,25 @@ pub trait PlatformWindow {
                 self.content_change_result(tier)
             }
 
+            CallbackChange::SetNodeInlineStyle {
+                dom_id,
+                node_id,
+                style,
+            } => {
+                // The content chokepoint again (one impl for this host AND the
+                // e2e runner): the node's inline style replaced, re-cascaded,
+                // the DL rebuilt, the shared paint-vs-relayout tier.
+                let tier = self.get_layout_window_mut().map(|lw| {
+                    lw.apply_content_change(azul_layout::overlay::ContentChange::NodeStyle {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        style: style.clone(),
+                    })
+                    .tier
+                });
+                self.content_change_result(tier)
+            }
+
             CallbackChange::ScrollTo {
                 dom_id,
                 node_id,

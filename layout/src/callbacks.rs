@@ -515,6 +515,17 @@ pub enum CallbackChange {
         node_id: NodeId,
         properties: CssPropertyVec,
     },
+    /// Replace a node's whole INLINE style - every declaration, conditions
+    /// included (`@theme(dark)`, `:hover`, `@theme(flora)`, ...) - as if the
+    /// node had been built with it. Unlike `ChangeNodeCssProperties` nothing is
+    /// pinned: no user override is written, so the cascade resolves the new
+    /// declarations like any built style and re-resolves them on a light /
+    /// dark switch or a pseudo-state change.
+    SetNodeInlineStyle {
+        dom_id: DomId,
+        node_id: NodeId,
+        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+    },
 
     // Scroll Management
     /// Scroll a node to a specific position
@@ -2684,6 +2695,33 @@ impl CallbackInfo {
             .into_crate_internal()
             .expect("DomNodeId node should not be None");
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
+    }
+
+    /// Replace `node_id`'s whole inline style - every declaration and its
+    /// conditions - with `style` (applied after the callback returns).
+    ///
+    /// The live restyle for a state a widget owns (the selected segment, the
+    /// current page, a picked day): write the node's style for the new state
+    /// exactly as a rebuild would build it, dark twins and `:hover` / `:focus`
+    /// rules included. [`Self::set_css_property`] pins one VALUE - a user
+    /// override outranks every declaration, so a colour baked for light mode
+    /// stays light after a switch to dark, and outranks the node's hover and
+    /// focus rules. This pins nothing: the cascade re-resolves the new
+    /// declarations on every mode switch and state change, like any built
+    /// style. A `node_id` without a node is ignored.
+    pub fn set_node_inline_style(
+        &mut self,
+        node_id: DomNodeId,
+        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+    ) {
+        let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+            return;
+        };
+        self.push_change(CallbackChange::SetNodeInlineStyle {
+            dom_id: node_id.dom,
+            node_id: internal_node_id,
+            style,
+        });
     }
 
     /// Quickly override CSS properties on a node for animation or other

@@ -2457,6 +2457,21 @@ impl Runner {
                 .tier
                 .to_process_event_result(),
 
+            // Same one-line delegation as the DLL host.
+            CallbackChange::SetNodeInlineStyle {
+                dom_id,
+                node_id,
+                style,
+            } => self
+                .layout_window
+                .apply_content_change(crate::overlay::ContentChange::NodeStyle {
+                    dom_id: *dom_id,
+                    node_id: *node_id,
+                    style: style.clone(),
+                })
+                .tier
+                .to_process_event_result(),
+
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 let mut updates = BTreeMap::new();
                 let mut set = azul_core::FastBTreeSet::new();
