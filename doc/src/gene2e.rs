@@ -429,6 +429,14 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("global_hotkey",             None),
     ("global_hotkey_answer",      None),
     ("global_hotkey_settle",      None),
+    // DENY: a notification click / button / dismissal queued into the
+    // mailbox. Only the dll's notification service (AZ_BACKEND=headless)
+    // routes it to a callback; the in-crate runner generated tests run in
+    // has none, so nothing a generated scenario asserts afterwards can see
+    // it. Hand-written AZ_E2E scenarios use it (examples/azul-widgets/e2e/).
+    ("notification_event",        Some("delivered by the dll's notification service \
+                                        (AZ_BACKEND=headless); the in-crate runner has none, \
+                                        so its callback never runs - red on arrival")),
     ("key_up",                    None),
     ("text_input",                None),
     ("touch_start",               None),

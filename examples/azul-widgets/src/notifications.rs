@@ -25,6 +25,10 @@ use crate::{labelled, section, Showcase};
 const DEMO_NOTIFICATION: &str = "azul-widgets-demo";
 /// The id of its action button, reported back when the button is pressed.
 const OPEN_ACTION: &str = "show-me";
+/// The payload it carries: every event about it brings this back (from the
+/// platform where it carries it, from the post's record otherwise), which is
+/// how an app tells WHAT a click was about - a document, a chat, a download.
+const DEMO_PAYLOAD: &str = "azul-widgets-demo:show";
 
 /// What the section shows. Lives in `Showcase::notifications`.
 #[derive(Debug, Clone)]
@@ -61,6 +65,14 @@ impl NotificationsDemo {
 }
 
 fn describe(event: &NotificationEvent) -> String {
+    let what = describe_kind(event);
+    match event.payload.as_str() {
+        "" => what,
+        payload => format!("{what} Payload: \"{payload}\"."),
+    }
+}
+
+fn describe_kind(event: &NotificationEvent) -> String {
     match event.kind {
         NotificationEventType::Activated => "Clicked (the notification itself).".to_string(),
         NotificationEventType::ActionInvoked => {
@@ -101,6 +113,7 @@ extern "C" fn on_post(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Notification::create(DEMO_NOTIFICATION, "Azul Widget Showcase")
             .with_body("A native notification, posted by the widgets demo.")
             .with_action(OPEN_ACTION, "Show me")
+            .with_payload(DEMO_PAYLOAD)
             .with_callback(data.clone(), on_notification_event),
     );
     set_last_event(

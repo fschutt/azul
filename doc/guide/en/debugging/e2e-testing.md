@@ -209,6 +209,28 @@ A request that runs while the store is armed but has no queued answer never open
 
 Mocked answers are delivered by the pump that also runs timers, and the pump keeps going while a resume callback issues further requests, so one `wait_frame` after the click settles a whole chain such as open -> read. The `resume` example (`examples/rust/src/resume.rs`) has one button per request kind, and the specs in `tests/e2e/resume_*.json` drive all of them, including the "forgot to mock" case.
 
+### Native notifications
+
+Under `AZ_BACKEND=headless` the notification backend records what the app posts and withdraws instead of showing it. A scenario asserts on the recording and plays the user's side:
+
+- `assert_notification` (params, all optional: `id`, `title`, `body`, `action`, `payload`, `withdrawn`, `count`). `id` / `title` / `body` pick the most recent matching post; `action` requires a button with that id; `payload` requires exactly the payload the app attached (`Notification::with_payload`); `withdrawn` requires it to be withdrawn or not; `count` is the number of posts with that `id`.
+- `notification_event` (params: `id`, `kind`, `action?`, `reason?`, `payload?`, `launched_app?`). Reports what the user did to the notification with that `id`, as if the OS had: `kind` is `click` (the notification itself), `action` (a button: `action` is its id), `dismiss` or `failed` (both take an optional `reason`). A `payload` rides along like the one a platform carries back; without one, the notification's own payload is filled in. The run loop's notification pump runs the notification's callback (or the app-level handler), which reads the event with `CallbackInfo::get_notification_event`, before the next `wait_frame` completes. An unknown `kind`, an `action` kind without `action`, or an empty `id` fails the step.
+
+```json
+{ "op": "click", "text": "Post a notification" },
+{ "op": "wait_frame" },
+{ "op": "assert_notification", "id": "azul-widgets-demo", "action": "show-me",
+  "payload": "azul-widgets-demo:show" },
+{ "op": "notification_event", "id": "azul-widgets-demo", "kind": "action", "action": "show-me" },
+{ "op": "wait_frame" },
+{ "op": "find_node_by_text", "text": "Button pressed: \"show-me\"." },
+{ "op": "assert_response", "contains": "\"found\":true" }
+```
+
+(`examples/azul-widgets/e2e/notifications.json` is the whole scenario.) `find_node_by_text` answers `found: false` rather than failing, so pair it with `assert_response`.
+
+The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
+
 ## Step results
 
 Each step returns:

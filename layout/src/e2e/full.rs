@@ -2589,6 +2589,36 @@ pub enum DebugEvent {
         result: String,
     },
 
+    /// `{ "op": "notification_event", "id": "demo", "kind": "action",
+    /// "action": "open", "payload": "doc-42" }` - report something that
+    /// happened to a native notification, as if the OS had: `kind` is `click`
+    /// (the notification itself), `action` (a button; `action` is its id),
+    /// `dismiss` (optional `reason`) or `failed` (optional `reason`).
+    /// `payload` (optional) rides along like the one a platform carries
+    /// back; without it routing fills in the one the post carried.
+    /// `launched_app` (optional) marks the event that started the process.
+    ///
+    /// The event is queued into the mailbox the OS backends post to; the run
+    /// loop's notification pump routes it to the callback of the
+    /// notification with that id (or the app-level handler) - the callback
+    /// has run by the next `wait_frame`. Needs the dll's notification service
+    /// (`AZ_BACKEND=headless` records posts instead of showing them); the
+    /// in-crate runner has none, so there the event only waits in the
+    /// mailbox. An error for an empty `id`, an unknown `kind`, or a button
+    /// press without its `action`.
+    NotificationEvent {
+        id: String,
+        kind: String,
+        #[serde(default)]
+        action: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
+        #[serde(default)]
+        payload: Option<String>,
+        #[serde(default)]
+        launched_app: bool,
+    },
+
     /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
     ///
     /// Scenario-level `printf`. Without it the only way to see what an op
@@ -4543,6 +4573,60 @@ fn settle_result_from_name(
     })
 }
 
+// ==== E2E notification events (`notification_event`) ====
+
+/// The `kind`s `notification_event` knows, in the words a scenario uses.
+const NOTIFICATION_EVENT_KINDS: &str = "click, action, dismiss, failed";
+
+/// The event a `notification_event` step describes, as a platform backend
+/// would have built it. `Err` names what is wrong with the step.
+fn notification_event_from_op(
+    id: &str,
+    kind: &str,
+    action: Option<&str>,
+    reason: Option<&str>,
+    payload: Option<&str>,
+    launched_app: bool,
+) -> Result<azul_core::notification::NotificationEvent, String> {
+    use azul_core::notification::NotificationEvent as E;
+    use azul_css::AzString;
+
+    if id.is_empty() {
+        return Err("needs the notification's `id` (the one the app posted it with)".into());
+    }
+    if action.is_some() && kind != "action" {
+        return Err(format!("`action` names a button; kind {kind:?} pressed none"));
+    }
+    if reason.is_some() && !matches!(kind, "dismiss" | "failed") {
+        return Err(format!("`reason` goes with `dismiss` or `failed`, not {kind:?}"));
+    }
+    let id = AzString::from(id);
+    let mut event = match kind {
+        "click" => E::activated(id),
+        "action" => match action.filter(|a| !a.is_empty()) {
+            Some(button) => E::action_invoked(id, AzString::from(button)),
+            None => {
+                return Err(
+                    "kind `action` needs `action`: the id of the button that was pressed".into(),
+                )
+            }
+        },
+        "dismiss" => match reason {
+            Some(why) => E::dismissed_because(id, AzString::from(why)),
+            None => E::dismissed(id),
+        },
+        "failed" => E::failed(id, AzString::from(reason.unwrap_or(""))),
+        other => {
+            return Err(format!(
+                "unknown kind {other:?} ({NOTIFICATION_EVENT_KINDS})"
+            ))
+        }
+    };
+    event.payload = AzString::from(payload.unwrap_or(""));
+    event.launched_app = launched_app;
+    Ok(event)
+}
+
 /// The name `assert_global_hotkeys` reports a status with: the failure's
 /// reason for a `Failed` one.
 fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
@@ -5279,7 +5363,7 @@ impl AssertionResult {
 /// | `assert_only_managers_changed` | `vs`, `changed`, `min_populated?`  |
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
-/// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `withdrawn?`, `count?` |
+/// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
@@ -7114,15 +7198,19 @@ fn eval_assert_global_hotkeys(
 /// empty recording rather than passing on nothing).
 ///
 /// Params, all optional: `id`, `title`, `body` (exact) pick the most recent
-/// matching post; `action` requires a button with that id on it; `withdrawn`
-/// (bool) requires it to have been withdrawn or not; `count` is the exact
-/// number of recorded posts matching `id` (all posts without one).
+/// matching post; `action` requires a button with that id on it; `payload`
+/// requires it to carry exactly that payload (`Notification::with_payload`);
+/// `withdrawn` (bool) requires it to have been withdrawn or not; `count` is
+/// the exact number of recorded posts matching `id` (all posts without one).
 ///
 /// ```json
-/// { "op": "assert_notification", "id": "demo", "action": "open", "withdrawn": false }
+/// { "op": "assert_notification", "id": "demo", "action": "open", "payload": "doc-42",
+///   "withdrawn": false }
 /// ```
 fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
-    const CONSTRAINTS: &[&str] = &["id", "title", "body", "action", "withdrawn", "count"];
+    const CONSTRAINTS: &[&str] = &[
+        "id", "title", "body", "action", "payload", "withdrawn", "count",
+    ];
     if let Some(bad) = reject_unknown_params("assert_notification", params, CONSTRAINTS) {
         return bad;
     }
@@ -7130,6 +7218,7 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
     let title = params.get("title").and_then(serde_json::Value::as_str);
     let body = params.get("body").and_then(serde_json::Value::as_str);
     let action = params.get("action").and_then(serde_json::Value::as_str);
+    let payload = params.get("payload").and_then(serde_json::Value::as_str);
     let withdrawn = params.get("withdrawn").and_then(serde_json::Value::as_bool);
     let count = params.get("count").and_then(serde_json::Value::as_u64);
 
@@ -7158,7 +7247,12 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
                 format!("{n}: {summary:?}"),
             );
         }
-        if id.is_none() && title.is_none() && body.is_none() && action.is_none() && withdrawn.is_none()
+        if id.is_none()
+            && title.is_none()
+            && body.is_none()
+            && action.is_none()
+            && payload.is_none()
+            && withdrawn.is_none()
         {
             return AssertionResult::pass(format!("{n} notification(s) recorded, as expected"));
         }
@@ -7197,6 +7291,16 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
                 "the recorded notification has no button with that id",
                 want,
                 format!("{ids:?}"),
+            );
+        }
+    }
+    if let Some(want) = payload {
+        let has = entry.notification.payload.as_str();
+        if has != want {
+            return AssertionResult::fail_with(
+                "the recorded notification's payload differs",
+                format!("payload={want:?}"),
+                format!("payload={has:?}"),
             );
         }
     }
@@ -15095,6 +15199,40 @@ pub fn process_debug_event(
                             hotkey.to_display_string().as_str(),
                             describe_global_hotkeys(callback_info)
                         ),
+                    );
+                }
+            }
+        },
+
+        // ==== E2E notification events (`notification_event`) ====
+        DebugEvent::NotificationEvent {
+            id,
+            kind,
+            action,
+            reason,
+            payload,
+            launched_app,
+        } => match notification_event_from_op(
+            id,
+            kind,
+            action.as_deref(),
+            reason.as_deref(),
+            payload.as_deref(),
+            *launched_app,
+        ) {
+            Err(e) => send_err(request, format!("notification_event: {e}")),
+            Ok(event) => {
+                if azul_layout::managers::notification::queue_notification_event(event) {
+                    // Wake the loop: the run loop's notification pump routes
+                    // the event, not this op.
+                    needs_update = true;
+                    send_ok(request, None, None);
+                } else {
+                    send_err(
+                        request,
+                        "notification_event: the notification mailbox is full (nothing drains \
+                         it: is the dll's notification service running?)"
+                            .to_string(),
                     );
                 }
             }
