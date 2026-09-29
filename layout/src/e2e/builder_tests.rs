@@ -703,3 +703,80 @@ fn the_document_saves_as_json_and_loads_back_as_one_undoable_edit() {
         assert!(err.contains(needle), "step {i}: expected '{needle}' in: {err}");
     }
 }
+
+// ── B7: every builtin's palette preview ──
+
+/// The builtins that have nothing to show on their own: their palette card
+/// says "no visual" (with the reason the server gives) instead of an empty
+/// box. Everything else in `register_builtin_components` must PREVIEW.
+const NO_VISUAL_BUILTINS: &[&str] = &[
+    // The document's structure and <head> content (not in the palette).
+    "html", "head", "title", "body", "meta", "link", "script", "style", "base",
+    // A break and the table's columns: no box of their own.
+    "br", "wbr", "pagebreak", "col", "colgroup",
+    // Shown only inside a <select> / as an <input list>'s suggestions.
+    "option", "optgroup", "datalist",
+    // They show what their source names: nothing without one.
+    "img", "canvas", "object", "embed", "audio", "video",
+    // Parts of another element.
+    "param", "source", "track", "map", "area",
+    // Not drawn by azul (yet).
+    "progress", "meter",
+];
+
+#[test]
+fn every_visual_builtin_has_a_palette_preview_and_every_other_says_why_it_has_none() {
+    const STEPS_PER_NAME: usize = 3;
+
+    let library = azul_core::xml::register_builtin_components();
+    // `builtin:map` names two builtins (the image map and the structural
+    // map); the op resolves the name to the first, the image map.
+    let mut seen = std::collections::BTreeSet::new();
+    let names: Vec<String> = library
+        .components
+        .as_ref()
+        .iter()
+        .map(|c| c.id.name.as_str().to_string())
+        .filter(|n| seen.insert(n.clone()))
+        .collect();
+    assert!(names.len() > 100, "the builtin library lists its elements");
+
+    let mut parts = Vec::new();
+    for name in &names {
+        parts.push(serde_json::json!({ "op": "get_component_thumbnail", "library": "builtin",
+                                       "name": name, "width": 140, "dpi": 1 }));
+        if NO_VISUAL_BUILTINS.contains(&name.as_str()) {
+            parts.push(serde_json::json!({ "op": "assert_response", "contains": "\"empty\":true" }));
+            parts.push(serde_json::json!({ "op": "assert_response", "contains": "\"no_visual\":\"" }));
+        } else {
+            // A PNG (base64 of its 8-byte signature): the render had pixels.
+            parts.push(serde_json::json!({ "op": "assert_response",
+                                           "contains": "data:image/png;base64,iVBORw0KGgo" }));
+            parts.push(serde_json::json!({ "op": "assert_response", "contains": "\"no_visual\":null" }));
+        }
+    }
+    let result = run("builtin_palette_previews", true, steps(parts));
+
+    let mut wrong: Vec<String> = result
+        .steps
+        .iter()
+        .filter(|s| s.status != "pass")
+        .filter_map(|s| names.get(s.step_index / STEPS_PER_NAME))
+        .map(|n| {
+            let want = if NO_VISUAL_BUILTINS.contains(&n.as_str()) {
+                "\"no visual\" with a reason"
+            } else {
+                "a preview"
+            };
+            format!("<{n}> (want {want})")
+        })
+        .collect();
+    wrong.dedup();
+    assert!(
+        wrong.is_empty(),
+        "{} builtin(s) answer the wrong palette preview:\n  {}\n\n{}",
+        wrong.len(),
+        wrong.join("\n  "),
+        failures(&result)
+    );
+}

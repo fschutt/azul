@@ -315,5 +315,17 @@ test('the indent of a depth is the one place rows and the line take it from', ()
     assert.strictEqual(L.labelPx(2), 52);
 });
 
+// ── B7: the palette cards ──
+
+test('a thumbnail answer is a picture, or no picture with the reason the builtin has none', () => {
+    assert.deepStrictEqual(L.thumbOf({ data: 'data:image/png;base64,xx', empty: false, width: 8, height: 4, no_visual: null }),
+        { data: 'data:image/png;base64,xx', width: 8, height: 4 });
+    assert.deepStrictEqual(L.thumbOf({ data: null, empty: true, no_visual: 'a line break inside text' }),
+        { empty: true, noVisual: 'a line break inside text' });
+    // An empty render without a reason (a component that draws nothing): the card shows its tag.
+    assert.deepStrictEqual(L.thumbOf({ data: null, empty: true }), { empty: true, noVisual: null });
+    assert.deepStrictEqual(L.thumbOf(null), { empty: true, noVisual: null });
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

@@ -56,6 +56,7 @@ const mock = {
         { tag: 'span', display_name: 'Span' },
         { tag: 'h1', display_name: 'Heading 1' },
         { tag: 'button', display_name: 'Button' },
+        { tag: 'br', display_name: 'Line Break' },
     ] }] },
     doc: null,
 };
@@ -197,8 +198,13 @@ function handle(msg) {
             return { libraries: mock.registry.libraries.map((l) => ({
                 name: l.name, modifiable: !!l.modifiable, component_count: l.components.length })) };
         case 'get_component_thumbnail':
+            // A builtin with nothing to show answers no picture and says why (builder.rs).
+            if (msg.name === 'br') {
+                return { library: msg.library, name: msg.name, key: '0', data: null, empty: true,
+                    width: 0, height: 0, cached: false, no_visual: 'a line break inside text: no box of its own' };
+            }
             return { library: msg.library, name: msg.name, key: '0', data: PNG, empty: false,
-                width: 8, height: 4, cached: false };
+                width: 8, height: 4, cached: false, no_visual: null };
         case 'get_app_state': return {};
         default: {
             const v = builderOp(msg);
@@ -377,6 +383,12 @@ async function main() {
         check('palette thumbnails are requested from the native renderer and shown',
             await waitFor(cdp, `document.querySelectorAll('.azb-card .azb-thumb img').length >= 3`)
             && countSent('get_component_thumbnail') >= 3, countSent('get_component_thumbnail'));
+
+        const nv = await waitFor(cdp, `(() => { const c = __t.card('builtin:br');
+            const l = c && c.querySelector('.azb-thumb-novisual');
+            return !!l && l.textContent === 'no visual' && c.querySelector('.azb-thumb').title.includes('line break'); })()`);
+        check('a builtin with nothing to show says "no visual" on its card, the reason as its tooltip (not an empty box)', nv,
+            await cdp.eval(`(__t.card('builtin:br') || {}).innerHTML`));
 
         // 1. card -> the <body> row: INTO.
         let r = await cdp.eval(`__t.drag(__t.card('builtin:p'), __t.row(0), 0.5)`);
