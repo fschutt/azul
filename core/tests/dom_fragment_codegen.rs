@@ -1,23 +1,29 @@
-//! `compile_xml_fragment` / `compile_xml_fragment_app`: a DOM fragment (a
-//! builder subtree, a component template) compiled to a render function in
-//! Rust, C, C++ and Python — AzBuilder's "Subtree → code" and
-//! "Component → code".
+//! The DOM-fragment LOWERING (`azul_core::xml::lower_xml_fragment`,
+//! `lower_xml_fragment_app`): a builder subtree, a component template or a
+//! page body → the codegen IR (`azul_css::codegen::ir`) that every binding
+//! language's printer turns into source.
 //!
-//! Golden files live in `core/tests/golden/dom_fragment/`. They are the exact
-//! expected output; `AZ_BLESS=1 cargo test -p azul-core --test
-//! dom_fragment_codegen` rewrites them from the current output (review the
-//! diff, then compile them: `scripts/debugger-ui/compile-export-goldens.sh`).
-
-use std::{fs, path::PathBuf};
+//! The printers are tested in ONE place, B2's golden harness
+//! (`css/tests/codegen_goldens.rs`, cases `dom_card` / `dom_library` /
+//! `dom_app` built in `css/tests/codegen_cases/mod.rs`). These tests pin
+//! that the lowering produces exactly those IR values from markup, and the
+//! lowering decisions (constructors, CSS, placeholders, whitespace) in IR
+//! terms, independent of any language.
 
 use azul_core::{
     window::{AzStringPair, StringPairVec},
     xml::{
-        compile_xml_fragment, compile_xml_fragment_app, CompileTarget, FragmentParam,
-        XmlAttributeMap, XmlNode, XmlNodeChild,
+        compile_xml_fragment, compile_xml_fragment_app, lower_xml_fragment,
+        lower_xml_fragment_app, FragmentParam, XmlAttributeMap, XmlNode, XmlNodeChild,
     },
 };
-use azul_css::AzString;
+use azul_css::{
+    codegen::{
+        all_backends,
+        ir::{AppSpec, Expr, Ident, Item, ItemParam, Module},
+    },
+    AzString,
+};
 
 // ── tree helpers ──
 
@@ -45,105 +51,105 @@ fn el(tag: &str, attrs: &[(&str, &str)], children: Vec<XmlNodeChild>) -> XmlNode
     XmlNodeChild::Element(node(tag, attrs, children))
 }
 
-const TARGETS: [(CompileTarget, &str); 4] = [
-    (CompileTarget::Rust, "rs"),
-    (CompileTarget::C, "c"),
-    (CompileTarget::Cpp, "cpp"),
-    (CompileTarget::Python, "py"),
-];
+// ── IR helpers (the same spelling as css/tests/codegen_cases) ──
 
-fn golden(name: &str, actual: &str) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/golden/dom_fragment")
-        .join(name);
-    if std::env::var_os("AZ_BLESS").is_some() {
-        fs::create_dir_all(path.parent().expect("golden dir")).expect("create golden dir");
-        fs::write(&path, actual).expect("write golden");
-        return;
-    }
-    let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!(
-            "no golden file {} — run with AZ_BLESS=1, review it, commit it",
-            path.display()
-        )
-    });
-    assert!(
-        actual == expected,
-        "{name} differs from its golden file ({}); AZ_BLESS=1 rewrites it.\n--- got ---\n{actual}\n--- \
-         expected ---\n{expected}",
-        path.display()
-    );
+fn dom(m: &str, args: Vec<Expr>) -> Expr {
+    Expr::call("Dom", m, args)
 }
 
-fn rust(nodes: &[XmlNodeChild], css: &str, params: Option<&[FragmentParam]>) -> String {
-    compile_xml_fragment(nodes, css, &CompileTarget::Rust, "render_x", params)
-        .expect("compiles")
-        .function
+fn with(recv: Expr, m: &str, args: Vec<Expr>) -> Expr {
+    Expr::method(recv, "Dom", m, args)
 }
 
-// ── the representative trees ──
+fn value_of(m: &Module) -> &Expr {
+    &m.items[0].value
+}
 
-/// A builder document subtree: an element with a class and an inline style,
-/// a heading, mixed inline content, a link and a button.
-fn card() -> Vec<XmlNodeChild> {
-    vec![el(
+/// The one item's value, printed flat for substring checks.
+fn ir(nodes: &[XmlNodeChild], css: &str, params: Option<&[FragmentParam]>) -> Expr {
+    lower_xml_fragment(nodes, css, "render_x", params, Vec::new())
+        .items
+        .remove(0)
+        .value
+}
+
+// ── the cases the printers are golden-tested with ──
+
+#[test]
+fn a_converted_components_template_lowers_to_the_ir_the_printers_are_tested_with() {
+    // css/tests/codegen_cases::dom_card_module, from markup
+    let template = vec![el(
         "div",
         &[("class", "card"), ("style", "padding: 8px")],
-        vec![
-            el("h1", &[], vec![txt("Title")]),
-            el("p", &[], vec![txt("Hello "), el("b", &[], vec![txt("world")])]),
-            el("a", &[("href", "https://azul.rs")], vec![txt("Docs")]),
-            el("button", &[], vec![txt("Go")]),
-        ],
-    )]
-}
-
-/// A converted component's template: whole-value placeholders, a placeholder
-/// in an attribute, and one mixed into literal text.
-fn card_template() -> Vec<XmlNodeChild> {
-    vec![el(
-        "div",
-        &[("class", "card")],
         vec![
             el("h2", &[], vec![txt("{title}")]),
             el("p", &[], vec![txt("{text}")]),
             el("a", &[("href", "{href}")], vec![txt("Read more")]),
             el("span", &[], vec![txt("by {author}")]),
         ],
-    )]
-}
-
-fn card_params() -> Vec<FragmentParam> {
-    vec![
+    )];
+    let params = [
         FragmentParam::new("title", "Hello"),
         FragmentParam::new("text", "Some text"),
         FragmentParam::new("href", "https://azul.rs"),
         FragmentParam::new("author", "me"),
-    ]
+    ];
+    let got = lower_xml_fragment(
+        &template,
+        "",
+        "render_card",
+        Some(&params),
+        vec!["`user:card`: its texts and its link are parameters".to_string()],
+    );
+
+    let s = Expr::str;
+    let p = Expr::param;
+    let mut value = dom("create_div", vec![]);
+    value = with(value, "with_css", vec![s("padding: 8px")]);
+    value = with(value, "with_class", vec![s("card")]);
+    value = with(value, "with_child", vec![dom("create_h2_with_text", vec![p("title")])]);
+    value = with(value, "with_child", vec![dom("create_p_with_text", vec![p("text")])]);
+    value = with(
+        value,
+        "with_child",
+        vec![dom(
+            "create_a",
+            vec![
+                p("href"),
+                s("Read more"),
+                Expr::call("SmallAriaInfo", "label", vec![s("Read more")]),
+            ],
+        )],
+    );
+    value = with(
+        value,
+        "with_child",
+        vec![dom(
+            "create_span_with_text",
+            vec![Expr::concat(vec![s("by "), p("author")])],
+        )],
+    );
+    let want = Module {
+        items: vec![Item {
+            name: Ident::from_text("render_card"),
+            doc: vec!["`user:card`: its texts and its link are parameters".to_string()],
+            ty: "Dom".to_string(),
+            params: vec![
+                ItemParam::string("title", "Hello"),
+                ItemParam::string("text", "Some text"),
+                ItemParam::string("href", "https://azul.rs"),
+                ItemParam::string("author", "me"),
+            ],
+            value,
+        }],
+        ..Module::default()
+    };
+    assert_eq!(got, want);
 }
 
-// ── goldens ──
-
 #[test]
-fn a_document_subtree_compiles_to_one_render_function_per_language() {
-    for (target, ext) in TARGETS {
-        let f = compile_xml_fragment(&card(), "", &target, "render_card", None).expect("compiles");
-        golden(&format!("card.{ext}"), &f.source());
-    }
-}
-
-#[test]
-fn a_component_template_compiles_to_a_function_of_its_parameters_per_language() {
-    let params = card_params();
-    for (target, ext) in TARGETS {
-        let f = compile_xml_fragment(&card_template(), "", &target, "render_card", Some(&params))
-            .expect("compiles");
-        golden(&format!("card_template.{ext}"), &f.source());
-    }
-}
-
-#[test]
-fn a_page_body_compiles_to_a_runnable_app_per_language() {
+fn a_page_body_lowers_to_an_app_whose_body_is_the_window() {
+    // css/tests/codegen_cases::dom_app_module, from markup
     let body = vec![el(
         "body",
         &[],
@@ -152,164 +158,177 @@ fn a_page_body_compiles_to_a_runnable_app_per_language() {
             el("p", &[], vec![txt("Hello")]),
         ],
     )];
-    for (target, ext) in TARGETS {
-        let app = compile_xml_fragment_app(&body, "", &target, "My App").expect("compiles");
-        golden(&format!("app.{ext}"), &app);
-    }
+    let got = lower_xml_fragment_app(&body, "", "My App");
+    let value = with(
+        with(
+            dom("create_body", vec![]),
+            "with_child",
+            vec![dom("create_h1_with_text", vec![Expr::str("My App")])],
+        ),
+        "with_child",
+        vec![dom("create_p_with_text", vec![Expr::str("Hello")])],
+    );
+    assert_eq!(value_of(&got), &value);
+    assert_eq!(got.items[0].name, Ident::from_text("render_ui"));
+    assert!(got.items[0].params.is_empty());
+    assert_eq!(
+        got.app,
+        Some(AppSpec {
+            title: "My App".to_string(),
+            root: Ident::from_text("render_ui"),
+            is_body: true,
+        })
+    );
+
+    // Anything but a body goes INTO one.
+    let p = lower_xml_fragment_app(&[el("p", &[], vec![txt("x")])], "", "T");
+    assert!(!p.app.expect("an app").is_body);
 }
 
-// ── behaviour ──
+// ── lowering decisions ──
 
 #[test]
-fn every_language_names_the_parameters_after_the_placeholders() {
-    let params = card_params();
-    for (target, _) in TARGETS {
-        let f = compile_xml_fragment(&card_template(), "", &target, "render_card", Some(&params))
-            .expect("compiles");
-        assert_eq!(f.param_idents, ["title", "text", "href", "author"], "{target:?}");
-        assert_eq!(f.fn_name, "render_card");
-        assert!(!f.function.contains("{title}"), "{target:?}:\n{}", f.function);
-    }
-}
-
-#[test]
-fn a_stylesheet_rule_that_matches_a_node_becomes_that_nodes_inline_css_only() {
+fn a_matching_stylesheet_rule_comes_before_the_style_attribute_in_with_css() {
     let nodes = vec![el(
         "div",
-        &[("class", "card")],
+        &[("class", "card"), ("style", "color: red")],
         vec![el("p", &[("class", "note")], vec![txt("x")])],
     )];
-    let out = rust(&nodes, ".card { margin-top: 3px; } .other { margin-top: 9px; }", None);
-    assert_eq!(out.matches(".with_css(").count(), 1, "only the div:\n{out}");
-    assert!(out.contains("margin-top: 3px"), "{out}");
-    assert!(!out.contains("9px"), "a rule for another class stays out:\n{out}");
+    let flat = format!(
+        "{:?}",
+        ir(&nodes, ".card { margin-top: 3px; } .other { margin-top: 9px; }", None)
+    );
+    let rule = flat.find("margin-top: 3px").expect("the matching rule");
+    let attr = flat.find("color: red").expect("the style attribute");
+    assert!(rule < attr, "{flat}");
+    assert!(!flat.contains("9px"), "a rule for another class stays out: {flat}");
+    assert_eq!(flat.matches("with_css").count(), 1, "{flat}");
 }
 
 #[test]
-fn a_descendant_rule_reaches_into_the_fragment() {
-    let nodes = vec![el(
-        "div",
-        &[("class", "card")],
-        vec![el("p", &[], vec![txt("x")])],
-    )];
-    let out = rust(&nodes, ".card p { margin-top: 5px; }", None);
-    let p_at = out.find("create_p_with_text").expect("the p");
-    let css_at = out.find("margin-top: 5px").expect("the rule");
-    assert!(css_at > p_at, "the rule lands on the <p>, not the div:\n{out}");
-}
-
-#[test]
-fn braces_are_text_in_plain_markup_and_escapes_in_a_template() {
-    let nodes = vec![el("p", &[], vec![txt("a {{b}} {x}")])];
-    assert!(
-        rust(&nodes, "", None).contains("Dom::create_p_with_text(\"a {{b}} {x}\")"),
-        "plain markup keeps every brace"
+fn braces_are_text_in_plain_markup_and_placeholders_in_a_template() {
+    let plain = ir(&[el("p", &[], vec![txt("a {{b}} {x}")])], "", None);
+    assert_eq!(
+        plain,
+        dom("create_p_with_text", vec![Expr::str("a {{b}} {x}")])
     );
 
     let params = [FragmentParam::new("x", "")];
-    let nodes = vec![el("p", &[], vec![txt("{{b}} {x}")])];
-    let out = rust(&nodes, "", Some(&params));
-    assert!(out.contains("format!(\"{{b}} {x}\")"), "{out}");
-    let py = compile_xml_fragment(&nodes, "", &CompileTarget::Python, "f", Some(&params))
-        .expect("compiles")
-        .function;
-    assert!(py.contains("f\"{{b}} {x}\""), "{py}");
-
-    // A `{name}` that is no parameter stays literal text.
-    let nodes = vec![el("p", &[], vec![txt("{nope}")])];
-    assert!(rust(&nodes, "", Some(&params)).contains("\"{nope}\""));
-}
-
-#[test]
-fn a_keyword_parameter_gets_an_underscore_in_the_languages_that_reserve_it() {
-    let params = [
-        FragmentParam::new("for", "email"),
-        FragmentParam::new("text", "Email"),
-    ];
-    let nodes = vec![el("label", &[("for", "{for}")], vec![txt("{text}")])];
-    let r = compile_xml_fragment(&nodes, "", &CompileTarget::Rust, "f", Some(&params)).unwrap();
-    assert_eq!(r.param_idents, ["for_", "text"]);
-    assert!(
-        r.function.contains("Dom::create_label_no_a11y(for_, text)"),
-        "{}",
-        r.function
+    let t = ir(&[el("p", &[], vec![txt("{{b}} {x}")])], "", Some(&params));
+    assert_eq!(
+        t,
+        dom(
+            "create_p_with_text",
+            vec![Expr::concat(vec![Expr::str("{b} "), Expr::param("x")])]
+        )
     );
-    let c = compile_xml_fragment(&nodes, "", &CompileTarget::C, "f", Some(&params)).unwrap();
-    assert!(c.function.contains("const char* for_"), "{}", c.function);
-    let py = compile_xml_fragment(&nodes, "", &CompileTarget::Python, "f", Some(&params)).unwrap();
-    assert!(py.function.starts_with("def f(for_=\"email\", text=\"Email\"):"), "{}", py.function);
+    // An unknown `{name}` stays literal text.
+    let unknown = ir(&[el("p", &[], vec![txt("{nope}")])], "", Some(&params));
+    assert_eq!(unknown, dom("create_p_with_text", vec![Expr::str("{nope}")]));
 }
 
 #[test]
-fn a_parameter_the_markup_never_shows_is_marked_used_so_it_does_not_warn() {
-    // `title` is an attribute no constructor takes.
-    let params = [FragmentParam::new("tip", "")];
-    let nodes = vec![el("p", &[("title", "{tip}")], vec![txt("x")])];
-    let r = rust(&nodes, "", Some(&params));
-    assert!(r.contains("let _ = tip;"), "{r}");
-    let c = compile_xml_fragment(&nodes, "", &CompileTarget::C, "f", Some(&params)).unwrap();
-    assert!(c.function.contains("(void)tip;"), "{}", c.function);
+fn a_link_is_always_create_a_with_its_text_as_its_accessible_name() {
+    let label = |s: &str| Expr::call("SmallAriaInfo", "label", vec![Expr::str(s)]);
+    assert_eq!(
+        ir(&[el("a", &[("href", "/x")], vec![txt("Go")])], "", None),
+        dom("create_a", vec![Expr::str("/x"), Expr::str("Go"), label("Go")])
+    );
+    // No text: the href names it.
+    assert_eq!(
+        ir(&[el("a", &[("href", "/x")], vec![])], "", None),
+        dom("create_a", vec![Expr::str("/x"), Expr::str("/x"), label("/x")])
+    );
 }
 
 #[test]
-fn several_roots_are_wrapped_in_one_div() {
-    let nodes = vec![
-        el("p", &[], vec![txt("a")]),
-        el("p", &[], vec![txt("b")]),
-    ];
-    let out = rust(&nodes, "", None);
-    assert!(out.contains("Dom::create_div()"), "{out}");
-    assert_eq!(out.matches("create_p_with_text").count(), 2, "{out}");
+fn several_roots_go_into_one_div_and_document_plumbing_is_left_out() {
+    let two = ir(
+        &[el("p", &[], vec![txt("a")]), el("p", &[], vec![txt("b")])],
+        "",
+        None,
+    );
+    assert_eq!(
+        two,
+        with(
+            with(
+                dom("create_div", vec![]),
+                "with_child",
+                vec![dom("create_p_with_text", vec![Expr::str("a")])]
+            ),
+            "with_child",
+            vec![dom("create_p_with_text", vec![Expr::str("b")])]
+        )
+    );
+    let plumbing = format!(
+        "{:?}",
+        ir(
+            &[el(
+                "div",
+                &[],
+                vec![
+                    el("style", &[], vec![txt(".x { color: red }")]),
+                    el("script", &[], vec![txt("alert(1)")]),
+                    el("p", &[], vec![txt("kept")]),
+                ],
+            )],
+            "",
+            None,
+        )
+    );
+    assert!(!plumbing.contains("alert") && !plumbing.contains("create_style"), "{plumbing}");
+    assert!(plumbing.contains("kept"), "{plumbing}");
 }
 
 #[test]
-fn document_plumbing_inside_a_fragment_is_not_exported() {
-    let nodes = vec![el(
-        "div",
-        &[],
-        vec![
-            el("style", &[], vec![txt(".x { color: red }")]),
-            el("script", &[], vec![txt("alert(1)")]),
-            el("p", &[], vec![txt("kept")]),
-        ],
-    )];
-    let out = rust(&nodes, "", None);
-    assert!(!out.contains("create_style") && !out.contains("create_script"), "{out}");
-    assert!(!out.contains("alert"), "{out}");
-    assert!(out.contains("kept"), "{out}");
+fn inline_content_keeps_the_space_before_the_next_element() {
+    let e = ir(
+        &[el("p", &[], vec![txt("  Hello  "), el("b", &[], vec![txt("you")])])],
+        "",
+        None,
+    );
+    assert_eq!(
+        e,
+        with(
+            with(
+                dom("create_p", vec![]),
+                "with_child",
+                vec![dom(
+                    "create_text_do_not_use_without_block_level_wrapper",
+                    vec![Expr::str("Hello ")]
+                )]
+            ),
+            "with_child",
+            vec![dom("create_b_with_text", vec![Expr::str("you")])]
+        )
+    );
 }
 
+// ── printing through B2's printers ──
+
 #[test]
-fn quotes_backslashes_and_newlines_are_escaped_per_language() {
-    let nodes = vec![el("pre", &[], vec![txt("say \"hi\" \\ now\nbye")])];
-    for (target, _) in TARGETS {
-        let f = compile_xml_fragment(&nodes, "", &target, "f", None).unwrap().function;
-        assert!(f.contains("say \\\"hi\\\" \\\\ now\\nbye"), "{target:?}:\n{f}");
+fn every_language_prints_a_fragment_or_says_why_it_cannot() {
+    let nodes = vec![el("p", &[("class", "x")], vec![txt("{text}")])];
+    let params = [FragmentParam::new("text", "Hi")];
+    for b in all_backends() {
+        let code = compile_xml_fragment(&nodes, "", b.lang(), "render_x", Some(&params))
+            .expect("every listed language compiles");
+        assert!(!code.trim().is_empty(), "{}", b.lang());
     }
+    let rust = compile_xml_fragment(&nodes, "", "rust", "render_x", Some(&params)).unwrap();
+    assert!(rust.contains("pub fn render_x(text: &str) -> Dom {"), "{rust}");
+    let err = compile_xml_fragment(&nodes, "", "klingon", "render_x", None).unwrap_err();
+    assert!(err.contains("available:"), "{err}");
 }
 
 #[test]
-fn inline_content_keeps_the_space_between_a_text_and_the_element_after_it() {
-    let out = rust(&card(), "", None);
-    assert!(
-        out.contains("create_text_do_not_use_without_block_level_wrapper(\"Hello \")"),
-        "{out}"
-    );
-}
-
-#[test]
-fn the_c_app_reflects_its_data_instead_of_building_a_refany_with_a_null_destructor() {
+fn a_c_app_reflects_its_data_instead_of_a_refany_with_a_null_destructor() {
     let body = vec![el("body", &[], vec![el("p", &[], vec![txt("x")])])];
-    let c = compile_xml_fragment_app(&body, "", &CompileTarget::C, "T").unwrap();
-    assert!(c.contains("AZ_REFLECT(AppData, AppData_destructor);"), "{c}");
-    assert!(!c.contains("AzRefAny_newC"), "{c}");
-}
-
-#[test]
-fn a_fragment_that_is_not_a_body_is_put_into_one_by_the_app() {
-    let nodes = vec![el("p", &[], vec![txt("x")])];
-    let r = compile_xml_fragment_app(&nodes, "", &CompileTarget::Rust, "T").unwrap();
-    assert!(r.contains("Dom::create_body().with_child(render_ui())"), "{r}");
-    let c = compile_xml_fragment_app(&nodes, "", &CompileTarget::C, "T").unwrap();
-    assert!(c.contains("AzDom_addChild(&body, render_ui());"), "{c}");
+    let files = compile_xml_fragment_app(&body, "", "c", "T").expect("c");
+    let main = files
+        .iter()
+        .find(|f| f.path == "main.c")
+        .expect("main.c");
+    assert!(main.contents.contains("AZ_REFLECT(AppData, AppData_destructor);"), "{}", main.contents);
+    assert!(!main.contents.contains("AzRefAny_newC"), "{}", main.contents);
 }
