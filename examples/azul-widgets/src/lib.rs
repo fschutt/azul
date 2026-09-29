@@ -17,6 +17,7 @@ use azul::{
     window::{TransientWindowConfig, UiTheme, WindowTheme},
 };
 
+mod forms;
 mod hotkeys;
 mod notifications;
 mod video;
@@ -70,6 +71,9 @@ struct Showcase {
     /// toolbar's Flat / Flora toggle). A switch rebuilds the DOM in the other
     /// theme: unlike light / dark, a theme may change a widget's DOM.
     widget_theme: UiTheme,
+    /// The "Every input type" form and the "Raw HTML inputs" form (see
+    /// `forms.rs`).
+    form: forms::FormDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -1062,6 +1066,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ],
     );
 
+    // Last on the page: every HTML input type, as widgets in a Form.
+    let every_input = forms::every_input_section(&data, &s.form, theme);
+
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
          margin-bottom: 4px;",
@@ -1134,7 +1141,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
-                .with_child(datetime),
+                .with_child(datetime)
+                .with_child(every_input),
         )
 }
 
@@ -1419,6 +1427,7 @@ pub fn start() {
         // Follow the desktop's light / dark (the toolbar's "System").
         color_scheme_index: 0,
         widget_theme: UiTheme::Flat,
+        form: forms::FormDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionWindowTheme::Some(WindowTheme::DarkMode)`.
