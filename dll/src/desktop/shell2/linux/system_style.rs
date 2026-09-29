@@ -3222,16 +3222,23 @@ pub(crate) fn adopt_observed_theme(
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
-    if common.current_window_state().theme == theme {
+    // The DESKTOP's theme, which is not necessarily the window's: an app that
+    // pins its colour scheme keeps its window where it is, but the desktop is
+    // still recorded and its style re-discovered, so switching the app back
+    // to "follow the system" lands on the desktop's current theme at once.
+    if common.desktop_theme() == theme {
         return None;
     }
+    let window_theme = common.adopt_desktop_theme(theme);
 
     // The diff pipeline compares against previous_window_state to decide that a
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
 
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    if let Some(window_theme) = window_theme {
+        common.update_unsynced_state(|ws| ws.theme = window_theme);
+    }
 
     // RE-DISCOVER the style, the way the Windows backend does on
     // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had

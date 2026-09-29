@@ -6830,17 +6830,22 @@ unsafe extern "system" fn window_proc(
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
                 core::slice::from_ref(&held_language),
             ));
-            let new_theme = match new_style.theme {
+            let desktop_theme = match new_style.theme {
                 azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
                 azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
             };
-            // OS-reported (source = Os): the theme is already the system's, so
-            // the OS-sync baseline advances with `current` and only the event
-            // diff carries the transition.
-            window.common.update_window_state(
-                crate::desktop::shell2::common::event::WindowStateSource::Os,
-                |ws| ws.theme = new_theme,
-            );
+            // The DESKTOP's theme: the window takes it only while the app
+            // follows the desktop (an app that pins its colour scheme stays
+            // put; the desktop is remembered for when it follows again).
+            if let Some(new_theme) = window.common.adopt_desktop_theme(desktop_theme) {
+                // OS-reported (source = Os): the theme is the system's
+                // decision, so the OS-sync baseline advances with `current`
+                // and only the event diff carries the transition.
+                window.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| ws.theme = new_theme,
+                );
+            }
             window.apply_titlebar_theme();
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
@@ -7457,6 +7462,27 @@ impl PlatformWindow for Win32Window {
                     .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 unsafe {
                     (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                }
+            }
+        }
+    }
+
+    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // colour scheme through its own trigger (restyle, or a rebuild where
+        // its `layout()` read the scheme), and its caption follows.
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                if w.adopt_app_color_scheme() {
+                    w.apply_titlebar_theme();
+                    unsafe {
+                        (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                    }
                 }
             }
         }

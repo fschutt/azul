@@ -476,6 +476,9 @@ fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
 fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
     use azul_core::window::WindowTheme;
 
+    if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
+        return; // AZ_THEME outranks the desktop: the window must NOT follow it
+    }
     let counters = Counters::new();
     let mut window = make_window(counters);
     window

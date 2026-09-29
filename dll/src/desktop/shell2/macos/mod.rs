@@ -4525,6 +4525,22 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
+    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // colour scheme through its own trigger (restyle, or a rebuild where
+        // its `layout()` read the scheme).
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            if w.adopt_app_color_scheme() {
+                w.request_redraw();
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

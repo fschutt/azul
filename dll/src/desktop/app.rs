@@ -171,6 +171,10 @@ impl App {
         azul_layout::window::set_global_expose_system_media_controls(
             app_config.expose_system_media_controls,
         );
+        // The app's colour scheme (follow the desktop, or pin light / dark):
+        // every window built from now on starts in it, and
+        // `CallbackInfo::set_color_scheme` switches it for all of them.
+        azul_layout::window::set_app_color_scheme(app_config.color_scheme);
 
         // Global hotkeys: NO backend here. `App::create` cannot know whether
         // the run will be headless, and installing the platform's backend

@@ -2067,14 +2067,17 @@ impl HeadlessWindow {
     /// re-discovery — the caller supplies the theme, since there is no system
     /// setting here to read.
     ///
-    /// Returns `false` if the theme was already the requested one, in which case
-    /// nothing is dispatched and no frame is requested. A no-op switch should
-    /// not cost a relayout, and a test asserting "N relayouts" should not have to
-    /// know whether the theme happened to differ.
+    /// Returns `false` if the WINDOW's theme did not move, in which case
+    /// nothing is dispatched and no frame is requested: the desktop was
+    /// already in `theme` (a no-op switch should not cost a relayout, and a
+    /// test asserting "N relayouts" should not have to know whether the theme
+    /// happened to differ), or the app pins its colour scheme
+    /// (`CallbackInfo::set_color_scheme`) - then the desktop's new theme is
+    /// only remembered, for when the app follows the desktop again.
     pub fn set_system_theme(&mut self, theme: azul_core::window::WindowTheme) -> bool {
-        if self.common.current_window_state().theme == theme {
+        let Some(theme) = self.common.adopt_desktop_theme(theme) else {
             return false;
-        }
+        };
 
         // previous_window_state is what the diff pipeline compares against to
         // decide that a ThemeChanged event fired; without this snapshot the

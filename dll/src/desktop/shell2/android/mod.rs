@@ -1101,14 +1101,17 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
     let raw = window
         .pending_theme
         .swap(0, std::sync::atomic::Ordering::AcqRel);
-    let theme = match raw {
+    let desktop = match raw {
         1 => azul_core::window::WindowTheme::LightMode,
         2 => azul_core::window::WindowTheme::DarkMode,
         _ => return,
     };
-    if window.common.current_window_state().theme == theme {
+    // The DEVICE's night mode: the window takes it only while the app follows
+    // it (`AppConfig::color_scheme` / `CallbackInfo::set_color_scheme` pin it
+    // otherwise); either way the device's is remembered.
+    let Some(theme) = window.common.adopt_desktop_theme(desktop) else {
         return;
-    }
+    };
     window.snapshot_window_state_baseline("android.drain_pending_theme");
     window.common.update_unsynced_state(|ws| ws.theme = theme);
     window

@@ -8325,6 +8325,24 @@ impl PlatformWindow for X11Window {
         }
     }
 
+    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // colour scheme through its own trigger (restyle, or a rebuild where
+        // its `layout()` read the scheme).
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    if w.adopt_app_color_scheme() {
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

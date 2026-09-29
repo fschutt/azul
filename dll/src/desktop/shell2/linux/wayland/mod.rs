@@ -1709,6 +1709,32 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
+    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // colour scheme through its own trigger (restyle, or a rebuild where
+        // its `layout()` read the scheme).
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.surface as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
+                    if w.adopt_app_color_scheme() {
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
+        // The nested xdg_popup is not a registered window, and it is OWNED by
+        // this one (whose callback is on the stack): it only takes the
+        // theme and a rebuild request, no pass from in here.
+        if let Some(p) = self.active_popup.as_mut() {
+            if p.adopt_app_color_scheme_deferred() {
+                p.request_repaint();
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }
@@ -10413,6 +10439,23 @@ impl PlatformWindow for WaylandPopup {
                     w.common
                         .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     w.request_redraw();
+                }
+            }
+        }
+    }
+
+    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+        // Every registered window is "another" one, the parent included -
+        // and the parent OWNS this popup, whose callback is on the stack: a
+        // pass run on it from here could reach back into this popup. So
+        // every window only takes the theme and a rebuild request, and runs
+        // it at its next frame.
+        for wid in super::registry::get_all_window_ids() {
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
+                    if w.adopt_app_color_scheme_deferred() {
+                        w.request_redraw();
+                    }
                 }
             }
         }

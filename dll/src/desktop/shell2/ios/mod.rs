@@ -1145,12 +1145,15 @@ unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme>
 unsafe fn adopt_device_appearance(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> bool {
-    let Some(theme) = probe_user_interface_style() else {
+    let Some(desktop) = probe_user_interface_style() else {
         return false;
     };
-    if common.current_window_state().theme == theme {
+    // The DEVICE's appearance: the window takes it only while the app follows
+    // it (`AppConfig::color_scheme` / `CallbackInfo::set_color_scheme` pin it
+    // otherwise); either way the device's is remembered.
+    let Some(theme) = common.adopt_desktop_theme(desktop) else {
         return false;
-    }
+    };
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
     common.snapshot_window_state_baseline("ios.adopt_device_appearance");
