@@ -571,7 +571,7 @@ pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_c
 /// `AZ_SUPPRESS=a11y_widget` (or `AZ_SUPPRESS=all`).
 #[cfg(feature = "std")]
 pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
-    if has_name || crate::dom_lint::lint_suppressed("a11y_widget") {
+    if has_name || building_a_style_twin() || crate::dom_lint::lint_suppressed("a11y_widget") {
         return;
     }
     #[cfg(test)]
@@ -588,6 +588,51 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
 
 #[cfg(not(feature = "std"))]
 pub fn warn_widget_needs_a_name(_widget_type: &str, _has_name: bool) {}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Set while this thread builds a widget's STYLE-ONLY twin
+    /// ([`style_only_build`]).
+    static BUILDING_A_STYLE_TWIN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Whether this thread is building a style-only twin ([`style_only_build`]).
+#[cfg(feature = "std")]
+fn building_a_style_twin() -> bool {
+    BUILDING_A_STYLE_TWIN
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(false)
+}
+
+/// Runs `build` as a STYLE-ONLY twin: the other theme's build of a widget
+/// that follows the app theme (`themes::theme_blocks::follow_app_theme`),
+/// read for its styles and dropped. Its warnings stay silent - the app built
+/// ONE widget, and the structure theme's build, the one it keeps, already
+/// said what there was to say ([`warn_widget_needs_a_name`]). Nests, and
+/// restores the flag however `build` ends.
+pub(crate) fn style_only_build<T>(build: impl FnOnce() -> T) -> T {
+    #[cfg(feature = "std")]
+    {
+        /// Puts the flag back as it was when dropped.
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let was = self.0;
+                let _ = BUILDING_A_STYLE_TWIN.try_with(|flag| flag.set(was));
+            }
+        }
+        let _restore = Restore(
+            BUILDING_A_STYLE_TWIN
+                .try_with(|flag| flag.replace(true))
+                .unwrap_or(false),
+        );
+        build()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        build()
+    }
+}
 
 #[cfg(all(test, feature = "std"))]
 std::thread_local! {
