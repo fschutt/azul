@@ -18,7 +18,8 @@ use azul_css::{
     },
     parser2::new_from_str,
     props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor},
-    AzString,
+    theme_chain::{resolve_theme_head, ThemeEnv},
+    AzString, StringVec,
 };
 
 const FLORA_INK: ColorU = ColorU::rgb(0x10, 0x20, 0x30);
@@ -146,9 +147,11 @@ fn a_flora_block_applies_only_under_flora_and_a_flat_block_only_under_flat() {
         assert!(live(flora, &under_flora), "flora block, flora app, {scheme:?}");
         assert!(!live(flat, &under_flora), "flat block, flora app, {scheme:?}");
     }
-    // An app theme nobody wrote a block for turns both off: the unconditional rules are the floor.
+    // An app theme nobody wrote a block for is the default theme's look: every chain ends in the
+    // default theme, the floor (design §7.1, `[abc, <default>]`).
     let under_other = ctx("monokai", ThemeCondition::Light);
-    assert!(!live(flat, &under_other) && !live(flora, &under_other));
+    assert!(live(flat, &under_other), "an unknown theme falls back to the default theme's block");
+    assert!(!live(flora, &under_other), "and to no other theme's");
 }
 
 #[test]
@@ -189,17 +192,19 @@ fn a_dark_block_nested_in_a_theme_block_needs_the_theme_and_the_dark_scheme() {
     assert!(!live(nested, &ctx("flat", ThemeCondition::Light)));
 }
 
-/// The context holds the active theme as a CHAIN (most specific first), the shape the §7 design
-/// needs; today the chain is the one name. No implicit default entry yet: without rank in the
-/// sort key, a `[flora, flat]` chain would make flat's blocks compete with flora's by source order.
+/// The names of a context's theme chain, most specific first.
+fn names(chain: &StringVec) -> Vec<&str> {
+    chain.as_ref().iter().map(AzString::as_str).collect()
+}
+
+/// The context holds the active theme as a CHAIN, most specific first, built by the one chain
+/// builder (`theme_chain::expand_chain`): the app theme, its `:` prefixes, and the default theme
+/// as the floor every chain ends in (design §7.1). Which of two compiled-in themes' blocks
+/// apply when both are in the chain is the matcher's decision, not the chain's.
 #[test]
-fn the_theme_chain_is_the_app_theme_alone_for_now() {
-    let chain: Vec<String> = app_theme_chain("flora")
-        .as_ref()
-        .iter()
-        .map(|s| s.as_str().to_string())
-        .collect();
-    assert_eq!(chain, vec!["flora".to_string()]);
+fn the_theme_chain_is_the_app_theme_over_the_default_theme() {
+    assert_eq!(names(&app_theme_chain("flora")), ["flora", "flat"]);
+    assert_eq!(names(&app_theme_chain(DEFAULT_APP_THEME)), [DEFAULT_APP_THEME]);
     let ctx = DynamicSelectorContext::default().with_app_theme("flora");
     assert_eq!(ctx.app_theme(), "flora");
     assert_eq!(ctx.theme_chain, app_theme_chain("flora"));
@@ -208,6 +213,32 @@ fn the_theme_chain_is_the_app_theme_alone_for_now() {
         DynamicSelectorContext::default(),
         "a context with another app theme is another context (the cascade epoch and the \
          restyle decision key on context equality)"
+    );
+}
+
+/// `AZ_THEME=xyz:pink` outranks the app's own choice and gives the context the spin-off's prefix
+/// chain over the default theme. Through the variable's VALUE (`ThemeEnv::from_values`), never
+/// the process environment, so no other test sees it.
+#[test]
+fn az_theme_xyz_pink_gives_the_context_the_chain_xyz_pink_xyz_flat() {
+    let env = ThemeEnv::from_values(Some("xyz:pink"), None);
+    let head = resolve_theme_head(env.theme.as_deref(), Some("flora"));
+    assert_eq!(head, "xyz:pink", "the environment outranks the app's choice");
+    let ctx = DynamicSelectorContext::default().with_app_theme(head);
+    assert_eq!(names(&ctx.theme_chain), ["xyz:pink", "xyz", "flat"]);
+    assert_eq!(ctx.app_theme(), "xyz:pink");
+}
+
+/// A mode word is never an app theme: `AppConfig::with_theme("dark")` is an error in the chain,
+/// which falls back to the default theme alone.
+#[test]
+fn a_mode_word_as_the_app_theme_leaves_the_default_chain() {
+    assert_eq!(names(&app_theme_chain("dark")), [DEFAULT_APP_THEME]);
+    assert_eq!(
+        DynamicSelectorContext::default()
+            .with_app_theme("dark")
+            .app_theme(),
+        DEFAULT_APP_THEME
     );
 }
 

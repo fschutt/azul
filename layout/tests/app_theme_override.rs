@@ -167,16 +167,30 @@ fn the_window_context_carries_the_app_theme_beside_the_colour_scheme() {
 
 #[test]
 fn a_stylesheets_theme_blocks_paint_only_under_their_app_theme() {
-    for (app_theme, want) in [("flat", FLAT), ("flora", FLORA), ("monokai", BASE)] {
+    // `monokai` has no block: every theme chain ends in the default theme (the floor, design
+    // §7.1), so an unknown theme looks like flat until someone writes its block.
+    for (app_theme, want) in [("flat", FLAT), ("flora", FLORA), ("monokai", FLAT)] {
         let mut lw = window(defaults::macos_modern_light(), app_theme);
         let ws = window_state(WindowTheme::LightMode);
         lay_out(&mut lw, stylesheet_document(), &ws);
         assert_eq!(
             box_fill(&lw, 40.0, 20.0),
             Some(want),
-            "app theme {app_theme}: its own block, or the base rule when it has none"
+            "app theme {app_theme}: its own block, or the default theme's when it has none"
         );
     }
+}
+
+/// A spin-off app theme (`AppConfig::with_theme("xyz:pink")`, or `AZ_THEME=xyz:pink`, which
+/// `azul_core::app_theme::app_theme` resolves before a window is built) gives the window's
+/// cascade context the prefix chain over the default theme.
+#[test]
+fn a_spin_off_app_theme_gives_the_window_its_prefix_chain_over_the_default() {
+    let lw = window(defaults::macos_modern_light(), "xyz:pink");
+    let ctx = lw.dynamic_selector_context(&window_state(WindowTheme::LightMode));
+    let chain: Vec<&str> = ctx.theme_chain.as_ref().iter().map(AzString::as_str).collect();
+    assert_eq!(chain, ["xyz:pink", "xyz", "flat"]);
+    assert_eq!(ctx.app_theme(), "xyz:pink");
 }
 
 /// A theme switch rebuilds the DOM in the shells, but the cascade must not depend on that: the
@@ -211,7 +225,8 @@ fn a_widgets_inline_theme_blocks_paint_the_active_theme_in_both_colour_schemes()
         ("flat", WindowTheme::DarkMode, FLAT),
         ("flora", WindowTheme::LightMode, FLORA),
         ("flora", WindowTheme::DarkMode, FLORA_NIGHT),
-        ("monokai", WindowTheme::LightMode, BASE),
+        // No block of its own: the default theme's, the floor of every chain.
+        ("monokai", WindowTheme::LightMode, FLAT),
     ] {
         let desktop = match scheme {
             WindowTheme::LightMode => defaults::macos_modern_light(),
