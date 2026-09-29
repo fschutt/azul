@@ -60,15 +60,17 @@ i.e. a monomorphized `CssPropertyValue<T>` alias which has no C constructor func
 - 6884243a4 RED basic goldens Go/Swift/Node/Ruby/PHP/Lua; d4cf2f6c5 their printers
 - 5d28f453b RED basic goldens Zig/Nim/D/OCaml/Haskell/Julia/Pascal; e8e82a719 their printers
   (Pascal = first user of `lang/linear.rs`, the statement-flattening framework)
+- 5d72c7ce0 RED basic goldens for the 15 remaining languages; 120ebd8f7 their printers
+  (linear.rs gained inline `*_expr` hooks + COBOL data-item hooks; ExprSyntax gained
+  `field_value`); all 35 languages registered in `lang::all()`
 
 ## 3. IN PROGRESS
-- batch 4: ada algol68 cobol crystal fortran freebasic lisp odin perl powershell racket red
-  smalltalk v vb6 (RED goldens, then printers)
+- final report `scripts/B2_CSS_CODEGEN_2026_09_29.md`
 
 ## 4. NEXT
-1. finish batch 4 (see IN PROGRESS).
-2. debug server: unknown-lang message from `supported_languages()`.
-3. final report.
+1. final report, then done. The debug-server message (`platform.rs:390`, "Supported: rust, cpp,
+   python") is OUTSIDE the allowed paths (only Cargo.toml wiring may be touched in dll/): left
+   for the parent as a one-line follow-up (`azul_css::codegen::supported_languages()`).
 
 Binding research (3 Explore agents, 2026-09-29) condensed in the session scratchpad:
 lang_cfamily_notes.md / lang_managed_notes.md / lang_exotic_notes.md (if lost: re-run the brief in
