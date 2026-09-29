@@ -584,3 +584,5 @@ mod a_thin_scrollbar_is_pressed_where_it_is_painted;
 mod backdrop_follows_window_activation;
 #[path = "a_box_shadow_paints_once.rs"]
 mod a_box_shadow_paints_once;
+#[path = "a_replaced_inline_style_follows_the_mode.rs"]
+mod a_replaced_inline_style_follows_the_mode;
