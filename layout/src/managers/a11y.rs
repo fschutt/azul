@@ -103,6 +103,52 @@ pub const fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
     !matches!(role, AccessibilityRole::Unknown)
 }
 
+/// The input role of a contenteditable host that says WHAT it edits.
+///
+/// Editability wins over a declared role (a widget's `Text` role included), so
+/// every text field used to be announced as a generic multi-line editor - a
+/// password field too, which a screen reader must treat differently (it does
+/// not echo the keys). The host says what it is the HTML way: the `type`
+/// attribute (`password`, `search`, `email`, `tel`, `url`, `text`), or the
+/// `Protected` accessibility state for a masked field. Anything else keeps the
+/// generic role (`None`).
+#[must_use]
+pub fn typed_text_input_role(
+    node_data: &NodeData,
+    a11y_info: Option<&AccessibilityInfo>,
+) -> Option<Role> {
+    if a11y_info.is_some_and(|info| {
+        info.states
+            .as_ref()
+            .iter()
+            .any(|s| matches!(s, AccessibilityState::Protected))
+    }) {
+        return Some(Role::PasswordInput);
+    }
+    node_data.attributes().as_ref().iter().find_map(|attr| {
+        let azul_core::dom::AttributeType::InputType(t) = attr else {
+            return None;
+        };
+        let t = t.as_str();
+        // ASCII-case-insensitive, as HTML attribute values are.
+        if t.eq_ignore_ascii_case("password") {
+            Some(Role::PasswordInput)
+        } else if t.eq_ignore_ascii_case("search") {
+            Some(Role::SearchInput)
+        } else if t.eq_ignore_ascii_case("email") {
+            Some(Role::EmailInput)
+        } else if t.eq_ignore_ascii_case("tel") {
+            Some(Role::PhoneNumberInput)
+        } else if t.eq_ignore_ascii_case("url") {
+            Some(Role::UrlInput)
+        } else if t.eq_ignore_ascii_case("text") {
+            Some(Role::TextInput)
+        } else {
+            None
+        }
+    })
+}
+
 /// Cursor/selection info passed to the a11y tree builder.
 /// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
@@ -873,7 +919,7 @@ impl A11yManager {
         // `accessibility_role_is_specified`, which is why naming a control no
         // longer erases its role.
         let role = if node_data.is_contenteditable() {
-            Role::MultilineTextInput
+            typed_text_input_role(node_data, a11y_info).unwrap_or(Role::MultilineTextInput)
         } else {
             match a11y_info {
                 Some(info) if accessibility_role_is_specified(&info.role) => {

@@ -1055,13 +1055,10 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     ti.text_input_state.inner.cursor_pos = ti.text_input_state.inner.text.len();
 
-    let label_text: String = ti
-        .text_input_state
-        .inner
-        .text
-        .iter()
-        .filter_map(|s| core::char::from_u32(*s))
-        .collect();
+    // What the line SHOWS - the value, or a password's mask. The engine's
+    // buffer is seeded from it, so this is also what every caret offset the
+    // engine reports indexes into.
+    let label_text: String = crate::widgets::text_input::display_text(&ti.text_input_state.inner);
 
     let placeholder = ti
         .text_input_state

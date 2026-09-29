@@ -24,10 +24,12 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, DomNodeId},
+    dom::{AttributeType, Dom, DomNodeId},
+    form::ValidityState,
     refany::RefAny,
     task::OptionTimerId,
 };
+use unicode_segmentation::UnicodeSegmentation;
 use azul_css::{css::BoxOrStatic, dynamic_selector::OptionCssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -533,18 +535,77 @@ pub struct TextInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The HTML `name` this field submits its value under (see
+    /// [`crate::widgets::form::Form`]). `None` keeps the field out of a form's
+    /// `FormData`, like an `<input>` without a `name`.
+    pub name: OptionString,
     pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// Which HTML `<input type=..>` a [`TextInput`] stands for.
+///
+/// One widget, several modes, rather than one copy of the widget per type:
+/// every kind edits a single line of text through the same engine-owned
+/// buffer. The kind decides what the line SHOWS (a password shows one bullet
+/// per grapheme), which checks the value must pass (email and url syntax),
+/// the soft keyboard the platform offers (`type` attribute, read by
+/// `crate::form::input_purpose`) and what assistive technology announces.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TextInputKind {
+    /// `type=text`: plain text, the default.
+    #[default]
+    Text,
+    /// `type=password`: the line shows one bullet per grapheme, the real text
+    /// lives only in the widget state; copy and cut are refused.
+    Password,
+    /// `type=search`: a clear button appears while the field holds text;
+    /// Escape clears it too.
+    Search,
+    /// `type=email`: the value must be a valid e-mail address.
+    Email,
+    /// `type=tel`: any text; only the soft keyboard changes (a phone pad).
+    Tel,
+    /// `type=url`: the value must be an absolute URL.
+    Url,
+}
+
+impl TextInputKind {
+    /// The HTML `type` attribute value this kind stands for.
+    #[must_use]
+    pub const fn html_type(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Password => "password",
+            Self::Search => "search",
+            Self::Email => "email",
+            Self::Tel => "tel",
+            Self::Url => "url",
+        }
+    }
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputState {
+    /// The REAL value, one `u32` per Unicode scalar - for a password too:
+    /// what the line shows is derived from it (see [`display_text`]).
     pub text: U32Vec, // Vec<char>
     pub placeholder: OptionString,
     pub max_len: usize,
     pub selection: OptionTextInputSelection,
     pub cursor_pos: usize,
+    /// HTML `pattern`: the WHOLE value must match this regular expression
+    /// (compiled as `^(?:pattern)$`). An empty value is exempt, a pattern that
+    /// does not compile is ignored - both exactly as in HTML.
+    pub pattern: OptionString,
+    /// Which constraints the current value fails - HTML's `ValidityState`.
+    /// Recomputed by the widget on every build and every edit; read it from
+    /// any callback that receives this state.
+    pub validity: ValidityState,
+    /// Which `<input type>` this field is.
+    pub kind: TextInputKind,
 }
 
 /// [`TextInputState`] together with optional user callbacks and cursor animation state.
@@ -687,6 +748,7 @@ impl Default for TextInput {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            name: OptionString::None,
             theme: None.into(),
         }
     }
@@ -704,6 +766,9 @@ impl Default for TextInputState {
             max_len: usize::MAX,
             selection: None.into(),
             cursor_pos: 0,
+            pattern: OptionString::None,
+            validity: ValidityState::valid(),
+            kind: TextInputKind::Text,
         }
     }
 }
@@ -716,6 +781,90 @@ impl TextInputState {
             .filter_map(|c| core::char::from_u32(*c))
             .collect()
     }
+}
+
+// ---------------------------------------------------------------------------
+// type=password: the line shows a mask, the state keeps the value
+// ---------------------------------------------------------------------------
+
+/// The glyph a password field paints in place of each grapheme.
+pub const PASSWORD_MASK_CHAR: char = '\u{2022}';
+
+/// Byte length of [`PASSWORD_MASK_CHAR`]: every offset the engine reports on a
+/// masked line is a multiple of it, because the line holds nothing else.
+const MASK_LEN: usize = PASSWORD_MASK_CHAR.len_utf8();
+
+/// Number of user-perceived characters (extended grapheme clusters) in `s`.
+fn grapheme_count(s: &str) -> usize {
+    s.graphemes(true).count()
+}
+
+/// One mask glyph per grapheme of `s`.
+fn mask_for(s: &str) -> String {
+    core::iter::repeat_n(PASSWORD_MASK_CHAR, grapheme_count(s)).collect()
+}
+
+/// The text the value line SHOWS for `state`: the value itself, or - for a
+/// password - one [`PASSWORD_MASK_CHAR`] per grapheme of it.
+///
+/// The engine's buffer holds exactly this string, so every caret and selection
+/// offset the engine reports is an offset into it.
+#[must_use]
+pub fn display_text(state: &TextInputState) -> String {
+    let text = state.get_text();
+    if state.kind == TextInputKind::Password {
+        mask_for(&text)
+    } else {
+        text
+    }
+}
+
+/// Byte offset in `real` of the boundary before its `index`-th grapheme, or the
+/// end of `real` when it has fewer.
+fn grapheme_byte_offset(real: &str, index: usize) -> usize {
+    real.grapheme_indices(true)
+        .nth(index)
+        .map_or(real.len(), |(at, _)| at)
+}
+
+/// A byte offset into a MASKED line (one glyph per grapheme), mapped onto the
+/// matching grapheme boundary of the real value `real`.
+fn masked_to_real_offset(real: &str, masked_byte: usize) -> usize {
+    grapheme_byte_offset(real, masked_byte / MASK_LEN)
+}
+
+/// The real value after the engine DELETED bullets from a masked line.
+///
+/// `masked_after` is how many bullets the line holds now, `caret` the grapheme
+/// index the caret sits at after the deletion - which is where the deleted run
+/// started, for Backspace, Delete and a selection alike. `None` when there is
+/// nothing to mirror: nothing was removed, or the line GREW without any
+/// characters to show for it (an undo re-inserting bullets), which bullets can
+/// never be turned back into.
+fn masked_deletion(real: &str, masked_after: usize, caret: usize) -> Option<String> {
+    let before = grapheme_count(real);
+    if masked_after >= before {
+        return None;
+    }
+    let removed = before - masked_after;
+    let at = caret.min(masked_after);
+    let start = grapheme_byte_offset(real, at);
+    let end = grapheme_byte_offset(real, at + removed);
+    let mut next = String::with_capacity(real.len());
+    next.push_str(&real[..start]);
+    next.push_str(&real[end..]);
+    Some(next)
+}
+
+/// `s` as the widget's scalar buffer.
+fn to_units(s: &str) -> U32Vec {
+    s.chars().map(|c| c as u32).collect::<Vec<_>>().into()
+}
+
+/// Which constraints `state`'s current value fails.
+fn validity_of(state: &TextInputState) -> ValidityState {
+    let _ = state;
+    ValidityState::valid()
 }
 
 impl Default for TextInputStateWrapper {
@@ -768,6 +917,81 @@ impl TextInput {
     #[must_use]
     pub fn create() -> Self {
         Self::default()
+    }
+
+    /// A field of the given `<input type>`.
+    #[must_use]
+    pub fn create_with_kind(kind: TextInputKind) -> Self {
+        Self::default().with_kind(kind)
+    }
+
+    /// `<input type=password>`: shows one bullet per grapheme, keeps the real
+    /// text in the state, refuses copy and cut.
+    #[must_use]
+    pub fn create_password() -> Self {
+        Self::create_with_kind(TextInputKind::Password)
+    }
+
+    /// `<input type=search>`: a clear button while non-empty; Escape clears.
+    #[must_use]
+    pub fn create_search() -> Self {
+        Self::create_with_kind(TextInputKind::Search)
+    }
+
+    /// `<input type=email>`: validated as an e-mail address.
+    #[must_use]
+    pub fn create_email() -> Self {
+        Self::create_with_kind(TextInputKind::Email)
+    }
+
+    /// `<input type=tel>`: plain text with a phone-pad soft keyboard.
+    #[must_use]
+    pub fn create_tel() -> Self {
+        Self::create_with_kind(TextInputKind::Tel)
+    }
+
+    /// `<input type=url>`: validated as an absolute URL.
+    #[must_use]
+    pub fn create_url() -> Self {
+        Self::create_with_kind(TextInputKind::Url)
+    }
+
+    /// Switch this field to another `<input type>`.
+    pub const fn set_kind(&mut self, kind: TextInputKind) {
+        self.text_input_state.inner.kind = kind;
+    }
+
+    /// [`Self::set_kind`] for the builder chain.
+    #[must_use]
+    pub const fn with_kind(mut self, kind: TextInputKind) -> Self {
+        self.set_kind(kind);
+        self
+    }
+
+    /// HTML `pattern`: the whole value must match `pattern` (see
+    /// [`TextInputState::pattern`]).
+    pub fn set_pattern(&mut self, pattern: AzString) {
+        self.text_input_state.inner.pattern = Some(pattern).into();
+    }
+
+    /// [`Self::set_pattern`] for the builder chain.
+    #[must_use]
+    pub fn with_pattern(mut self, pattern: AzString) -> Self {
+        self.set_pattern(pattern);
+        self
+    }
+
+    /// The name this field's value is submitted under in a
+    /// [`crate::widgets::form::Form`].
+    pub fn set_name(&mut self, name: AzString) {
+        self.name = Some(name).into();
+    }
+
+    /// [`Self::set_name`] for the builder chain.
+    #[must_use]
+    pub fn with_name(mut self, name: AzString) -> Self {
+        self.set_name(name);
+        self
     }
 
     #[must_use]
@@ -919,13 +1143,85 @@ impl TextInput {
             .theme
             .into_option()
             .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
+        let kind = self.text_input_state.inner.kind;
+        let name = self.name.clone();
+        let a11y_name = self.accessibility_name.clone();
+        let container = match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
             crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::text_input(self)
             }
+        };
+        with_kind_semantics(container, kind, name, a11y_name)
+    }
+}
+
+/// What every `<input type>` adds on top of the themed field, in ONE place so
+/// the two themes cannot drift on it: the `type` and `name` attributes, the
+/// accessibility declaration a password needs, and the clipboard veto.
+///
+/// A plain `type=text` field without a name gets nothing here, so its DOM is
+/// exactly what it was before the kinds existed.
+fn with_kind_semantics(
+    mut container: Dom,
+    kind: TextInputKind,
+    name: OptionString,
+    a11y_name: OptionString,
+) -> Dom {
+    use azul_core::{
+        a11y::AccessibilityState,
+        dom::{EventFilter, FocusEventFilter},
+        refany::OptionRefAny,
+    };
+
+    // The soft keyboard reads the `type` attribute of the focused node
+    // (`crate::form::input_purpose`), and so does the accessibility tree.
+    if kind != TextInputKind::Text {
+        container = container.with_attribute(AttributeType::InputType(AzString::from_const_str(
+            kind.html_type(),
+        )));
+    }
+    if let Some(name) = name.into_option() {
+        container = container.with_attribute(AttributeType::Name(name));
+    }
+
+    if let Some(mut a11y) = container.root.get_accessibility_info().cloned() {
+        if let Some(explicit) = a11y_name.into_option() {
+            a11y.accessibility_name = Some(explicit).into();
+        }
+        if kind == TextInputKind::Password {
+            // The value would be read out loud. HTML's password field exposes
+            // no value either; the bullets are all an AT user gets, like
+            // everyone else.
+            a11y.accessibility_value = OptionString::None;
+            let mut states = a11y.states.clone().into_library_owned_vec();
+            if !states.contains(&AccessibilityState::Protected) {
+                states.push(AccessibilityState::Protected);
+            }
+            a11y.states = states.into();
+        }
+        container.root.set_accessibility_info(a11y);
+    }
+
+    if kind == TextInputKind::Password {
+        // The engine's buffer holds bullets, so a copy would only ever copy
+        // bullets - but a password field that pretends to copy is still a
+        // lie. HTML refuses both, and so does every native toolkit.
+        if let Some(state) = container.root.get_dataset().cloned() {
+            for filter in [FocusEventFilter::Copy, FocusEventFilter::Cut] {
+                container.root.add_callback(
+                    EventFilter::Focus(filter),
+                    state.clone(),
+                    CoreCallback {
+                        cb: default_on_clipboard_veto as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                );
+            }
         }
     }
+
+    container
 }
 
 pub const TEXT_INPUT_CONTAINER_CLASS: &str = "__azul-native-text-input-container";
@@ -960,6 +1256,12 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 /// whose text sits under a block wrapper it does not descend into. An empty
 /// read therefore never clears a non-empty mirror.
 fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomNodeId) {
+    // A password's engine buffer holds BULLETS: adopting it would overwrite
+    // the real value with its own mask. Its edits are mirrored one by one
+    // instead (`masked_insertion` / `masked_notification`).
+    if state.kind == TextInputKind::Password {
+        return;
+    }
     let Some(text) = info.get_node_text_content(node) else {
         return;
     };
@@ -1019,6 +1321,170 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
+/// The engine's selection in the widget's public shape, as offsets into the
+/// REAL value - for a password the engine's offsets index the bullets, so they
+/// are mapped onto the value's grapheme boundaries first.
+fn mirror_selection(
+    info: &CallbackInfo,
+    node: DomNodeId,
+    state: &TextInputState,
+) -> OptionTextInputSelection {
+    let text = state.get_text();
+    if state.kind != TextInputKind::Password {
+        return engine_selection(info, node, text.len()).into();
+    }
+    match engine_selection(info, node, grapheme_count(&text) * MASK_LEN) {
+        Some(TextInputSelection::FromTo(r)) => {
+            Some(TextInputSelection::FromTo(TextInputSelectionRange {
+                dir_from: masked_to_real_offset(&text, r.dir_from),
+                dir_to: masked_to_real_offset(&text, r.dir_to),
+            }))
+            .into()
+        }
+        other => other.into(),
+    }
+}
+
+/// The engine's caret as a byte offset into the REAL value (see
+/// [`mirror_selection`]).
+fn mirror_caret(info: &CallbackInfo, node: DomNodeId, state: &TextInputState) -> Option<usize> {
+    let caret = engine_caret(info, node)?;
+    if state.kind == TextInputKind::Password {
+        Some(masked_to_real_offset(&state.get_text(), caret))
+    } else {
+        Some(caret)
+    }
+}
+
+/// Copy and Cut on a password field: refused.
+///
+/// Registered only on `type=password` fields, for `FocusEventFilter::Copy` and
+/// `FocusEventFilter::Cut`, which fire BEFORE the clipboard default and are
+/// cancellable.
+#[must_use]
+pub extern "C" fn default_on_clipboard_veto(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.prevent_default();
+    Update::DoNothing
+}
+
+/// The user's `on_text_input` hook, or "accept, nothing to redraw" without one.
+fn run_text_input_hook(
+    wrapper: &mut TextInputStateWrapper,
+    info: CallbackInfo,
+    preview: TextInputState,
+) -> OnTextInputReturn {
+    match wrapper.on_text_input.as_mut() {
+        Some(TextInputOnTextInput { callback, refany }) => {
+            callback.invoke(refany.clone(), info, preview)
+        }
+        None => OnTextInputReturn {
+            update: Update::DoNothing,
+            valid: TextInputValid::Yes,
+        },
+    }
+}
+
+/// A recorded insertion into a PASSWORD field.
+///
+/// The engine's line holds one bullet per grapheme, so its caret and selection
+/// are mapped onto the real value, the typed text is spliced into the REAL
+/// value, the user's hook sees the real result, and - if the edit stands - the
+/// pending changeset is rewritten so the engine inserts bullets instead of the
+/// characters. A rejected edit is vetoed exactly like on a plain field.
+fn masked_insertion(
+    wrapper: &mut TextInputStateWrapper,
+    mut info: CallbackInfo,
+    container: DomNodeId,
+    inserted: &str,
+) -> Update {
+    let real = wrapper.inner.get_text();
+    let shown = grapheme_count(&real);
+
+    // The replaced range, in graphemes. The engine deletes the live
+    // selection before it inserts; without one it inserts at the caret.
+    let (from, to) = match engine_selection(&info, container, shown * MASK_LEN) {
+        Some(TextInputSelection::All) => (0, shown),
+        Some(TextInputSelection::FromTo(r)) => {
+            let a = (r.dir_from.min(r.dir_to) / MASK_LEN).min(shown);
+            let b = (r.dir_from.max(r.dir_to) / MASK_LEN).min(shown);
+            (a, b)
+        }
+        None => {
+            let at = engine_caret(&info, container)
+                .map_or(shown, |c| c / MASK_LEN)
+                .min(shown);
+            (at, at)
+        }
+    };
+    let start = grapheme_byte_offset(&real, from);
+    let end = grapheme_byte_offset(&real, to);
+
+    // maxlength, counted in characters of the REAL value, replacement-aware
+    // like the plain path.
+    let current_chars = real.chars().count();
+    let prospective = current_chars
+        .saturating_sub(real[start..end].chars().count())
+        .saturating_add(inserted.chars().count());
+    if prospective > wrapper.inner.max_len && prospective > current_chars {
+        info.prevent_default();
+        return Update::DoNothing;
+    }
+
+    let mut next = String::with_capacity(real.len() + inserted.len());
+    next.push_str(&real[..start]);
+    next.push_str(inserted);
+    next.push_str(&real[end..]);
+
+    let mut preview = wrapper.inner.clone();
+    preview.text = to_units(&next);
+    preview.cursor_pos = start + inserted.len();
+    preview.selection = None.into();
+    preview.validity = validity_of(&preview);
+
+    let result = run_text_input_hook(wrapper, info, preview.clone());
+    if result.valid == TextInputValid::No {
+        info.prevent_default();
+        return result.update;
+    }
+
+    // As many bullets as the line needs to show the NEW value: normally one
+    // per inserted grapheme, fewer when the insertion fused with a neighbour
+    // (a combining mark typed after its base letter adds no grapheme).
+    let bullets = grapheme_count(&next).saturating_sub(shown - (to - from));
+    if let Some(mut changeset) = info.get_text_changeset().cloned() {
+        changeset.inserted_text = AzString::from(
+            core::iter::repeat_n(PASSWORD_MASK_CHAR, bullets).collect::<String>(),
+        );
+        info.set_text_changeset(changeset);
+    }
+    wrapper.inner = preview;
+    result.update
+}
+
+/// A post-edit notification on a PASSWORD field: the engine already deleted
+/// bullets (Backspace, Delete, a cut selection) and the real value has to lose
+/// the same graphemes. See [`masked_deletion`].
+fn masked_notification(
+    wrapper: &mut TextInputStateWrapper,
+    info: CallbackInfo,
+    container: DomNodeId,
+) -> Option<Update> {
+    let masked = info.get_node_text_content(container)?;
+    let masked_after = grapheme_count(&masked);
+    let caret = engine_caret(&info, container).map_or(masked_after, |c| c / MASK_LEN);
+    let next = masked_deletion(&wrapper.inner.get_text(), masked_after, caret)?;
+
+    let cursor = grapheme_byte_offset(&next, caret.min(masked_after));
+    wrapper.inner.text = to_units(&next);
+    wrapper.inner.cursor_pos = cursor;
+    wrapper.inner.selection = None.into();
+    wrapper.inner.validity = validity_of(&wrapper.inner);
+
+    // Already applied: the hook is told, but cannot veto.
+    let preview = wrapper.inner.clone();
+    Some(run_text_input_hook(wrapper, info, preview).update)
+}
+
 #[must_use]
 pub extern "C" fn default_on_focus_received(
     mut text_input: RefAny,
@@ -1048,7 +1514,8 @@ pub extern "C" fn default_on_focus_received(
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
     let end_of_text = text_input.inner.text.len();
-    text_input.inner.cursor_pos = engine_caret(&info, container).unwrap_or(end_of_text);
+    text_input.inner.cursor_pos =
+        mirror_caret(&info, container, &text_input.inner).unwrap_or(end_of_text);
 
     Update::DoNothing
 }
@@ -1105,8 +1572,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let _value = value_node(&info)?;
     let container = info.get_hit_node();
+    let is_password = text_input.inner.kind == TextInputKind::Password;
 
     if inserted_text.is_empty() {
+        if is_password {
+            return masked_notification(&mut text_input, info, container);
+        }
         // Idempotent: a notification that changed nothing observable (a
         // spurious Input, an edit already mirrored) stays a strict no-op, so
         // the no-changeset pins keep holding.
@@ -1117,6 +1588,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         }
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        text_input.inner.validity = validity_of(&text_input.inner);
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1139,6 +1611,15 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     if inserted_text.contains('\n') {
         info.prevent_default();
         return Some(Update::DoNothing);
+    }
+
+    if is_password {
+        return Some(masked_insertion(
+            &mut text_input,
+            info,
+            container,
+            &inserted_text,
+        ));
     }
 
     let caret = engine_caret(&info, container);
@@ -1187,6 +1668,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         mirror_insertion(&mut inner_clone, &inserted_text, caret);
         let len = inner_clone.get_text().len();
         inner_clone.selection = engine_selection(&info, container, len).into();
+        inner_clone.validity = validity_of(&inner_clone);
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, refany }) => {
@@ -1206,6 +1688,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         mirror_insertion(&mut text_input.inner, &inserted_text, caret);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        text_input.inner.validity = validity_of(&text_input.inner);
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1240,8 +1723,7 @@ fn default_on_virtual_key_down_inner(
         // rustc doesn't understand the borrowing lifetime here
         let text_input = &mut *text_input;
         let mut inner_clone = text_input.inner.clone();
-        let len = inner_clone.get_text().len();
-        inner_clone.selection = engine_selection(&info, container, len).into();
+        inner_clone.selection = mirror_selection(&info, container, &inner_clone);
         match text_input.on_virtual_key_down.as_mut() {
             Some(TextInputOnVirtualKeyDown { callback, refany }) => {
                 callback.invoke(refany.clone(), info, inner_clone)
@@ -1253,8 +1735,7 @@ fn default_on_virtual_key_down_inner(
         }
     };
 
-    let len = text_input.inner.get_text().len();
-    text_input.inner.selection = engine_selection(&info, container, len).into();
+    text_input.inner.selection = mirror_selection(&info, container, &text_input.inner);
 
     if result.valid == TextInputValid::No {
         info.prevent_default();
