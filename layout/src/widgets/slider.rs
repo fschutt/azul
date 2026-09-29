@@ -296,9 +296,8 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No opinion: the slider follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -339,8 +338,8 @@ impl Slider {
         })
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -403,16 +402,17 @@ impl Slider {
         self
     }
 
+    /// Renders the slider. Unpinned (`theme: None`, the default), it follows
+    /// the APP theme: built in the structure of the theme its DOM is built
+    /// for, every node carrying flat's and flora's blocks
+    /// (`themes::flat::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::slider(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::slider(self)
-            }
-            _ => Dom::create_div(),
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::slider(self),
+            Some(UiTheme::Flora) => flora::slider(self),
+            None => flat::follow_app_theme(self, flat::slider, flora::slider),
         }
     }
 }
@@ -2261,7 +2261,9 @@ mod autotest_generated {
         // theme appends the declarations only it can write — here a dark fill
         // for each of the two nodes, asserted by the test below. Comparing the
         // theme-independent half is what isolates the widget's own styling.
-        let s = Slider::create(75.0, 0.0, 100.0);
+        // (One theme's slider: unpinned, the themes' blocks repeat what they
+        // twin differently.)
+        let s = Slider::create(75.0, 0.0, 100.0).with_theme(crate::widgets::themes::UiTheme::Flat);
         let (track_props, thumb_props) = (
             properties(&s.resolved_track_style()),
             properties(&s.resolved_thumb_style()),

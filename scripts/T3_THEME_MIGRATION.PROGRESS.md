@@ -72,9 +72,12 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   None = DOM merge instead of an EMPTY div (a pre-existing bug: an explicitly unpinned area
   rendered nothing); 1 pin: the border-states test pins flat)
 
+- slider: RED 223e3c5d6, impl: see git log (`create` theme `Some(Flat)` -> `None`; `dom()` None
+  = DOM merge instead of an empty div; 1 pin: the verbatim-styles test pins flat)
+
 ## IN PROGRESS
 
-- slider
+- switch
 
 ## NEXT
 
