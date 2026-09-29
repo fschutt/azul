@@ -144,6 +144,12 @@ pub struct FileInputStateWrapper {
     pub file_dialog_title: AzString,
     /// Default directory of file input
     pub default_dir: OptionString,
+    /// HTML `accept`: the kinds of file the dialog offers - extensions
+    /// (`.png`), MIME types (`image/png`) or a whole kind (`image/*`).
+    /// Empty = every file.
+    pub accept: StringVec,
+    /// HTML `multiple`: the dialog picks several files.
+    pub multiple: bool,
 }
 
 impl Default for FileInputStateWrapper {
@@ -153,20 +159,39 @@ impl Default for FileInputStateWrapper {
             on_path_change: None.into(),
             file_dialog_title: "Select File".into(),
             default_dir: None.into(),
+            accept: StringVec::from_const_slice(&[]),
+            multiple: false,
         }
     }
 }
 
-/// Current state of the file input (selected path)
+/// Current state of the file input (the selected files)
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileInputState {
+    /// The selected file - the first of `paths`.
     pub path: OptionString,
+    /// Every selected file (one without `multiple`), in the order picked.
+    pub paths: StringVec,
 }
 
 impl Default for FileInputState {
     fn default() -> Self {
-        Self { path: None.into() }
+        Self {
+            path: None.into(),
+            paths: StringVec::from_const_slice(&[]),
+        }
+    }
+}
+
+impl FileInputState {
+    /// The state holding `paths`: `path` is the first.
+    #[must_use]
+    pub fn with_paths(paths: StringVec) -> Self {
+        Self {
+            path: paths.as_ref().first().cloned().into(),
+            paths,
+        }
     }
 }
 
@@ -198,13 +223,52 @@ azul_core::impl_managed_callback! {
 impl FileInput {
     #[must_use]
     pub fn create(path: OptionString) -> Self {
+        let paths = StringVec::from_vec(path.as_ref().cloned().into_iter().collect());
         Self {
             file_input_state: FileInputStateWrapper {
-                inner: FileInputState { path },
+                inner: FileInputState { path, paths },
                 ..Default::default()
             },
             ..Default::default()
         }
+    }
+
+    /// The selected files (the first is `path`) - what a `multiple` input
+    /// shows after a pick of several.
+    pub fn set_paths(&mut self, paths: StringVec) {
+        self.file_input_state.inner = FileInputState::with_paths(paths);
+    }
+
+    /// [`Self::set_paths`] for the builder chain.
+    #[must_use]
+    pub fn with_paths(mut self, paths: StringVec) -> Self {
+        self.set_paths(paths);
+        self
+    }
+
+    /// HTML `accept`: the kinds of file the dialog offers (see
+    /// [`FileInputStateWrapper::accept`]).
+    pub fn set_accept(&mut self, accept: StringVec) {
+        self.file_input_state.accept = accept;
+    }
+
+    /// [`Self::set_accept`] for the builder chain.
+    #[must_use]
+    pub fn with_accept(mut self, accept: StringVec) -> Self {
+        self.set_accept(accept);
+        self
+    }
+
+    /// HTML `multiple`: the dialog picks several files.
+    pub const fn set_multiple(&mut self, multiple: bool) {
+        self.file_input_state.multiple = multiple;
+    }
+
+    /// [`Self::set_multiple`] for the builder chain.
+    #[must_use]
+    pub const fn with_multiple(mut self, multiple: bool) -> Self {
+        self.set_multiple(multiple);
+        self
     }
 
     #[inline]
@@ -277,9 +341,11 @@ impl FileInput {
 
     /// The input as a [`Button`] pinned to `theme`.
     fn dom_in(self, theme: UiTheme) -> Dom {
-        // either show the default text or the file name
-        // including the extension as the button label
+        // either show the default text, the file name including the
+        // extension, or - several files picked - how many (HTML's "2 files")
+        let picked = self.file_input_state.inner.paths.as_ref().len();
         let button_label = match self.file_input_state.inner.path.as_ref() {
+            Some(_) if picked > 1 => AzString::from(alloc::format!("{picked} files")),
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
                 .map_or_else(
@@ -332,22 +398,37 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
     // path, and `Update::RefreshDom` is still returned for the relabel.
     #[cfg(feature = "extra")]
     {
-        use crate::desktop::dialogs::{FileDialog, OptionFileTypeList};
+        use crate::desktop::dialogs::FileDialog;
 
-        let (title, default_dir) = {
+        let (title, default_dir, filter, multiple) = {
             let Some(state) = refany.downcast_ref::<FileInputStateWrapper>() else {
                 return Update::DoNothing;
             };
-            (state.file_dialog_title.clone(), state.default_dir.clone())
+            (
+                state.file_dialog_title.clone(),
+                state.default_dir.clone(),
+                accept_filter(&state.accept),
+                state.multiple,
+            )
         };
         let _ = info;
-        let _request = FileDialog::open_file(
-            title,
-            default_dir,
-            OptionFileTypeList::None,
-            refany.clone(),
-            crate::callbacks::ResumeCallback::create(fileinput_on_file_picked),
-        );
+        let _request = if multiple {
+            FileDialog::open_multiple_files(
+                title,
+                default_dir,
+                filter,
+                refany.clone(),
+                crate::callbacks::ResumeCallback::create(fileinput_on_files_picked),
+            )
+        } else {
+            FileDialog::open_file(
+                title,
+                default_dir,
+                filter,
+                refany.clone(),
+                crate::callbacks::ResumeCallback::create(fileinput_on_file_picked),
+            )
+        };
         Update::DoNothing
     }
     // Without the `extra` feature there is no dialog to show; the widget
@@ -375,7 +456,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
 #[cfg(feature = "extra")]
 extern "C" fn fileinput_on_file_picked(
     mut refany: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
     result: RefAny,
 ) -> Update {
     use crate::desktop::dialogs::FileOpenResult;
@@ -386,11 +467,48 @@ extern "C" fn fileinput_on_file_picked(
     let Some(path) = picked.path.into_option() else {
         return Update::DoNothing;
     };
+    set_picked_files(
+        &mut refany,
+        info,
+        StringVec::from_vec(alloc::vec![path.inner]),
+    )
+}
+
+/// Resume half of [`fileinput_on_click`] for a `multiple` input: stores every
+/// picked file and fires the app's `on_path_change`. A cancelled dialog (no
+/// file) changes nothing.
+#[cfg(feature = "extra")]
+extern "C" fn fileinput_on_files_picked(
+    mut refany: RefAny,
+    info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    use crate::desktop::dialogs::FileOpenMultiResult;
+
+    let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let paths: alloc::vec::Vec<AzString> = picked
+        .paths
+        .as_ref()
+        .iter()
+        .map(|p| p.inner.clone())
+        .collect();
+    if paths.is_empty() {
+        return Update::DoNothing;
+    }
+    set_picked_files(&mut refany, info, StringVec::from_vec(paths))
+}
+
+/// The user picked `paths`: the input holds them, the app's `on_path_change`
+/// hears them, and the relabel asks for a rebuild.
+#[cfg(feature = "extra")]
+fn set_picked_files(refany: &mut RefAny, info: CallbackInfo, paths: StringVec) -> Update {
     let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
         return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
-    fileinputstatewrapper.inner.path = OptionString::Some(path.inner);
+    fileinputstatewrapper.inner = FileInputState::with_paths(paths);
 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
@@ -401,6 +519,89 @@ extern "C" fn fileinput_on_file_picked(
     };
     result.max_self(Update::RefreshDom);
     result
+}
+
+/// The dialog filter for HTML `accept` tokens, `None` when they name nothing
+/// a filter can express (then the dialog offers every file, as HTML's does
+/// for an unknown `accept`).
+#[cfg(feature = "extra")]
+fn accept_filter(accept: &StringVec) -> crate::desktop::dialogs::OptionFileTypeList {
+    use crate::desktop::dialogs::{FileTypeList, OptionFileTypeList};
+
+    let patterns = accept_patterns(accept);
+    if patterns.is_empty() {
+        return OptionFileTypeList::None;
+    }
+    let descriptor = accept
+        .as_ref()
+        .iter()
+        .map(|t| t.as_str().trim())
+        .filter(|t| !t.is_empty())
+        .collect::<alloc::vec::Vec<_>>()
+        .join(", ");
+    OptionFileTypeList::Some(FileTypeList {
+        document_types: StringVec::from_vec(patterns.into_iter().map(AzString::from).collect()),
+        document_descriptor: AzString::from(descriptor),
+    })
+}
+
+/// The file patterns (`*.png`) HTML `accept` tokens stand for, each once, in
+/// order: an extension is its own pattern (lower-case); a MIME type, the
+/// extensions of its files; `image/*`, `audio/*`, `video/*`, `text/*`, every
+/// extension of that kind a desktop knows. A MIME type this table does not
+/// know is taken by its subtype (`image/bmp` -> `*.bmp`).
+#[cfg_attr(not(feature = "extra"), allow(dead_code))]
+pub(crate) fn accept_patterns(accept: &StringVec) -> alloc::vec::Vec<alloc::string::String> {
+    use alloc::{string::String, vec::Vec};
+
+    /// MIME type -> the extensions of its files.
+    const KNOWN: &[(&str, &[&str])] = &[
+        (
+            "image/*",
+            &["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tif", "tiff"],
+        ),
+        ("audio/*", &["mp3", "wav", "ogg", "flac", "m4a", "aac", "opus"]),
+        ("video/*", &["mp4", "webm", "mkv", "mov", "avi", "m4v"]),
+        ("text/*", &["txt", "csv", "md", "html", "htm", "css", "xml"]),
+        ("image/jpeg", &["jpg", "jpeg"]),
+        ("image/svg+xml", &["svg"]),
+        ("image/x-icon", &["ico"]),
+        ("image/tiff", &["tif", "tiff"]),
+        ("text/plain", &["txt"]),
+        ("text/html", &["html", "htm"]),
+        ("text/markdown", &["md"]),
+        ("audio/mpeg", &["mp3"]),
+        ("video/quicktime", &["mov"]),
+        ("application/pdf", &["pdf"]),
+        ("application/json", &["json"]),
+        ("application/zip", &["zip"]),
+        ("application/xml", &["xml"]),
+    ];
+
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |ext: &str| {
+        let pattern = alloc::format!("*.{ext}");
+        if !out.contains(&pattern) {
+            out.push(pattern);
+        }
+    };
+    for token in accept.as_ref() {
+        let token = token.as_str().trim().to_ascii_lowercase();
+        if let Some(ext) = token.strip_prefix('.') {
+            if !ext.is_empty() {
+                push(ext);
+            }
+        } else if let Some((_, exts)) = KNOWN.iter().find(|(mime, _)| *mime == token) {
+            for ext in exts.iter().copied() {
+                push(ext);
+            }
+        } else if let Some((_, sub)) = token.split_once('/') {
+            if !sub.is_empty() && sub.chars().all(|c| c.is_ascii_alphanumeric()) {
+                push(sub);
+            }
+        }
+    }
+    out
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -1501,6 +1702,7 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(FileInput::create(opt("/tmp/x.txt")).dom());
         let inner = RefAny::new(FileInputState {
             path: opt("/tmp/x.txt"),
+            paths: StringVec::from_vec(vec![AzString::from("/tmp/x.txt")]),
         });
 
         let (update, changes) = click(styled, &inner, node(0));

@@ -355,8 +355,8 @@ pub enum FormValue {
     },
     /// A drop-down's choice index.
     Choice(usize),
-    /// A file input's path.
-    Path(Option<String>),
+    /// A file input's picked files, in the order picked (empty: none).
+    Files(Vec<String>),
 }
 
 /// How many controls a window remembers before it forgets the one touched
@@ -378,10 +378,11 @@ pub enum Submission {
     /// Not a control this memory built (or not a raw control at all): ask
     /// the node itself.
     Unknown,
-    /// Nothing: an unchecked checkbox or radio, a button.
-    Nothing,
-    /// This value, spelled as HTML submits it.
-    Value(String),
+    /// These entries under the control's name, in order, spelled as HTML
+    /// submits them: none for an unchecked checkbox or radio and for a
+    /// button, one per picked file for a file input (one empty entry when
+    /// none is picked), one for every other control.
+    Entries(Vec<String>),
 }
 
 /// How a replaced control's value is spelled in its form's `FormData`.
@@ -408,8 +409,20 @@ impl Spelling {
         }
     }
 
-    /// `value` as HTML's form data set spells it, or `None` for no entry.
-    fn spell(&self, value: &FormValue) -> Option<String> {
+    /// `value` as HTML's form data set spells it: its entries.
+    fn spell(&self, value: &FormValue) -> Vec<String> {
+        match value {
+            // HTML: one entry per file; a file input with nothing picked is
+            // one empty file.
+            FormValue::Files(paths) if paths.is_empty() => alloc::vec![String::new()],
+            FormValue::Files(paths) => paths.clone(),
+            _ => self.spell_one(value).into_iter().collect(),
+        }
+    }
+
+    /// A single-valued `value` as HTML's form data set spells it, or `None`
+    /// for no entry.
+    fn spell_one(&self, value: &FormValue) -> Option<String> {
         match (self.kind, value) {
             (FormWidget::CheckBox | FormWidget::Radio, FormValue::Checked(checked)) => {
                 checked.then(|| self.own_value.clone())
@@ -448,9 +461,7 @@ impl Spelling {
             ) => Some(alloc::format!(
                 "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}"
             )),
-            // HTML: a file input with nothing picked is an empty file.
-            (_, FormValue::Path(path)) => Some(path.clone().unwrap_or_default()),
-            (_, FormValue::Checked(_) | FormValue::Choice(_)) => None,
+            (_, FormValue::Checked(_) | FormValue::Choice(_) | FormValue::Files(_)) => None,
         }
     }
 }
@@ -599,10 +610,7 @@ impl FormControlMemory {
             .entries
             .get(&registered.value_key)
             .map_or(&registered.built, |r| &r.value);
-        registered
-            .spelling
-            .spell(current)
-            .map_or(Submission::Nothing, Submission::Value)
+        Submission::Entries(registered.spelling.spell(current))
     }
 
     /// Note that a build produced the replaced control `control`: its user
@@ -897,6 +905,10 @@ struct Spec {
     alt: Option<String>,
     /// HTML `pattern`, for the text-like types.
     pattern: Option<String>,
+    /// HTML `accept` of a file input, one token per entry.
+    accept: Vec<String>,
+    /// HTML `multiple` of a file input.
+    multiple: bool,
     /// A `<select>`'s options, or the options of the datalist `list` names.
     choices: Vec<Choice>,
     /// A `<select>`'s `<optgroup>`s, over runs of `choices`.
@@ -954,6 +966,15 @@ impl Spec {
             cols: positive(attr_value(node, "cols")),
             alt: attr_value(node, "alt"),
             pattern: attr_value(node, "pattern").filter(|p| !p.is_empty()),
+            accept: attr_value(node, "accept")
+                .map(|a| {
+                    a.split(',')
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            multiple: flag(node, "multiple"),
             choices,
             groups,
             text,
@@ -1302,8 +1323,17 @@ extern "C" fn record_color(mut data: RefAny, _info: CallbackInfo, state: ColorIn
 }
 
 extern "C" fn record_file(mut data: RefAny, _info: CallbackInfo, state: FileInputState) -> Update {
-    let path = state.path.as_ref().map(|p| p.as_str().to_string());
-    remember_with(&mut data, |_| FormValue::Path(path));
+    // Every picked file; a state that names only `path` holds that one.
+    let mut paths: Vec<String> = state
+        .paths
+        .as_ref()
+        .iter()
+        .map(|p| p.as_str().to_string())
+        .collect();
+    if paths.is_empty() {
+        paths.extend(state.path.as_ref().map(|p| p.as_str().to_string()));
+    }
+    remember_with(&mut data, |_| FormValue::Files(paths));
     // The file input relabels by a rebuild (it asks for one itself too).
     Update::RefreshDom
 }
@@ -1610,13 +1640,18 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         }
         FormWidget::FileInput => {
             // A file input's value cannot be set by the page (HTML); only
-            // the user's pick is shown.
-            let path = match &value {
-                Some(FormValue::Path(p)) => p.clone(),
-                _ => None,
+            // the user's pick is shown. `accept` narrows what its dialog
+            // offers, `multiple` lets it pick several files.
+            let paths: Vec<AzString> = match &value {
+                Some(FormValue::Files(paths)) => paths.iter().cloned().map(AzString::from).collect(),
+                _ => Vec::new(),
             };
+            let accept: Vec<AzString> = spec.accept.iter().cloned().map(AzString::from).collect();
             let hook: FileInputOnPathChangeCallbackType = record_file;
-            FileInput::create(path.map(AzString::from).into())
+            FileInput::create(OptionString::None)
+                .with_paths(StringVec::from_vec(paths))
+                .with_accept(StringVec::from_vec(accept))
+                .with_multiple(spec.multiple)
                 .with_on_path_change(recorder, hook)
                 .dom()
         }
@@ -1867,7 +1902,7 @@ fn default_value(kind: FormWidget, spec: &Spec) -> Option<FormValue> {
                 .unwrap_or(BLACK),
         ),
         // A file input's value cannot be set by the page (HTML).
-        FormWidget::FileInput => FormValue::Path(None),
+        FormWidget::FileInput => FormValue::Files(Vec::new()),
         FormWidget::Slider => {
             // HTML's range default: the midpoint, snapped to the step.
             let (min, max) = slider_range(spec);
@@ -1953,13 +1988,13 @@ pub(crate) fn default_submission(raw: &Dom) -> Submission {
     match kind {
         FormWidget::Form => Submission::Unknown,
         // The app's value, submitted as it is.
-        FormWidget::Hidden => Submission::Value(spec.value.clone().unwrap_or_default()),
+        FormWidget::Hidden => {
+            Submission::Entries(alloc::vec![spec.value.clone().unwrap_or_default()])
+        }
         _ => match default_value(kind, &spec) {
-            Some(default) => Spelling::of(kind, &spec, node)
-                .spell(&default)
-                .map_or(Submission::Nothing, Submission::Value),
+            Some(default) => Submission::Entries(Spelling::of(kind, &spec, node).spell(&default)),
             // A button submits nothing unless it is the submitter.
-            None => Submission::Nothing,
+            None => Submission::Entries(Vec::new()),
         },
     }
 }

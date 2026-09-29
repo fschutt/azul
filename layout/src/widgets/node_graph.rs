@@ -6456,18 +6456,16 @@ mod autotest_generated {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::None,
-                },
+                FileInputState::default(),
             )
         });
         let _ = fire(|info| {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::Some(AzString::from_const_str("/tmp/日本語/🎉.txt")),
-                },
+                FileInputState::with_paths(azul_css::StringVec::from_vec(vec![
+                    AzString::from_const_str("/tmp/日本語/🎉.txt"),
+                ])),
             )
         });
 

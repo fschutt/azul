@@ -512,19 +512,22 @@ fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> 
 }
 
 /// What the form-control replacement (`crate::form_controls`) reports for a
-/// raw control, as this module's [`ControlValue`] - `None` for "submits
-/// nothing"; `unknown` answers when it knows nothing of the node.
+/// raw control, as this module's [`ControlValue`]s - its entries, in order:
+/// none for "submits nothing", one per picked file of a file input; `unknown`
+/// answers when it knows nothing of the node.
 fn from_submission(
     submission: Submission,
     unknown: impl FnOnce() -> Option<ControlValue>,
-) -> Option<ControlValue> {
+) -> Vec<ControlValue> {
     match submission {
-        Submission::Value(value) => Some(ControlValue {
-            value: AzString::from(value),
-            valid: true,
-        }),
-        Submission::Nothing => None,
-        Submission::Unknown => unknown(),
+        Submission::Entries(values) => values
+            .into_iter()
+            .map(|value| ControlValue {
+                value: AzString::from(value),
+                valid: true,
+            })
+            .collect(),
+        Submission::Unknown => unknown().into_iter().collect(),
     }
 }
 
@@ -627,18 +630,18 @@ fn collect_initial(children: &[Dom], entries: &mut Vec<FormEntry>, invalid: &mut
             if name.as_str().is_empty() || is_disabled(attributes.as_ref()) {
                 continue;
             }
-            let value = from_submission(crate::form_controls::default_submission(child), || {
+            let values = from_submission(crate::form_controls::default_submission(child), || {
                 control_value(
                     built_control_state(child),
                     value_attribute_of(attributes.as_ref()),
                 )
             });
-            if let Some(value) = value {
+            for value in values {
                 if !value.valid {
                     invalid.push(name.clone());
                 }
                 entries.push(FormEntry {
-                    name,
+                    name: name.clone(),
                     value: value.value,
                 });
             }
@@ -697,20 +700,20 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
         // what the form-control replacement knows of a raw control whose
         // widget keeps nothing readable on its root (a checkbox, a slider,
         // a drop-down); then the node's `value` attribute.
-        let value = match probe_state(dataset) {
-            Some(live) => Some(live),
+        let values = match probe_state(dataset) {
+            Some(live) => alloc::vec![live],
             None => from_submission(replaced_submission(info, node), || {
                 info.get_node_attribute(node, "value")
                     .map(|value| ControlValue { value, valid: true })
             }),
         };
-        if let Some(value) = value {
+        for value in values {
             if !value.valid {
                 invalid.push(name.clone());
                 invalid_nodes.push(field);
             }
             entries.push(FormEntry {
-                name,
+                name: name.clone(),
                 value: value.value,
             });
         }

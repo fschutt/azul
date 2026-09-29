@@ -49,11 +49,16 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   fired by the typing handlers; the state as the root's dataset; FormData probes it; the
   replacement records picks AND typing)
 
+- item 5 fix `95e402b51`
+- item 8c: RED `98f92d649`, fix = next commit (`FileInputStateWrapper.accept/multiple`,
+  `FileInputState.paths`, dialog filter from `accept_patterns`, multi-file dialog + resume,
+  "N files" label; `FormValue::Files`, `Submission::Entries` - one FormData entry per file)
+
 ## IN PROGRESS
-- item 8c (file `accept` / `multiple`)
+- item 7 (hand-built widgets in FormData)
 
 ## NEXT
-- items 8c, 7 (hand-built part), 9 (list + FFI-shaped method), report
+- items 7 (hand-built part), 9 (list + FFI-shaped method), report
 
 ## Open questions
 - none yet
