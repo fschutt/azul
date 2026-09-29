@@ -412,6 +412,53 @@ mod tests {
         let no_commas = "rgb(0,0,0)";
         assert_eq!(split_string_respect_comma(no_commas), vec!["rgb(0,0,0)"]);
     }
+
+    #[test]
+    fn a_comma_inside_a_quoted_string_does_not_split_a_list() {
+        assert_eq!(
+            split_string_respect_comma("\"Foo, Bar\", serif"),
+            vec!["\"Foo, Bar\"", " serif"]
+        );
+        assert_eq!(
+            split_string_respect_comma("'a, b', 'c'"),
+            vec!["'a, b'", " 'c'"]
+        );
+    }
+
+    #[test]
+    fn a_parenthesis_inside_a_quoted_string_does_not_change_the_nesting() {
+        assert_eq!(
+            split_string_respect_comma("url(\"a).png\"), red"),
+            vec!["url(\"a).png\")", " red"]
+        );
+        assert_eq!(
+            split_string_respect_whitespace("url('(.png') no-repeat"),
+            vec!["url('(.png')", "no-repeat"]
+        );
+    }
+
+    #[test]
+    fn whitespace_inside_a_quoted_string_does_not_split_a_value() {
+        assert_eq!(
+            split_string_respect_whitespace("'a b' \"c d\" e"),
+            vec!["'a b'", "\"c d\"", "e"]
+        );
+    }
+
+    #[test]
+    fn an_escaped_quote_does_not_end_a_quoted_string() {
+        // `"a\", b"` is ONE string: the backslash escapes the inner quote.
+        assert_eq!(
+            split_string_respect_comma("\"a\\\", b\", c"),
+            vec!["\"a\\\", b\"", " c"]
+        );
+    }
+
+    #[test]
+    fn a_form_feed_is_css_whitespace() {
+        // CSS whitespace: space, tab, LF, CR and FF.
+        assert_eq!(split_string_respect_whitespace("a\x0Cb"), vec!["a", "b"]);
+    }
 }
 
 #[cfg(test)]
