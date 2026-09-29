@@ -969,11 +969,17 @@ pub fn app_theme_chain(name: &str) -> StringVec {
 /// a malformed name, a `fallback:` cycle), for the one place a theme choice
 /// is reported (`azul_core::app_theme::set_app_theme`).
 ///
-/// No theme has a `fallback:` list yet: the rice loader reads the file
-/// headers that carry them and plugs its header map in here.
+/// A theme's `fallback:` list comes from the installed rice's file headers
+/// ([`crate::rice::installed_fallback_of`], memoized there): nothing without
+/// rice, so headless and test contexts expand to the prefixes plus the
+/// default.
 #[must_use]
 pub fn expand_app_theme_chain(name: &str) -> crate::theme_chain::ThemeChain {
-    crate::theme_chain::expand_chain(name, &|_: &str| Vec::new(), DEFAULT_APP_THEME)
+    #[cfg(feature = "parser")]
+    let fallback_of = |n: &str| crate::rice::installed_fallback_of(n);
+    #[cfg(not(feature = "parser"))]
+    let fallback_of = |_: &str| Vec::new();
+    crate::theme_chain::expand_chain(name, &fallback_of, DEFAULT_APP_THEME)
 }
 
 /// The conditions of an app theme's block as a `&'static` slice, for the
@@ -1948,7 +1954,10 @@ impl DynamicSelector {
     /// were wired through.
     #[must_use]
     pub fn matches_without_context(&self, app_theme: &str) -> bool {
-        matches!(self, Self::Theme(ThemeCondition::Custom(name)) if name.as_str() == app_theme)
+        // The chain matcher on the one-entry chain `[app_theme]`: prefix
+        // matching and the compiled-in floor, exactly as in a window.
+        matches!(self, Self::Theme(ThemeCondition::Custom(name))
+            if app_theme_rank(&[app_theme], name.as_str()).is_some())
     }
 
     /// Check if this selector matches in the given context

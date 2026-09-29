@@ -1654,6 +1654,11 @@ struct ProcessRice {
     reload_signal: bool,
     /// A load whose listing nobody printed yet.
     report_pending: bool,
+    /// [`installed_fallback_of`]'s answers: the chain builder runs whenever
+    /// a context is built (every restyle, every widget's structure pick),
+    /// and the headers only change with the rice tree - a watch reload
+    /// clears this.
+    fallbacks: alloc::collections::BTreeMap<String, Vec<String>>,
 }
 
 static PROCESS: std::sync::Mutex<Option<ProcessRice>> = std::sync::Mutex::new(None);
@@ -1683,6 +1688,7 @@ pub fn install_with_mode(env: RiceEnv, mode: RicingMode) {
             fingerprint: None,
             reload_signal: false,
             report_pending: false,
+            fallbacks: alloc::collections::BTreeMap::new(),
         });
     });
 }
@@ -1762,6 +1768,7 @@ pub fn poll_watch() -> bool {
             Some(before) if before != now => {
                 p.fingerprint = Some(now);
                 p.loaded = None;
+                p.fallbacks.clear();
                 p.generation = p.generation.wrapping_add(1);
                 p.reload_signal = true;
                 true
@@ -1846,12 +1853,27 @@ pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
 /// [`install`] and under `AZ_RICING=off`.
 #[must_use]
 pub fn installed_fallback_of(name: &str) -> Vec<String> {
-    let env = with_process(|p| {
-        p.as_ref()
-            .filter(|p| p.mode != RicingMode::Off)
-            .map(|p| p.env.clone())
+    // No rice (headless, tests, `AZ_RICING=off`): nothing, without a read.
+    let cached = with_process(|p| match p.as_ref() {
+        Some(p) if p.mode != RicingMode::Off => Some(p.fallbacks.get(name).cloned()),
+        _ => None,
     });
-    env.map(|env| fallback_of(&env, name)).unwrap_or_default()
+    match cached {
+        None => return Vec::new(),
+        Some(Some(hit)) => return hit,
+        Some(None) => {}
+    }
+    let Some(env) = with_process(|p| p.as_ref().map(|p| p.env.clone())) else {
+        return Vec::new();
+    };
+    // Read outside the lock; the first answer per name is kept.
+    let found = fallback_of(&env, name);
+    with_process(|p| {
+        if let Some(p) = p.as_mut() {
+            p.fallbacks.insert(name.to_string(), found.clone());
+        }
+    });
+    found
 }
 
 /// A hash of the rice tree's file names, sizes and modification times (and

@@ -1236,12 +1236,19 @@ mod follow_tests {
     }
 
     #[test]
-    fn under_an_unknown_theme_only_the_shared_declarations_of_a_followed_part_apply() {
+    fn under_an_unknown_theme_a_followed_part_resolves_like_the_default_theme() {
+        // An unknown theme's chain is `[monokai, flat]` (the app default is
+        // always the last entry, §7.1), so the default theme's blocks are the
+        // floor: an unknown theme looks like the default, never like no theme.
         let (flat, flora) = parts();
         let merged = follow_props(&flat, &flora);
-        let got = resolve(merged.as_slice(), "monokai", false, None);
-        let types: Vec<CssPropertyType> = got.iter().map(|(t, _)| *t).collect();
-        assert_eq!(types, vec![CssPropertyType::Display], "{got:?}");
+        for dark in [false, true] {
+            assert_eq!(
+                resolve(merged.as_slice(), "monokai", dark, None),
+                resolve(merged.as_slice(), azul_css::dynamic_selector::DEFAULT_APP_THEME, dark, None),
+                "dark: {dark}"
+            );
+        }
     }
 
     fn node(theme: UiTheme, props: Vec<P>, children: Vec<Dom>) -> Dom {

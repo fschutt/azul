@@ -719,10 +719,9 @@ impl CssPropertyCache {
         // source order), refilled per node: Step 4 applies them in turn.
         let mut inline_in_order = Vec::new();
         let dyn_ctx = self.dynamic_context.as_deref();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
         let rank = |conds: &[azul_css::dynamic_selector::DynamicSelector]| {
-            dyn_ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
-                ctx.cascade_rank(conds)
-            })
+            crate::prop_cache::rank_of(dyn_ctx, no_context_theme.as_ref(), conds)
         };
 
         for i in 0..node_count {
@@ -932,10 +931,6 @@ impl CssPropertyCache {
 
             // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
-            let no_context_theme = self
-                .dynamic_context
-                .is_none()
-                .then(crate::app_theme::current_theme);
             // In CASCADE ORDER, later overwriting earlier: a lower theme rank
             // (`@theme(xyz:pink)` over `@theme(xyz)` over no block) applies
             // later, source order among equals - the declaration

@@ -1616,11 +1616,7 @@ impl CssPropertyCache {
         // `@theme(xyz)` whatever their order. Without a context no theme
         // block applies here, and every rank is the same.
         let rank = |conds: &[DynamicSelector]| {
-            dyn_ctx
-                .as_deref()
-                .map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |c| {
-                    c.cascade_rank(conds)
-                })
+            rank_of(dyn_ctx.as_deref(), no_context_theme.as_ref(), conds)
         };
 
         // Re-enter build phase before repopulating. restyle() is not
@@ -1887,7 +1883,11 @@ impl CssPropertyCache {
                         let applies = decl_state == state
                             && conditions.iter().all(|c| match c {
                                 DynamicSelector::PseudoState(s) => *s == state,
-                                other => dyn_ctx.as_deref().is_some_and(|ctx| other.matches(ctx)),
+                                other => condition_holds(
+                                    dyn_ctx.as_deref(),
+                                    no_context_theme.as_ref(),
+                                    other,
+                                ),
                             });
                         let prop_type = prop.get_type();
                         if !applies
@@ -2861,11 +2861,7 @@ impl CssPropertyCache {
         // equals - `Css::winning_inline_property`, the same order the compact
         // builder applies them in. With no theme block in play that is the
         // plain last match a widget's merged style relies on.
-        let rank = |conds: &[DynamicSelector]| {
-            ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
-                ctx.cascade_rank(conds)
-            })
-        };
+        let rank = |conds: &[DynamicSelector]| rank_of(ctx, no_context_theme.as_ref(), conds);
 
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
@@ -5137,13 +5133,10 @@ impl CssPropertyCache {
         // value and painted dark-on-dark. In cascade order (theme rank, then
         // source order), last match wins, like the node's own resolution.
         let dyn_ctx = self.dynamic_context.as_deref();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
         let mut in_order = Vec::new();
         node_data[node_index].style.inline_properties_in_cascade_order(
-            |conds| {
-                dyn_ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
-                    ctx.cascade_rank(conds)
-                })
-            },
+            |conds| rank_of(dyn_ctx, no_context_theme.as_ref(), conds),
             &mut in_order,
         );
         for (prop, conds) in in_order {
@@ -5151,7 +5144,7 @@ impl CssPropertyCache {
                 azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
                     *s == azul_css::dynamic_selector::PseudoStateType::Normal
                 }
-                other => dyn_ctx.is_some_and(|ctx| other.matches(ctx)),
+                other => condition_holds(dyn_ctx, no_context_theme.as_ref(), other),
             });
             if applies {
                 Self::process_property(ctx, prop, parent_computed);
@@ -5364,6 +5357,24 @@ impl CssPropertyCache {
 #[cfg(test)]
 #[path = "prop_cache_test.rs"]
 mod prop_cache_test;
+
+/// The cascade rank of a declaration or rule with `conditions` for a
+/// `StyledDom`: under the window's theme chain, or - without a context - under
+/// the one-entry chain of the app theme the DOM is built for, the same rule
+/// [`condition_holds`] follows.
+#[inline]
+pub(crate) fn rank_of(
+    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
+    no_context_theme: Option<&azul_css::AzString>,
+    conditions: &[azul_css::dynamic_selector::DynamicSelector],
+) -> usize {
+    match ctx {
+        Some(ctx) => ctx.cascade_rank(conditions),
+        None => no_context_theme.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |t| {
+            azul_css::dynamic_selector::cascade_rank(&[t.as_str()], conditions)
+        }),
+    }
+}
 
 /// Whether a non-pseudo condition holds for a `StyledDom`: against the
 /// window's context, or - for a `StyledDom` no window has adopted yet -
