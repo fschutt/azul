@@ -87,14 +87,30 @@ UI (`debugger-export.js`) stays as is.
   Doc::Chain, ExprSyntax::method/param/concat/dom_limitation; rust/c/cpp/python implement
   them (+ apps, registration); every other printer reports the limitation.
 
+- `12ff91c22` docs(b3): progress
+- `eb6573974` test(xml): the DOM fragment lowers to B2's codegen IR (RED)
+- `a79391ca9` refactor(xml): `xml_fragment_codegen.rs` is a LOWERING only
+  (`lower_xml_fragment` / `_app` / `lower_xml_page_app` → `ir::Module`); its own IR and four
+  printers are deleted.
+- `6518363b8` test(builder): export dialogs use the one language list + B2's printers (RED:
+  export_tests, codegen_structure `exports_dom`, node test, smoke mock)
+- `6fa397279` refactor(builder): export.rs is assembly only (lower + `emit_module` /
+  `emit_project_files`); `CodegenBackend::exports_dom()`; `get_codegen_languages` =
+  `all_backends()`; CSS via `backend_for` in all 35 languages; the live-page Export > Code
+  goes through `lower_xml_page_app` (no `str_to_*_code` caller left in production);
+  platform.rs lists `supported_languages()`; UI reads the one list (non-DOM languages
+  disabled in the DOM dialogs) and pages through an app's files.
+  node 13/13, export smoke 32/32, B1 dnd smoke 25/25.
+
 ## IN PROGRESS
-- step 3: core `xml_fragment_codegen.rs` → lowering only (XmlNode → ir::Module).
+- the final report `scripts/B3_BUILDER_EXPORT_2026_09_29.md`.
 
 ## NEXT
-- step 4/5: layout export.rs on the shared path (languages = all_backends, CSS via backend_for,
-  component code = LibrarySpec module, project = emit_project_files), platform.rs
-  supported_languages(); page walkers: list what remains.
-- more printers (C#, Java, ...) if time allows; report.
+- (parent) build + run: see the report's command list; bless the 31 "to bless" DOM goldens.
+- DOM export for more printers (C#, Java, ...): implement `ExprSyntax::method/param/concat`,
+  clear `dom_limitation`, set `exports_dom() = true` (codegen_structure checks the pair).
+- delete the old page walkers (listed in the report with file:line) once their tests are
+  ported to the lowering.
 
 ## Open questions / notes for the parent
 - target/codegen/azul.h (06:00 today, main checkout) does not compile as C on its own:
