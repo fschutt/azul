@@ -1578,3 +1578,155 @@ mod forms {
         assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
     }
 }
+
+// ── Form reset vs the memory of replaced controls ───────────────────────────
+
+/// The memory hands a replaced control the user's value on every rebuild -
+/// which must not UNDO a form reset: the reset puts every control of its
+/// form back to its default, for good.
+mod form_reset {
+    use azul_layout::widgets::{
+        check_box::{CheckBoxState, CheckBoxStateWrapper},
+        form::reset_form,
+    };
+
+    use super::{
+        forms::{mount, named, the_form},
+        *,
+    };
+
+    fn profile() -> Dom {
+        page(
+            Dom::create_form_no_a11y()
+                .with_child(named("text", "user").with_attribute(AttributeType::Value("ann".into())))
+                .with_child(named("checkbox", "news")),
+        )
+    }
+
+    /// The user types `text` into the replaced text input `field`: the
+    /// widget reports it through its change hook, as its edit handler does.
+    fn type_into(lw: &LayoutWindow, styled: &StyledDom, field: NodeId, text: &str) {
+        let mut data = node(styled, field)
+            .get_dataset()
+            .cloned()
+            .expect("the text input's state");
+        let hook = {
+            let ti = data
+                .downcast_ref::<TextInputStateWrapper>()
+                .expect("the text input's state");
+            ti.on_text_input.as_ref().cloned().expect("the replacement listens")
+        };
+        let mut typed = TextInputState::default();
+        typed.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        let _ = with_info(lw, dom_node(field), |info| {
+            hook.callback.invoke(hook.refany.clone(), info, typed)
+        });
+    }
+
+    /// The user checks the replaced checkbox: its toggle hook fires, as its
+    /// click handler does.
+    fn check(lw: &LayoutWindow, styled: &StyledDom) {
+        let root = one_with_class(styled, checkbox_container());
+        let mut data = node(styled, root).get_callbacks().as_slice()[0].refany.clone();
+        let hook = {
+            let cb = data
+                .downcast_ref::<CheckBoxStateWrapper>()
+                .expect("the check box's state");
+            cb.on_toggle.as_ref().cloned().expect("the replacement listens")
+        };
+        let _ = with_info(lw, dom_node(root), |info| {
+            hook.callback
+                .invoke(hook.refany.clone(), info, CheckBoxState { checked: true })
+        });
+    }
+
+    /// Reset the form node `form` of `styled`, as a reset button would.
+    fn reset(lw: &mut LayoutWindow, styled: StyledDom, form: NodeId) -> Update {
+        mount(lw, styled);
+        with_info(lw, dom_node(form), |mut info| {
+            reset_form(&mut info, dom_node(form))
+        })
+        .0
+    }
+
+    fn field_text(styled: &StyledDom, nth: usize) -> String {
+        text_under(styled, with_class(styled, TEXT_INPUT_CONTAINER_CLASS)[nth])
+    }
+
+    #[test]
+    fn a_form_reset_puts_a_replaced_text_input_back_to_its_default_for_good() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(profile());
+        type_into(&lw, &styled, one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS), "bob");
+        // Without a reset, the typed text survives the app's rebuild.
+        let rebuilt = lw.style_user_dom(profile());
+        assert_eq!(field_text(&rebuilt, 0), "bob");
+
+        let form = the_form(&rebuilt);
+        let update = reset(&mut lw, rebuilt, form);
+        assert_eq!(update, Update::RefreshDom, "the rebuild that shows the defaults");
+        let after = lw.style_user_dom(profile());
+        assert_eq!(
+            field_text(&after, 0),
+            "ann",
+            "the memory must not undo the reset on the next rebuild"
+        );
+    }
+
+    #[test]
+    fn a_form_reset_unchecks_a_checkbox_the_user_checked() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(profile());
+        check(&lw, &styled);
+        let rebuilt = lw.style_user_dom(profile());
+        let root = one_with_class(&rebuilt, checkbox_container());
+        assert_eq!(a11y_states(&rebuilt, root), vec![AccessibilityState::CheckedTrue]);
+
+        let form = the_form(&rebuilt);
+        let update = reset(&mut lw, rebuilt, form);
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "a replaced checkbox shows its default only by being rebuilt"
+        );
+        let after = lw.style_user_dom(profile());
+        let root = one_with_class(&after, checkbox_container());
+        assert_eq!(a11y_states(&after, root), vec![AccessibilityState::CheckedFalse]);
+    }
+
+    #[test]
+    fn a_reset_forgets_only_the_controls_of_its_own_form() {
+        let two_forms = || {
+            Dom::create_body()
+                .with_child(Dom::create_form_no_a11y().with_child(
+                    named("text", "a").with_attribute(AttributeType::Value("first".into())),
+                ))
+                .with_child(Dom::create_form_no_a11y().with_child(
+                    named("text", "b").with_attribute(AttributeType::Value("second".into())),
+                ))
+        };
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(two_forms());
+        let fields = with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        type_into(&lw, &styled, fields[0], "typed a");
+        type_into(&lw, &styled, fields[1], "typed b");
+        let rebuilt = lw.style_user_dom(two_forms());
+        let first_form = all_nodes(&rebuilt)
+            .into_iter()
+            .find(|id| matches!(node(&rebuilt, *id).get_node_type(), NodeType::Form))
+            .expect("a form");
+
+        let _ = reset(&mut lw, rebuilt, first_form);
+        let after = lw.style_user_dom(two_forms());
+        assert_eq!(field_text(&after, 0), "first", "the reset form is back at its default");
+        assert_eq!(field_text(&after, 1), "typed b", "the other form keeps the user's text");
+    }
+
+    #[test]
+    fn resetting_an_untouched_form_asks_for_no_rebuild() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(profile());
+        let form = the_form(&styled);
+        assert_eq!(reset(&mut lw, styled, form), Update::DoNothing);
+    }
+}
