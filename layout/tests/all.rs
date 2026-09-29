@@ -582,3 +582,5 @@ mod a_drag_autoscrolls_the_box_its_containing_block_scrolls_in;
 mod a_thin_scrollbar_is_pressed_where_it_is_painted;
 #[path = "backdrop_follows_window_activation.rs"]
 mod backdrop_follows_window_activation;
+#[path = "a_box_shadow_paints_once.rs"]
+mod a_box_shadow_paints_once;
