@@ -10,7 +10,18 @@
 //! payload is less aligned than the union has a `_pad0` field between tag
 //! and payload, like azul.h) and stores it into one;
 //! `az_vec` copies the items into a Julia array and hands its pointer to
-//! `Azul.AzXxxVec_copyFromPtr`; strings use `Azul.az_string`.
+//! `Azul.AzXxxVec_copyFromPtr`; strings use `Azul.az_string` (non-ASCII
+//! as `é` / `\U0001f600`: Julia has no braced `\u{..}` escape).
+//!
+//! A DOM uses the same `ccall` layer: nested calls
+//! (`Azul.AzDom_withChild(Azul.AzDom_withCss(Azul.AzDom_createDiv(), s), child)`),
+//! parameters are `AbstractString`s defaulting to the component's values,
+//! converted by `Azul.az_string(title)`, and a joined text is an
+//! interpolation (`Azul.az_string("by $(author)")`). An app mirrors the
+//! binding's hello world: an isbits `AppData` in a `RefAny`
+//! (`Azul.AzRefAny_newC`), a `@cfunction` layout callback for
+//! `Azul.AzWindowCreateOptions_create`, the title through `Azul.setfields`,
+//! `Azul.AzApp_create` and `Azul.AzApp_run`.
 
 use alloc::{
     format,
@@ -21,9 +32,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, item_comments, item_doc, unicode_braced, variant_ctor_method, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note},
+        escape_quoted, item_comments, item_doc, unicode_u4, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
     },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
@@ -32,6 +45,29 @@ use crate::codegen::{
 /// The Julia printer.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Julia;
+
+/// Julia's reserved words (a parameter named like one gets a `_`).
+const KEYWORDS: &[&str] = &[
+    "baremodule", "begin", "break", "catch", "const", "continue", "do", "else", "elseif", "end",
+    "export", "false", "finally", "for", "function", "global", "if", "import", "let", "local",
+    "macro", "module", "quote", "return", "struct", "true", "try", "using", "while", "abstract",
+    "mutable", "primitive", "type", "where", "in", "isa", "outer", "public",
+];
+
+/// A parameter's Julia name.
+fn julia_param(name: &Ident) -> String {
+    let n = name.snake();
+    if KEYWORDS.contains(&n.as_str()) {
+        format!("{n}_")
+    } else {
+        n
+    }
+}
+
+/// A Julia string literal (`$` escaped: it would interpolate).
+fn julia_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &['$'], &unicode_u4))
+}
 
 impl ExprSyntax for Julia {
     fn int(&self, value: i128, _ty: Prim) -> String {
@@ -56,7 +92,7 @@ impl ExprSyntax for Julia {
     fn string(&self, s: &str) -> Doc {
         Doc::text(format!(
             "Azul.az_string(\"{}\")",
-            escape_quoted(s, &['$'], &unicode_braced)
+            escape_quoted(s, &['$'], &unicode_u4)
         ))
     }
 
@@ -110,6 +146,38 @@ impl ExprSyntax for Julia {
     fn unsupported(&self, what: &str) -> Doc {
         Doc::text(format!("error({:?})", format!("not expressible: {what}")))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The `ccall` layer, like every other node: `Azul.AzDom_withChild(recv, child)`.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        Doc::call(
+            format!("Azul.Az{class}_{}", snake_to_lower_camel(method)),
+            all,
+            layout.node_tall,
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("Azul.az_string({})", julia_param(name)))
+    }
+
+    /// An interpolation: `Azul.az_string("by $(author)")`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut out = String::from("Azul.az_string(\"");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['$'], &unicode_u4)),
+                ConcatPart::Param(i) => out.push_str(&format!("$({})", julia_param(i))),
+            }
+        }
+        out.push_str("\")");
+        Doc::text(out)
+    }
 }
 
 const HELPERS: &str = r"# Copies the items into a Julia array; the C API clones them into the Vec.
@@ -139,7 +207,120 @@ function az_union(::Type{U}, ::Type{V}, tag, payload...) where {U,V}
 end
 ";
 
+/// A DOM item: a function taking `AbstractString`s that default to the
+/// values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let mut out = String::new();
+    for line in &item_comments(&Julia, item) {
+        out.push_str(&format!("# {line}\n"));
+    }
+    let name = item.name.snake();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(Expr::Str(d)) => format!("{}::AbstractString = {}", julia_param(&p.name), julia_str(d)),
+            _ => format!("{}::AbstractString", julia_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&Julia, item) {
+        Ok(doc) => out.push_str(&format!(
+            "function {name}({params})\n    {}\nend\n",
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "# not expressible with the Julia bindings: {reason}\n"
+        )),
+    }
+    out
+}
+
+/// Why the Julia bindings cannot register a component library.
+const NO_REGISTRATION: &str = "a Julia render_fn cannot read the data model it is handed: \
+                               azul.jl stores every tagged union as an opaque `_data` blob \
+                               without accessors, so it cannot tell a field's String default (an \
+                               OptionComponentDefaultValue) from its other variants without \
+                               reinterpreting the blob's raw bytes";
+
+/// The app's `main.jl` around a DOM module (`m.app`) in `ui.jl`: the
+/// binding's hello world (`examples/julia/hello-world.jl`) with an empty
+/// model.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Azul.AzDom_withChild(Azul.AzDom_createBody(), {root})")
+    };
+    format!(
+        r#"# {title_line} - generated by AzBuilder (azul-css codegen, Julia).
+# Copy target/codegen/azul.jl to azul/azul.jl, then: AZUL_LIB=$PWD/libazul.so julia main.jl
+include(joinpath(@__DIR__, "azul", "azul.jl"))
+using .Azul
+include(joinpath(@__DIR__, "ui.jl"))
+
+# The app's data: the layout callback gets it back.
+struct AppData
+    unused::UInt8
+end
+
+const APP_DATA_TOKEN = Ref{{UInt8}}(0)
+
+app_data_type_id() = UInt64(UInt(pointer_from_objref(APP_DATA_TOKEN)))
+
+app_data_destructor(::Ptr{{Cvoid}})::Cvoid = nothing
+
+vptr(r::Ref) = Ptr{{Cvoid}}(pointer_from_objref(r))
+
+function app_data_upcast(model::AppData)
+    local_ref = Ref(model)
+    return GC.@preserve local_ref begin
+        wrapper = Azul.AzGlVoidPtrConst(vptr(local_ref), false)
+        dtor = @cfunction(app_data_destructor, Cvoid, (Ptr{{Cvoid}},))
+        Azul.AzRefAny_newC(
+            wrapper,
+            Csize_t(sizeof(AppData)),
+            Csize_t(Base.datatype_alignment(AppData)),
+            app_data_type_id(),
+            Azul.az_string("AppData"),
+            dtor,
+            Csize_t(0),
+            Csize_t(0),
+        )
+    end
+end
+
+function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDom
+    return {body}
+end
+
+function main()
+    data = app_data_upcast(AppData(0x00))
+    layout_ptr = @cfunction(layout, Azul.AzDom, (Azul.AzRefAny, Azul.AzLayoutCallbackInfo))
+    window = Azul.AzWindowCreateOptions_create(layout_ptr)
+    window = Azul.setfields(window;
+        window_state = Azul.setfields(window.window_state; title = Azul.az_string({title})))
+    app = Ref(Azul.AzApp_create(data, Azul.AzAppConfig_create()))
+    GC.@preserve app begin
+        Azul.AzApp_run(vptr(app), window)
+    end
+end
+
+main()
+"#,
+        title_line = one_line(&app.title),
+        title = julia_str(&app.title),
+    )
+}
+
 fn item_fn(item: &Item) -> String {
+    if is_dom_item(item) {
+        return dom_item_fn(item);
+    }
     let mut out = String::new();
     for line in &item_comments(&Julia, item) {
         out.push_str(&format!("# {line}\n"));
@@ -174,20 +355,47 @@ impl CodegenBackend for Julia {
         "jl"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
+        // `az_vec` / `az_union` serve CSS values only.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
         let mut out = String::from(
             "# Generated by azul-css codegen (Julia). Do not edit by hand.\n# Load the bindings \
-             first: include(\"azul/azul.jl\"); using .Azul\n\n",
+             first: include(\"azul/azul.jl\"); using .Azul\n",
         );
-        out.push_str(HELPERS);
+        if css {
+            out.push('\n');
+            out.push_str(HELPERS);
+        }
         for item in &m.items {
             out.push('\n');
             out.push_str(&item_fn(item));
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("# {line}\n"));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.jl".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.jl".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "# Copy target/codegen/azul.jl to azul/azul.jl, then: AZUL_LIB=$PWD/libazul.so julia \
              main.jl\ninclude(joinpath(@__DIR__, \"azul\", \"azul.jl\"))\nusing \

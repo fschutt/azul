@@ -8,6 +8,18 @@
 //! `AzLayoutWidthValue(Exact: AzLayoutWidthValueVariant_Exact(tag: 6, payload: ..))`).
 //! A Vec is copied from an array by the generated `azVec` template (the C
 //! function needs the address of the first element), strings by `azStr`.
+//!
+//! A DOM keeps the raw factories (`AzDom_createDiv()`,
+//! `AzSmallAriaInfo_label(..)`) and chains the wrappers' by-value `self`
+//! procs (`proc withChild*(self: AzDom, child: AzDom): AzDom`, method call
+//! syntax) with the dot at the END of a line: an expression continues on a
+//! deeper-indented line after a `.` (the `'.' optInd symbolOrKeyword` rule
+//! of Nim's grammar). Parameters are Nim
+//! `string`s defaulting to the component's values, converted by `azStr(..)`;
+//! a joined text is `azStr("by " & author)`. An app mirrors the binding's
+//! hello world: a `RefAny` from `AzRefAny_newC`, a `{.cdecl.}` layout proc
+//! for `AzWindowCreateOptions_create`, the window title, `AzApp_create` and
+//! `AzApp_run`.
 
 use alloc::{
     format,
@@ -18,9 +30,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, item_comments, item_doc, unicode_braced, variant_ctor_method, ExprSyntax,
+        dom::{chained_dot_at_line_end, is_dom_item, one_line, registration_note},
+        escape_quoted, item_comments, item_doc, unicode_braced, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
     },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
@@ -47,6 +61,43 @@ fn ident(name: &str) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// The names a DOM function's body uses that a parameter must not shadow:
+/// the string helper, the wrapper procs it chains, the parameter type and
+/// the implicit `result`.
+const SHADOWED: &[&str] = &[
+    "azStr", "azVec", "withChild", "withCss", "withId", "withClass", "string", "result",
+];
+
+/// Nim's identifier equality: the first character exactly, the rest
+/// case-insensitively and ignoring `_`.
+fn nim_same(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        let mut c = s.chars();
+        c.next().map_or_else(String::new, |f| {
+            let mut out = f.to_string();
+            out.extend(c.filter(|&ch| ch != '_').map(|ch| ch.to_ascii_lowercase()));
+            out
+        })
+    };
+    norm(a) == norm(b)
+}
+
+/// A parameter's Nim name: a keyword is quoted, a name the body uses gets
+/// an `Arg` suffix (Nim identifiers cannot end in `_`).
+fn nim_param(name: &Ident) -> String {
+    let n = name.lower_camel();
+    if SHADOWED.iter().any(|s| nim_same(s, &n)) {
+        format!("{n}Arg")
+    } else {
+        ident(&n)
+    }
+}
+
+/// A Nim string literal.
+fn nim_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_braced))
 }
 
 impl ExprSyntax for Nim {
@@ -135,18 +186,154 @@ impl ExprSyntax for Nim {
     fn unsupported(&self, what: &str) -> Doc {
         Doc::text(format!("(raise newException(ValueError, {:?}))", format!("not expressible: {what}")))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The wrapper proc of a by-value `self` method (`withChild*(self: AzDom,
+    /// ..): AzDom`, lowerCamel like `lang_nim/wrappers.rs` names it), in
+    /// method call syntax.
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        chained_dot_at_line_end(recv, Doc::call(snake_to_lower_camel(method), args, layout.args_tall))
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("azStr({})", nim_param(name)))
+    }
+
+    /// `azStr("by " & author)`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let joined = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => nim_str(s),
+                ConcatPart::Param(i) => nim_param(i),
+            })
+            .collect::<Vec<_>>()
+            .join(" & ");
+        Doc::text(format!("azStr({joined})"))
+    }
 }
 
-const HELPERS: &str = r#"template azVec(copy, items: untyped): untyped =
+/// The Vec helper (CSS values only); [`STR_HELPER`] follows it.
+const VEC_HELPER: &str = r#"template azVec(copy, items: untyped): untyped =
   block:
     var arr = items
     copy(addr arr[0], csize_t(arr.len))
 
-proc azStr(s: string): AzString =
+"#;
+
+const STR_HELPER: &str = r#"proc azStr(s: string): AzString =
   AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
 "#;
 
+/// A DOM item: a proc with `string` parameters that default to the values
+/// the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let mut out = String::new();
+    for line in &item_comments(&Nim, item) {
+        out.push_str(&format!("# {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(Expr::Str(d)) => format!("{}: string = {}", nim_param(&p.name), nim_str(d)),
+            _ => format!("{}: string", nim_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&Nim, item) {
+        Ok(doc) => out.push_str(&format!(
+            "proc {name}*({params}): Az{} =\n  {}\n",
+            item.ty,
+            render(&doc, "  ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "# not expressible with the Nim bindings: {reason}\n"
+        )),
+    }
+    out
+}
+
+/// Why the Nim bindings cannot register a component library.
+const NO_REGISTRATION: &str = "a Nim render_fn cannot read the data model it is handed: \
+                               azul.nim declares no constants for the union tags (azul.h's \
+                               `AzOptionComponentDefaultValue_Tag_Some`, \
+                               `AzComponentDefaultValue_Tag_String`), so it cannot tell a \
+                               field's String default from its other variants without \
+                               hard-coding tag numbers";
+
+/// The app's `main.nim` around a DOM module (`m.app`) in `ui.nim`: the
+/// binding's hello world (`examples/nim/hello-world.nim`) with an empty
+/// model.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.lower_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("AzDom_createBody().withChild({root})")
+    };
+    format!(
+        r#"# {title_line} - generated by AzBuilder (azul-css codegen, Nim).
+# Copy target/codegen/azul.nim and libazul next to this file, then:
+#   nim c -d:release -r main.nim
+import azul
+import ui
+
+# The app's data: the layout callback gets it back.
+type
+  AppData = object
+    unused: uint8
+
+var appDataTypeToken: uint8 = 0
+proc appDataTypeId(): uint64 = cast[uint64](addr appDataTypeToken)
+
+proc appDataDestructor(p: pointer) {{.cdecl.}} = discard
+
+proc azStr(s: string): AzString =
+  AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
+
+proc appDataUpcast(model: AppData): AzRefAny =
+  var local = model
+  let blob = AzGlVoidPtrConst(`ptr`: cast[pointer](addr local), run_destructor: false)
+  AzRefAny_newC(
+    blob,
+    csize_t(sizeof(AppData)),
+    csize_t(alignof(AppData)),
+    appDataTypeId(),
+    azStr("AppData"),
+    appDataDestructor,
+    csize_t(0),
+    csize_t(0))
+
+proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {{.cdecl.}} =
+  {body}
+
+proc main() =
+  let data = appDataUpcast(AppData(unused: 0'u8))
+  var window = AzWindowCreateOptions_create(layout)
+  window.window_state.title = azStr({title})
+  var app = AzApp_create(data, AzAppConfig_create())
+  AzApp_run(addr app, window)
+  AzApp_delete(addr app)
+
+main()
+"#,
+        title_line = one_line(&app.title),
+        title = nim_str(&app.title),
+    )
+}
+
 fn item_fn(item: &Item) -> String {
+    if is_dom_item(item) {
+        return dom_item_fn(item);
+    }
     let mut out = String::new();
     for line in &item_comments(&Nim, item) {
         out.push_str(&format!("# {line}\n"));
@@ -178,18 +365,44 @@ impl CodegenBackend for Nim {
         "nim"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out =
             String::from("# Generated by azul-css codegen (Nim). Do not edit by hand.\nimport azul\n\n");
-        out.push_str(HELPERS);
+        // `azVec` serves CSS values only.
+        if !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i)) {
+            out.push_str(VEC_HELPER);
+        }
+        out.push_str(STR_HELPER);
         for item in &m.items {
             out.push('\n');
             out.push_str(&item_fn(item));
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("# {line}\n"));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.nim".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.nim".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "# Copy target/codegen/azul.nim and libazul next to this file, then:\n#   nim c -d:release \
              -r main.nim\nimport styles\n",

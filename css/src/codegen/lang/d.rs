@@ -9,19 +9,32 @@
 //! api.json `CssProperty.width(LayoutWidth)`), structs through positional
 //! `opCall` (`ColorU(255, 0, 0, 255)`), api `create` as the constructor
 //! (`FloatValue(1.0f)`), native arrays for Vecs and native strings.
+//!
+//! A DOM uses the same native API: a static `create_x` is `x` (`Dom.div()`,
+//! `Dom.a(href, text, aria)`, `SmallAriaInfo.label(..)`: the generator's
+//! rule in `lang_d/wrappers.rs`), a by-value `self` method replaces its
+//! receiver's value and returns it (`.withChild(..)`, chained), parameters
+//! are `string`s defaulting to the component's values, and a joined text is
+//! `"by " ~ author`. A DOM module is `module ui;`. An app is a dub project
+//! (depending on the generated `target/codegen/d` package):
+//! `WindowCreateOptions(&layout)` with a typed layout function over any
+//! class, the window title, `App(new AppData, AppConfig())` and
+//! `app.run(window)`.
 
 use alloc::{
     format,
     string::{String, ToString},
+    vec,
     vec::Vec,
 };
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{EnumShape, Item, Module, Prim},
+    ir::{EnumShape, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, is_droppable_vec, item_comments, item_doc, swift::swift_camel,
-        unicode_u4, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note},
+        escape_quoted, expr_doc, is_droppable_vec, item_comments, item_doc, swift::swift_camel,
+        unicode_u4, ConcatPart, ExprSyntax, MethodLayout,
     },
     CodegenBackend, GeneratedFile,
 };
@@ -58,6 +71,22 @@ fn member(name: &str) -> String {
     }
 }
 
+/// A parameter's D name: a keyword, or `string` (the parameter type), gets
+/// a trailing `_`.
+fn d_param(name: &Ident) -> String {
+    let n = name.lower_camel();
+    if KEYWORDS.contains(&n.as_str()) || n == "string" {
+        format!("{n}_")
+    } else {
+        n
+    }
+}
+
+/// A D string literal.
+fn d_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
 impl ExprSyntax for D {
     fn int(&self, value: i128, ty: Prim) -> String {
         match ty {
@@ -91,6 +120,10 @@ impl ExprSyntax for D {
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
         if method == "create" {
             Doc::call(class.to_string(), args, broken)
+        } else if let Some(rest) = method.strip_prefix("create_") {
+            // A static `create_x` is `x` (`Dom.div()`); the CSS lowering
+            // emits none of these.
+            Doc::call(format!("{class}.{}", member(rest)), args, broken)
         } else {
             Doc::call(format!("{class}.{}", member(method)), args, broken)
         }
@@ -116,9 +149,111 @@ impl ExprSyntax for D {
     fn unsupported(&self, what: &str) -> Doc {
         Doc::text(format!("assert(0, {:?})", format!("not expressible: {what}")))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `.withChild(..)`: returns its receiver (`return this;`), chained.
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(recv, Doc::call(format!(".{}", member(method)), args, layout.args_tall))
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(d_param(name))
+    }
+
+    /// `"by " ~ author`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ConcatPart::Lit(s) => d_str(s),
+                    ConcatPart::Param(i) => d_param(i),
+                })
+                .collect::<Vec<_>>()
+                .join(" ~ "),
+        )
+    }
 }
 
+/// A DOM item: a function with `string` parameters that default to the
+/// values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let mut out = String::new();
+    for line in &item_comments(&D, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("string {} = {}", d_param(&p.name), expr_doc(&D, d).flat()),
+            None => format!("string {}", d_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&D, item) {
+        Ok(doc) => out.push_str(&format!(
+            "{} {name}({params})\n{{\n    return {};\n}}\n",
+            item.ty,
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!("// not expressible with the D bindings: {reason}\n")),
+    }
+    out
+}
+
+/// Why the D bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the D bindings cannot fill one: no wrapper hands out its raw value \
+                               (`_take` and `_ptr` are `package` to the `azul` package), so an \
+                               `extern (C)` render_fn cannot pass the Dom a render function \
+                               builds to AzStyledDom_createFromDom";
+
+/// The app's `source/main.d` around a DOM module (`m.app`) in module `ui`.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.lower_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Dom.body().withChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, D).\n// Copy target/codegen/d/ to \
+         ./azul-d and libazul next to dub.json, then: dub run\nimport azul;\nimport ui;\n\n// The \
+         app's data: the layout callback gets it back.\nfinal class AppData {{}}\n\nDom \
+         layout(AppData data, LayoutCallbackInfo info)\n{{\n    return {body};\n}}\n\nvoid \
+         main()\n{{\n    auto window = WindowCreateOptions(&layout);\n    \
+         window.windowState.title = {};\n    auto app = App(new AppData, AppConfig());\n    \
+         app.run(window);\n}}\n",
+        one_line(&app.title),
+        d_str(&app.title)
+    )
+}
+
+/// The dub manifest of the app: an executable depending on the generated
+/// D package (`target/codegen/d`, copied to `./azul-d`), linking the
+/// libazul next to it.
+const DUB_JSON: &str = r#"{
+    "name": "azul-app",
+    "description": "Generated by AzBuilder (azul-css codegen, D)",
+    "targetType": "executable",
+    "dependencies": {
+        "azul": { "path": "azul-d" }
+    },
+    "lflags-posix": ["-L."]
+}
+"#;
+
 fn item_fn(item: &Item) -> String {
+    if is_dom_item(item) {
+        return dom_item_fn(item);
+    }
     let mut out = String::new();
     for line in &item_comments(&D, item) {
         out.push_str(&format!("// {line}\n"));
@@ -156,19 +291,46 @@ impl CodegenBackend for D {
         "d"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "// Generated by azul-css codegen (D). Do not edit by hand.\nmodule styles;\n\nimport \
-             azul;\n",
+        let module = if m.is_dom() { "ui" } else { "styles" };
+        let mut out = format!(
+            "// Generated by azul-css codegen (D). Do not edit by hand.\nmodule {module};\n\nimport \
+             azul;\n"
         );
         for item in &m.items {
             out.push('\n');
             out.push_str(&item_fn(item));
         }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "dub.json".to_string(),
+                    contents: DUB_JSON.to_string(),
+                },
+                GeneratedFile {
+                    path: "source/ui.d".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "source/main.d".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "// Copy target/codegen/azul.d and libazul next to this file, then:\n//   ldc2 main.d \
              styles.d azul.d -L-L. -L-lazul && ./main\nimport std.stdio;\nimport \

@@ -418,6 +418,36 @@ pub fn wrapper_dom_limitation(e: &Expr) -> Option<String> {
     }
 }
 
+/// `recv.link` in a method chain whose links break with the dot at the END
+/// of a line (`AzDom_createDiv().\n    withCss(..)`), for languages where a
+/// line may not START with `.`: Go ends a statement at a line that ends in
+/// `)`, and Nim continues an expression only after the `.` (`'.' optInd`).
+/// Flat, it reads like [`Doc::chained`]'s chain.
+#[must_use]
+pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
+    match recv {
+        Doc::Chain {
+            head, mut links, ..
+        } => {
+            if let Some(last) = links.pop() {
+                links.push(Doc::cat(vec![last, Doc::text(".")]));
+            }
+            links.push(link);
+            let broken = links.len() >= 2;
+            Doc::Chain {
+                head,
+                links,
+                broken,
+            }
+        }
+        other => Doc::Chain {
+            head: alloc::boxed::Box::new(Doc::cat(vec![other, Doc::text(".")])),
+            links: vec![link],
+            broken: false,
+        },
+    }
+}
+
 /// `s` on one line (a window title or a library name in a comment).
 #[must_use]
 pub fn one_line(s: &str) -> String {

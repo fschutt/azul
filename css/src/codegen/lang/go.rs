@@ -33,7 +33,10 @@ use crate::codegen::{
     doc::{render, Doc},
     ir::{snake_to_lower_camel, snake_to_upper_camel, EnumShape, Ident, Item, Module, Prim},
     lang::{
-        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        dom::{
+            chained_dot_at_line_end, is_dom_item, one_line, registration_note, WrapperDom,
+            WrapperDomSyntax,
+        },
         escape_quoted, item_comments, item_doc, unicode_u4, uses_nonfinite_float, ConcatPart,
         ExprSyntax, MethodLayout,
     },
@@ -152,33 +155,6 @@ fn go_str(s: &str) -> String {
     format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
 }
 
-/// `recv.link` in a chain whose links break with the dot at the END of the
-/// line (`azul.DomCreateDiv().\n\tWithCss(..)`): Go ends a statement at a
-/// line that ends in `)`, so a line may not start with `.`.
-fn go_chained(recv: Doc, link: Doc) -> Doc {
-    match recv {
-        Doc::Chain {
-            head, mut links, ..
-        } => {
-            if let Some(last) = links.pop() {
-                links.push(Doc::cat(vec![last, Doc::text(".")]));
-            }
-            links.push(link);
-            let broken = links.len() >= 2;
-            Doc::Chain {
-                head,
-                links,
-                broken,
-            }
-        }
-        other => Doc::Chain {
-            head: alloc::boxed::Box::new(Doc::cat(vec![other, Doc::text(".")])),
-            links: vec![link],
-            broken: false,
-        },
-    }
-}
-
 /// The DOM through the wrapper layer (`*azul.Dom`, `*azul.SmallAriaInfo`).
 #[derive(Debug, Copy, Clone, Default)]
 struct GoDom;
@@ -197,7 +173,7 @@ impl WrapperDomSyntax for GoDom {
     }
 
     fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
-        go_chained(recv, go_call(snake_to_upper_camel(method), args, layout.args_tall))
+        chained_dot_at_line_end(recv, go_call(snake_to_upper_camel(method), args, layout.args_tall))
     }
 
     fn param(&self, name: &Ident) -> Doc {
