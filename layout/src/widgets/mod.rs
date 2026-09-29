@@ -1237,10 +1237,15 @@ mod theme_pairs {
             }
             let ty = twin.property.get_type();
             let states = twin.pseudo_state_conditions();
+            // A dark twin's light half is the same property, in the same
+            // states AND the same app theme: a flora dark value paired with
+            // a flat light one is no pair.
+            let themes = twin.theme_names();
             let counterpart_at = props.iter().position(|p| {
                 p.property.get_type() == ty
                     && p.is_light_half()
                     && p.pseudo_state_conditions() == states
+                    && p.theme_names() == themes
             });
             match counterpart_at {
                 None => out.push(format!(
