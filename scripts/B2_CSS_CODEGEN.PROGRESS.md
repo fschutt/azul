@@ -53,17 +53,18 @@ i.e. a monomorphized `CssPropertyValue<T>` alias which has no C constructor func
 - aa0224900 `codegen` feature (css), `GetHash` -> `azul_css::hash`, core/layout/dll wiring
 - c20a016c0 RED goldens: tests/codegen_goldens.rs + tests/codegen_cases (6 shared stylesheets),
   hand-written rust + c `basic` goldens (snippet + project)
-- (next commit) IR (`codegen/ir.rs`), layout (`doc.rs`), lowering (`lower.rs` + generated
+- 6c4ef68d7 IR (`codegen/ir.rs`), layout (`doc.rs`), lowering (`lower.rs` + generated
   `lower_types.rs` from `css/tools/gen_codegen_lowering.py`), printer framework (`lang/mod.rs`),
   Rust + C printers, structural tests (tests/codegen_structure.rs)
+- 27532d02a C++, Python, C#, Java, Kotlin printers + basic goldens (one commit, not split)
+- 6884243a4 RED basic goldens Go/Swift/Node/Ruby/PHP/Lua; d4cf2f6c5 their printers
 
 ## 3. IN PROGRESS
-- printers for the other languages (per group: RED basic golden by hand, then printer)
+- batch 3: Zig, Nim, D, OCaml, Haskell, Julia, Pascal (RED goldens, then printers)
 
 ## 4. NEXT
-1. C++ (C API from C++17), Python, C#, Java, Kotlin, Go, Swift, Node, Ruby, PHP, Lua, Zig, Nim, D,
-   OCaml, Haskell, Julia, Pascal; then ada algol68 cobol crystal fortran freebasic lisp odin perl
-   powershell racket red smalltalk v vb6.
+1. batch 4: ada algol68 cobol crystal fortran freebasic lisp odin perl powershell racket red
+   smalltalk v vb6.
 2. debug server: unknown-lang message from `supported_languages()`.
 3. final report.
 
