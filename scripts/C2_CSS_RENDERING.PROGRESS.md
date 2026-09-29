@@ -7,13 +7,14 @@ Branch `wt/c2-css-rendering`, base `d9ce25179`. Nothing compiled (house rule).
 - e37bb50a4 docs(themes): the shadow helpers' single slot is a role, not a workaround
 - 86353f719 test(css): a box-shadow list keeps every shadow (RED)
 - 277adbe8f fix(css): a box-shadow list fills the four shadow slots, the first on top
+- 9bc3c0af7 docs(c2): progress
+- a66988711 test(css): an env() among a shorthand's components feeds its own sides (RED)
+- 9d8112a6d fix(css): an env() among a shorthand's components feeds only its own longhands
 
 ## IN PROGRESS
-- 3. `env()` among other shorthand components
+- 4. V2 P1
 
 ## NEXT
-- 3. RED (css/tests) then fix in parser2 (`check_if_value_is_css_env` single-call
-  guard + per-component env expansion for shorthands)
 - 4. V2 P1: RED (layout/tests) then fix: `Css::parse_inline` lowers node-targeting
   pseudo-states into conditions; `Dom::set_css` keeps the selector form
 - report
