@@ -595,3 +595,68 @@ fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
     let clear = paint_and_read_clear_color(&mut window);
     assert!(is_dark_rgba(clear), "the pushed dark theme clears dark, got {clear:?}");
 }
+
+// ---------------------------------------------------------------------------
+// The native chrome follows the MODE too (W4 item 6.4)
+// ---------------------------------------------------------------------------
+
+/// Under a pin the native titlebar (macOS: `NSWindow.appearance`) is forced
+/// into the window's mode; while the window follows the desktop it inherits
+/// the desktop's. Nothing forced it, so a dark-pinned window kept a light
+/// titlebar on a light desktop.
+#[test]
+fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(
+        window.common.native_chrome_mode(),
+        None,
+        "following the desktop, the chrome inherits it"
+    );
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    assert_eq!(
+        window.common.native_chrome_mode(),
+        Some(WindowTheme::DarkMode),
+        "a dark pin on a light desktop forces a dark titlebar"
+    );
+
+    let result = set_color_scheme(&mut window, FOLLOW);
+    honor(&mut window, result);
+    assert_eq!(
+        window.common.native_chrome_mode(),
+        None,
+        "back on System the chrome inherits the desktop again"
+    );
+}
+
+/// A pin that agrees with the desktop still forces the chrome: the desktop
+/// can flip under it later, and the window - titlebar included - must stay.
+#[test]
+fn a_pin_that_matches_the_desktop_still_holds_the_chrome_when_the_desktop_flips() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+
+    let _ = set_color_scheme(&mut window, PIN_LIGHT);
+    assert_eq!(
+        window.common.native_chrome_mode(),
+        Some(WindowTheme::LightMode),
+        "pinned: forced, even where the desktop agrees"
+    );
+
+    let _ = window.set_system_theme(WindowTheme::DarkMode);
+    assert_eq!(
+        window.common.native_chrome_mode(),
+        Some(WindowTheme::LightMode),
+        "the desktop went dark under a light pin: the chrome stays light"
+    );
+}
