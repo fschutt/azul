@@ -561,3 +561,22 @@ fn color_inputs_and_their_pickers_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn date_pickers_and_their_calendars_read_in_both_themes_in_both_looks_in_every_mode() {
+    use azul_layout::widgets::date_picker::DatePicker;
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for (mode, picker) in [
+            ("date", DatePicker::create(2024, 2, 15)),
+            ("month", DatePicker::create_month(2026, 9)),
+            ("week", DatePicker::create_week(2026, 40)),
+        ] {
+            widgets.push((
+                format!("{look} {mode} picker"),
+                picker.with_theme(theme).dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}

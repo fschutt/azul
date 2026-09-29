@@ -5323,3 +5323,517 @@ mod autotest_generated {
         }
     }
 }
+
+/// The theme option: which look a date picker renders in, and what each look
+/// is - in every mode (`date`, `month`, `week`).
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::dynamic_selector::PseudoStateType;
+
+    use super::*;
+    use crate::widgets::themes::{flora, OptionUiTheme, UiTheme};
+
+    fn picker(theme: UiTheme) -> Dom {
+        DatePicker::create(2024, 2, 15).with_theme(theme).dom()
+    }
+
+    /// September 2026, month 9 picked.
+    fn month_picker(theme: UiTheme) -> Dom {
+        DatePicker::create_month(2026, 9).with_theme(theme).dom()
+    }
+
+    /// 2026-W40: Mon 28 Sep .. Sun 4 Oct; the September grid holds 28-30.
+    fn week_picker(theme: UiTheme) -> Dom {
+        DatePicker::create_week(2026, 40).with_theme(theme).dom()
+    }
+
+    fn panel(field: &Dom) -> &Dom {
+        let popup = field.children.as_ref().last().expect("the popup");
+        &popup.children.as_ref()[0]
+    }
+
+    /// The month header (date / week) or the year header (month).
+    fn header(field: &Dom) -> &Dom {
+        &panel(field).children.as_ref()[0]
+    }
+
+    /// The previous / next buttons of the header.
+    fn navs(field: &Dom) -> [&Dom; 2] {
+        let kids = header(field).children.as_ref();
+        [&kids[0], &kids[2]]
+    }
+
+    fn header_label(field: &Dom) -> &Dom {
+        &header(field).children.as_ref()[1]
+    }
+
+    fn weekday_cells(field: &Dom) -> &[Dom] {
+        panel(field).children.as_ref()[1].children.as_ref()
+    }
+
+    /// Every cell with a text child - the days of a day grid, the months of
+    /// the month grid (a blank has none).
+    fn cells(field: &Dom) -> Vec<&Dom> {
+        panel(field)
+            .children
+            .as_ref()
+            .last()
+            .expect("the grid")
+            .children
+            .as_ref()
+            .iter()
+            .flat_map(|row| row.children.as_ref().iter())
+            .filter(|cell| !cell.children.as_ref().is_empty())
+            .collect()
+    }
+
+    /// Day `n` of a day grid, or month `n` of the month grid.
+    fn cell(field: &Dom, n: usize) -> &Dom {
+        cells(field)[n - 1]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    /// The `(light, dark)` value `pick` finds among the declarations whose
+    /// pseudo-states are exactly `states` (`&[]`: at rest), last one wins.
+    fn pair<T>(
+        node: &Dom,
+        states: &[PseudoStateType],
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != states {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// What the node shows when nothing happens to it, by day and night.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[], pick)
+    }
+
+    fn on_focus<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[PseudoStateType::Focus], pick)
+    }
+
+    fn on_hover<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[PseudoStateType::Hover], pick)
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn width(p: &CssProperty) -> Option<LayoutWidth> {
+        match p {
+            CssProperty::Width(v) => v.get_property().cloned(),
+            _ => None,
+        }
+    }
+
+    fn color(c: ColorU) -> Vec<StyleBackgroundContent> {
+        alloc::vec![StyleBackgroundContent::Color(c)]
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// The payload palette a grid cell carries (day or month cell).
+    fn palette_of(cell: &Dom) -> DayPalette {
+        let mut payload = cell.root.get_callbacks().as_ref()[0].refany.clone();
+        if let Some(day) = payload.downcast_ref::<DayCellData>() {
+            return day.palette.clone();
+        }
+        let month = payload
+            .downcast_ref::<MonthCellData>()
+            .expect("a grid cell carries a day or a month payload");
+        month.palette.clone()
+    }
+
+    /// Asserts a flora stone face: the accent's own colour under its rig, the
+    /// same by day and night (no dark twin), in --fl-on-acc ink.
+    fn assert_flora_stone(node: &Dom, what: &str) {
+        let (face, night_face) = at_rest(node, bg);
+        let face = face.unwrap_or_else(|| panic!("{what}: no face"));
+        assert_eq!(
+            face.first(),
+            Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+            "{what}: the accent stone"
+        );
+        assert!(face.len() > 1, "{what}: the stone's rig lies over it");
+        assert!(night_face.is_none(), "{what}: a stone is its own colour at night");
+        assert_eq!(at_rest(node, ink), (Some(flora::LIGHT_ON_ACC), None), "{what}");
+    }
+
+    /// Asserts a flora cell that is not picked: ink by day and night, the
+    /// hover face under the pointer.
+    fn assert_flora_ink_cell(node: &Dom, what: &str) {
+        assert_eq!(
+            at_rest(node, ink),
+            (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+            "{what}"
+        );
+        assert_eq!(
+            on_hover(node, bg),
+            (
+                Some(alloc::vec![flora::HOVER_FACE_LIGHT]),
+                Some(alloc::vec![flora::HOVER_FACE_DARK])
+            ),
+            "{what}: lifts under the pointer"
+        );
+    }
+
+    fn assert_flora_ring(node: &Dom, what: &str) {
+        assert_eq!(
+            on_focus(node, shadow),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "{what}: flora's focus colour"
+        );
+    }
+
+    fn assert_flat_ring(node: &Dom, what: &str) {
+        let (l, d) = on_focus(node, shadow);
+        assert!(l.is_some() && d.is_some(), "{what}: a focus halo by day and night: {l:?} {d:?}");
+    }
+
+    // ------------------------------------------------------------------
+    // The option
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_date_picker_without_a_theme_renders_flat() {
+        for plain in [
+            DatePicker::create(2024, 2, 15),
+            DatePicker::create_month(2026, 9),
+            DatePicker::create_week(2026, 40),
+        ] {
+            assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+            let unset = plain.clone().dom();
+            let flat = plain.with_theme(UiTheme::Flat).dom();
+            assert_eq!(declarations(&unset), declarations(&flat));
+            assert_eq!(declarations(panel(&unset)), declarations(panel(&flat)));
+        }
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = DatePicker::create(2024, 2, 15);
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(DatePicker::create(2024, 2, 15).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn the_theme_survives_the_mode_builders() {
+        let week = DatePicker::create_week(2026, 40).with_theme(UiTheme::Flora);
+        assert_eq!(week.mode, DatePickerMode::Week);
+        assert_eq!(week.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let month = DatePicker::create_month(2026, 9)
+            .with_theme(UiTheme::Flora)
+            .with_mode(DatePickerMode::Month);
+        assert_eq!(month.theme, OptionUiTheme::Some(UiTheme::Flora));
+    }
+
+    // ------------------------------------------------------------------
+    // Flat: the established look, a ring on every keyboard stop
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_flat_keyboard_stop_shows_a_focus_ring_by_day_and_night() {
+        let dom = picker(UiTheme::Flat);
+        let (l, d) = on_focus(&dom, top_edge);
+        assert!(l.is_some() && d.is_some(), "the field rings on its border: {l:?} {d:?}");
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a month button");
+        }
+        for n in [1, 15] {
+            assert_flat_ring(cell(&dom, n), &format!("day {n}"));
+        }
+    }
+
+    #[test]
+    fn the_flat_month_grid_rings_every_stop_and_keeps_its_night_faces() {
+        let dom = month_picker(UiTheme::Flat);
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a year button");
+        }
+        let months = cells(&dom);
+        assert_eq!(months.len(), 12);
+        for (i, m) in months.iter().enumerate() {
+            assert_flat_ring(m, &format!("month {}", i + 1));
+            assert_eq!(
+                at_rest(m, width).0,
+                Some(LayoutWidth::const_px(MONTH_CELL_W)),
+                "month {}: three day cells wide",
+                i + 1
+            );
+        }
+        let (by_day, at_night) = at_rest(cell(&dom, 9), bg);
+        assert_eq!(by_day, Some(color(ACCENT_BG)), "the picked month, by day");
+        assert!(at_night.is_some(), "the picked month has a night face");
+    }
+
+    #[test]
+    fn the_flat_week_grid_rings_every_day_and_lights_the_whole_week() {
+        let dom = week_picker(UiTheme::Flat);
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a month button");
+        }
+        for d in cells(&dom) {
+            assert_flat_ring(d, "a day of the week grid");
+        }
+        for n in [28, 29, 30] {
+            let (by_day, at_night) = at_rest(cell(&dom, n), bg);
+            assert_eq!(by_day, Some(color(ACCENT_BG)), "day {n} of the picked week");
+            assert!(at_night.is_some(), "day {n}: a night face");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Flora: a paper field over a paper calendar, in every mode
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_flora_field_is_a_sunken_paper_field_that_rings_in_the_accent() {
+        for dom in [
+            picker(UiTheme::Flora),
+            month_picker(UiTheme::Flora),
+            week_picker(UiTheme::Flora),
+        ] {
+            assert_eq!(
+                at_rest(&dom, bg),
+                (Some(color(flora::LIGHT_FLD)), Some(color(flora::DARK_FLD))),
+                "--fl-fld: a field"
+            );
+            assert_eq!(
+                at_rest(&dom, top_edge),
+                (Some(flora::LIGHT_BD2), Some(flora::DARK_BD2)),
+                "a --fl-bd2 hairline"
+            );
+            assert_eq!(
+                on_hover(&dom, top_edge),
+                (Some(flora::LIGHT_BD3), Some(flora::DARK_BD3)),
+                "the rule darkens under the pointer"
+            );
+            assert_eq!(
+                on_focus(&dom, top_edge),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "flora's focus colour on the field's rule"
+            );
+            assert!(has_class(&dom, "__azul-theme-flora"));
+        }
+    }
+
+    #[test]
+    fn a_flora_calendar_is_a_leaf_with_brass_buttons_in_every_mode() {
+        for dom in [
+            picker(UiTheme::Flora),
+            month_picker(UiTheme::Flora),
+            week_picker(UiTheme::Flora),
+        ] {
+            assert_eq!(
+                at_rest(panel(&dom), bg),
+                (Some(color(flora::LIGHT_SUR)), Some(color(flora::DARK_SUR))),
+                "--fl-sur: a leaf"
+            );
+            assert_eq!(
+                at_rest(panel(&dom), top_edge),
+                (Some(flora::LIGHT_BD), Some(flora::DARK_BD))
+            );
+            assert_eq!(
+                at_rest(header_label(&dom), ink),
+                (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+                "the month / year in ink"
+            );
+            for nav in navs(&dom) {
+                assert_eq!(
+                    at_rest(nav, ink),
+                    (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                    "brass ink, --fl-qt"
+                );
+                assert_eq!(
+                    on_hover(nav, ink),
+                    (Some(flora::LIGHT_QT2), Some(flora::DARK_QT2)),
+                    "deeper brass under the pointer"
+                );
+                assert_flora_ring(nav, "a header button");
+            }
+        }
+        for dom in [picker(UiTheme::Flora), week_picker(UiTheme::Flora)] {
+            for w in weekday_cells(&dom) {
+                assert_eq!(
+                    at_rest(w, ink),
+                    (Some(flora::LIGHT_SOFT2), Some(flora::DARK_SOFT2)),
+                    "the weekday names are quiet"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_selected_day_is_the_accent_stone_and_the_rest_are_ink() {
+        let dom = picker(UiTheme::Flora);
+        assert_flora_stone(cell(&dom, 15), "the picked day");
+        assert_flora_ink_cell(cell(&dom, 3), "day 3");
+        for n in [3, 15] {
+            assert_flora_ring(cell(&dom, n), &format!("day {n}"));
+        }
+    }
+
+    #[test]
+    fn a_flora_month_grid_cuts_the_picked_month_as_the_stone() {
+        let dom = month_picker(UiTheme::Flora);
+        let months = cells(&dom);
+        assert_eq!(months.len(), 12);
+        for (i, m) in months.iter().enumerate() {
+            let what = format!("month {}", i + 1);
+            if i + 1 == 9 {
+                assert_flora_stone(m, &what);
+            } else {
+                assert_flora_ink_cell(m, &what);
+            }
+            assert_flora_ring(m, &what);
+            assert_eq!(
+                at_rest(m, width).0,
+                Some(LayoutWidth::const_px(MONTH_CELL_W)),
+                "{what}: three day cells wide"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_week_grid_cuts_every_day_of_the_picked_week_as_the_stone() {
+        let dom = week_picker(UiTheme::Flora);
+        for (i, d) in cells(&dom).iter().enumerate() {
+            let n = i + 1;
+            let what = format!("day {n}");
+            if (28..=30).contains(&n) {
+                assert_flora_stone(d, &what);
+            } else {
+                assert_flora_ink_cell(d, &what);
+            }
+            assert_flora_ring(d, &what);
+        }
+    }
+
+    #[test]
+    fn a_flora_pick_repaints_with_flora_s_stone_in_every_mode() {
+        for (mode, dom) in [
+            ("date", picker(UiTheme::Flora)),
+            ("month", month_picker(UiTheme::Flora)),
+            ("week", week_picker(UiTheme::Flora)),
+        ] {
+            let palette = palette_of(cell(&dom, 3));
+            for night in 0..2 {
+                let (fill, text) = &palette.selected[night];
+                assert_eq!(
+                    fill.as_ref().first(),
+                    Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                    "{mode}, night={night}: the stone"
+                );
+                assert_eq!(*text, flora::LIGHT_ON_ACC, "{mode}, night={night}");
+            }
+            assert_eq!(palette.other[0].1, flora::LIGHT_INK, "{mode}");
+            assert_eq!(palette.other[1].1, flora::DARK_INK, "{mode}");
+        }
+    }
+
+    #[test]
+    fn a_flat_pick_repaints_with_the_established_colours_in_every_mode() {
+        for dom in [
+            picker(UiTheme::Flat),
+            month_picker(UiTheme::Flat),
+            week_picker(UiTheme::Flat),
+        ] {
+            let palette = palette_of(cell(&dom, 3));
+            assert_eq!(palette.selected[0], day_cell_colours(true, false));
+            assert_eq!(palette.selected[1], day_cell_colours(true, true));
+            assert_eq!(palette.other[0], day_cell_colours(false, false));
+            assert_eq!(palette.other[1], day_cell_colours(false, true));
+        }
+    }
+
+    #[test]
+    fn a_flora_date_picker_keeps_the_field_and_the_grid_in_every_mode() {
+        for (mode, flora_dom, flat_dom, count) in [
+            ("date", picker(UiTheme::Flora), picker(UiTheme::Flat), 29),
+            ("month", month_picker(UiTheme::Flora), month_picker(UiTheme::Flat), 12),
+            ("week", week_picker(UiTheme::Flora), week_picker(UiTheme::Flat), 30),
+        ] {
+            assert!(flora_dom.root.get_tab_index().is_some(), "{mode}: a keyboard stop");
+            assert_eq!(
+                flora_dom.root.get_accessibility_info().map(|a| a.role),
+                flat_dom.root.get_accessibility_info().map(|a| a.role),
+                "{mode}"
+            );
+            assert_eq!(cells(&flora_dom).len(), count, "{mode}");
+            let stops = |dom: &Dom| -> Vec<usize> {
+                cells(dom)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.root.get_tab_index() == Some(TabIndex::Auto))
+                    .map(|(i, _)| i)
+                    .collect()
+            };
+            assert_eq!(stops(&flora_dom), stops(&flat_dom), "{mode}: one roving stop");
+            assert_eq!(
+                flora_dom.root.attributes().as_ref().len(),
+                flat_dom.root.attributes().as_ref().len(),
+                "{mode}: the form attributes"
+            );
+        }
+    }
+}
