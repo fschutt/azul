@@ -1175,6 +1175,29 @@ pub fn collect_form_data(info: &mut CallbackInfo, node: DomNodeId) -> Option<For
     Some(current_form_data(info, form).0)
 }
 
+impl_option!(
+    FormData,
+    OptionFormData,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl CallbackInfo {
+    /// The CURRENT values of the form `node` sits in - `node` may be the
+    /// form, a field or a button: what a submit would hand over, without
+    /// submitting. `None` when `node` is in no form.
+    ///
+    /// How a plain callback reads a form: the app's own `Submit` handler on a
+    /// raw `<form>` runs as that form's `on_submit`, with the `CallbackInfo`
+    /// of whatever submitted it, so it asks
+    /// `info.get_form_data(info.get_hit_node())`; a button's click handler
+    /// does the same. (The FFI face of [`collect_form_data`].)
+    #[must_use]
+    pub fn get_form_data(&mut self, node: DomNodeId) -> OptionFormData {
+        collect_form_data(self, node).into()
+    }
+}
+
 /// Submit the form `node` sits in, if any - HTML's implicit submission (Enter
 /// in a text field). `None` when `node` is in no form.
 pub(crate) fn submit_enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<Update> {

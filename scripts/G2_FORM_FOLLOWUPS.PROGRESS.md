@@ -60,11 +60,15 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   control; `widgets::form` reads the named control's dataset / handler payloads / descendants',
   a radio group's chosen label from its row)
 
+- item 7 fix `15fe865df`
+- item 9: RED `655aeb03a`, fix = next commit (`CallbackInfo::get_form_data(node) ->
+  OptionFormData`, an inherent impl in `widgets/form.rs`; `OptionFormData` via `impl_option!`)
+
 ## IN PROGRESS
-- item 9 (FFI-shaped `CallbackInfo::get_form_data`, api.json list)
+- report `scripts/G2_FORM_FOLLOWUPS_2026_09_29.md`
 
 ## NEXT
-- item 9, report
+- report, final checkpoint
 
 ## Open questions
 - none yet
