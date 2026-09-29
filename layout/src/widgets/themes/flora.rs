@@ -4480,3 +4480,11 @@ pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
         },
     )
 }
+
+// ==== chip ====
+
+/// The flora chip.
+#[must_use]
+pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
+    super::flat::chip(c)
+}

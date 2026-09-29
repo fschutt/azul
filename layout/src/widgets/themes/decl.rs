@@ -13,9 +13,9 @@
 //! * A dark twin always comes RIGHT AFTER its light value, in the same state
 //!   (`widgets::theme_pairs` rejects anything else): every `themed_*` helper
 //!   returns `[light, dark]` pairs in that order, edge by edge.
-//! * A focus ring is a border colour change, so it is only visible on a node
-//!   that HAS a border: [`focus_ring`] is for nodes that declare one (give a
-//!   borderless node a transparent [`border`] first).
+//! * A focus ring is either a border colour change ([`focus_ring`], only
+//!   visible on a node that HAS a border) or a halo ([`focus_halo`], a spread
+//!   shadow, for a node without one - it moves nothing).
 
 use alloc::vec::Vec;
 
@@ -350,9 +350,14 @@ pub(crate) const fn margin(
     ]
 }
 
-/// `box-shadow: 0 <offset_y>px <blur>px <spread>px <color> [inset]` - the
-/// same shadow on all four sides, which is what the `box-shadow` shorthand
-/// expands to.
+/// `box-shadow: 0 <offset_y>px <blur>px <spread>px <color> [inset]`, as ONE
+/// declaration.
+///
+/// azul stores a shadow per side, and the painter draws every side's shadow
+/// as a whole box shadow (`display_list.rs`, "Check all four sides"): the
+/// four copies the `box-shadow` shorthand expands to overlap, and a
+/// translucent shadow comes out four times as dark. One side's slot carries
+/// exactly one shadow, which is what a theme means.
 #[must_use]
 pub(crate) fn shadow(
     offset_y: isize,
@@ -360,9 +365,9 @@ pub(crate) fn shadow(
     spread: isize,
     color: ColorU,
     inset: bool,
-) -> [CssProperty; 4] {
-    let make = || {
-        StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
+) -> CssProperty {
+    CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
+        StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
             },
@@ -381,33 +386,35 @@ pub(crate) fn shadow(
                 BoxShadowClipMode::Outset
             },
             color,
-        }))
-    };
-    [
-        CssProperty::BoxShadowTop(make()),
-        CssProperty::BoxShadowRight(make()),
-        CssProperty::BoxShadowBottom(make()),
-        CssProperty::BoxShadowLeft(make()),
-    ]
+        },
+    )))
 }
 
 /// A drop shadow with its dark twin (flora's shadows are warm in light mode
-/// and near-black at night), each side's twin right after its light value.
+/// and near-black at night).
 #[must_use]
 pub(crate) fn themed_shadow(
     offset_y: isize,
     blur: isize,
     light: ColorU,
     dark: ColorU,
-) -> Vec<CssPropertyWithConditions> {
-    let mut out = Vec::with_capacity(8);
-    for (l, d) in shadow(offset_y, blur, 0, light, false)
-        .into_iter()
-        .zip(shadow(offset_y, blur, 0, dark, false))
-    {
-        out.extend(CssPropertyWithConditions::themed(l, d));
-    }
-    out
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        shadow(offset_y, blur, 0, light, false),
+        shadow(offset_y, blur, 0, dark, false),
+    )
+}
+
+/// The focus ring for a node WITHOUT a border: a 2px halo on `:focus` (a
+/// spread shadow, so it follows the corner radius and moves nothing), with
+/// its dark twin. The keyboard-only `outline: 2px solid var(--focus-color)`
+/// of flora.css, in the one shape azul can draw it.
+#[must_use]
+pub(crate) fn focus_halo(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_focus(
+        shadow(0, 0, 2, light, false),
+        shadow(0, 0, 2, dark, false),
+    )
 }
 
 /// `font-weight: bold`.

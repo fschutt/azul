@@ -4139,3 +4139,33 @@ pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
         },
     )
 }
+
+// ==== chip ====
+
+/// The flat pill for a chip kind: the widget's own style, plus the neutral
+/// tag's dark twins (a coloured chip is its own colour in both modes).
+fn flat_chip_container(
+    kind: crate::widgets::chip::ChipKind,
+) -> Vec<CssPropertyWithConditions> {
+    let mut style = crate::widgets::chip::build_chip_style(kind).into_library_owned_vec();
+    if kind == crate::widgets::chip::ChipKind::Default {
+        style.extend_from_slice(crate::widgets::chip::CHIP_DEFAULT_DARK_TWINS);
+    }
+    style
+}
+
+/// The flat chip.
+#[must_use]
+pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
+    use crate::widgets::chip::{ChipLook, CHIP_LABEL_STYLE, CHIP_REMOVE_STYLE};
+    crate::widgets::chip::build(
+        c,
+        &ChipLook {
+            container: flat_chip_container,
+            label: CHIP_LABEL_STYLE.to_vec(),
+            label_focus: Vec::new(),
+            remove: CHIP_REMOVE_STYLE.to_vec(),
+            marker: None,
+        },
+    )
+}
