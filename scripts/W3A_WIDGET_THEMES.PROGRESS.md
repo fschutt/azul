@@ -68,10 +68,14 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   691f3714f (flora leaf card). API: `Card.theme` appended after `on_click`;
   set_theme / with_theme.
 
+- frame: 939859d31 (plumbing: FrameLook + frame::build; FRAME_*_STYLE exports),
+  b5a8cfa9e (RED), 7888c9b46 (flora label + BD rules). API: `Frame.theme`
+  appended after `content`; set_theme / with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-frame, breadcrumb, accordion, menubar, color_input, date_picker
+breadcrumb, accordion, menubar, color_input, date_picker
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
