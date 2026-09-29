@@ -192,11 +192,30 @@ pub struct Accordion {
     pub sections: AccordionSectionVec,
     /// Optional callback fired when any section header is toggled.
     pub on_toggle: OptionAccordionOnToggle,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// What a theme decides about an accordion: the style of each part. [`build`]
+/// assembles them with the section bodies' own open / closed geometry; built
+/// by `themes::flat::accordion` and `themes::flora::accordion`.
+pub(crate) struct AccordionLook {
+    /// The panel around every section.
+    pub container: Vec<CssPropertyWithConditions>,
+    /// One section (its separator from the next).
+    pub section: Vec<CssPropertyWithConditions>,
+    /// A section's header bar - a keyboard stop: its focus ring included.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// The title inside a header.
+    pub title: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the panel, if it has one.
+    pub marker: Option<&'static str>,
 }
 
 // ---- styles ----
 
-static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -276,7 +295,7 @@ static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
 ];
 
-static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -299,7 +318,7 @@ static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 
-static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -323,7 +342,7 @@ static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_WINDOW_BACKGROUND,
 ];
 
-static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
@@ -428,7 +447,21 @@ impl Accordion {
         Self {
             sections,
             on_toggle: None.into(),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the accordion renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Creates an empty accordion.
@@ -465,20 +498,33 @@ impl Accordion {
         s
     }
 
-    /// Renders the accordion into a [`Dom`] subtree.
+    /// Renders the accordion into a [`Dom`] subtree. The look comes from the
+    /// theme module (`themes::flat::accordion` / `themes::flora::accordion`);
+    /// `None` renders flat.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let on_toggle = self.on_toggle;
-        let sections = self.sections;
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::accordion(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::accordion(self),
+        }
+    }
+}
+
+/// The accordion's DOM in `look`: per section a header (the keyboard stop and
+/// click target) over a body whose open / closed geometry is the widget's own
+/// (`body_style`), so the header's click handler can tween it in any theme.
+pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
+    {
+        let on_toggle = accordion.on_toggle;
+        let sections = accordion.sections;
 
         let mut section_doms: Vec<Dom> = Vec::with_capacity(sections.as_ref().len());
 
         for (index, section) in sections.as_ref().iter().enumerate() {
             let title = crate::widgets::widget_p_with_text(section.title.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    ACCORDION_TITLE_STYLE,
-                ));
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.title.clone()));
 
             // Read the open state before it is moved into the click data.
             let section_is_open = section.is_open;
@@ -492,9 +538,7 @@ impl Accordion {
 
             let header = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_HEADER_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    ACCORDION_HEADER_STYLE,
-                ))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.header.clone()))
                 .with_tab_index(TabIndex::Auto)
                 // A section header must report whether it is open. Expanded /
                 // Collapsed is the difference between "Details" and "Details,
@@ -532,18 +576,19 @@ impl Accordion {
             section_doms.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_SECTION_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                        ACCORDION_SECTION_STYLE,
-                    ))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(look.section.clone()))
                     .with_children(DomVec::from_vec(alloc::vec![header, body])),
             );
         }
 
+        let mut classes: Vec<IdOrClass> = ACCORDION_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                ACCORDION_CONTAINER_STYLE,
-            ))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(look.container.clone()))
             .with_children(DomVec::from_vec(section_doms))
     }
 }

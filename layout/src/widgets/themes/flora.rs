@@ -4861,3 +4861,11 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
         },
     )
 }
+
+// ==== accordion ====
+
+/// The flora accordion.
+#[must_use]
+pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
+    super::flat::accordion(a)
+}

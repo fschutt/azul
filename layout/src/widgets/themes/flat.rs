@@ -4307,3 +4307,24 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
         },
     )
 }
+
+// ==== accordion ====
+
+/// The flat accordion.
+#[must_use]
+pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
+    use crate::widgets::accordion::{
+        AccordionLook, ACCORDION_CONTAINER_STYLE, ACCORDION_HEADER_STYLE, ACCORDION_SECTION_STYLE,
+        ACCORDION_TITLE_STYLE,
+    };
+    crate::widgets::accordion::build(
+        a,
+        &AccordionLook {
+            container: ACCORDION_CONTAINER_STYLE.to_vec(),
+            section: ACCORDION_SECTION_STYLE.to_vec(),
+            header: ACCORDION_HEADER_STYLE.to_vec(),
+            title: ACCORDION_TITLE_STYLE.to_vec(),
+            marker: None,
+        },
+    )
+}

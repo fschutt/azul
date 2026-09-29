@@ -284,6 +284,17 @@ pub(crate) fn hover_ink(light: ColorU, dark: ColorU) -> [CssPropertyWithConditio
     CssPropertyWithConditions::themed_on_hover(ink(light), ink(dark))
 }
 
+/// [`focus_halo`] drawn INSIDE the node: for a node whose parent clips
+/// (`overflow: hidden`), where an outer halo would be cut off at the edge -
+/// an accordion header inside its rounded panel, a menu item in its bar.
+#[must_use]
+pub(crate) fn focus_halo_inset(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_focus(
+        shadow(0, 0, 2, light, true),
+        shadow(0, 0, 2, dark, true),
+    )
+}
+
 /// A link's underline under the pointer. An underline has no colour of its
 /// own, so the dark twin repeats it - emitted anyway so every state rule has
 /// its twin (the rule `widgets::theme_pairs` checks).
