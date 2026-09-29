@@ -3555,19 +3555,19 @@ pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
 // slot and a little inset, and takes `FIELD_RING` / `DARK_ACC` on focus. The
 // indicator's fixed geometry is the widget's own and stays.
 
-/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flat theme.
+/// Flat's radio-group skin for a group laid out `horizontal`ly or not.
 #[must_use]
-pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group::RadioGroupSkin {
     use super::style_kit as kit;
     use crate::widgets::radio_group as r;
 
-    let mut row = r::build_row_style(rg.radio_group_state.horizontal).into_library_owned_vec();
+    let mut row = r::build_row_style(horizontal).into_library_owned_vec();
     row.extend(kit::padding(1, 4, 1, 2));
     row.extend(kit::radius(3));
     row.extend(kit::ring_slot());
     row.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
 
-    rg.build(r::RadioGroupSkin {
+    r::RadioGroupSkin {
         theme: super::UiTheme::Flat,
         row: CssPropertyWithConditionsVec::from_vec(row),
         circle: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_CIRCLE_STYLE),
@@ -3578,7 +3578,14 @@ pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
             r::RADIO_GROUP_DOT_STYLE_UNSELECTED,
         ),
         label: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_LABEL_STYLE),
-    })
+    }
+}
+
+/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flat theme.
+#[must_use]
+pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+    let skin = radio_group_skin(rg.radio_group_state.horizontal);
+    rg.build(skin)
 }
 
 // ==== segmented ====

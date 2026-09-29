@@ -33,13 +33,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   extracted inside their sections; `split_pane::{skin_for, follow_skin}`; the flat-divider pin
   now pins `with_theme(Flat)`)
 
+- radio_group: RED 887b4dd6b, impl: see git log (`flat/flora::radio_group_skin(horizontal)`
+  extracted; `radio_group::{skin_for, follow_skin}`; no existing pin needed changing - the
+  default-widget tests read properties both looks declare alike)
+
 ## IN PROGRESS
 
-- radio_group
+- time_picker
 
 ## NEXT
 
-radio_group, time_picker, toast,
+time_picker, toast,
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).

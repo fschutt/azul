@@ -3239,14 +3239,14 @@ const RADIO_GROUP_HOVER_LIGHT: ColorU = ColorU::new(253, 252, 248, 153);
 /// `--fl-hov` by night: rgba(58, 58, 58, 0.7).
 const RADIO_GROUP_HOVER_DARK: ColorU = ColorU::new(58, 58, 58, 179);
 
-/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flora theme.
+/// Flora's radio-group skin for a group laid out `horizontal`ly or not.
 #[must_use]
-pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group::RadioGroupSkin {
     use super::style_kit as kit;
     use crate::widgets::radio_group as r;
     type P = CssPropertyWithConditions;
 
-    let mut row = r::build_row_style(rg.radio_group_state.horizontal).into_library_owned_vec();
+    let mut row = r::build_row_style(horizontal).into_library_owned_vec();
     row.extend(kit::padding(1, 4, 1, 2));
     row.extend(kit::radius(3));
     row.extend(kit::ring_slot());
@@ -3298,14 +3298,21 @@ pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
     let mut label = r::RADIO_GROUP_LABEL_STYLE.to_vec();
     label.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
 
-    rg.build(r::RadioGroupSkin {
+    r::RadioGroupSkin {
         theme: super::UiTheme::Flora,
         row: CssPropertyWithConditionsVec::from_vec(row),
         circle: CssPropertyWithConditionsVec::from_vec(circle),
         dot_selected: dot(100),
         dot_unselected: dot(0),
         label: CssPropertyWithConditionsVec::from_vec(label),
-    })
+    }
+}
+
+/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flora theme.
+#[must_use]
+pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+    let skin = radio_group_skin(rg.radio_group_state.horizontal);
+    rg.build(skin)
 }
 
 // ==== segmented ====
