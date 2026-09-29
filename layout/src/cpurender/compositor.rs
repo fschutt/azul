@@ -6499,6 +6499,68 @@ mod autotest_generated {
         );
     }
 
+    const FLOOD: ColorU = ColorU {
+        r: 200,
+        g: 100,
+        b: 50,
+        a: 255,
+    };
+
+    /// `flood(c)` REPLACES every pixel with `c` (WebRender's semantics) -
+    /// which is exactly why a tint needs a composite step after it (E15).
+    #[test]
+    fn filter_flood_replaces_every_pixel() {
+        let mut p = solid(2, 2, [10, 20, 30, 0]);
+        apply_layer_filters(&mut p, &[StyleFilter::Flood(FLOOD)], 1.0);
+        assert_eq!(at(&p, 0, 0), [200, 100, 50, 255]);
+        assert_eq!(at(&p, 1, 1), [200, 100, 50, 255]);
+    }
+
+    /// `flood(c) composite(in)`: the flood, kept only where the SOURCE - the
+    /// layer as it was before the filter chain - has alpha.
+    #[test]
+    fn filter_flood_composite_in_keeps_the_flood_inside_the_source_alpha() {
+        use azul_css::props::style::filter::StyleCompositeFilter;
+
+        let mut p = solid(3, 1, [0, 0, 0, 0]);
+        p.data_mut()[0..4].copy_from_slice(&[0, 0, 0, 255]); // opaque ink
+        p.data_mut()[4..8].copy_from_slice(&[0, 0, 0, 128]); // half-covered edge
+        apply_layer_filters(
+            &mut p,
+            &[
+                StyleFilter::Flood(FLOOD),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            1.0,
+        );
+        assert_eq!(at(&p, 0, 0), [200, 100, 50, 255], "the ink takes the flood");
+        let edge = at(&p, 1, 0);
+        assert_eq!(&edge[..3], &[200, 100, 50], "an edge keeps the flood's colour");
+        assert!(
+            (i32::from(edge[3]) - 128).abs() <= 1,
+            "...at the source's coverage, got {edge:?}"
+        );
+        assert_eq!(at(&p, 2, 0)[3], 0, "the transparent margin stays transparent");
+    }
+
+    #[test]
+    fn filter_composite_out_keeps_the_flood_outside_the_source_alpha() {
+        use azul_css::props::style::filter::StyleCompositeFilter;
+
+        let mut p = solid(2, 1, [0, 0, 0, 0]);
+        p.data_mut()[0..4].copy_from_slice(&[0, 0, 0, 255]);
+        apply_layer_filters(
+            &mut p,
+            &[
+                StyleFilter::Flood(FLOOD),
+                StyleFilter::Composite(StyleCompositeFilter::Out),
+            ],
+            1.0,
+        );
+        assert_eq!(at(&p, 0, 0)[3], 0);
+        assert_eq!(at(&p, 1, 0), [200, 100, 50, 255]);
+    }
+
     // ============================== allocate_layers_from_display_list ========
 
     #[test]

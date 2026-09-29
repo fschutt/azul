@@ -562,3 +562,5 @@ mod a_widget_without_a_theme_option_pins_what_it_embeds;
 mod a_theme_chain_ranks_its_blocks;
 #[path = "rice_styles_the_window.rs"]
 mod rice_styles_the_window;
+#[path = "a_tinted_raster_icon_is_tinted_inside_its_own_alpha.rs"]
+mod a_tinted_raster_icon_is_tinted_inside_its_own_alpha;
