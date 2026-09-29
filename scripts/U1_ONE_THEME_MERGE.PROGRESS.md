@@ -31,12 +31,14 @@ Nothing is compiled here (house rule).
 - 2 3f9390e33 (theme_checks::probe_theme / live_conditions; applies, checks::live_rules,
   theme_probe::live all through it)
 
+- 3 RED 8da8a8a20, fix ea3ef9457 (`widgets::style_only_build`; follow_app_theme's other build)
+
 ## IN PROGRESS
 
-- 3 silent twin build (RED first)
+- 4 embedders pass their pin (audit + RED)
 
 ## NEXT
 
-- 4, 5, report
+- 5 frame skin merge, report
 
 ## Open questions
