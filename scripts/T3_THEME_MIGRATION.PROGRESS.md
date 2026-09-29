@@ -75,9 +75,12 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
 - slider: RED 223e3c5d6, impl: see git log (`create` theme `Some(Flat)` -> `None`; `dom()` None
   = DOM merge instead of an empty div; 1 pin: the verbatim-styles test pins flat)
 
+- switch: guard 421fe7c4d (green before: the two looks are one), impl: see git log (DOM merge;
+  merges to the flat DOM unchanged today)
+
 ## IN PROGRESS
 
-- switch
+- spinner
 
 ## NEXT
 
