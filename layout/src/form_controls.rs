@@ -184,6 +184,10 @@ pub const OPT_OUT_VALUE: &str = "none";
 /// ([`FormWidget::name`]): how a tool - or form submission - finds the
 /// controls that started life as raw form nodes.
 pub const REPLACED_MARKER_ATTRIBUTE: &str = "data-azul-form-control";
+/// Stamped on the root of every replaced control that holds a value: the
+/// key (decimal) under which the window's [`FormControlMemory`] knows it -
+/// how a form reset forgets, and a form submit reads, what the user gave it.
+pub const MEMORY_KEY_ATTRIBUTE: &str = "data-azul-form-key";
 
 /// The scope of the layout callback's DOM. A VirtualView's DOM gets its own
 /// (`form_scope_of_virtual_view`, used by
@@ -259,6 +263,16 @@ impl FormWidget {
             Self::Hidden => "hidden",
             Self::Form => "form",
         }
+    }
+
+    /// Controls holding a value the user can change - the ones the memory
+    /// keeps, a form reset puts back and a form submit collects. (A hidden
+    /// input's value is the app's; a button's is its label.)
+    const fn has_value(self) -> bool {
+        !matches!(
+            self,
+            Self::Button(_) | Self::ImageButton | Self::Hidden | Self::Form
+        )
     }
 
     /// Controls whose value is typed text (`readonly` applies to these).
@@ -351,10 +365,35 @@ struct Remembered {
     touched: u64,
 }
 
+/// A replaced control of a recent build, by the key on its root
+/// ([`MEMORY_KEY_ATTRIBUTE`]).
+#[derive(Debug, Clone)]
+struct Registered {
+    /// The entry holding the user's value: the control's own, or - for a
+    /// radio of a named group - its group's.
+    value_key: u64,
+    /// `MemoryInner::clock` at the last build that produced the control.
+    touched: u64,
+}
+
 #[derive(Debug, Default)]
 struct MemoryInner {
     entries: BTreeMap<u64, Remembered>,
+    /// Every replaced control of the recent builds (bounded like `entries`).
+    controls: BTreeMap<u64, Registered>,
     clock: u64,
+}
+
+/// Drop the entry touched longest ago once `map` holds more than
+/// [`MAX_REMEMBERED`].
+fn evict_beyond_bound<V>(map: &mut BTreeMap<u64, V>, touched: impl Fn(&V) -> u64) {
+    if map.len() <= MAX_REMEMBERED {
+        return;
+    }
+    let oldest = map.iter().min_by_key(|(_, v)| touched(v)).map(|(k, _)| *k);
+    if let Some(oldest) = oldest {
+        map.remove(&oldest);
+    }
 }
 
 /// The values users gave the replaced form controls of one window.
@@ -383,16 +422,7 @@ impl FormControlMemory {
                 touched,
             },
         );
-        if inner.entries.len() > MAX_REMEMBERED {
-            let oldest = inner
-                .entries
-                .iter()
-                .min_by_key(|(_, r)| r.touched)
-                .map(|(k, _)| *k);
-            if let Some(oldest) = oldest {
-                inner.entries.remove(&oldest);
-            }
-        }
+        evict_beyond_bound(&mut inner.entries, |r| r.touched);
     }
 
     /// The user's value for control `key` - if the app's defaults still
@@ -419,17 +449,46 @@ impl FormControlMemory {
         None
     }
 
-    /// Forget control `key` (a form reset does this).
+    /// Forget control `key`.
     pub fn forget(&self, key: u64) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.entries.remove(&key);
         }
     }
 
+    /// A form reset of the replaced control whose root carries `control` in
+    /// its [`MEMORY_KEY_ATTRIBUTE`]: forget the user's value, so the next
+    /// build shows the app's default again (for a radio: its whole group's).
+    /// Whether there was a value to forget - i.e. whether that rebuild would
+    /// show anything new.
+    #[must_use]
+    pub fn reset_control(&self, control: u64) -> bool {
+        let Ok(mut inner) = self.inner.lock() else {
+            return false;
+        };
+        // An unregistered control (a memory that never built it) is keyed
+        // by its own entry, as every control but a grouped radio is.
+        let value_key = inner.controls.get(&control).map_or(control, |r| r.value_key);
+        inner.entries.remove(&value_key).is_some()
+    }
+
+    /// Note that a build produced the replaced control `control`, whose
+    /// user value lives under `value_key`.
+    fn register(&self, control: u64, value_key: u64) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        inner.clock = inner.clock.wrapping_add(1);
+        let touched = inner.clock;
+        inner.controls.insert(control, Registered { value_key, touched });
+        evict_beyond_bound(&mut inner.controls, |r| r.touched);
+    }
+
     /// Forget every control.
     pub fn clear(&self) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.entries.clear();
+            inner.controls.clear();
         }
     }
 
@@ -1543,6 +1602,18 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
                 rows as f32 * LINE_EM + FIELD_CHROME_EM
             ));
         }
+    }
+
+    // How a form finds this control's user value in the memory: a reset
+    // forgets it there. One key per CONTROL - for a grouped radio its own,
+    // not the group's, which the memory maps it to.
+    if kind.has_value() {
+        let control = identity_key(ctx.scope, path, node, kind);
+        ctx.memory.register(control, key);
+        dom = dom.with_attribute(AttributeType::Data(AttributeNameValue {
+            attr_name: AzString::from_const_str(MEMORY_KEY_ATTRIBUTE),
+            value: AzString::from(control.to_string()),
+        }));
     }
     dom
 }

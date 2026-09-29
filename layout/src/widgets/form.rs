@@ -43,7 +43,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, Update},
-    dom::{AttributeType, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter},
+    dom::{AttributeType, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, NodeId},
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
@@ -717,15 +717,68 @@ pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
         crate::widgets::text_input::restore_text_input(info, field_node, &mut w, value.as_str());
     }
 
+    // The raw controls the form-control replacement turned into widgets
+    // keep the user's values in the window's memory, which would hand them
+    // back on the next rebuild and undo this reset. Forget them there; the
+    // rebuild that shows their defaults is asked for below. (Before the
+    // app's handler runs, so what it reads is already the reset form.)
+    let forgot_user_values = forget_replaced_controls(info, form);
+
     // Taken out of the form state before it runs, as in `submit_form`.
     let on_reset = match dataset.downcast_ref::<FormStateWrapper>() {
         Some(wrapper) => wrapper.on_reset.clone(),
         None => return Update::DoNothing,
     };
-    match on_reset.as_ref() {
+    let mut update = match on_reset.as_ref() {
         Some(FormOnReset { callback, refany }) => callback.invoke(refany.clone(), *info, initial),
         None => Update::DoNothing,
+    };
+    if forgot_user_values {
+        // A replaced checkbox, slider or drop-down shows its default only
+        // by being rebuilt from the app's (unchanged) DOM.
+        update.max_self(Update::RefreshDom);
     }
+    update
+}
+
+/// The [`crate::form_controls::MEMORY_KEY_ATTRIBUTE`] among `attributes`:
+/// the memory key of a replaced control's root.
+fn memory_key_of(attributes: &[AttributeType]) -> Option<u64> {
+    attributes
+        .iter()
+        .find(|a| a.name() == crate::form_controls::MEMORY_KEY_ATTRIBUTE)
+        .and_then(|a| a.value().as_str().trim().parse::<u64>().ok())
+}
+
+/// The memory keys of the replaced controls inside the rendered `form`, in
+/// document order - named or not: a reset resets every control.
+fn replaced_controls(info: &CallbackInfo, form: DomNodeId) -> Vec<u64> {
+    let Some(form_id) = form.node.into_crate_internal() else {
+        return Vec::new();
+    };
+    let Some(layout) = info.get_layout_window().get_layout_result(&form.dom) else {
+        return Vec::new();
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    // A node's descendants are the contiguous run after it.
+    let start = form_id.index() + 1;
+    let end = start + layout.styled_dom.node_hierarchy.as_container().subtree_len(form_id);
+    (start..end)
+        .filter_map(|index| node_data.get(NodeId::new(index)))
+        .filter_map(|data| memory_key_of(data.attributes().as_ref()))
+        .collect()
+}
+
+/// Forget what the user gave the replaced controls inside the rendered
+/// `form`, so the next build shows their defaults. Whether any held a value.
+fn forget_replaced_controls(info: &CallbackInfo, form: DomNodeId) -> bool {
+    let controls = replaced_controls(info, form);
+    let memory = &info.get_layout_window().form_control_memory;
+    let mut forgot = false;
+    for control in controls {
+        forgot |= memory.reset_control(control);
+    }
+    forgot
 }
 
 /// The CURRENT values of the form `node` sits in - `node` may be the form
