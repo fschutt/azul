@@ -1020,6 +1020,9 @@ struct Thumbnail {
     data: Option<String>,
     width: f32,
     height: f32,
+    /// A builtin element with nothing to show on its own: why
+    /// (`azul_core::xml::builtin_no_visual`); the card says "no visual".
+    no_visual: Option<&'static str>,
 }
 
 /// This window's builder state: the document once the builder has taken the
@@ -1389,8 +1392,10 @@ impl BuilderSession {
     }
 
     /// `get_component_thumbnail`: the component's default instance rendered by
-    /// the CPU renderer, cached until the component changes (the cache key is
-    /// a fingerprint of its CSS, template, data model and render fn).
+    /// the CPU renderer ([`preview_styled_dom`]), cached until the component
+    /// changes (the cache key is a fingerprint of its CSS, template, data
+    /// model and render fn). A builtin element with nothing to show on its
+    /// own is not rendered: it answers `empty` and its `no_visual` reason.
     ///
     /// # Errors
     /// Unknown component, a failing `render_fn`, a failing render.
@@ -1410,16 +1415,23 @@ impl BuilderSession {
         let dpi = dpi.unwrap_or(2.0).clamp(0.5, 4.0);
         let key = thumbnail_key(def, library, width, dpi);
 
+        if let Some(why) = (library == "builtin")
+            .then(|| azul_core::xml::builtin_no_visual(name))
+            .flatten()
+        {
+            let none = Thumbnail {
+                data: None,
+                width: 0.0,
+                height: 0.0,
+                no_visual: Some(why),
+            };
+            return Ok(thumbnail_json(library, name, key, &none, false));
+        }
         if let Some(t) = self.thumbnails.get(&key) {
             return Ok(thumbnail_json(library, name, key, t, true));
         }
 
-        let mut styled = match (def.render_fn)(def, &def.data_model, map) {
-            ResultStyledDomRenderDomError::Ok(sd) => sd,
-            ResultStyledDomRenderDomError::Err(e) => {
-                return Err(format!("render_fn failed for '{library}:{name}': {e:?}"))
-            }
-        };
+        let mut styled = preview_styled_dom(callback_info, library, def, &def.data_model, map)?;
         // Same as `get_component_preview`: a builtin's render_fn styles with
         // no CSS, so the component CSS goes on afterwards.
         if !def.css.as_str().trim().is_empty() {
@@ -1447,6 +1459,7 @@ impl BuilderSession {
                 data: None,
                 width: 0.0,
                 height: 0.0,
+                no_visual: None,
             }
         } else {
             Thumbnail {
@@ -1456,6 +1469,7 @@ impl BuilderSession {
                 )),
                 width: result.content_width,
                 height: result.content_height,
+                no_visual: None,
             }
         };
         if self.thumbnails.len() >= MAX_THUMBNAILS {
@@ -1482,7 +1496,42 @@ fn thumbnail_json(
         "width": t.width,
         "height": t.height,
         "cached": cached,
+        "no_visual": t.no_visual,
     })
+}
+
+/// A component's default look as every preview shows it - the palette
+/// thumbnail and `get_component_preview`: a builtin HTML element through its
+/// configured preview (`azul_core::xml::builtin_preview_dom`: its text and
+/// example), styled like a document the builder mounts - raw form controls
+/// as their widgets, icons resolved (`crate::xml::style_detached_dom`); any
+/// other component through its `render_fn`.
+///
+/// # Errors
+/// A failing `render_fn`.
+pub fn preview_styled_dom(
+    callback_info: &crate::callbacks::CallbackInfo,
+    library: &str,
+    def: &ComponentDef,
+    data_model: &ComponentDataModel,
+    map: &ComponentMap,
+) -> Result<StyledDom, String> {
+    if library == "builtin" && def.codegen == ComponentCodegen::Element {
+        let dom = azul_core::xml::builtin_preview_dom(def.id.name.as_str(), data_model);
+        let system_style = callback_info.get_system_style();
+        return Ok(crate::xml::style_detached_dom(
+            dom,
+            callback_info.get_layout_window().icon_provider.as_ref(),
+            &system_style,
+        ));
+    }
+    match (def.render_fn)(def, data_model, map) {
+        ResultStyledDomRenderDomError::Ok(sd) => Ok(sd),
+        ResultStyledDomRenderDomError::Err(e) => Err(format!(
+            "render_fn failed for '{library}:{}': {e:?}",
+            def.id.name.as_str()
+        )),
+    }
 }
 
 /// Everything that changes what a component looks like.

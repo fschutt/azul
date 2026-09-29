@@ -164,7 +164,7 @@ test('drops that HTML would re-nest are refused, like the server refuses them', 
     assert.ok(!L.canContain(L.findNode(d, 6), null), 'a void element takes nothing');
 });
 
-test('the palette hides the non-visual builtins and keeps every library component', () => {
+test('the palette leaves out the document structure and <head> content, and keeps every library component', () => {
     const entries = L.paletteEntries({ libraries: [
         { name: 'builtin', components: [{ tag: 'html' }, { tag: 'p', display_name: 'Paragraph' }, { tag: 'script' }] },
         { name: 'user', components: [{ tag: 'card', display_name: 'Card', description: 'x' }] },

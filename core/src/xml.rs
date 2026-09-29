@@ -2927,26 +2927,14 @@ html_tag_node_types! {
     "base" => Base,
 }
 
-/// Default render function for builtin HTML elements.
-/// Delegates to creating a DOM node of the appropriate `NodeType`.
+/// Default render function for builtin HTML elements: the element with its
+/// text - what a drop inserts ([`builtin_dom`]; the preview adds its example).
 fn builtin_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    let node_type = tag_to_node_type(def.id.name.as_str());
-    let mut dom = Dom::create_node(node_type);
-    if let Some(text_str) = data.get_default_string("text") {
-        let prepared = prepare_string(text_str);
-        if !prepared.is_empty() {
-            dom = dom.with_children(
-                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
-                    prepared
-                )]
-                .into(),
-            );
-        }
-    }
+    let mut dom = builtin_dom(def.id.name.as_str(), data, false);
     let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
     r.into()
 }
@@ -4218,7 +4206,417 @@ fn builtin_map_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-/// Register the 52 built-in HTML element components.
+// ============================================================================
+// The builtin HTML elements: ONE table (name, text default, preview)
+// ============================================================================
+
+/// What a builtin element's PREVIEW shows - its palette card in AzBuilder
+/// (`get_component_thumbnail`) and the Components view's preview. Configured
+/// once per element in [`BUILTIN_ELEMENTS`], next to its text default, and
+/// rendered by [`builtin_preview_dom`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinPreview {
+    /// The element as a drop inserts it: with its default text (a `<p>`, a
+    /// `<strong>`), or drawing by itself (an `<hr>`, a `<button>`).
+    Itself,
+    /// The element holding an EXAMPLE that a drop does not insert: a
+    /// container is dropped empty, but its card shows what it is for (a
+    /// `<ul>` with two items, a `<section>` as a labelled box, an `<input>`
+    /// with a placeholder). `text` stands in only where the element has no
+    /// text of its own.
+    Example {
+        attrs: &'static [(&'static str, &'static str)],
+        text: &'static str,
+        children: &'static [PreviewNode],
+    },
+    /// Nothing to show on its own (document structure, a break, what only
+    /// shows inside another element or shows a source): the reason, which
+    /// the card shows instead of an empty box.
+    NoVisual(&'static str),
+}
+
+impl BuiltinPreview {
+    /// The element holding `children`.
+    const fn holding(children: &'static [PreviewNode]) -> Self {
+        Self::Example {
+            attrs: &[],
+            text: "",
+            children,
+        }
+    }
+
+    /// The element with the example attributes `attrs`.
+    const fn with(attrs: &'static [(&'static str, &'static str)]) -> Self {
+        Self::Example {
+            attrs,
+            text: "",
+            children: &[],
+        }
+    }
+
+    /// A block container: a dashed box with `label` in it.
+    const fn boxed(label: &'static str) -> Self {
+        Self::Example {
+            attrs: PREVIEW_BOX,
+            text: label,
+            children: &[],
+        }
+    }
+}
+
+/// One element of a [`BuiltinPreview::Example`]: `<tag attrs>text children</tag>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreviewNode {
+    tag: &'static str,
+    attrs: &'static [(&'static str, &'static str)],
+    text: &'static str,
+    children: &'static [PreviewNode],
+}
+
+impl PreviewNode {
+    /// `<tag>text</tag>`
+    const fn text(tag: &'static str, text: &'static str) -> Self {
+        Self {
+            tag,
+            attrs: &[],
+            text,
+            children: &[],
+        }
+    }
+
+    /// `<tag>children</tag>`
+    const fn holding(tag: &'static str, children: &'static [PreviewNode]) -> Self {
+        Self {
+            tag,
+            attrs: &[],
+            text: "",
+            children,
+        }
+    }
+
+    /// `<tag attrs/>`
+    const fn with(tag: &'static str, attrs: &'static [(&'static str, &'static str)]) -> Self {
+        Self {
+            tag,
+            attrs,
+            text: "",
+            children: &[],
+        }
+    }
+
+    /// This node as parsed markup, for `xml_node_to_dom_fast`.
+    fn to_xml(&self) -> XmlNode {
+        preview_xml(self.tag, self.attrs, self.text, self.children)
+    }
+}
+
+/// One builtin HTML element: the component `builtin:<tag>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BuiltinElement {
+    tag: &'static str,
+    display_name: &'static str,
+    /// The default of its `text` field - which a drop inserts
+    /// (`builder_insert`) and its preview shows; `None`: it takes no text.
+    text: Option<&'static str>,
+    preview: BuiltinPreview,
+}
+
+const fn el(
+    tag: &'static str,
+    display_name: &'static str,
+    text: Option<&'static str>,
+    preview: BuiltinPreview,
+) -> BuiltinElement {
+    BuiltinElement {
+        tag,
+        display_name,
+        text,
+        preview,
+    }
+}
+
+/// The look of a container's preview: a dashed box, so an empty-looking
+/// block still reads as one.
+const PREVIEW_BOX: &[(&str, &str)] = &[(
+    "style",
+    "border: 1px dashed #9ca3af; padding: 4px 6px; color: #4b5563",
+)];
+const LIST_ITEMS: &[PreviewNode] = &[
+    PreviewNode::text("li", "First item"),
+    PreviewNode::text("li", "Second item"),
+];
+const TERM_AND_DESCRIPTION: &[PreviewNode] = &[
+    PreviewNode::text("dt", "Term"),
+    PreviewNode::text("dd", "Description"),
+];
+const HEAD_CELLS: &[PreviewNode] = &[
+    PreviewNode::text("th", "Name"),
+    PreviewNode::text("th", "Value"),
+];
+const BODY_CELLS: &[PreviewNode] = &[
+    PreviewNode::text("td", "Width"),
+    PreviewNode::text("td", "42"),
+];
+const HEAD_ROW: PreviewNode = PreviewNode::holding("tr", HEAD_CELLS);
+const BODY_ROW: PreviewNode = PreviewNode::holding("tr", BODY_CELLS);
+const HEAD_ROWS: &[PreviewNode] = &[HEAD_ROW];
+const BODY_ROWS: &[PreviewNode] = &[BODY_ROW];
+const TABLE_ROWS: &[PreviewNode] = &[HEAD_ROW, BODY_ROW];
+const FIGURE_CAPTION: &[PreviewNode] = &[PreviewNode::text("figcaption", "Figure caption")];
+const DETAILS_SUMMARY: &[PreviewNode] = &[PreviewNode::text("summary", "Details")];
+const RUBY_TEXT: &[PreviewNode] = &[PreviewNode::text("rt", "annotation")];
+const FORM_FIELDS: &[PreviewNode] = &[
+    PreviewNode::text("label", "Name"),
+    PreviewNode::with("input", &[("placeholder", "Your name")]),
+];
+const FIELDSET_FIELDS: &[PreviewNode] = &[
+    PreviewNode::text("legend", "Legend"),
+    PreviewNode::text("label", "Field"),
+];
+const SELECT_OPTIONS: &[PreviewNode] = &[
+    PreviewNode::text("option", "Option 1"),
+    PreviewNode::text("option", "Option 2"),
+];
+const SVG_SHAPES: &[PreviewNode] = &[
+    PreviewNode::with(
+        "circle",
+        &[("cx", "12"), ("cy", "12"), ("r", "10"), ("fill", "#3b82f6")],
+    ),
+    PreviewNode::with(
+        "path",
+        &[
+            ("d", "M 26,3 L 44,3 L 44,21 L 26,21 Z"),
+            ("fill", "#f59e0b"),
+        ],
+    ),
+];
+
+/// Every builtin HTML element, in palette order: THE one place its name, its
+/// text default and its preview are configured ([`register_builtin_components`]
+/// builds the components from it, [`builtin_preview_dom`] the previews).
+#[rustfmt::skip]
+static BUILTIN_ELEMENTS: &[BuiltinElement] = {
+    use BuiltinPreview::{Itself, NoVisual};
+    &[
+        // Structural
+        el("html", "HTML", None, NoVisual("the document root: a builder document is its <body>")),
+        el("head", "Head", None, NoVisual("the document's metadata: it has no box")),
+        el("title", "Title", Some(""), NoVisual("the window title: not drawn in the page")),
+        el("body", "Body", None, NoVisual("the document itself: the builder document's root")),
+        // Block-level
+        el("div", "Div", None, BuiltinPreview::boxed("Div")),
+        el("header", "Header", None, BuiltinPreview::boxed("Header")),
+        el("footer", "Footer", None, BuiltinPreview::boxed("Footer")),
+        el("section", "Section", None, BuiltinPreview::boxed("Section")),
+        el("article", "Article", None, BuiltinPreview::boxed("Article")),
+        el("aside", "Aside", None, BuiltinPreview::boxed("Aside")),
+        el("nav", "Nav", None, BuiltinPreview::boxed("Nav")),
+        el("main", "Main", None, BuiltinPreview::boxed("Main")),
+        el("figure", "Figure", None, BuiltinPreview::Example { attrs: PREVIEW_BOX, text: "", children: FIGURE_CAPTION }),
+        el("figcaption", "Figure Caption", Some("Figure caption"), Itself),
+        el("address", "Address", Some("Address"), Itself),
+        el("details", "Details", None, BuiltinPreview::holding(DETAILS_SUMMARY)),
+        el("summary", "Summary", Some("Details"), Itself),
+        el("dialog", "Dialog", None, BuiltinPreview::boxed("Dialog")),
+        // Headings: the level's name, so the preview shows its size
+        el("h1", "Heading 1", Some("Heading 1"), Itself),
+        el("h2", "Heading 2", Some("Heading 2"), Itself),
+        el("h3", "Heading 3", Some("Heading 3"), Itself),
+        el("h4", "Heading 4", Some("Heading 4"), Itself),
+        el("h5", "Heading 5", Some("Heading 5"), Itself),
+        el("h6", "Heading 6", Some("Heading 6"), Itself),
+        // Text content
+        el("p", "Paragraph", Some("Paragraph text"), Itself),
+        el("span", "Span", Some("Span text"), Itself),
+        el("pre", "Preformatted", Some("Preformatted text"), Itself),
+        el("code", "Code", Some("code"), Itself),
+        el("blockquote", "Blockquote", Some("Blockquote"), Itself),
+        el("br", "Line Break", None, NoVisual("a line break inside text: no box of its own")),
+        el("hr", "Horizontal Rule", None, Itself),
+        el("pagebreak", "Page Break", None, NoVisual("a page break: only paged output (print, PDF) shows it")),
+        // The icon's spec is its text content (`<icon>home</icon>`).
+        el("icon", "Icon", Some("home"), Itself),
+        // Lists
+        el("ul", "Unordered List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("ol", "Ordered List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("li", "List Item", Some("List item"), Itself),
+        el("dl", "Description List", None, BuiltinPreview::holding(TERM_AND_DESCRIPTION)),
+        el("dt", "Description Term", Some("Term"), Itself),
+        el("dd", "Description Details", Some("Description"), Itself),
+        el("menu", "Menu", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("menuitem", "Menu Item", Some("Menu item"), Itself),
+        el("dir", "Directory List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        // Tables
+        el("table", "Table", None, BuiltinPreview::holding(TABLE_ROWS)),
+        el("caption", "Table Caption", Some("Table caption"), Itself),
+        el("thead", "Table Head", None, BuiltinPreview::holding(HEAD_ROWS)),
+        el("tbody", "Table Body", None, BuiltinPreview::holding(BODY_ROWS)),
+        el("tfoot", "Table Foot", None, BuiltinPreview::holding(BODY_ROWS)),
+        el("tr", "Table Row", None, BuiltinPreview::holding(BODY_CELLS)),
+        el("th", "Table Header Cell", Some("Header"), Itself),
+        el("td", "Table Data Cell", Some("Cell"), Itself),
+        el("colgroup", "Column Group", None, NoVisual("styles a table's columns: no box of its own")),
+        el("col", "Column", None, NoVisual("styles a table's column: no box of its own")),
+        // Inline
+        el("a", "Link", Some("Link text"), Itself),
+        el("strong", "Strong", Some("Strong text"), Itself),
+        el("em", "Emphasis", Some("Emphasized text"), Itself),
+        el("b", "Bold", Some("Bold text"), Itself),
+        el("i", "Italic", Some("Italic text"), Itself),
+        el("u", "Underline", Some("Underlined text"), Itself),
+        el("s", "Strikethrough", Some("Struck-through text"), Itself),
+        el("small", "Small", Some("Small text"), Itself),
+        el("mark", "Mark", Some("Marked text"), Itself),
+        el("del", "Deleted Text", Some("Deleted text"), Itself),
+        el("ins", "Inserted Text", Some("Inserted text"), Itself),
+        el("sub", "Subscript", Some("Subscript"), Itself),
+        el("sup", "Superscript", Some("Superscript"), Itself),
+        el("samp", "Sample Output", Some("Sample output"), Itself),
+        el("kbd", "Keyboard Input", Some("Ctrl+C"), Itself),
+        el("var", "Variable", Some("x"), Itself),
+        el("cite", "Citation", Some("Citation"), Itself),
+        el("dfn", "Definition", Some("Definition"), Itself),
+        el("abbr", "Abbreviation", Some("Abbr."), Itself),
+        el("acronym", "Acronym", Some("ACRONYM"), Itself),
+        el("q", "Inline Quote", Some("Quotation"), Itself),
+        el("time", "Time", Some("12:00"), Itself),
+        el("big", "Big", Some("Big text"), Itself),
+        el("bdo", "BiDi Override", Some("BiDi override"), Itself),
+        el("bdi", "BiDi Isolate", Some("BiDi isolate"), Itself),
+        el("wbr", "Word Break Opportunity", None, NoVisual("a line-break opportunity inside a word: no box of its own")),
+        el("ruby", "Ruby Annotation", None, BuiltinPreview::Example { attrs: &[], text: "Ruby", children: RUBY_TEXT }),
+        el("rt", "Ruby Text", Some("annotation"), Itself),
+        el("rtc", "Ruby Text Container", None, BuiltinPreview::holding(RUBY_TEXT)),
+        el("rp", "Ruby Parenthesis", Some("("), Itself),
+        el("data", "Data", Some("Data"), Itself),
+        // Forms: a raw control becomes its widget in the window, and in the preview
+        el("form", "Form", None, BuiltinPreview::holding(FORM_FIELDS)),
+        el("fieldset", "Field Set", None, BuiltinPreview::Example { attrs: PREVIEW_BOX, text: "", children: FIELDSET_FIELDS }),
+        el("legend", "Legend", Some("Legend"), Itself),
+        el("label", "Label", Some("Label"), Itself),
+        el("input", "Input", None, BuiltinPreview::with(&[("placeholder", "Input")])),
+        el("button", "Button", Some("Button text"), Itself),
+        el("select", "Select", None, BuiltinPreview::holding(SELECT_OPTIONS)),
+        el("optgroup", "Option Group", None, NoVisual("a heading over options: shows inside a <select>")),
+        el("option", "Option", Some("Option"), NoVisual("shows inside a <select>")),
+        el("textarea", "Text Area", Some(""), BuiltinPreview::with(&[("placeholder", "Text area")])),
+        el("output", "Output", Some("Output"), Itself),
+        el("progress", "Progress", None, NoVisual("not drawn by azul yet (the ProgressBar widget is)")),
+        el("meter", "Meter", None, NoVisual("not drawn by azul yet")),
+        el("datalist", "Data List", None, NoVisual("the suggestions of an <input list>: never drawn itself")),
+        // Embedded content: each shows what its source names
+        el("canvas", "Canvas", None, NoVisual("shows what the app draws into it")),
+        el("object", "Object", None, NoVisual("shows the resource its data attribute names")),
+        el("param", "Parameter", None, NoVisual("a parameter of its <object>")),
+        el("embed", "Embed", None, NoVisual("shows the resource its src names")),
+        el("audio", "Audio", None, NoVisual("plays the audio its src names")),
+        el("video", "Video", None, NoVisual("plays the video its src names")),
+        el("source", "Source", None, NoVisual("a source of its <audio> / <video>")),
+        el("track", "Track", None, NoVisual("a text track of its <video>")),
+        el("map", "Image Map", None, NoVisual("the clickable regions of an image: no box of its own")),
+        el("area", "Map Area", None, NoVisual("a clickable region of an image map")),
+        el("svg", "SVG", None, BuiltinPreview::Example { attrs: &[("width", "48"), ("height", "24"), ("viewBox", "0 0 48 24")], text: "", children: SVG_SHAPES }),
+        // Metadata
+        el("meta", "Meta", None, NoVisual("document metadata: it has no box")),
+        el("link", "Link (Resource)", None, NoVisual("links a resource to the document: it has no box")),
+        el("script", "Script", Some(""), NoVisual("code, not content")),
+        el("style", "Style", Some(""), NoVisual("a stylesheet, not content")),
+        el("base", "Base URL", None, NoVisual("document metadata: it has no box")),
+    ]
+};
+
+/// The builtin element `tag`, if it is one.
+fn builtin_element(tag: &str) -> Option<&'static BuiltinElement> {
+    BUILTIN_ELEMENTS.iter().find(|e| e.tag == tag)
+}
+
+/// Why the builtin element `tag` has no preview (its palette card says "no
+/// visual" with this); `None` for one that shows something, and for a tag
+/// that is not a builtin element.
+#[must_use]
+pub fn builtin_no_visual(tag: &str) -> Option<&'static str> {
+    match builtin_element(tag)?.preview {
+        BuiltinPreview::NoVisual(why) => Some(why),
+        BuiltinPreview::Itself | BuiltinPreview::Example { .. } => None,
+    }
+}
+
+/// `<tag attrs>text children</tag>` as parsed markup.
+fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[PreviewNode]) -> XmlNode {
+    let mut kids: Vec<XmlNodeChild> = Vec::new();
+    if !text.is_empty() {
+        kids.push(XmlNodeChild::Text(AzString::from(text)));
+    }
+    kids.extend(children.iter().map(|c| XmlNodeChild::Element(c.to_xml())));
+    XmlNode {
+        node_type: XmlTagName::from(tag),
+        attributes: XmlAttributeMap::from(StringPairVec::from_vec(
+            attrs
+                .iter()
+                .map(|(k, v)| AzStringPair {
+                    key: AzString::from(*k),
+                    value: AzString::from(*v),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        children: kids.into(),
+    }
+}
+
+/// What a builtin element's PREVIEW shows with `data` (its palette card, the
+/// Components view): the element with its `text` (the data model's, else its
+/// example's) plus the example attributes and children its entry in the
+/// `BUILTIN_ELEMENTS` table configures - which a drop does not insert.
+///
+/// Unstyled on purpose: a raw `<input>` / `<select>` becomes its widget only
+/// where the widgets are, and azul-layout resolves them for the preview as it
+/// does for every document it mounts.
+#[must_use]
+pub fn builtin_preview_dom(tag: &str, data: &ComponentDataModel) -> Dom {
+    builtin_dom(tag, data, true)
+}
+
+/// A builtin element with `data`'s text and - with `example` - its preview
+/// example. Built by the XML loader's own path (`xml_node_to_dom_fast`: the
+/// one attribute table), so an example attribute sets exactly what markup
+/// would. An unknown tag is the node `tag_to_node_type` makes, with its text.
+fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
+    let (attrs, example_text, children): (&[(&str, &str)], &str, &[PreviewNode]) =
+        match builtin_element(tag).map(|e| e.preview) {
+            Some(BuiltinPreview::Example {
+                attrs,
+                text,
+                children,
+            }) if example => (attrs, text, children),
+            _ => (&[], "", &[]),
+        };
+    let own = data
+        .get_default_string("text")
+        .map(|t| prepare_string(t.as_str()))
+        .unwrap_or_default();
+    let text = if own.is_empty() {
+        example_text.to_string()
+    } else {
+        own
+    };
+    let node = preview_xml(tag, attrs, &text, children);
+    xml_node_to_dom_fast(&node, &ComponentMap::default(), false, 0).unwrap_or_else(|_| {
+        let bare = Dom::create_node(tag_to_node_type(tag));
+        if text.is_empty() {
+            bare
+        } else {
+            bare.with_children(
+                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                    text
+                )]
+                .into(),
+            )
+        }
+    })
+}
+
+/// Register the built-in components: one per HTML element of the
+/// `BUILTIN_ELEMENTS` table, then the structural `if` / `for` / `map`.
 ///
 /// This is an `extern "C"` function pointer compatible with
 /// `RegisterComponentLibraryFnType`, so it can be passed directly to
@@ -4226,7 +4624,6 @@ fn builtin_map_render_fn(
 ///
 /// Called once during `AppConfig::create()` — the framework dogfoods
 /// its own component registration system for builtins.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
 pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
@@ -4237,136 +4634,17 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         modifiable: false,
         data_models: Vec::new().into(),
         enum_models: Vec::new().into(),
-        components: alloc::vec![
-            // Structural
-            builtin_component_def("html", "HTML", None, ""),
-            builtin_component_def("head", "Head", None, ""),
-            builtin_component_def("title", "Title", Some(""), ""),
-            builtin_component_def("body", "Body", None, ""),
-            // Block-level
-            builtin_component_def("div", "Div", None, ""),
-            builtin_component_def("header", "Header", None, ""),
-            builtin_component_def("footer", "Footer", None, ""),
-            builtin_component_def("section", "Section", None, ""),
-            builtin_component_def("article", "Article", None, ""),
-            builtin_component_def("aside", "Aside", None, ""),
-            builtin_component_def("nav", "Nav", None, ""),
-            builtin_component_def("main", "Main", None, ""),
-            builtin_component_def("figure", "Figure", None, ""),
-            builtin_component_def("figcaption", "Figure Caption", Some(""), ""),
-            builtin_component_def("address", "Address", Some(""), ""),
-            builtin_component_def("details", "Details", None, ""),
-            builtin_component_def("summary", "Summary", Some("Details"), ""),
-            builtin_component_def("dialog", "Dialog", None, ""),
-            // Headings — default text is the heading level name so preview is visible
-            builtin_component_def("h1", "Heading 1", Some("Heading 1"), ""),
-            builtin_component_def("h2", "Heading 2", Some("Heading 2"), ""),
-            builtin_component_def("h3", "Heading 3", Some("Heading 3"), ""),
-            builtin_component_def("h4", "Heading 4", Some("Heading 4"), ""),
-            builtin_component_def("h5", "Heading 5", Some("Heading 5"), ""),
-            builtin_component_def("h6", "Heading 6", Some("Heading 6"), ""),
-            // Text content
-            builtin_component_def("p", "Paragraph", Some("Paragraph text"), ""),
-            builtin_component_def("span", "Span", Some(""), ""),
-            builtin_component_def("pre", "Preformatted", Some(""), ""),
-            builtin_component_def("code", "Code", Some(""), ""),
-            builtin_component_def("blockquote", "Blockquote", Some(""), ""),
-            builtin_component_def("br", "Line Break", None, ""),
-            builtin_component_def("hr", "Horizontal Rule", None, ""),
-            builtin_component_def("pagebreak", "Page Break", None, ""),
-            builtin_component_def("icon", "Icon", Some(""), ""),
-            // Lists
-            builtin_component_def("ul", "Unordered List", None, ""),
-            builtin_component_def("ol", "Ordered List", None, ""),
-            builtin_component_def("li", "List Item", Some("List item"), ""),
-            builtin_component_def("dl", "Description List", None, ""),
-            builtin_component_def("dt", "Description Term", Some(""), ""),
-            builtin_component_def("dd", "Description Details", Some(""), ""),
-            builtin_component_def("menu", "Menu", None, ""),
-            builtin_component_def("menuitem", "Menu Item", Some(""), ""),
-            builtin_component_def("dir", "Directory List", None, ""),
-            // Tables
-            builtin_component_def("table", "Table", None, ""),
-            builtin_component_def("caption", "Table Caption", Some(""), ""),
-            builtin_component_def("thead", "Table Head", None, ""),
-            builtin_component_def("tbody", "Table Body", None, ""),
-            builtin_component_def("tfoot", "Table Foot", None, ""),
-            builtin_component_def("tr", "Table Row", None, ""),
-            builtin_component_def("th", "Table Header Cell", Some("Header"), ""),
-            builtin_component_def("td", "Table Data Cell", Some(""), ""),
-            builtin_component_def("colgroup", "Column Group", None, ""),
-            builtin_component_def("col", "Column", None, ""),
-            // Inline
-            builtin_component_def("a", "Link", Some("Link text"), ""),
-            builtin_component_def("strong", "Strong", Some(""), ""),
-            builtin_component_def("em", "Emphasis", Some(""), ""),
-            builtin_component_def("b", "Bold", Some(""), ""),
-            builtin_component_def("i", "Italic", Some(""), ""),
-            builtin_component_def("u", "Underline", Some(""), ""),
-            builtin_component_def("s", "Strikethrough", Some(""), ""),
-            builtin_component_def("small", "Small", Some(""), ""),
-            builtin_component_def("mark", "Mark", Some(""), ""),
-            builtin_component_def("del", "Deleted Text", Some(""), ""),
-            builtin_component_def("ins", "Inserted Text", Some(""), ""),
-            builtin_component_def("sub", "Subscript", Some(""), ""),
-            builtin_component_def("sup", "Superscript", Some(""), ""),
-            builtin_component_def("samp", "Sample Output", Some(""), ""),
-            builtin_component_def("kbd", "Keyboard Input", Some(""), ""),
-            builtin_component_def("var", "Variable", Some(""), ""),
-            builtin_component_def("cite", "Citation", Some(""), ""),
-            builtin_component_def("dfn", "Definition", Some(""), ""),
-            builtin_component_def("abbr", "Abbreviation", Some(""), ""),
-            builtin_component_def("acronym", "Acronym", Some(""), ""),
-            builtin_component_def("q", "Inline Quote", Some(""), ""),
-            builtin_component_def("time", "Time", Some(""), ""),
-            builtin_component_def("big", "Big", Some(""), ""),
-            builtin_component_def("bdo", "BiDi Override", Some(""), ""),
-            builtin_component_def("bdi", "BiDi Isolate", Some(""), ""),
-            builtin_component_def("wbr", "Word Break Opportunity", None, ""),
-            builtin_component_def("ruby", "Ruby Annotation", None, ""),
-            builtin_component_def("rt", "Ruby Text", Some(""), ""),
-            builtin_component_def("rtc", "Ruby Text Container", None, ""),
-            builtin_component_def("rp", "Ruby Parenthesis", Some(""), ""),
-            builtin_component_def("data", "Data", Some(""), ""),
-            // Forms
-            builtin_component_def("form", "Form", None, ""),
-            builtin_component_def("fieldset", "Field Set", None, ""),
-            builtin_component_def("legend", "Legend", Some("Legend"), ""),
-            builtin_component_def("label", "Label", Some("Label"), ""),
-            builtin_component_def("input", "Input", None, ""),
-            builtin_component_def("button", "Button", Some("Button text"), ""),
-            builtin_component_def("select", "Select", None, ""),
-            builtin_component_def("optgroup", "Option Group", None, ""),
-            builtin_component_def("option", "Option", Some(""), ""),
-            builtin_component_def("textarea", "Text Area", Some(""), ""),
-            builtin_component_def("output", "Output", Some(""), ""),
-            builtin_component_def("progress", "Progress", None, ""),
-            builtin_component_def("meter", "Meter", None, ""),
-            builtin_component_def("datalist", "Data List", None, ""),
-            // Embedded content
-            builtin_component_def("canvas", "Canvas", None, ""),
-            builtin_component_def("object", "Object", None, ""),
-            builtin_component_def("param", "Parameter", None, ""),
-            builtin_component_def("embed", "Embed", None, ""),
-            builtin_component_def("audio", "Audio", None, ""),
-            builtin_component_def("video", "Video", None, ""),
-            builtin_component_def("source", "Source", None, ""),
-            builtin_component_def("track", "Track", None, ""),
-            builtin_component_def("map", "Image Map", None, ""),
-            builtin_component_def("area", "Map Area", None, ""),
-            builtin_component_def("svg", "SVG", None, ""),
-            // Metadata
-            builtin_component_def("meta", "Meta", None, ""),
-            builtin_component_def("link", "Link (Resource)", None, ""),
-            builtin_component_def("script", "Script", Some(""), ""),
-            builtin_component_def("style", "Style", Some(""), ""),
-            builtin_component_def("base", "Base URL", None, ""),
+        components: BUILTIN_ELEMENTS
+            .iter()
+            .map(|e| builtin_component_def(e.tag, e.display_name, e.text, ""))
             // Structural control-flow builtins (F1-F3)
-            builtin_if_component(),
-            builtin_for_component(),
-            builtin_map_component(),
-        ]
-        .into(),
+            .chain([
+                builtin_if_component(),
+                builtin_for_component(),
+                builtin_map_component(),
+            ])
+            .collect::<Vec<_>>()
+            .into(),
     }
 }
 

@@ -2860,6 +2860,65 @@ mod autotest_generated {
         ));
     }
 
+    #[test]
+    fn a_builtins_preview_adds_its_example_but_what_it_renders_is_what_a_drop_inserts() {
+        let map = ComponentMap::with_builtin();
+        let ul = map.get_unqualified("ul").expect("builtin ul");
+        assert_eq!(
+            builtin_preview_dom("ul", &ul.data_model)
+                .children
+                .as_ref()
+                .len(),
+            2,
+            "the preview of a <ul> holds two example items"
+        );
+        assert!(
+            builtin_dom("ul", &ul.data_model, false)
+                .children
+                .as_ref()
+                .is_empty(),
+            "a dropped <ul> is empty: the example is the preview's only"
+        );
+        // A text element previews its text default, which a drop inserts too.
+        let span = map.get_unqualified("span").expect("builtin span");
+        assert_eq!(
+            span.data_model
+                .get_default_string("text")
+                .map(AzString::as_str),
+            Some("Span text")
+        );
+        // An example attribute goes through the XML attribute table.
+        let input = map.get_unqualified("input").expect("builtin input");
+        let preview = builtin_preview_dom("input", &input.data_model);
+        assert!(preview
+            .root
+            .attributes()
+            .iter()
+            .any(|a| a.name().eq_ignore_ascii_case("placeholder")));
+    }
+
+    #[test]
+    fn a_builtin_without_a_box_of_its_own_says_why_and_the_rest_do_not() {
+        for tag in ["br", "option", "source", "head", "col"] {
+            assert!(builtin_no_visual(tag).is_some(), "<{tag}> has no visual");
+        }
+        for tag in ["p", "div", "ul", "input", "hr", "svg"] {
+            assert!(builtin_no_visual(tag).is_none(), "<{tag}> shows something");
+        }
+        assert!(builtin_no_visual("not-an-element").is_none());
+        // Every element of the table is a registered builtin, once.
+        let lib = register_builtin_components();
+        for e in BUILTIN_ELEMENTS {
+            let n = lib
+                .components
+                .as_ref()
+                .iter()
+                .filter(|c| c.id.name.as_str() == e.tag && c.codegen == ComponentCodegen::Element)
+                .count();
+            assert_eq!(n, 1, "<{}> is registered once", e.tag);
+        }
+    }
+
     // ================================================================
     // user_defined_render_fn
     // ================================================================

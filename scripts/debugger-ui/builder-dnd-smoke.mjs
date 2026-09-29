@@ -378,7 +378,7 @@ async function main() {
         check('the tree rows and the palette are laid out (drop zones need real row heights)',
             layout.row0 && layout.row0[1] >= 16 && layout.card && layout.card[1] > 0, layout);
 
-        check('the palette leaves out non-visual builtins (<html>)',
+        check('the palette leaves out the document structure (<html>)',
             await cdp.eval(`!__t.card('builtin:html') && !!__t.card('builtin:p')`));
         check('palette thumbnails are requested from the native renderer and shown',
             await waitFor(cdp, `document.querySelectorAll('.azb-card .azb-thumb img').length >= 3`)

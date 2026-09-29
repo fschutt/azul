@@ -215,14 +215,36 @@ pub fn parse_xml_to_styled_dom_resolving_icons(
     provider: &azul_core::icon::SharedIconProvider,
     system_style: &azul_css::system::SystemStyle,
 ) -> Result<StyledDom, XmlError> {
-    styled_xml_document(xml, provider, system_style, |_dom| {
-        #[cfg(feature = "widgets")]
-        let _ = crate::form_controls::resolve_form_controls_in_dom(
-            _dom,
-            &crate::form_controls::FormControlMemory::default(),
-            crate::form_controls::FORM_SCOPE_ROOT,
-        );
-    })
+    styled_xml_document(xml, provider, system_style, resolve_form_controls_detached)
+}
+
+/// A `Dom` built outside any window - AzBuilder's component previews - styled
+/// the way [`parse_xml_to_styled_dom_resolving_icons`] styles a parsed
+/// document: raw form controls become widgets (with a memory of their own),
+/// `<icon>`s resolve against `provider` (without one they stay as they are),
+/// then the cascade, with no window context (the UA's light table).
+#[must_use]
+pub fn style_detached_dom(
+    mut dom: Dom,
+    provider: Option<&azul_core::icon::SharedIconProvider>,
+    system_style: &azul_css::system::SystemStyle,
+) -> StyledDom {
+    resolve_form_controls_detached(&mut dom);
+    match provider {
+        Some(provider) => azul_core::icon::styled_dom_resolving_icons(dom, provider, system_style),
+        None => StyledDom::create_from_dom(dom),
+    }
+}
+
+/// Raw `<input>` / `<select>` / `<textarea>` / `<form>` nodes → their widgets,
+/// with a form-control memory nothing else reads (no window owns the DOM).
+fn resolve_form_controls_detached(_dom: &mut Dom) {
+    #[cfg(feature = "widgets")]
+    let _ = crate::form_controls::resolve_form_controls_in_dom(
+        _dom,
+        &crate::form_controls::FormControlMemory::default(),
+        crate::form_controls::FORM_SCOPE_ROOT,
+    );
 }
 
 /// THE path from an XML document to a `StyledDom` with its icons resolved,

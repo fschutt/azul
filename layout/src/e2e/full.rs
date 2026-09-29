@@ -19469,15 +19469,24 @@ pub fn process_debug_event(
                 };
 
             // --- 3. Render the component to a StyledDom ---
+            // The palette thumbnail's path: a builtin element shows its
+            // configured preview, form controls as widgets.
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
-                azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
-                azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
-                    send_err(request, format!("render_fn failed for '{}': {:?}", name, e));
+            let rendered = super::builder::preview_styled_dom(
+                callback_info,
+                library.as_str(),
+                &comp,
+                &render_data_model,
+                &map_guard,
+            );
+            drop(map_guard);
+            let styled_dom = match rendered {
+                Ok(sd) => sd,
+                Err(e) => {
+                    send_err(request, e);
                     return needs_update;
                 }
             };
-            drop(map_guard);
 
             // --- 4. Apply CSS (component css or overridden) ---
             let css_text = css_override.as_deref().unwrap_or_else(|| comp.css.as_str());

@@ -32,8 +32,14 @@
     // Pure logic
     // =====================================================================
 
-    /** Builtins that draw nothing / are document structure: not in the palette. */
-    var NON_VISUAL = ['html', 'head', 'title', 'body', 'meta', 'link', 'script', 'style', 'base'];
+    /**
+     * Builtins that are the document's structure or <head> content: a builder
+     * document IS a <body>, so they are not in the palette. Every other
+     * builtin with nothing to show on its own (<br>, <option>, <source>, ...)
+     * stays droppable; its card says "no visual" with the server's reason
+     * (`thumbOf`).
+     */
+    var NOT_IN_PALETTE = ['html', 'head', 'title', 'body', 'meta', 'link', 'script', 'style', 'base'];
     /** The XML parser's void elements: they take no children. */
     var VOID = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
         'param', 'source', 'track', 'wbr'];
@@ -234,14 +240,14 @@
         return dropTarget(row, 'after');
     }
 
-    /** Palette entries from `get_component_registry`, minus non-visual builtins. */
+    /** Palette entries from `get_component_registry`, minus the builtins NOT_IN_PALETTE. */
     function paletteEntries(registry) {
         var out = [];
         ((registry && registry.libraries) || []).forEach(function (lib) {
             (lib.components || []).forEach(function (c) {
                 var tag = c.tag || c.name;
                 if (!tag) return;
-                if (lib.name === 'builtin' && NON_VISUAL.indexOf(tag) !== -1) return;
+                if (lib.name === 'builtin' && NOT_IN_PALETTE.indexOf(tag) !== -1) return;
                 out.push({
                     library: lib.name,
                     component: tag,
@@ -251,6 +257,17 @@
             });
         });
         return out;
+    }
+
+    /**
+     * A `get_component_thumbnail` answer as its card keeps it: the picture, or
+     * none - with the reason when it is a builtin that has nothing to show on
+     * its own (`no_visual`, builder.rs), which the card says instead of an
+     * empty box.
+     */
+    function thumbOf(v) {
+        if (v && v.data) return { data: v.data, width: v.width, height: v.height };
+        return { empty: true, noVisual: (v && typeof v.no_visual === 'string' && v.no_visual) || null };
     }
 
     /** A component name to suggest for converting `node`: its first class, id or tag. */
@@ -510,13 +527,13 @@
     }
 
     var logic = {
-        NON_VISUAL: NON_VISUAL, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
+        NOT_IN_PALETTE: NOT_IN_PALETTE, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
         acceptsChildren: acceptsChildren, canContain: canContain, dropZone: dropZone, flatten: flatten,
         dropTarget: dropTarget, rowDrop: rowDrop, dropLine: dropLine, indentPx: indentPx, labelPx: labelPx,
         findNode: findNode, rowOf: rowOf,
         isSelfOrDescendant: isSelfOrDescendant, normalizePayload: normalizePayload,
         dropMessage: dropMessage, stepMessage: stepMessage, insertTarget: insertTarget,
-        paletteEntries: paletteEntries, suggestComponentName: suggestComponentName,
+        paletteEntries: paletteEntries, thumbOf: thumbOf, suggestComponentName: suggestComponentName,
         sanitizeComponentName: sanitizeComponentName,
         // B5
         componentDef: componentDef, propertyRows: propertyRows, propertyMessage: propertyMessage,
@@ -549,7 +566,7 @@
         dropAt: null,            // {uid, zone} under the pointer
         rows: [],                // the tree's visible rows (flatten), as rendered
         expandTimer: null,
-        thumbs: {},              // 'lib:name' -> {data, width, height} | 'pending' | 'empty'
+        thumbs: {},              // 'lib:name' -> 'pending' | thumbOf(answer)
         thumbQueue: [],
         thumbBusy: 0,
         palette: [],
@@ -1431,20 +1448,33 @@
 
     function fillThumb(thumb, entry) {
         var t = S.thumbs[entryKey(entry)];
+        var done = t && t !== 'pending' ? t : null;
         thumb.innerHTML = '';
-        thumb.classList.toggle('azb-loading', t === 'pending' || t === undefined);
-        if (t && t !== 'pending' && t !== 'empty' && t.data) {
+        thumb.removeAttribute('title');
+        thumb.classList.toggle('azb-loading', !done);
+        thumb.classList.toggle('azb-novisual', !!(done && done.noVisual));
+        if (done && done.data) {
             var img = document.createElement('img');
             img.alt = entry.label;
             img.draggable = false;
-            img.src = t.data;
+            img.src = done.data;
             thumb.appendChild(img);
+            return;
+        }
+        if (done && done.noVisual) {
+            // Nothing to show on its own (<br>, <option>, <source>, ...): say
+            // so rather than draw an empty box; the reason is the tooltip.
+            var nv = document.createElement('span');
+            nv.className = 'azb-thumb-novisual';
+            nv.textContent = 'no visual';
+            thumb.appendChild(nv);
+            thumb.title = 'No visual: ' + done.noVisual;
             return;
         }
         var letter = document.createElement('span');
         letter.className = 'azb-thumb-letter';
-        letter.textContent = t === 'empty' ? '<' + entry.component + '>' : (entry.label || '?').charAt(0).toUpperCase();
-        if (t === 'empty') letter.classList.add('azb-thumb-tag');
+        letter.textContent = done ? '<' + entry.component + '>' : (entry.label || '?').charAt(0).toUpperCase();
+        if (done) letter.classList.add('azb-thumb-tag');
         thumb.appendChild(letter);
     }
 
@@ -1467,10 +1497,8 @@
         S.thumbBusy++;
         call({ op: 'get_component_thumbnail', library: entry.library, name: entry.component,
                width: THUMB_WIDTH, dpi: THUMB_DPI })
-            .then(function (t) {
-                S.thumbs[k] = t && t.data ? { data: t.data, width: t.width, height: t.height } : 'empty';
-            })
-            .catch(function () { S.thumbs[k] = 'empty'; })
+            .then(function (t) { S.thumbs[k] = thumbOf(t); })
+            .catch(function () { S.thumbs[k] = thumbOf(null); })
             .then(function () {
                 S.thumbBusy--;
                 document.querySelectorAll('.azb-card').forEach(function (card) {
@@ -2031,6 +2059,8 @@
             '.azb-thumb.azb-loading{background:#f3f3f3}',
             '.azb-thumb-letter{color:#9a9a9a;font:600 18px/1 sans-serif}',
             '.azb-thumb-letter.azb-thumb-tag{font:11px/1 monospace}',
+            '.azb-thumb.azb-novisual{background:var(--bg-panel)}',
+            '.azb-thumb-novisual{font:10px/1.3 sans-serif;color:var(--text-muted);border:1px dashed var(--border);border-radius:3px;padding:1px 6px;white-space:nowrap}',
             '.azb-card-label{font-size:10px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;color:var(--text-main)}',
             // B5: the Inspector's builder panels (the page's tokens; rows are the Components view's field rows)
             '.azb-inspector-row{flex:1;display:flex;min-height:0;overflow:hidden}',
