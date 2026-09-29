@@ -10,14 +10,12 @@
 
 #![allow(non_snake_case)]
 
-use alloc::{boxed::Box, string::String};
+use alloc::string::String;
 use core::ffi::c_void;
 
 use azul_css::{
     corety::AzString,
-    css::Css,
     dynamic_selector::{BoolCondition, OsVersion},
-    parser2::new_from_str,
     props::basic::color::{ColorU, OptionColorU},
     system::{
         defaults, windows_accent, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme,
@@ -325,9 +323,9 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         );
     }
 
-    if let Some(sheet) = load_app_specific_stylesheet() {
-        style.app_specific_stylesheet = Some(Box::new(sheet));
-    }
+    // The user's stylesheets (`%USERPROFILE%\.azul\css\<theme>\`, and the
+    // legacy `%APPDATA%\azul\styles\<exe>.css`) are not a system style: the
+    // rice loader (`azul_css::rice`) reads them for every window.
 
     discover_windows_riced_style(&mut style);
 
@@ -569,33 +567,6 @@ fn detect_language_windows() -> AzString {
     }
 
     AzString::from_const_str("en-US")
-}
-
-/// Load an application-specific stylesheet from
-/// `%APPDATA%\azul\styles\<exe_name>.css`.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    use std::{env, path::PathBuf};
-
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let appdata = env::var("APPDATA").ok()?;
-    let exe_path = env::current_exe().ok()?;
-    let exe_stem = exe_path.file_stem()?.to_str()?;
-
-    let mut css_path = PathBuf::from(&appdata);
-    css_path.push("azul");
-    css_path.push("styles");
-    css_path.push(format!("{}.css", exe_stem));
-
-    let css_text = std::fs::read_to_string(&css_path).ok()?;
-    let (css, _warnings) = new_from_str(&css_text);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
 }
 
 /// Check for "riced" style overrides from popular Windows customisation tools.

@@ -21,9 +21,7 @@ use alloc::{boxed::Box, string::String};
 
 use azul_css::{
     corety::{AzString, OptionF32, OptionString},
-    css::Css,
     dynamic_selector::{BoolCondition, OsFamily, OsVersion},
-    parser2::new_from_str,
     props::basic::{
         color::{parse_css_color, ColorU, OptionColorU},
         pixel::{OptionPixelValue, PixelValue},
@@ -2352,52 +2350,6 @@ fn detect_language_linux() -> AzString {
 
 // ── App-specific stylesheet loading ─────────────────────────────────────
 
-/// Load an application-specific stylesheet from the user's config directory.
-///
-/// Path: `<config_dir>/azul/styles/<exe_name>.css`
-///
-/// Config directory is determined by:
-/// - Linux:   `$XDG_CONFIG_HOME` or `~/.config`
-/// - macOS:   `~/Library/Application Support`
-/// - Windows: `%APPDATA%`
-///
-/// Returns `None` if the file does not exist or cannot be parsed.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    // Bail out if ricing is disabled
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let exe_name = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))?;
-
-    let config_dir = get_config_dir()?;
-
-    let css_path = alloc::format!("{}/azul/styles/{}.css", config_dir, exe_name);
-    let css_str = std::fs::read_to_string(&css_path).ok()?;
-    let (css, _warnings) = new_from_str(&css_str);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
-}
-
-/// Get the platform-appropriate user config directory.
-fn get_config_dir() -> Option<String> {
-    // On Linux, prefer XDG_CONFIG_HOME, fall back to ~/.config
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        if !xdg.is_empty() {
-            return Some(xdg);
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return Some(alloc::format!("{}/.config", home));
-    }
-    None
-}
-
 // ── Font parsing helper ─────────────────────────────────────────────────
 
 /// Parse a font string like "Cantarell 11" or "Ubuntu Bold 12" into
@@ -2621,8 +2573,9 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     }
     style.prefers_high_contrast = detect_gnome_high_contrast();
 
-    // App-specific ricing stylesheet
-    style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
+    // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
+    // `$XDG_CONFIG_HOME/azul/styles/<exe>.css`) are not a system style: the
+    // rice loader (`azul_css::rice`) reads them for every window.
 
     // ── 4. `AZ_MODE=light|dark` overrides the lot ──────────────────
     // Applied HERE, before DISCOVERED_THEME is written, so the pin reaches the

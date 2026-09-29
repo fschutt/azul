@@ -56,6 +56,38 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
     let _ = spawned;
 }
 
+/// `AZ_RICING=watch`: a thread that reads the rice tree's names, sizes and
+/// modification times twice a second (`azul_css::rice::poll_watch`) and, on
+/// a change, wakes the event loop (`loop_waker::wake`). The app-event
+/// collector then rebuilds every window through the app-theme path
+/// (`PlatformWindow::rebuild_all_windows_for_app_theme`), and each window's
+/// `regenerate_layout` sees its rice generation lag and restyles with the
+/// reloaded rice. One thread per process; none in any other mode.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn start_rice_watcher() {
+    use core::time::Duration;
+
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    if azul_css::rice::installed_mode() != Some(azul_css::system::RicingMode::Watch) {
+        return;
+    }
+    STARTED.call_once(|| {
+        let spawned = std::thread::Builder::new()
+            .name("azul-rice-watch".to_string())
+            .spawn(|| loop {
+                std::thread::sleep(Duration::from_millis(500));
+                if azul_css::rice::poll_watch() {
+                    crate::desktop::loop_waker::wake();
+                }
+            });
+        // No thread, no live reload: the rice still loaded at startup.
+        let _ = spawned;
+    });
+}
+
+#[cfg(any(miri, feature = "web"))]
+fn start_rice_watcher() {}
+
 /// Primary public handle for creating and running an Azul application.
 ///
 /// Wraps [`AppInternal`] in a `Box` and is the type used by all Rust examples.
@@ -179,6 +211,13 @@ impl App {
         // builds and styles for it; `CallbackInfo::set_theme` switches it
         // (a DOM rebuild of every window).
         azul_core::app_theme::set_app_theme(app_config.theme.as_str());
+        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
+        // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
+        // HERE, with the real home directory, so a test or a tool that never
+        // creates an App never reads it; each window loads the rice of its
+        // app theme when it first styles its DOM.
+        azul_css::rice::install(azul_css::rice::RiceEnv::from_process());
+        start_rice_watcher();
 
         // Global hotkeys: NO backend here. `App::create` cannot know whether
         // the run will be headless, and installing the platform's backend

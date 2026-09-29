@@ -10,7 +10,6 @@ use core::ffi::c_void;
 
 use azul_css::{
     corety::AzString,
-    css::Css,
     dynamic_selector::{BoolCondition, OsVersion},
     props::basic::color::{ColorU, OptionColorU},
     system::{
@@ -559,11 +558,9 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         style.prefers_high_contrast = detect_macos_high_contrast();
     }
 
-    // App-specific stylesheet from ~/Library/Application Support/azul/styles/<exe>.css
-    if style.app_specific_stylesheet.is_none() {
-        style.app_specific_stylesheet =
-            load_app_specific_stylesheet().map(|s| Box::new(s));
-    }
+    // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
+    // `~/Library/Application Support/azul/styles/<exe>.css`) are not a system
+    // style: the rice loader (`azul_css::rice`) reads them for every window.
 
     // `AZ_MODE=light|dark` overrides the lot — see
     // `azul_css::system::apply_env_mode_pin`. Applied last so it outranks
@@ -791,39 +788,6 @@ fn detect_language_macos() -> AzString {
     }
 
     AzString::from(String::new())
-}
-
-/// Attempt to load an app-specific stylesheet from
-/// `~/Library/Application Support/azul/styles/<exe_name>.css`.
-///
-/// Returns `None` if the file does not exist, is unreadable, or
-/// `AZ_RICING=off` is set.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_name = exe_path.file_stem()?.to_str()?;
-
-    let home = std::env::var("HOME").ok()?;
-    let css_path = alloc::format!(
-        "{}/Library/Application Support/azul/styles/{}.css",
-        home,
-        exe_name,
-    );
-
-    let contents = std::fs::read_to_string(&css_path).ok()?;
-    if contents.trim().is_empty() {
-        return None;
-    }
-
-    let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
 }
 
 // ============================================================================

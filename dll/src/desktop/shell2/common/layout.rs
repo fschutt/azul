@@ -265,11 +265,19 @@ pub fn regenerate_layout(
     // creates, the form controls resolved after it - is built for the theme
     // its cascade will match (`dynamic_selector_context` reads the same
     // `app_theme`).
+    //
+    // A rice reload (`AZ_RICING=watch`, `azul_css::rice::poll_watch`) takes
+    // the same path: the window records the rice generation it was built
+    // under, and one that lags the loader's rebuilds as for a theme switch.
     let app_theme = azul_core::app_theme::app_theme();
-    let relayout_reason = if layout_window.app_theme == app_theme {
+    let rice_generation = azul_css::rice::generation();
+    let relayout_reason = if layout_window.app_theme == app_theme
+        && layout_window.rice_generation == rice_generation
+    {
         relayout_reason
     } else {
         layout_window.app_theme = app_theme;
+        layout_window.rice_generation = rice_generation;
         azul_core::callbacks::RelayoutReason::AppThemeChange
     };
     let _theme_scope = azul_core::app_theme::ThemeScope::enter(layout_window.app_theme.clone());
@@ -924,6 +932,19 @@ pub fn regenerate_layout(
         // `style_user_dom` styles for the previous pass's state).
         None => layout_window.style_user_dom_for(user_dom, current_window_state),
     };
+    // The rice listing, once per (re)load of the rice (`azul_css::rice`): the
+    // theme chain, every file with its priority and version, live versus
+    // inert rules under THIS window's context - at info level, so `AZ_DEBUG`
+    // shows it. Its warnings (a file ignored by its `azul:` key, a dropped
+    // remote url, a failed `requires`) are warnings.
+    if let Some(status) = azul_css::rice::take_pending_status(
+        &layout_window.dynamic_selector_context(current_window_state),
+    ) {
+        log_info!(LogCategory::Layout, "[rice] {}", status.to_report());
+        for warning in status.warnings.iter() {
+            crate::plog_warn!("[rice] {}", warning.as_str());
+        }
+    }
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
     phases.mark("after_create_from_dom");
 

@@ -4767,6 +4767,23 @@ pub trait PlatformWindow {
     /// parent after dismissing itself. Headless has nobody to wake.
     fn request_regeneration_all_windows(&mut self) {}
 
+    /// Rebuild EVERY window of the app for the app theme - and the end
+    /// user's rice - as they stand now: this one at once (`AppThemeChange`,
+    /// its incremental caches dropped: they hold a tree and a display list
+    /// built for the old look), the others through the registry walk
+    /// ([`Self::request_regeneration_all_windows`]), each of which adopts in
+    /// `common::layout::regenerate_layout` because its `app_theme` or
+    /// `rice_generation` lags. THE path of `CallbackInfo::set_theme` and of
+    /// an `AZ_RICING=watch` reload (`desktop::app_events`).
+    fn rebuild_all_windows_for_app_theme(&mut self) -> ProcessEventResult {
+        self.request_regeneration_all_windows();
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.layout_cache.reset_incremental();
+        }
+        self.request_regeneration(azul_core::callbacks::RelayoutReason::AppThemeChange);
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+    }
+
     /// Make this window pass mouse events straight through to whatever is
     /// behind it (macOS `setIgnoresMouseEvents:`). Used for a live drag proxy
     /// — a torn panel following the parent's cursor — so the parent keeps the
@@ -7726,14 +7743,7 @@ pub trait PlatformWindow {
                 if already {
                     return ProcessEventResult::DoNothing;
                 }
-                self.request_regeneration_all_windows();
-                // The incremental caches hold a tree and a display list built
-                // for the old theme.
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.layout_cache.reset_incremental();
-                }
-                self.request_regeneration(azul_core::callbacks::RelayoutReason::AppThemeChange);
-                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                self.rebuild_all_windows_for_app_theme()
             }
         }
     }

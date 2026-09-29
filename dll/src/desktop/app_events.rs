@@ -45,6 +45,9 @@ pub(crate) struct AppEvents {
     tray: Vec<TrayDelivery>,
     /// Notification events, routed to their notification's callback.
     notifications: Vec<NotificationDelivery>,
+    /// `AZ_RICING=watch` saw a rice file change (`azul_css::rice::poll_watch`,
+    /// on the watcher thread): every window rebuilds with the reloaded rice.
+    rice_reloaded: bool,
 }
 
 impl AppEvents {
@@ -61,17 +64,24 @@ impl AppEvents {
             tray_menu: crate::desktop::tray::pump_tray(),
             tray: crate::desktop::tray::take_tray_deliveries(),
             notifications: crate::desktop::notifications::pump_notifications(),
+            rice_reloaded: azul_css::rice::take_reload_signal(),
         }
     }
 
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
-        self.tray_menu.is_empty() && self.tray.is_empty() && self.notifications.is_empty()
+        self.tray_menu.is_empty()
+            && self.tray.is_empty()
+            && self.notifications.is_empty()
+            && !self.rice_reloaded
     }
 
     #[must_use]
     pub(crate) fn len(&self) -> usize {
-        self.tray_menu.len() + self.tray.len() + self.notifications.len()
+        self.tray_menu.len()
+            + self.tray.len()
+            + self.notifications.len()
+            + usize::from(self.rice_reloaded)
     }
 
     /// Run everything against `window`, in the order the sources were
@@ -81,8 +91,15 @@ impl AppEvents {
             tray_menu,
             tray,
             notifications,
+            rice_reloaded,
         } = self;
         let mut result = ProcessEventResult::DoNothing;
+        if rice_reloaded {
+            // The app-theme rebuild: this window now, the others through the
+            // registry walk; each adopts the reloaded rice in
+            // `regenerate_layout` (its rice generation lags).
+            result = result.max(window.rebuild_all_windows_for_app_theme());
+        }
         for callback in tray_menu {
             result = result.max(window.invoke_menu_callback(
                 callback,
@@ -136,10 +153,13 @@ fn candidate<K: Copy>(key: K, common: &CommonWindowState) -> AppTargetCandidate<
 /// The rest is said, not silent: a dropped callback is indistinguishable from
 /// a broken one otherwise.
 fn report_undelivered(events: AppEvents) {
+    // A rice reload with no window to rebuild needs nothing: a window built
+    // later styles with the rice as it stands then.
     let AppEvents {
         tray_menu,
         tray,
         notifications,
+        rice_reloaded: _,
     } = events;
     if !notifications.is_empty() {
         crate::desktop::notifications::defer_deliveries(notifications);
