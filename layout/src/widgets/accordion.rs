@@ -1585,6 +1585,85 @@ mod autotest_generated {
             &[17, 17]
         );
     }
+
+    /// The flattened index of the first node of `styled` that carries
+    /// `class`.
+    fn styled_node_with_class(styled: &StyledDom, class: &str) -> usize {
+        let node_data = styled.node_data.as_container();
+        (0..node_data.len())
+            .find(|i| {
+                node_data[NodeId::new(*i)]
+                    .get_ids_and_classes()
+                    .iter()
+                    .any(|c| matches!(c.as_class(), Some(s) if s == class))
+            })
+            .unwrap_or_else(|| panic!("no node carries {class}"))
+    }
+
+    /// Every `transform: rotate(..)` write in the change log, as
+    /// `(node index, degrees)`.
+    fn turn_writes(changes: &[CallbackChange]) -> Vec<(usize, f32)> {
+        use azul_css::props::style::StyleTransform;
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Transform(v) = p {
+                        if let Some([StyleTransform::Rotate(a)]) =
+                            v.get_property().map(|l| l.as_ref())
+                        {
+                            out.push((node_id.index(), a.to_degrees_raw()));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// A header click turns the section's disclosure indicator with it: a
+    /// click on a closed section turns the chevron to point up, the next
+    /// click turns it back - written through the channel the body's tween
+    /// uses, so a declared `animation` turns it instead of flipping it.
+    #[test]
+    fn a_header_click_turns_its_disclosure_indicator() {
+        let styled = || {
+            StyledDom::create_from_dom(
+                Accordion::new(AccordionSectionVec::from_vec(alloc::vec![AccordionSection::new(
+                    "Section",
+                    Dom::create_div()
+                )]))
+                .with_theme(crate::widgets::themes::UiTheme::Flat)
+                .dom(),
+            )
+        };
+        let first = styled();
+        let header = styled_node_with_class(&first, "__azul-native-accordion-header");
+        let chevron = styled_node_with_class(&first, "__azul-native-accordion-chevron");
+        let data = first.node_data.as_container()[NodeId::new(header)]
+            .get_callbacks()
+            .as_ref()[0]
+            .refany
+            .clone();
+
+        let (_, changes) = run_click(Some(first), header, data.clone());
+        assert_eq!(
+            turn_writes(&changes),
+            alloc::vec![(chevron, 180.0)],
+            "opening a section turns its chevron to point up"
+        );
+        let (_, changes) = run_click(Some(styled()), header, data);
+        assert_eq!(
+            turn_writes(&changes),
+            alloc::vec![(chevron, 0.0)],
+            "closing it turns the chevron back"
+        );
+    }
 }
 
 /// The theme option: which look an accordion renders in, and what each look
@@ -1877,5 +1956,162 @@ mod app_theme_tests {
             || accordion().dom(),
             |t: UiTheme| accordion().with_theme(t).dom(),
         );
+    }
+}
+
+/// The disclosure indicator (the old TODO2): every header ends in the
+/// theme's indicator, turned to show whether its section is open - flat's
+/// chevron points down, and up when open (the Windows 11 expander, the
+/// Bootstrap accordion); flora's `+` turns into a cross (flora.css's FAQ).
+#[cfg(test)]
+mod chevron_tests {
+    use azul_core::dom::NodeType;
+    use azul_css::{
+        dynamic_selector::{BoolCondition, DynamicSelector},
+        props::style::StyleTransform,
+    };
+
+    use super::*;
+    use crate::widgets::themes::UiTheme;
+
+    /// An open section, then a closed one.
+    fn accordion(theme: UiTheme) -> Dom {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Open section", Dom::create_div()).with_open(true),
+            AccordionSection::new("Closed section", Dom::create_div()),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn header(dom: &Dom, n: usize) -> &Dom {
+        &dom.children.as_ref()[n].children.as_ref()[0]
+    }
+
+    /// The last node of section `n`'s header.
+    fn indicator(dom: &Dom, n: usize) -> &Dom {
+        header(dom, n)
+            .children
+            .as_ref()
+            .last()
+            .expect("a header has children")
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    fn icon_name(node: &Dom) -> Option<&str> {
+        match node.root.get_node_type() {
+            NodeType::Icon(name) => Some(name.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
+    /// The resting turn: the last UNCONDITIONAL `transform: rotate(..)`.
+    fn turn(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::Transform(v) => match v.get_property().map(|l| l.as_ref()) {
+                    Some([StyleTransform::Rotate(a)]) => Some(a.to_degrees_raw()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .last()
+    }
+
+    /// Every `animation` the node declares, with its conditions.
+    fn animations(
+        node: &Dom,
+    ) -> Vec<(
+        Vec<azul_css::props::basic::animation::StyleAnimation>,
+        Vec<DynamicSelector>,
+    )> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter_map(|(p, c)| match p {
+                CssProperty::Animation(v) => Some((
+                    v.get_property()
+                        .map(|l| l.as_ref().to_vec())
+                        .unwrap_or_default(),
+                    c.as_ref().to_vec(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_flat_header_ends_in_a_chevron_that_points_up_when_its_section_is_open() {
+        let dom = accordion(UiTheme::Flat);
+        for (n, open_turn) in [(0, 180.0), (1, 0.0)] {
+            let chevron = indicator(&dom, n);
+            assert!(
+                has_class(chevron, "__azul-native-accordion-chevron"),
+                "section {n}: the header ends in the disclosure indicator"
+            );
+            assert_eq!(icon_name(chevron), Some("expand_more"), "section {n}");
+            assert_eq!(turn(chevron), Some(open_turn), "section {n}");
+        }
+    }
+
+    #[test]
+    fn a_flora_header_ends_in_a_plus_that_turns_into_a_cross_when_open() {
+        let dom = accordion(UiTheme::Flora);
+        for (n, open_turn) in [(0, 45.0), (1, 0.0)] {
+            let plus = indicator(&dom, n);
+            assert!(has_class(plus, "__azul-native-accordion-chevron"), "section {n}");
+            assert_eq!(icon_name(plus), Some("add"), "section {n}");
+            assert_eq!(turn(plus), Some(open_turn), "section {n}");
+        }
+    }
+
+    /// The indicator turns on the body's beat - `transform` tweened over the
+    /// same 220 ms - and only where the reader has not asked for less motion.
+    #[test]
+    fn the_indicator_turns_with_the_body_unless_motion_is_reduced() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = accordion(theme);
+            let declared = animations(indicator(&dom, 1));
+            assert_eq!(declared.len(), 1, "{theme:?}: one animation declaration");
+            let (list, conditions) = &declared[0];
+            assert_eq!(
+                conditions.as_slice(),
+                &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)],
+                "{theme:?}: gated on prefers-reduced-motion: no-preference"
+            );
+            assert_eq!(list.len(), 1, "{theme:?}");
+            assert_eq!(list[0].name.as_str(), "transform", "{theme:?}");
+            assert_eq!(list[0].duration.millis(), BODY_TWEEN_MS, "{theme:?}");
+        }
+    }
+
+    /// The indicator is decoration: no Tab stop, no callback, and the title
+    /// stays the header's first child (its name).
+    #[test]
+    fn the_indicator_is_decoration_and_the_title_still_names_the_header() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = accordion(theme);
+            let chevron = indicator(&dom, 0);
+            assert!(chevron.root.get_tab_index().is_none(), "{theme:?}");
+            assert!(chevron.root.get_callbacks().as_ref().is_empty(), "{theme:?}");
+            assert!(
+                has_class(
+                    &header(&dom, 0).children.as_ref()[0],
+                    "__azul-native-accordion-title"
+                ),
+                "{theme:?}: the title comes first"
+            );
+            assert_eq!(header(&dom, 0).children.as_ref().len(), 2, "{theme:?}");
+        }
     }
 }
