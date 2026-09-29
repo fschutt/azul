@@ -6574,12 +6574,12 @@ mod tests {
             "precondition: b starts outside the Tab order",
         );
 
-        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
             dom_id: DomId::ROOT_ID,
             node_id: NodeId::new(1),
             tab_index: TabIndex::NoKeyboardFocus,
         });
-        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
             dom_id: DomId::ROOT_ID,
             node_id: NodeId::new(2),
             tab_index: TabIndex::Auto,
@@ -6602,7 +6602,7 @@ mod tests {
         );
 
         // A node id past the end of the DOM is ignored rather than panicking.
-        runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
             dom_id: DomId::ROOT_ID,
             node_id: NodeId::new(10_000),
             tab_index: TabIndex::Auto,
