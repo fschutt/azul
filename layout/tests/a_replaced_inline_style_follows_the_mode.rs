@@ -40,19 +40,19 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const RED: ColorU = ColorU::rgb(200, 0, 0);
+pub(crate) const RED: ColorU = ColorU::rgb(200, 0, 0);
 const BLUE: ColorU = ColorU::rgb(0, 0, 200);
 const GREEN: ColorU = ColorU::rgb(0, 160, 0);
 const YELLOW: ColorU = ColorU::rgb(220, 200, 0);
 
 /// The box under test: body > div, the div is node 1.
-const BOX: NodeId = NodeId::new(1);
+pub(crate) const BOX: NodeId = NodeId::new(1);
 
-fn env_pinned() -> bool {
+pub(crate) fn env_pinned() -> bool {
     azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
-fn fill(c: ColorU) -> CssProperty {
+pub(crate) fn fill(c: ColorU) -> CssProperty {
     CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
         StyleBackgroundContent::Color(c),
     ]))
@@ -88,7 +88,7 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 }
 
 /// A light desktop, the app following it, the red / blue box laid out.
-fn window() -> LayoutWindow {
+pub(crate) fn window() -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
     lw.mode = OptionWindowTheme::None;
@@ -101,7 +101,7 @@ fn window() -> LayoutWindow {
 
 /// The app switches its colour scheme; the RETAINED DOM is re-styled (no
 /// new DOM - the restyle path of `set_mode`).
-fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
+pub(crate) fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
     lw.mode = scheme;
     let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
     let retained = lw
@@ -113,7 +113,7 @@ fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
 }
 
 /// The colour the display list paints a `width` x 20 box in.
-fn box_fill(lw: &LayoutWindow, width: f32) -> Option<ColorU> {
+pub(crate) fn box_fill(lw: &LayoutWindow, width: f32) -> Option<ColorU> {
     lw.get_layout_result(&DomId::ROOT_ID)
         .expect("the root DOM is laid out")
         .display_list
@@ -130,7 +130,7 @@ fn box_fill(lw: &LayoutWindow, width: f32) -> Option<ColorU> {
         })
 }
 
-fn replace(lw: &mut LayoutWindow, style: CssPropertyWithConditionsVec) -> ContentDirtyTier {
+pub(crate) fn replace(lw: &mut LayoutWindow, style: CssPropertyWithConditionsVec) -> ContentDirtyTier {
     lw.apply_content_change(ContentChange::NodeStyle {
         dom_id: DomId::ROOT_ID,
         node_id: BOX,

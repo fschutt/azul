@@ -590,3 +590,5 @@ mod a_clicked_control_takes_the_new_mode_after_a_scheme_switch;
 mod app_set_text_beats_typing;
 #[path = "an_app_names_itself_with_app_id.rs"]
 mod an_app_names_itself_with_app_id;
+#[path = "a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules.rs"]
+mod a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules;
