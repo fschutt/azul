@@ -2540,3 +2540,166 @@ mod autotest_generated {
         );
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The radio group's theme is a DOM-level choice: rows, indicators and
+    //! labels are built from the skin of the theme the group carries, flat by
+    //! default. The indicator keeps its fixed pill layout (`flex-shrink: 0`,
+    //! 16px) in every theme.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleBackgroundContent,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+    const ROW: &str = "__azul-native-radio-group-row";
+    const CIRCLE: &str = "__azul-native-radio-group-circle";
+    const DOT: &str = "__azul-native-radio-group-dot";
+    const LABEL: &str = "__azul-native-radio-group-label";
+
+    fn group(theme: Option<UiTheme>) -> Dom {
+        let rg = RadioGroup::create(StringVec::from_vec(vec![
+            AzString::from("First"),
+            AzString::from("Second"),
+            AzString::from("Third"),
+        ]))
+        .with_accessibility_name("Choice");
+        match theme {
+            Some(t) => rg.with_theme(t).dom(),
+            None => rg.dom(),
+        }
+    }
+
+    fn shrink(node: &Dom) -> Option<CssProperty> {
+        tc::resolve(node, CssPropertyType::FlexShrink, false, None)
+    }
+
+    #[test]
+    fn a_radio_group_without_a_theme_renders_flat() {
+        let rg = RadioGroup::create(StringVec::from_const_slice(&[]));
+        assert_eq!(rg.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&group(None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = RadioGroup::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            RadioGroup::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_radio_group_keeps_its_ring_and_accent_dot() {
+        let dom = group(Some(UiTheme::Flat));
+        let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+        assert_eq!(
+            tc::border_top_color(circle, false, None),
+            Some(ColorU::rgb(155, 155, 155))
+        );
+        let dot = tc::find(&dom, DOT).expect("a dot");
+        assert_eq!(
+            tc::background(dot, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(13, 110, 253))
+        );
+    }
+
+    #[test]
+    fn a_flora_radio_is_a_well_of_flora_field_paper_holding_an_accent_stone() {
+        let dom = group(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+        assert_eq!(
+            tc::background(circle, false).and_then(|p| tc::bg_color(&p)),
+            Some(flora::LIGHT_FLD)
+        );
+        assert_eq!(
+            tc::background(circle, true).and_then(|p| tc::bg_color(&p)),
+            Some(flora::DARK_FLD)
+        );
+        assert_eq!(tc::border_top_color(circle, false, None), Some(flora::LIGHT_BD3));
+        assert_eq!(tc::border_top_color(circle, true, None), Some(flora::DARK_BD3));
+
+        let dot = tc::find(&dom, DOT).expect("the checked dot");
+        for dark in [false, true] {
+            let layers = tc::background(dot, dark)
+                .map(|p| tc::bg_layers(&p))
+                .unwrap_or_default();
+            assert_eq!(
+                layers.first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "dark={dark}: the stone is its own colour in both modes"
+            );
+        }
+
+        let label = tc::find(&dom, LABEL).expect("a label");
+        assert_eq!(tc::text_color(label, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(label, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn the_indicator_keeps_its_fixed_pill_layout_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = group(Some(theme));
+            for class in [CIRCLE, DOT] {
+                for node in tc::find_all(&dom, class) {
+                    assert_eq!(
+                        shrink(node),
+                        Some(NO_SHRINK.property.clone()),
+                        "{theme:?}: {class} must never shrink"
+                    );
+                }
+            }
+            let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+            assert_eq!(
+                tc::resolve(circle, CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+            assert_eq!(
+                tc::resolve(circle, CssPropertyType::Height, false, None),
+                Some(CssProperty::const_height(LayoutHeight::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_radio_row_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = group(Some(theme));
+            let rows = tc::find_all(&dom, ROW);
+            assert_eq!(rows.len(), 3);
+            // The group is ONE Tab stop; the arrows focus the others, so every
+            // row owes a ring.
+            for (i, row) in rows.iter().enumerate() {
+                assert!(tc::has_focus_ring(row, false), "{theme:?}: row {i}, light");
+                assert!(tc::has_focus_ring(row, true), "{theme:?}: row {i}, dark");
+            }
+            tc::assert_theme_invariants(&format!("radio_group {theme:?}"), &dom);
+        }
+        let dom = group(Some(UiTheme::Flora));
+        let row = tc::find(&dom, ROW).expect("a row");
+        assert_eq!(tc::focus_ring_color(row, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(row, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = group(Some(UiTheme::Flat));
+        let flora_dom = group(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 4, "the group and its three radios");
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
