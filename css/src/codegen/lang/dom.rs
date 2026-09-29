@@ -44,8 +44,12 @@ pub fn uses_params(m: &Module) -> bool {
 }
 
 /// C: the helper an [`Expr::Concat`] calls (C has no string formatting in
-/// the azul API). Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`.
+/// the azul API). Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded:
+/// an export writes several headers (the app, one per component library)
+/// that may be included together.
 pub const C_CONCAT_HELPER: &str = "
+#ifndef AZ_CODEGEN_CONCAT
+#define AZ_CODEGEN_CONCAT
 /* Joins NUL-terminated strings (the last argument is NULL) into an AzString. */
 static AzString az_concat(const char* first, ...) {
     size_t len = 0;
@@ -66,10 +70,14 @@ static AzString az_concat(const char* first, ...) {
     free(buf);
     return out;
 }
+#endif
 ";
 
 /// C / C++: what the registration calls (C-style casts, valid in both).
+/// Guarded like [`C_CONCAT_HELPER`].
 const C_REGISTRATION_HELPERS: &str = "
+#ifndef AZ_CODEGEN_REGISTRATION
+#define AZ_CODEGEN_REGISTRATION
 /* The String value of the data-model field `name` as a NUL-terminated copy
  * (free() it), or a copy of `fallback`. */
 static char* az_model_string(const AzComponentDataModel* model, const char* name, const char* fallback) {
@@ -104,6 +112,7 @@ static AzComponentDataField az_string_field(const char* name, const char* value,
     f.description = AzString_copyFromBytes((const uint8_t*)description, 0, strlen(description));
     return f;
 }
+#endif
 ";
 
 /// A C string literal (`"..."`) for a `const char*` argument.

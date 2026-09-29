@@ -51,12 +51,16 @@ fn cpp_param(name: &Ident) -> String {
 }
 
 /// What an item parameter or a joined string turns into an `AzString`.
+/// Guarded: an export writes several headers that may be included together.
 const AZ_STRING_HELPER: &str = "
+#ifndef AZ_CODEGEN_STRING
+#define AZ_CODEGEN_STRING
 // A std::string as an AzString (a fresh copy at every use: calls take their
 // AzString by value).
 inline AzString az_string(const std::string& s) {
     return AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.data()), 0, s.size());
 }
+#endif
 ";
 
 /// The C++ printer.
