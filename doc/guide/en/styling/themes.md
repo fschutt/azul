@@ -151,8 +151,14 @@ The variants follow `ThemeCondition`:
 
 - `@theme light`: system reports light theme.
 - `@theme dark`: system reports dark theme.
-- `@theme <name>`: a custom string treated as user-defined. The system
-  resolver doesn't emit it on its own.
+- `@theme <name>` / `@theme(<name>)`: the APP THEME, a name such as `flat`
+  (the default) or `flora`. The block applies only while the app runs in
+  that theme: `AppConfig::with_theme("flora")` at startup,
+  `CallbackInfo::set_theme("flat")` at runtime. Widgets carry one block per
+  theme they know, so one switch restyles all of them. A theme switch
+  rebuilds every window's DOM (a theme may change a widget's structure),
+  while a light / dark switch only repaints. Nest `@theme dark` inside a
+  theme block for that theme's dark mode.
 
 For typical apps, define the base style for light mode and override
 selected properties under `@theme dark`. Combine with `@os` for

@@ -202,8 +202,8 @@ let _ = Dom::create_div().with_css("
   `@os(macos = sonoma)`.
 - `@os(<family>:<de> <op> <version>)` combines DE with a version.
   Example: `@os(linux:gnome > 40)`.
-- `@theme <variant>` matches the system theme. Variants: `dark`, `light`,
-  plus any custom string.
+- `@theme <variant>` matches the system theme. Variants: `dark`, `light`;
+  any other name matches the app theme (`AppConfig::with_theme`).
 - `@media (orientation: ...)` accepts `portrait` or `landscape`.
 - `@media (min-width: Npx)` and friends match numeric viewport ranges.
 - `@media (prefers-reduced-motion)` is the accessibility query for motion.
