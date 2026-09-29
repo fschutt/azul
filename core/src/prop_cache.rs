@@ -1602,7 +1602,7 @@ impl CssPropertyCache {
         use azul_css::{
             css::{
                 CssPathPseudoSelector::{
-                    Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
+                    Active, Backdrop, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
                 },
                 CssDeclaration, CssPathSelector, CssRuleBlock,
             },
@@ -1691,6 +1691,18 @@ impl CssPropertyCache {
         // build_compact_cache_with_inheritance for each node, avoiding
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
+
+        // `:backdrop` is a WINDOW state (the window is not the active one):
+        // whether this DOM declares anything under it, in a stylesheet rule
+        // or inline, decides whether the inheritance walk below carries a
+        // backdrop tier at all. A DOM that never mentions it pays nothing.
+        let mut any_backdrop = node_data.internal.iter().any(|nd| {
+            nd.style.iter_inline_properties().any(|(_, conds)| {
+                conds.as_slice().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            })
+        });
 
         if !css_is_empty {
             css.sort_by_specificity();
@@ -1817,6 +1829,10 @@ impl CssPropertyCache {
                 let has_placeholder = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(Placeholder)));
+                let has_backdrop = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Backdrop)));
+                any_backdrop |= has_backdrop;
 
                 macro_rules! collect_and_assign {
                     ($pseudo:expr, $state:expr, $has_any:expr) => {
@@ -1891,6 +1907,7 @@ impl CssPropertyCache {
                     PseudoStateType::Placeholder,
                     has_placeholder
                 );
+                collect_and_assign!(Some(Backdrop), PseudoStateType::Backdrop, has_backdrop);
             } // end if !specific_rules.is_empty()
         }
 
@@ -1922,9 +1939,16 @@ impl CssPropertyCache {
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
                 PseudoStateType::Placeholder,
+                // Last, and only when the DOM declares it (`any_backdrop`).
+                PseudoStateType::Backdrop,
             ];
+            let states = if any_backdrop {
+                &all_states[..]
+            } else {
+                &all_states[..all_states.len() - 1]
+            };
 
-            for &state in &all_states {
+            for &state in states {
                 // 1. Inherit inline CSS properties from parent for this pseudo-state.
                 //
                 // A declaration belongs to the pseudo-state named in its
@@ -3248,6 +3272,50 @@ impl CssPropertyCache {
             if let Some(p) = Self::find_in_stateful(
                 self.cascaded_props.get_slice(node_id.index()),
                 PseudoStateType::Hover,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+        }
+
+        // `:backdrop` (GTK: the window is not the active one). A WINDOW state:
+        // `StyledDom::sync_backdrop_state` raises the node flag, while the
+        // window is inactive, on exactly the nodes that declare or inherit a
+        // `:backdrop` value. Below every interaction state, so a control of
+        // an inactive window still shows its hover.
+        if node_state.backdrop {
+            // PRIORITY 1: Inline CSS properties (the titlebar's
+            // `background_inactive`), last match wins as above.
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Backdrop)
+                            && prop.get_type() == *css_property_type
+                        {
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 2: CSS stylesheet properties (`.x:backdrop { .. }`)
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get_slice(node_id.index()),
+                PseudoStateType::Backdrop,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get_slice(node_id.index()),
+                PseudoStateType::Backdrop,
                 css_property_type,
             ) {
                 return Some(p);

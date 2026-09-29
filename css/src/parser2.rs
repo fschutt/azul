@@ -474,6 +474,8 @@ pub fn pseudo_selector_from_str<'a>(
         "seat-focus" => Ok(CssPathPseudoSelector::SeatFocus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),
+        // GTK's window state: the toplevel is not the active window.
+        "backdrop" => Ok(CssPathPseudoSelector::Backdrop),
         "root" => Ok(CssPathPseudoSelector::Root),
         "nth-child" => {
             let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;

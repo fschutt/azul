@@ -1475,6 +1475,9 @@ impl StyledDom {
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {}
 
+        // A DOM born in an inactive window is `:backdrop` from its first frame.
+        styled_dom.sync_backdrop_state();
+
         styled_dom
     }
 
@@ -1857,6 +1860,64 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().retained_author_css = css;
 
         self.recascade_ua_inheritance_and_compact();
+        // The new sheet may add or drop `:backdrop` rules.
+        self.sync_backdrop_state();
+    }
+
+    /// Feed `:backdrop` (GTK: the window is not the active one) into the
+    /// per-node state every getter reads.
+    ///
+    /// It is a WINDOW state, so no event raises it on a node the way a
+    /// pointer raises `:hover`: the window's activation reaches the DOM as the
+    /// cascade context (`DynamicSelectorContext::window_focused`, which
+    /// `LayoutWindow::apply_window_activation` offers on every activation
+    /// change). The flag goes up, while the window is inactive, only on the
+    /// nodes that declare or inherit a `:backdrop` value - a raised flag takes
+    /// a node off the resting-state fast paths (`StyledNodeState::is_normal`),
+    /// which every other node keeps.
+    pub fn sync_backdrop_state(&mut self) {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+        let flags: Vec<bool> = {
+            let cache = self.get_css_property_cache();
+            let inactive = cache
+                .dynamic_context
+                .as_deref()
+                .is_some_and(|ctx| !ctx.window_focused);
+            let node_data = self.node_data.as_container();
+            (0..self.node_count())
+                .map(|i| {
+                    inactive
+                        && (cache
+                            .css_props
+                            .get_slice(i)
+                            .iter()
+                            .any(|p| p.state == PseudoStateType::Backdrop)
+                            || cache
+                                .cascaded_props
+                                .get_slice(i)
+                                .iter()
+                                .any(|p| p.state == PseudoStateType::Backdrop)
+                            || node_data.internal.get(i).is_some_and(|nd| {
+                                nd.style.iter_inline_properties().any(|(_, conds)| {
+                                    conds.as_slice().iter().any(|c| {
+                                        matches!(
+                                            c,
+                                            DynamicSelector::PseudoState(
+                                                PseudoStateType::Backdrop
+                                            )
+                                        )
+                                    })
+                                })
+                            }))
+                })
+                .collect()
+        };
+        for (i, backdrop) in flags.into_iter().enumerate() {
+            if let Some(styled) = self.styled_nodes.as_container_mut().get_mut(NodeId::new(i)) {
+                styled.styled_node_state.backdrop = backdrop;
+            }
+        }
     }
 
     /// The context-dependent tail of [`Self::restyle`], on its own: UA
@@ -2518,7 +2579,8 @@ impl StyledDom {
         // which `restyle_retained` would skip.
         let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
         if author_conditional || variables_conditional {
-            // Full: author cascade (variables included) + the tail.
+            // Full: author cascade (variables included) + the tail;
+            // `restyle` ends with the `:backdrop` sync (S2).
             let css = self
                 .get_css_property_cache()
                 .retained_author_css
@@ -2535,6 +2597,9 @@ impl StyledDom {
         if needs_recascade {
             self.recascade_ua_inheritance_and_compact();
         }
+        // The window's activation is part of this context: `:backdrop`
+        // follows it (a (de)activation alone re-runs nothing above).
+        self.sync_backdrop_state();
     }
 
     /// The viewport-size thresholds (widths, heights, logical px) at which
