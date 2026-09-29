@@ -88,6 +88,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_tree_view_on_node_toggle_callback_thunk,
     setter_fn:      AzApp_setTreeViewOnNodeToggleCallbackInvoker,
     from_handle_fn: AzTreeViewOnNodeToggleCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTreeViewOnNodeToggleCallback_createFromHostHandleByref,
     extra_args:     [ node_index: usize, expand: bool ],
 }
 

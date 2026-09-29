@@ -547,6 +547,7 @@ azul_core::impl_managed_callback! {
     thunk_fn:       az_on_video_status_callback_thunk,
     setter_fn:      AzApp_setOnVideoStatusCallbackInvoker,
     from_handle_fn: AzOnVideoStatusCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnVideoStatusCallback_createFromHostHandleByref,
     extra_args:     [ status: VideoStatus ],
 }
 
