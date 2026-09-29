@@ -586,3 +586,5 @@ mod backdrop_follows_window_activation;
 mod a_box_shadow_paints_once;
 #[path = "a_replaced_inline_style_follows_the_mode.rs"]
 mod a_replaced_inline_style_follows_the_mode;
+#[path = "a_clicked_control_takes_the_new_mode_after_a_scheme_switch.rs"]
+mod a_clicked_control_takes_the_new_mode_after_a_scheme_switch;
