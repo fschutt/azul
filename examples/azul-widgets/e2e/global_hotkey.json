@@ -16,7 +16,9 @@
       },
       { "op": "global_hotkey", "accelerator": "Ctrl+Alt+K" },
       { "op": "wait_frame" },
+      { "op": "wait_frame" },
       { "op": "find_node_by_text", "text": "1 time(s) since it was enabled" },
+      { "op": "assert_response", "contains": "\"found\":true" },
       { "op": "click", "text": "Disable Ctrl+Alt+K" },
       { "op": "wait_frame" },
       {
@@ -56,7 +58,9 @@
       },
       { "op": "global_hotkey", "accelerator": "Cmd+Shift+K" },
       { "op": "wait_frame" },
+      { "op": "wait_frame" },
       { "op": "find_node_by_text", "text": "1 time(s) since it was enabled" },
+      { "op": "assert_response", "contains": "\"found\":true" },
       { "op": "click", "text": "Disable Cmd+Shift+K" },
       { "op": "wait_frame" },
       {
