@@ -4514,3 +4514,39 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
         marker: None,
     }
 }
+
+// ==== tabs ====
+//
+// The flat tab bar is the widget's established Windows-native look,
+// unchanged: grey gradient tabs in a #acacac rule, the active tab white and
+// two pixels taller, its neighbours sharing one seam with it; the hover ring
+// and fill (`TAB_HOVER_*`, with their dark twins) and the desktop's surfaces
+// at night. The panel is white in the same rule, open at the top, the
+// desktop's window surface at night.
+
+/// Flat's tab-bar look: the tab bar's established const styles.
+#[must_use]
+pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+    use crate::widgets::tabs as t;
+    t::TabHeaderLook {
+        header: t::CSS_MATCH_9988039989460234263,
+        before: t::CSS_MATCH_17290739305197504468,
+        after: t::CSS_MATCH_3088386549906605418,
+        active: t::CSS_MATCH_14575853790110873394,
+        before_active: t::CSS_MATCH_4415083954137121609,
+        after_active: t::CSS_MATCH_13824480602841492081,
+        inactive: t::CSS_MATCH_11510695043643111367,
+        marker: None,
+    }
+}
+
+/// Flat's tab-panel look: the panel's established const styles.
+#[must_use]
+pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
+    use crate::widgets::tabs as t;
+    t::TabContentLook {
+        padded: t::CSS_MATCH_18014909903571752977,
+        unpadded: t::CSS_MATCH_18014909903571752977_NO_PADDING,
+        marker: None,
+    }
+}

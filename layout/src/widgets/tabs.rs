@@ -1,8 +1,9 @@
 //! Native-styled tab widget consisting of a [`TabHeader`] (the clickable tab bar)
 //! and [`TabContent`] (the panel shown for the active tab).
 //!
-//! Styling emulates the Windows-native tab control appearance via inline CSS
-//! constants.
+//! Two looks (`with_theme`): flat emulates the Windows-native tab control via
+//! the inline CSS constants below; flora is `themes::flora::tab_header_look`.
+//! Unpinned, both follow the app theme.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
@@ -256,7 +257,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = 
     flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
     flat::TAB_HOVER_BG_DARK,
 ];
-const CSS_MATCH_13824480602841492081: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_13824480602841492081: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13824480602841492081_PROPERTIES);
 
 const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -415,7 +416,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = 
     system_palette::DARK_SEPARATOR_BORDER_TOP,
     TAB_FACE_DARK,
 ];
-const CSS_MATCH_14575853790110873394: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_14575853790110873394: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_14575853790110873394_PROPERTIES);
 
 const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -450,7 +451,7 @@ const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = 
     )),
     system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
-const CSS_MATCH_17290739305197504468: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_17290739305197504468: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17290739305197504468_PROPERTIES);
 
 const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -555,7 +556,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
     system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     system_palette::DARK_WINDOW_BACKGROUND,
 ];
-const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES);
 
 const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -587,7 +588,7 @@ const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &
     )),
     system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
-const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_3088386549906605418_PROPERTIES);
 
 const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -768,7 +769,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &
     flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
     flat::TAB_HOVER_BG_DARK,
 ];
-const CSS_MATCH_4415083954137121609: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_4415083954137121609: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4415083954137121609_PROPERTIES);
 
 const CSS_MATCH_4738503469417034630_PROPERTIES: &[CssPropertyWithConditions] = &[
@@ -822,7 +823,7 @@ const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &
         LayoutFlexDirection::Row,
     ))),
 ];
-const CSS_MATCH_9988039989460234263: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_9988039989460234263: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9988039989460234263_PROPERTIES);
 
 // -- NO PADDING
@@ -840,7 +841,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[CssPropertyWithCon
     )),
     system_palette::DARK_WINDOW_BACKGROUND,
 ];
-const CSS_MATCH_18014909903571752977_NO_PADDING: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_18014909903571752977_NO_PADDING: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(
         CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING,
     );
@@ -1028,7 +1029,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = 
     flat::TAB_HOVER_BORDER_TOP_COLOR_DARK,
     flat::TAB_HOVER_BG_DARK,
 ];
-const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
+pub(crate) const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
 
 /// Header bar for a tab widget, containing the clickable tab labels.
@@ -1041,6 +1042,10 @@ pub struct TabHeader {
     pub active_tab: usize,
     /// Optional callback invoked when a tab is clicked.
     pub on_click: OptionTabOnClick,
+    /// The widget theme this tab bar is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl Default for TabHeader {
@@ -1049,6 +1054,7 @@ impl Default for TabHeader {
             tabs: StringVec::from_const_slice(&[]),
             active_tab: 0,
             on_click: None.into(),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -1091,7 +1097,21 @@ impl TabHeader {
             tabs,
             active_tab: 0,
             on_click: None.into(),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the tab bar keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[must_use]
@@ -1164,6 +1184,12 @@ impl TabHeader {
             TAB_NOT_ACTIVE_CLASS_NAME,
         ))];
 
+        // The look comes from the theme module (`themes::flat::tab_header_look`
+        // / `themes::flora::tab_header_look`); with no theme pinned every part
+        // carries both looks, each in its `@theme(<name>)` block. The tabs,
+        // their classes, datasets, click and arrow keys are the same in every
+        // theme.
+        let look = TabHeaderLook::of(self.theme);
         let on_click_is_some = self.on_click.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
@@ -1173,15 +1199,21 @@ impl TabHeader {
             crate::widgets::roving::stop_index(Some(self.active_tab), self.tabs.as_ref().len());
 
         Dom::create_div()
-            .with_css_props(CSS_MATCH_9988039989460234263)
+            .with_css_props(look.header.clone())
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] =
                     &[Class(AzString::from_const_str("__azul-native-tabs-header"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
+                match look.marker {
+                    None => IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689),
+                    Some(marker) => IdOrClassVec::from_vec(vec![
+                        Class(AzString::from_const_str("__azul-native-tabs-header")),
+                        Class(AzString::from_const_str(marker)),
+                    ]),
+                }
             })
             .with_children({
                 let mut tab_items = vec![Dom::create_div()
-                    .with_css_props(CSS_MATCH_17290739305197504468)
+                    .with_css_props(look.before.clone())
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[Class(
                             AzString::from_const_str("__azul-native-tabs-before-tabs"),
@@ -1205,25 +1237,16 @@ impl TabHeader {
                     let tab_is_active = self.active_tab == tab_idx;
 
                     let (ids_and_classes, css_props) = if tab_is_active {
-                        (
-                            IDS_AND_CLASSES_15002865554973741556,
-                            CSS_MATCH_14575853790110873394,
-                        )
+                        (IDS_AND_CLASSES_15002865554973741556, look.active.clone())
                     } else if next_tab_is_active {
                         // tab before the active tab
-                        (
-                            IDS_AND_CLASSES_5117007530891373979,
-                            CSS_MATCH_4415083954137121609,
-                        )
+                        (IDS_AND_CLASSES_5117007530891373979, look.before_active.clone())
                     } else if previous_tab_was_active {
                         // tab after the active tab
-                        (
-                            IDS_AND_CLASSES_16877793354714897051,
-                            CSS_MATCH_13824480602841492081,
-                        )
+                        (IDS_AND_CLASSES_16877793354714897051, look.after_active.clone())
                     } else {
                         // default inactive tab
-                        (IDS_AND_CLASSES_INACTIVE, CSS_MATCH_11510695043643111367)
+                        (IDS_AND_CLASSES_INACTIVE, look.inactive.clone())
                     };
 
                     let mut dataset = dataset.clone();
@@ -1269,7 +1292,7 @@ impl TabHeader {
 
                 tab_items.push(
                     Dom::create_div()
-                        .with_css_props(CSS_MATCH_3088386549906605418)
+                        .with_css_props(look.after.clone())
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[Class(
                                 AzString::from_const_str("__azul-native-tabs-after-tabs"),
@@ -1283,6 +1306,100 @@ impl TabHeader {
     }
 }
 
+/// What a theme gives a tab bar: one style per part, and the marker class
+/// its header carries (`None` for flat, whose header carries none). A tab
+/// next to the active one has a part of its own because the flat look joins
+/// neighbouring tabs' borders into one seam; a look without seams gives the
+/// three unselected parts one style.
+#[derive(Debug, Clone)]
+pub(crate) struct TabHeaderLook {
+    /// The bar the tabs sit in.
+    pub(crate) header: CssPropertyWithConditionsVec,
+    /// The spacer before the first tab.
+    pub(crate) before: CssPropertyWithConditionsVec,
+    /// The spacer after the last tab.
+    pub(crate) after: CssPropertyWithConditionsVec,
+    /// The active tab.
+    pub(crate) active: CssPropertyWithConditionsVec,
+    /// The tab just before the active one.
+    pub(crate) before_active: CssPropertyWithConditionsVec,
+    /// The tab just after the active one.
+    pub(crate) after_active: CssPropertyWithConditionsVec,
+    /// Every other tab.
+    pub(crate) inactive: CssPropertyWithConditionsVec,
+    /// The theme marker class on the header, if the look has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl TabHeaderLook {
+    /// The look `theme` pins, or - unpinned - the look that follows the app
+    /// theme: every part carries both themes' declarations, each theme's in
+    /// its `@theme(<name>)` block (`theme_blocks::follow_props`), and the
+    /// header the marker of the theme the DOM is built for.
+    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match theme.into_option() {
+            Some(UiTheme::Flat) => flat::tab_header_look(),
+            Some(UiTheme::Flora) => flora::tab_header_look(),
+            None => {
+                let (a, b) = (flat::tab_header_look(), flora::tab_header_look());
+                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
+                    follow_props(x.as_ref(), y.as_ref())
+                };
+                Self {
+                    header: both(&a.header, &b.header),
+                    before: both(&a.before, &b.before),
+                    after: both(&a.after, &b.after),
+                    active: both(&a.active, &b.active),
+                    before_active: both(&a.before_active, &b.before_active),
+                    after_active: both(&a.after_active, &b.after_active),
+                    inactive: both(&a.inactive, &b.inactive),
+                    marker: match UiTheme::current() {
+                        UiTheme::Flat => a.marker,
+                        UiTheme::Flora => b.marker,
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// What a theme gives a tab panel: its style with and without the default
+/// padding, and the marker class it carries (`None` for flat).
+#[derive(Debug, Clone)]
+pub(crate) struct TabContentLook {
+    /// The panel with the default padding.
+    pub(crate) padded: CssPropertyWithConditionsVec,
+    /// The panel without it.
+    pub(crate) unpadded: CssPropertyWithConditionsVec,
+    /// The theme marker class on the panel, if the look has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl TabContentLook {
+    /// The look `theme` pins, or - unpinned - both looks in one
+    /// (`theme_blocks::follow_props`), marked for the theme the DOM is built
+    /// for. The panel's content is the caller's and is never cloned.
+    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match theme.into_option() {
+            Some(UiTheme::Flat) => flat::tab_content_look(),
+            Some(UiTheme::Flora) => flora::tab_content_look(),
+            None => {
+                let (a, b) = (flat::tab_content_look(), flora::tab_content_look());
+                Self {
+                    padded: follow_props(a.padded.as_ref(), b.padded.as_ref()),
+                    unpadded: follow_props(a.unpadded.as_ref(), b.unpadded.as_ref()),
+                    marker: match UiTheme::current() {
+                        UiTheme::Flat => a.marker,
+                        UiTheme::Flora => b.marker,
+                    },
+                }
+            }
+        }
+    }
+}
+
 /// Content panel displayed beneath the active tab in a tab widget.
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -1291,6 +1408,10 @@ pub struct TabContent {
     pub content: Dom,
     /// Whether the content area includes default padding.
     pub has_padding: bool,
+    /// The widget theme this panel is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl Default for TabContent {
@@ -1298,6 +1419,7 @@ impl Default for TabContent {
         Self {
             content: Dom::create_div(),
             has_padding: true,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -1308,7 +1430,21 @@ impl TabContent {
         Self {
             content,
             has_padding: true,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the panel keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[must_use]
@@ -1334,14 +1470,21 @@ impl TabContent {
             AzString::from_const_str("__azul-native-tabs-content"),
         )];
 
+        let look = TabContentLook::of(self.theme);
         let tab_content_css_style = if self.has_padding {
-            CSS_MATCH_18014909903571752977
+            look.padded
         } else {
-            CSS_MATCH_18014909903571752977_NO_PADDING
+            look.unpadded
+        };
+        let panel = Dom::create_div().with_css_props(tab_content_css_style);
+        let panel = match look.marker {
+            None => panel,
+            Some(marker) => panel.with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+                AzString::from_const_str(marker),
+            )])),
         };
 
-        Dom::create_div()
-            .with_css_props(tab_content_css_style)
+        panel
             .with_children(DomVec::from_vec(vec![Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                     IDS_AND_CLASSES_2989815829020816222,
@@ -1476,7 +1619,7 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        widgets::{roving::test_support as rv, theme_probe},
+        widgets::{roving::test_support as rv, theme_probe, themes::UiTheme},
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -1938,9 +2081,12 @@ mod autotest_generated {
     fn dom_at_usize_max_gives_every_tab_the_plain_inactive_style() {
         // `tab_idx.saturating_add(1)` / `saturating_sub(1)` must not wrap into a
         // false neighbour match at the extreme.
+        // Pinned to flat: the comparison is with flat's const style vecs,
+        // which an unpinned bar carries inside its `@theme(flat)` block.
         let n = 5usize;
         let dom = TabHeader::create(numbered_labels(n))
             .with_active_tab(usize::MAX)
+            .with_theme(UiTheme::Flat)
             .dom();
 
         for (i, node) in dom.children.as_ref()[1..=n].iter().enumerate() {
@@ -2124,7 +2270,10 @@ mod autotest_generated {
     #[test]
     fn dom_is_a_header_div_wrapping_spacer_tabs_spacer() {
         for n in [0usize, 1, 2, 3, 17] {
-            let dom = TabHeader::create(numbered_labels(n)).dom();
+            // Pinned to flat: the styles compared are flat's const vecs.
+            let dom = TabHeader::create(numbered_labels(n))
+                .with_theme(UiTheme::Flat)
+                .dom();
 
             assert_eq!(class_strs(&dom), vec![CLASS_HEADER]);
             assert_eq!(
@@ -2266,8 +2415,10 @@ mod autotest_generated {
         // combination demands.
         let n = 6usize;
         for active in [0usize, 1, 2, n - 1, n, usize::MAX] {
+            // Pinned to flat: the styles compared are flat's const vecs.
             let dom = TabHeader::create(numbered_labels(n))
                 .with_active_tab(active)
+                .with_theme(UiTheme::Flat)
                 .dom();
             for (i, node) in dom.children.as_ref()[1..=n].iter().enumerate() {
                 let cls = class_strs(node);
@@ -2522,8 +2673,10 @@ mod autotest_generated {
             )
         }
 
+        // Pinned to flat: this counts the flat look's hover rules and twins.
         let dom = TabHeader::create(numbered_labels(4))
             .with_active_tab(1)
+            .with_theme(UiTheme::Flat)
             .dom();
         let tabs = &dom.children.as_ref()[1..=4];
         assert_eq!(
@@ -2823,13 +2976,20 @@ mod autotest_generated {
 
     #[test]
     fn content_dom_picks_the_style_vec_the_padding_flag_asks_for() {
-        let padded = TabContent::new(Dom::create_div()).with_padding(true).dom();
+        // Pinned to flat: the styles compared are flat's const vecs.
+        let padded = TabContent::new(Dom::create_div())
+            .with_padding(true)
+            .with_theme(UiTheme::Flat)
+            .dom();
         assert_eq!(
             inline_declared(&padded),
             declared(&CSS_MATCH_18014909903571752977)
         );
 
-        let bare = TabContent::new(Dom::create_div()).with_padding(false).dom();
+        let bare = TabContent::new(Dom::create_div())
+            .with_padding(false)
+            .with_theme(UiTheme::Flat)
+            .dom();
         assert_eq!(
             inline_declared(&bare),
             declared(&CSS_MATCH_18014909903571752977_NO_PADDING)

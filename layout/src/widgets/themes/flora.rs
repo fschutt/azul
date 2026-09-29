@@ -6007,3 +6007,19 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== tabs ====
+//
+// PLACEHOLDER until the flora tab bar lands: the flat look.
+
+/// Flora's tab-bar look.
+#[must_use]
+pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+    super::flat::tab_header_look()
+}
+
+/// Flora's tab-panel look.
+#[must_use]
+pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
+    super::flat::tab_content_look()
+}
