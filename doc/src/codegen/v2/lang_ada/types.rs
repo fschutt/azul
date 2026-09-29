@@ -279,6 +279,17 @@ fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
 // Tagged union (variant record with discriminant)
 // ============================================================================
 
+/// A `repr(C, u8)` union's tag is ONE byte (azul.h: `uint8_t tag;`), but a
+/// Convention-C enumeration is int-sized: without this clause every variant
+/// part of a union whose payloads are less than 4-aligned started 3 bytes
+/// late (the variant part itself already sits at the largest payload
+/// alignment, which is Rust's rule, so no padding is needed on top).
+fn emit_u8_tag_size(builder: &mut CodeBuilder, tag_name: &str, repr: Option<&str>) {
+    if repr.is_some_and(|r| r.contains("u8")) {
+        builder.line(&format!("for {}'Size use 8;", tag_name));
+    }
+}
+
 fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &CodegenIR) {
     let name = ada_ffi_type_name(&enum_def.name);
     let tag_name = format!("{}_Tag", name);
@@ -313,6 +324,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
     }
     builder.line("   );");
     builder.line(&format!("pragma Convention (C, {});", tag_name));
+    emit_u8_tag_size(builder, &tag_name, enum_def.repr.as_deref());
     builder.blank();
 
     // Variant record with discriminant.
@@ -380,7 +392,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
 
     builder.line("   end case;");
     builder.line("end record;");
-    builder.line(&format!("pragma Convention (C, {});", name));
+    builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
     builder.blank();
 }
 
@@ -424,7 +436,7 @@ fn emit_monomorphized_alias(
                 builder.line(&format!("type {} is record", name));
                 builder.line("   Reserved : Interfaces.C.unsigned_char;");
                 builder.line("end record;");
-                builder.line(&format!("pragma Convention (C, {});", name));
+                builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
                 builder.blank();
                 return;
             }
@@ -433,11 +445,11 @@ fn emit_monomorphized_alias(
                 emit_field(builder, f, ir);
             }
             builder.line("end record;");
-            builder.line(&format!("pragma Convention (C, {});", name));
+            builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
             builder.blank();
         }
 
-        MonomorphizedKind::TaggedUnion { variants, .. } => {
+        MonomorphizedKind::TaggedUnion { variants, repr } => {
             // Tag enum + variant record, same shape as emit_tagged_union.
             let tag_name = format!("{}_Tag", name);
             builder.line(&format!("type {} is", tag_name));
@@ -455,6 +467,7 @@ fn emit_monomorphized_alias(
             }
             builder.line("   );");
             builder.line(&format!("pragma Convention (C, {});", tag_name));
+            emit_u8_tag_size(builder, &tag_name, repr.as_deref());
             builder.blank();
 
             let default_variant = lits.first().cloned().unwrap_or_else(|| "V0".to_string());
@@ -480,7 +493,7 @@ fn emit_monomorphized_alias(
             }
             builder.line("   end case;");
             builder.line("end record;");
-            builder.line(&format!("pragma Convention (C, {});", name));
+            builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
             builder.blank();
         }
     }
@@ -504,7 +517,7 @@ fn emit_record(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line(&format!("type {} is record", name));
         builder.line("   Reserved : Interfaces.C.unsigned_char;");
         builder.line("end record;");
-        builder.line(&format!("pragma Convention (C, {});", name));
+        builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
         builder.blank();
         return;
     }
@@ -514,7 +527,7 @@ fn emit_record(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         emit_field(builder, f, ir);
     }
     builder.line("end record;");
-    builder.line(&format!("pragma Convention (C, {});", name));
+    builder.line(&format!("pragma Convention (C_Pass_By_Copy, {});", name));
     builder.blank();
 }
 
