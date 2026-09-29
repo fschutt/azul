@@ -191,11 +191,60 @@ impl CssShadowParseErrorOwned {
     }
 }
 
+/// How many shadows a node keeps: its four shadow slots
+/// (`-azul-box-shadow-left/right/top/bottom`) are its list of shadows (see
+/// [`box_shadow_slots`]).
+pub const MAX_BOX_SHADOWS: usize = 4;
+
+/// The four shadow slots a `box-shadow` list fills, as `[left, right, top,
+/// bottom]`; `None` for an empty list.
+///
+/// CSS paints the FIRST shadow of a list on top. The painter paints each
+/// DISTINCT slot shadow once, in slot order left, right, top, bottom - the
+/// last on top (`azul_layout::solver3::getters::get_box_shadows`). So the
+/// list fills the slots from the bottom up: bottom = 1st, top = 2nd, right =
+/// 3rd, left = 4th. A slot a shorter list leaves over repeats the list's LAST
+/// shadow, which paints nothing twice - one shadow fills all four slots, as
+/// the shorthand always did. Shadows past the [`MAX_BOX_SHADOWS`]th are
+/// dropped (the stylesheet parser warns).
+///
+/// A list that names the same shadow twice paints it once, at its lowest
+/// position.
+#[must_use]
+pub fn box_shadow_slots(list: &[StyleBoxShadow]) -> Option<[StyleBoxShadow; MAX_BOX_SHADOWS]> {
+    let kept = &list[..list.len().min(MAX_BOX_SHADOWS)];
+    let last = *kept.last()?;
+    let nth = |k: usize| kept.get(k).copied().unwrap_or(last);
+    Some([nth(3), nth(2), nth(1), nth(0)])
+}
+
+/// Parses a `box-shadow` value: one shadow or a comma-separated list of
+/// them, such as `"0 1px 2px red, 0 0 0 1px blue"`. Split at top-level
+/// commas only (`rgba(0, 0, 0, 0.5)` stays one colour); every shadow must
+/// parse, as in CSS, where one invalid shadow invalidates the list.
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is empty or any of its shadows is not a valid
+/// CSS shadow.
+pub fn parse_style_box_shadow_list(
+    input: &str,
+) -> Result<Vec<StyleBoxShadow>, CssShadowParseError<'_>> {
+    let items = crate::props::basic::parse::split_string_respect_comma(input);
+    if items.is_empty() {
+        return Err(CssShadowParseError::TooManyOrTooFewComponents(input));
+    }
+    items
+        .into_iter()
+        .map(|item| parse_style_box_shadow(item.trim()))
+        .collect()
+}
+
 /// Parses a CSS box-shadow, such as `"5px 10px #888 inset"`.
 ///
 /// Note: This parser does not handle the `none` keyword, as that is handled by the
-/// `CssPropertyValue` enum wrapper. It also does not handle comma-separated lists
-/// of multiple shadows; it only parses a single shadow value.
+/// `CssPropertyValue` enum wrapper. It parses ONE shadow; a comma-separated
+/// list is [`parse_style_box_shadow_list`].
 #[cfg(feature = "parser")]
 /// # Errors
 ///

@@ -4316,14 +4316,17 @@ pub fn parse_combined_css_property(
             ])
         }
         BoxShadow => {
-            let box_shadow = parse_style_box_shadow(value)?;
+            // One shadow or a list: the node's four shadow slots hold up to
+            // four, the first of the list in the slot painted on top.
+            let list = parse_style_box_shadow_list(value)?;
+            let Some([left, right, top, bottom]) = box_shadow_slots(&list) else {
+                return Err(CssShadowParseError::TooManyOrTooFewComponents(value).into());
+            };
             Ok(vec![
-                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(box_shadow))),
-                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(
-                    box_shadow,
-                ))),
+                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(left))),
+                CssProperty::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(right))),
+                CssProperty::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(top))),
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(bottom))),
             ])
         }
         BackgroundColor => {

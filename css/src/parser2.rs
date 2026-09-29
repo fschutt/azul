@@ -1068,6 +1068,14 @@ pub enum CssParseWarnMsgInner<'a> {
     /// must). Kept - it resolves to the property's initial value wherever
     /// its variable is undefined - but a mistyped name then fails silently.
     VarWithoutFallback { key: &'a str, value: &'a str },
+    /// A `box-shadow` list of `count` shadows, more than the
+    /// `MAX_BOX_SHADOWS` a node keeps: the first ones (the ones painted on
+    /// top) are kept, the rest is dropped.
+    TooManyShadows {
+        key: &'a str,
+        value: &'a str,
+        count: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1092,6 +1100,11 @@ pub enum CssParseWarnMsgInnerOwned {
     VarWithoutFallback {
         key: String,
         value: String,
+    },
+    TooManyShadows {
+        key: String,
+        value: String,
+        count: usize,
     },
 }
 
@@ -1126,6 +1139,13 @@ impl CssParseWarnMsgInner<'_> {
                     value: (*value).to_string(),
                 }
             }
+            Self::TooManyShadows { key, value, count } => {
+                CssParseWarnMsgInnerOwned::TooManyShadows {
+                    key: (*key).to_string(),
+                    value: (*value).to_string(),
+                    count: *count,
+                }
+            }
         }
     }
 }
@@ -1155,6 +1175,11 @@ impl CssParseWarnMsgInnerOwned {
             Self::VarWithoutFallback { key, value } => {
                 CssParseWarnMsgInner::VarWithoutFallback { key, value }
             }
+            Self::TooManyShadows { key, value, count } => CssParseWarnMsgInner::TooManyShadows {
+                key,
+                value,
+                count: *count,
+            },
         }
     }
 }
@@ -1169,6 +1194,7 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     SkippedDeclaration { key, value, error } => format!("Skipped declaration '{}:{}': {}", key, value, error),
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
     VarWithoutFallback { key, value } => format!("'{}: {}' reads a variable without a fallback: where it is undefined the property takes its initial value; write var(--name, <fallback>)", key, value),
+    TooManyShadows { key, value, count } => format!("'{}: {}' lists {} shadows: a node keeps the first {}, the rest is dropped", key, value, count, crate::props::style::box_shadow::MAX_BOX_SHADOWS),
 }}
 
 /// Parses @media conditions from the content following "@media"
@@ -2129,6 +2155,11 @@ fn css_blocks_to_stylesheet<'a>(
                             location,
                         });
                     }
+                    if let Some(warning) =
+                        too_many_shadows(unparsed_css_key, unparsed_css_value, &css_key_map)
+                    {
+                        warnings.push(CssParseWarnMsg { warning, location });
+                    }
                     declarations.extend(decls);
                 }
                 Err(e) => {
@@ -2153,6 +2184,23 @@ fn css_blocks_to_stylesheet<'a>(
     }
 
     (parsed_css_blocks, warnings)
+}
+
+/// The warning a KEPT `box-shadow` list longer than the shadows a node keeps
+/// (`MAX_BOX_SHADOWS`, see `box_shadow_slots`) earns: its tail is dropped.
+fn too_many_shadows<'a>(
+    key: &'a str,
+    value: &'a str,
+    css_key_map: &CssKeyMap,
+) -> Option<CssParseWarnMsgInner<'a>> {
+    use crate::props::style::box_shadow::MAX_BOX_SHADOWS;
+    if CombinedCssPropertyType::from_str(key, css_key_map)
+        != Some(CombinedCssPropertyType::BoxShadow)
+    {
+        return None;
+    }
+    let count = crate::props::basic::parse::split_string_respect_comma(value).len();
+    (count > MAX_BOX_SHADOWS).then_some(CssParseWarnMsgInner::TooManyShadows { key, value, count })
 }
 
 fn parse_declaration_resilient<'a>(
