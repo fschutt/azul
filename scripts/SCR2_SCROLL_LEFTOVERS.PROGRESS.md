@@ -32,14 +32,17 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   (`nearest_scrollport` replaces `find_nearest_scrollport` + `find_nearest_scroll_offset`; their unit
   tests adapted)
 
+- 1d: RED 1eee1a203 (`layout/tests/a_spatial_navigation_container_is_a_scroll_box_its_node_is_painted_in.rs`),
+  FIX a1a28a9d0 (`spatial_navigation_containers` + `is_visible` on the chain; focus_cursor unit fixture
+  mirrors the DOM)
+
 ## IN PROGRESS
 
-- 1d RED (spatial nav container chain + is_visible)
+- 2 RED (IME caret rect under a transformed ancestor / a scrolled page's thumb)
 
 ## NEXT
 
-- 1d (containers + is_visible; focus_cursor
-  unit fixture -> mirroring_dom), 2, 3, 4, (5), report
+- 2 fix, 3, 4, (5), report
 
 ## Open questions
 
