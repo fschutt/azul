@@ -12,12 +12,16 @@ Touches only `examples/azul-widgets/` (+ this file and the final report). Nothin
 - `3d29a3808` step 2: `forms.rs` - "Every input type, in a Form" (FormData label, Reset via app
   state + text-revision ack)
 
+- `25fdcf27d` checkpoint
+- `802c35291` step 3: "Raw HTML inputs" - `Dom::create_input(..)` column + XML snippet column in one
+  app-built Form
+- `5edd7a92f` rustfmt forms.rs + ack comment
+
 ## IN PROGRESS
-- step 3: "Raw HTML inputs" - `Dom::create_input(..)` + an XML snippet inside a Form
-  (full version of forms.rs/lib.rs kept in the scratchpad as forms_full.rs / lib_full.rs)
+- step 4: e2e scenario check (`e2e/global_hotkey.json`), self-review pass, report
 
 ## NEXT
-1. step 4: e2e scenario check (`e2e/global_hotkey.json`), report
+1. report `scripts/D1_DEMO_EVERY_WIDGET_2026_09_29.md` + final checkpoint
 
 ## Open questions
 - (none yet)
