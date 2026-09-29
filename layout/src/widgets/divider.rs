@@ -44,8 +44,9 @@ pub struct Divider {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub divider_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this divider is PINNED to, or `None` to follow the
+    /// app theme (`AppConfig::with_theme`, `CallbackInfo::set_theme`; flat
+    /// unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -168,8 +169,8 @@ impl Divider {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the divider renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the divider keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -185,14 +186,16 @@ impl Divider {
 
     /// Converts this divider into a DOM node with the `__azul-native-divider`
     /// class. The look comes from the theme module (`themes::flat::divider` /
-    /// `themes::flora::divider`); `None` renders flat.
+    /// `themes::flora::divider`): the pinned theme's, or - with no theme -
+    /// both, each in its `@theme(<name>)` block, so the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::UiTheme;
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
         match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::divider(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::divider(self),
+            Some(UiTheme::Flora) => flora::divider(self),
+            Some(UiTheme::Flat) => flat::divider(self),
+            None => theme_blocks::every_theme_dom(flat::divider(self.clone()), flora::divider(self)),
         }
     }
 }
@@ -354,21 +357,20 @@ mod autotest_generated {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The properties of a rendered node's *inline* style, in declaration
+    /// order, as the app theme the test builds for sees them (a divider with
+    /// no theme carries every theme's block; the live one reads like the
+    /// pinned divider).
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
+        crate::widgets::themes::theme_blocks::checks::live_properties(node)
     }
 
-    /// `(property, number-of-conditions)` for a rendered node, in declaration order.
+    /// `(property, number-of-conditions)` for a rendered node, in declaration
+    /// order, read like [`inline_properties`].
     fn inline_properties_with_condition_counts(node: &Dom) -> Vec<(CssProperty, usize)> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, c)| (p.clone(), c.as_ref().len()))
+        crate::widgets::themes::theme_blocks::checks::live_inline(node)
+            .into_iter()
+            .map(|(p, c)| (p, c.as_ref().len()))
             .collect()
     }
 
@@ -1370,12 +1372,9 @@ mod theme_tests {
         })
     }
 
+    /// The inline properties as the app theme the test builds for sees them.
     fn inline(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
+        crate::widgets::themes::theme_blocks::checks::live_properties(dom)
     }
 
     fn has_class(dom: &Dom, name: &str) -> bool {

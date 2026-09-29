@@ -30,8 +30,9 @@ pub struct Label {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub label_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -136,8 +137,8 @@ impl Label {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the label renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the label keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -159,14 +160,21 @@ impl Label {
     /// be inert on a raw text node.
     ///
     /// The look comes from the theme module (`themes::flat::label` /
-    /// `themes::flora::label`); `None` renders flat.
+    /// `themes::flora::label`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::label(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::label(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::label(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::label(self.clone()),
+                crate::widgets::themes::flora::label(self),
+            ),
         }
     }
 }
@@ -286,9 +294,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1148,9 +1154,7 @@ mod theme_tests {
     }
 
     fn inline(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }

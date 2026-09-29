@@ -92,6 +92,9 @@ pub struct DropDown {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme this drop-down is PINNED to (`with_theme`), or
+    /// `None` to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -143,9 +146,8 @@ impl Default for DropDown {
             label_style: OptionCssPropertyWithConditionsVec::None,
             arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No theme of its own: the drop-down follows the app theme.
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -217,8 +219,8 @@ impl DropDown {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the widget keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -265,13 +267,14 @@ impl DropDown {
     /// Builds the DOM tree for this drop-down widget.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::drop_down(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::drop_down(self)
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::drop_down(self),
+            Some(UiTheme::Flora) => flora::drop_down(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => {
+                theme_blocks::every_theme_dom(flat::drop_down(self.clone()), flora::drop_down(self))
             }
         }
     }

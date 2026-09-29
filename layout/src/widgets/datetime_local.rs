@@ -106,6 +106,10 @@ pub struct DateTimeLocalPicker {
     pub accessibility_name: OptionString,
     /// The HTML `name` the value is submitted under in a form.
     pub name: OptionString,
+    /// The widget theme this row and its parts are PINNED to
+    /// (`with_theme`), or `None` to follow the app theme
+    /// (`AppConfig::with_theme`, `CallbackInfo::set_theme`; flat unless the
+    /// app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -189,7 +193,8 @@ impl DateTimeLocalPicker {
         self
     }
 
-    /// Pick the widget theme; unset, the default theme renders it.
+    /// Pin the widget theme of the row and its parts; unset, they follow
+    /// the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -213,15 +218,19 @@ impl DateTimeLocalPicker {
     /// widget, each reporting into the one shared state.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora, UiTheme};
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
 
         let inner = self.state.inner;
         let shared = RefAny::new(self.state);
-        // The row's theme is its parts' theme.
-        let theme = self.theme.into_option().unwrap_or(UiTheme::Flat);
+        // The row's theme is its parts' theme: a pin passes down, and with
+        // no theme the parts follow the app theme on their own.
+        let theme = self.theme.into_option();
 
-        let date = DatePicker::create(inner.date.year, inner.date.month, inner.date.day)
-            .with_theme(theme)
+        let mut date_part = DatePicker::create(inner.date.year, inner.date.month, inner.date.day);
+        if let Some(pin) = theme {
+            date_part = date_part.with_theme(pin);
+        }
+        let date = date_part
             .with_on_change(
                 shared.clone(),
                 on_date_part_change as DatePickerOnChangeCallbackType,
@@ -230,8 +239,10 @@ impl DateTimeLocalPicker {
             .dom();
         let mut time_part = TimePicker::create(0, 0);
         time_part.state.inner = inner.time;
+        if let Some(pin) = theme {
+            time_part = time_part.with_theme(pin);
+        }
         let time = time_part
-            .with_theme(theme)
             .with_on_change(
                 shared.clone(),
                 on_time_part_change as TimePickerOnChangeCallbackType,
@@ -240,8 +251,14 @@ impl DateTimeLocalPicker {
             .dom();
 
         let mut row = match theme {
-            UiTheme::Flat => flat::datetime_local(date, time),
-            UiTheme::Flora => flora::datetime_local(date, time),
+            Some(UiTheme::Flat) => flat::datetime_local(date, time),
+            Some(UiTheme::Flora) => flora::datetime_local(date, time),
+            // No theme: the row carries both looks, each inside its
+            // `@theme(<name>)` block (the parts, alike in both, once).
+            None => theme_blocks::every_theme_dom(
+                flat::datetime_local(date.clone(), time.clone()),
+                flora::datetime_local(date, time),
+            ),
         };
         if let Some(style) = self.container_style.into_option() {
             row = row.with_css_props(style);

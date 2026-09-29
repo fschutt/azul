@@ -246,6 +246,9 @@ pub struct Form {
     pub container_style: OptionCssPropertyWithConditionsVec,
     /// What this form is CALLED, for assistive technology.
     pub accessibility_name: OptionString,
+    /// The widget theme this form is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -349,7 +352,7 @@ impl Form {
         self
     }
 
-    /// Pick the widget theme; unset, the default theme renders it.
+    /// Pin the widget theme; unset, the form follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -372,16 +375,23 @@ impl Form {
     /// Renders the form node, recording each named control's initial value.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora, UiTheme};
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
 
         let mut state = self.state;
         state.initial = initial_form_data(self.children.as_ref());
         let shared = RefAny::new(state);
 
-        let theme = self.theme.into_option().unwrap_or(UiTheme::Flat);
-        let mut form = match theme {
-            UiTheme::Flat => flat::form(self.children),
-            UiTheme::Flora => flora::form(self.children),
+        let mut form = match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::form(self.children),
+            Some(UiTheme::Flora) => flora::form(self.children),
+            // No theme: follow the app theme - both looks of the form node,
+            // each inside its `@theme(<name>)` block. The content is the
+            // caller's and alike in every theme, so it goes in once.
+            None => theme_blocks::every_theme_dom(
+                flat::form(DomVec::from_const_slice(&[])),
+                flora::form(DomVec::from_const_slice(&[])),
+            )
+            .with_children(self.children),
         };
         if let Some(style) = self.container_style.into_option() {
             form = form.with_css_props(style);
@@ -1515,10 +1525,7 @@ mod tests {
             let dom = HiddenInput::create("token".into(), "abc123".into()).dom();
             assert!(dom.children.as_ref().is_empty(), "a hidden input has no content");
             assert!(dom.root.get_tab_index().is_none(), "a hidden input is not focusable");
-            let display = dom
-                .root
-                .style
-                .iter_inline_properties()
+            let display = crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
                 .filter_map(|(p, _)| match p {
                     CssProperty::Display(v) => v.get_property().cloned(),
                     _ => None,

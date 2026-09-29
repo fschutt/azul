@@ -155,8 +155,9 @@ pub struct Badge {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub badge_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat). A theme is a
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another). A theme is a
     /// DOM-level choice: the badge is rebuilt in the other look when it
     /// changes.
     pub theme: OptionUiTheme,
@@ -283,8 +284,8 @@ impl Badge {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the badge renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the badge keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -306,13 +307,20 @@ impl Badge {
     /// properties would never paint on a raw text node.
     ///
     /// The look comes from the theme module (`themes::flat::badge` /
-    /// `themes::flora::badge`); `None` renders flat, like every widget.
+    /// `themes::flora::badge`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::badge(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::badge(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::badge(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::badge(self.clone()),
+                crate::widgets::themes::flora::badge(self),
+            ),
         }
     }
 }
@@ -494,9 +502,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1332,9 +1338,7 @@ mod theme_tests {
     }
 
     fn inline(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }

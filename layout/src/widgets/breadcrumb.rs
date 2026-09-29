@@ -100,8 +100,9 @@ pub struct Breadcrumb {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -227,8 +228,8 @@ impl Breadcrumb {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the breadcrumb renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the breadcrumb keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -290,14 +291,20 @@ impl Breadcrumb {
 
     /// Converts this breadcrumb into its DOM (classed
     /// `__azul-native-breadcrumb`). The look comes from the theme module
-    /// (`themes::flat::breadcrumb` / `themes::flora::breadcrumb`); `None`
-    /// renders flat.
+    /// (`themes::flat::breadcrumb` / `themes::flora::breadcrumb`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::breadcrumb(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::breadcrumb(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::breadcrumb(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::breadcrumb(self.clone()),
+                crate::widgets::themes::flora::breadcrumb(self),
+            ),
         }
     }
 }
@@ -1389,9 +1396,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),

@@ -346,8 +346,9 @@ pub struct Frame {
     pub title: AzString,
     pub flex_grow: f32,
     pub content: Dom,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -402,8 +403,8 @@ impl Frame {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the frame renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the frame keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -437,13 +438,20 @@ impl Frame {
 
     /// Converts this frame into its DOM (classed `__azul-native-frame`). The
     /// look comes from the theme module (`themes::flat::frame` /
-    /// `themes::flora::frame`); `None` renders flat.
+    /// `themes::flora::frame`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::frame(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::frame(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::frame(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::frame(self.clone()),
+                crate::widgets::themes::flora::frame(self),
+            ),
         }
     }
 }
@@ -607,11 +615,12 @@ mod autotest_generated {
         &kids(header(dom))[2]
     }
 
-    /// The declared properties of a node's inline style, in declaration order.
+    /// The declared properties of a node's inline style, in declaration
+    /// order, as the app theme the test builds for sees them.
     fn props_of(node: &NodeData) -> Vec<CssProperty> {
-        node.style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
+        crate::widgets::themes::theme_blocks::checks::live_style(&node.style)
+            .into_iter()
+            .map(|(p, _)| p)
             .collect()
     }
 
@@ -656,9 +665,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in a node's style — i.e. *after*
     /// the lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn flex_grow_of(dom: &Dom) -> Option<f32> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,
@@ -1400,10 +1407,7 @@ mod autotest_generated {
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
             // The light face: a dark-theme twin re-declares its colour under a
             // theme condition, which is not a duplicate.
-            let props: Vec<CssProperty> = node
-                .root
-                .style
-                .iter_inline_properties()
+            let props: Vec<CssProperty> = crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
                 .filter(|(_, conds)| conds.as_ref().is_empty())
                 .map(|(p, _)| p.clone())
                 .collect();
@@ -1425,7 +1429,7 @@ mod autotest_generated {
         // declarations are the border colours' dark-theme twins.
         let dom = frame("t", Dom::create_div()).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
-            for (p, conditions) in node.root.style.iter_inline_properties() {
+            for (p, conditions) in crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter() {
                 if conditions.as_ref().is_empty() {
                     continue;
                 }
@@ -1466,7 +1470,7 @@ mod autotest_generated {
         let mut seen = 0_usize;
         let mut dark = 0_usize;
         for node in all_nodes(&dom) {
-            for (p, conds) in node.root.style.iter_inline_properties() {
+            for (p, conds) in crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter() {
                 let Some(c) = border_color_of(p) else {
                     continue;
                 };

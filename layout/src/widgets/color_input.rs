@@ -56,8 +56,9 @@ pub struct ColorInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -235,8 +236,8 @@ impl ColorInput {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the input renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the input keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -301,14 +302,21 @@ impl ColorInput {
     /// Converts this `ColorInput` into a styled [`Dom`]: the swatch, with the
     /// picker popup attached as its (closed) transient child. The look comes
     /// from the theme module (`themes::flat::color_input` /
-    /// `themes::flora::color_input`); `None` renders flat.
+    /// `themes::flora::color_input`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::color_input(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::color_input(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::color_input(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::color_input(self.clone()),
+                crate::widgets::themes::flora::color_input(self),
+            ),
         }
     }
 }
@@ -324,6 +332,9 @@ pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
     };
 
     {
+        // The picker's own controls wear the input's theme: pinned with it,
+        // following the app theme with it.
+        let theme = input.theme;
         let color = input.color_input_state.inner.color;
         let title = input.color_input_state.title.clone();
         // Resolved before `input.accessibility_name` is moved out below.
@@ -350,7 +361,7 @@ pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
             drag: Drag::None,
         });
 
-        let panel = picker_panel(&data, color, look);
+        let panel = picker_panel(&data, color, look, theme);
 
         // `tearoff`: the grip strip at the top of the panel tears the picker
         // off into a floating palette (a real toplevel) and docks it back.
@@ -824,7 +835,12 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
 /// The picker panel that lives inside the popup, in `look`. Its structure -
 /// grip, plane, hue, alpha, preview row, channel row - is the same in every
 /// look: `publish` finds the parts it restyles by position.
-fn picker_panel(data: &RefAny, color: ColorU, look: &ColorInputLook) -> Dom {
+fn picker_panel(
+    data: &RefAny,
+    color: ColorU,
+    look: &ColorInputLook,
+    theme: crate::widgets::themes::OptionUiTheme,
+) -> Dom {
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
@@ -988,15 +1004,18 @@ fn picker_panel(data: &RefAny, color: ColorU, look: &ColorInputLook) -> Dom {
         "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
         css_rgba(opaque, color.a)
     )));
-    let hex_input = TextInput::create()
+    let mut hex_field = TextInput::create()
         .with_text(hex.into())
         .with_accessibility_name("Hex colour")
         .with_container_style(field_container_style(96, true))
         .with_on_focus_lost(data.clone(), {
             let cb: crate::widgets::text_input::TextInputOnFocusLostCallbackType = on_hex_committed;
             cb
-        })
-        .dom();
+        });
+    if let Some(pin) = theme.into_option() {
+        hex_field.set_theme(pin);
+    }
+    let hex_input = hex_field.dom();
     // The eyedropper: `pick_screen_color` runs the platform's sampler (the
     // system loupe on macOS; a screenshot in a fullscreen loupe elsewhere -
     // Wayland asks the user through the portal first). The answer comes
@@ -1047,15 +1066,19 @@ fn picker_panel(data: &RefAny, color: ColorU, look: &ColorInputLook) -> Dom {
          short: &str,
          value: u8,
          cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
-            let field = NumberInput::create(f32::from(value))
+            let mut field = NumberInput::create(f32::from(value))
                 .with_accessibility_name(name)
                 .with_container_style(field_container_style(44, false))
-                .with_on_value_change(data.clone(), cb)
-                .dom();
+                .with_on_value_change(data.clone(), cb);
+            let mut label = Label::create(short.into());
+            if let Some(pin) = theme.into_option() {
+                field.set_theme(pin);
+                label.set_theme(pin);
+            }
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center; gap: 4px;")
-                .with_child(Label::create(short.into()).dom())
-                .with_child(field)
+                .with_child(label.dom())
+                .with_child(field.dom())
         };
     let rgb_row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
@@ -1845,9 +1868,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -3915,9 +3936,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),

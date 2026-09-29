@@ -26,15 +26,24 @@ rules ARE pinned T's rules, in order) and one place to later swap for statics.
   `@theme(<name>)` against `current_theme()`; `mod app_theme_tests` in all 18 widgets with a
   second theme.
 
+- GREEN (this commit): `every_theme_css` / `every_theme_dom` (+ unit tests) and the `None`
+  path of all 18: accordion alert avatar badge breadcrumb button card check_box chip
+  color_input date_picker datetime_local divider drop_down form frame label menubar.
+  DropDown's default theme is now `None` (was a pinned Flat; `None` built an empty div).
+  card / form build their looks around a placeholder and put the caller's content in once;
+  datetime_local builds its parts once, unpinned; color_input passes its pin to the
+  picker's Label / TextInput / NumberInput. Older tests read nodes through the live view.
+
 ## IN PROGRESS
-- GREEN: `every_theme_css` / `every_theme_dom` + each widget's `None` path
+- review pass, report
 
 ## NEXT
-- G1 divider badge label form card avatar
-- G2 accordion alert breadcrumb chip frame menubar
-- G3 button check_box drop_down datetime_local
-- G4 color_input date_picker
 - list_view, backstage: no UiTheme / no flora look exists - report
 
 ## Open questions
 - list_view / backstage have no second theme: nothing to put in a flora block.
+- A StyledDom with NO context (`StyledDom::create`, `create_from_dom`) evaluates every
+  non-pseudo condition as false, so a followed widget there shows only its shared prefix.
+  Engine fix (core, not mine): with no context, `Theme(Custom(n))` holds iff
+  `n == DEFAULT_APP_THEME` (prop_cache.rs `matches_pseudo_state`, compact.rs inline scan).
+- datetime_local's follow test needs T3's TimePicker migration (the time part follows).

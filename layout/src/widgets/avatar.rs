@@ -260,7 +260,8 @@ impl Avatar {
         self
     }
 
-    /// Sets the theme this avatar renders with.
+    /// Pins the theme this avatar renders with, whatever the app theme is.
+    /// Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -298,13 +299,15 @@ impl Avatar {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = match self.theme {
-            OptionUiTheme::Some(theme) => theme,
-            OptionUiTheme::None => UiTheme::Flat,
-        };
-        match theme {
-            UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
-            UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::avatar(self),
+            Some(UiTheme::Flora) => flora::avatar(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            // (The two avatars look alike today, so the blocks collapse to
+            // the one unconditioned look.)
+            None => theme_blocks::every_theme_dom(flat::avatar(self.clone()), flora::avatar(self)),
         }
     }
 }
@@ -438,9 +441,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }

@@ -614,8 +614,8 @@ impl Button {
         m
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the widget keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -689,7 +689,8 @@ impl Button {
         // the tree and never reach `flat::button` / `flora::button`, which left
         // both functions dead and the product's buttons without any of that.
         //
-        // `UiTheme::default()` is Flat, and so is every other widget's fallback.
+        // A pinned theme (`with_theme`) is that look; no theme follows the
+        // app theme (flat unless the app chose another), like every widget.
         let form_action = self.form_action;
         let has_image = self.image.is_some();
         let alt = self.alt.clone();
@@ -697,9 +698,15 @@ impl Button {
             Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::button(self)
             }
-            Some(crate::widgets::themes::UiTheme::Flat) | None => {
+            Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::button(self)
             }
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::every_theme_dom(
+                crate::widgets::themes::flat::button(self.clone()),
+                crate::widgets::themes::flora::button(self),
+            ),
         };
         with_form_semantics(dom, form_action, has_image, alt)
     }
@@ -870,9 +877,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1323,10 +1328,7 @@ mod autotest_generated {
             // appended its states.
             let rendered = Button::with_type(AzString::from_const_str("x"), ty).dom();
             assert!(
-                rendered
-                    .root
-                    .style
-                    .iter_inline_properties()
+                crate::widgets::themes::theme_blocks::checks::live_inline(&rendered).iter()
                     .any(|(_, conds)| !conds.as_ref().is_empty()),
                 "{ty:?}: the rendered button has no conditional properties at all, so it gives no \
                  feedback on hover, press or focus",
@@ -1880,11 +1882,10 @@ mod autotest_generated {
         // and a coloured command legitimately has those (in its own colour).
         let dark_backgrounds = |ty: ButtonType| {
             use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
-            btn("OK", ty)
-                .dom()
-                .root
-                .style
-                .iter_inline_properties()
+            // Read as the app theme the test builds for sees it: a button
+            // with no theme carries every theme's `@theme(<name>)` block.
+            crate::widgets::themes::theme_blocks::checks::live_inline(&btn("OK", ty).dom())
+                .iter()
                 .filter(|(p, c)| {
                     p.get_type() == CssPropertyType::BackgroundContent
                         && !c.as_ref().is_empty()

@@ -191,8 +191,9 @@ pub struct Card {
     pub flex_grow: f32,
     /// Optional: Function to call when the card is clicked
     pub on_click: OptionCardOnClick,
-    /// The widget theme, or `None` for the default
-    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -287,8 +288,8 @@ impl Card {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the card renders in the default
-    /// theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the card keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -302,13 +303,27 @@ impl Card {
 
     /// Converts this card into its DOM: one box around the content, classed
     /// `__azul-native-card`. The look comes from the theme module
-    /// (`themes::flat::card` / `themes::flora::card`); `None` renders flat.
+    /// (`themes::flat::card` / `themes::flora::card`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::card(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::card(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::card(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            // The content is the caller's and alike in every theme: the two
+            // looks are built around a placeholder and it goes in once.
+            None => {
+                let mut shell = self;
+                let content = core::mem::replace(&mut shell.content, Dom::create_div());
+                crate::widgets::themes::theme_blocks::every_theme_dom(
+                    crate::widgets::themes::flat::card(shell.clone()),
+                    crate::widgets::themes::flora::card(shell),
+                )
+                .with_children(alloc::vec![content].into())
+            }
         }
     }
 }
@@ -432,9 +447,7 @@ mod autotest_generated {
 
     /// The declared properties of a rendered node's inline style, in declaration order.
     fn inline_props(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -442,9 +455,7 @@ mod autotest_generated {
     /// The node's LIGHT face: its declarations that apply in every theme and
     /// state (the dark-theme twins are left out).
     fn unconditional_props(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
@@ -466,9 +477,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in the style tree — i.e. *after* the
     /// lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn dom_flex_grow(dom: &Dom) -> Option<f32> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,
@@ -1280,7 +1289,7 @@ mod autotest_generated {
         let dom = Card::default().dom();
 
         let mut shadows = 0_usize;
-        for (p, _) in dom.root.style.iter_inline_properties() {
+        for (p, _) in crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter() {
             let value = match p {
                 CssProperty::BoxShadowTop(v)
                 | CssProperty::BoxShadowBottom(v)
@@ -1330,10 +1339,7 @@ mod autotest_generated {
         );
         assert_eq!(CARD_SHADOW.color, CARD_SHADOW_COLOR);
 
-        let shadows = survivor
-            .root
-            .style
-            .iter_inline_properties()
+        let shadows = crate::widgets::themes::theme_blocks::checks::live_inline(&survivor).iter()
             .filter_map(|(p, _)| match p {
                 CssProperty::BoxShadowTop(v)
                 | CssProperty::BoxShadowBottom(v)
