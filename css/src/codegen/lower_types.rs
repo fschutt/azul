@@ -707,6 +707,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "ColumnFill",
     "ColumnSpan",
     "CssDurationUnit",
+    "CssPropertyType",
     "DirectionCorner",
     "ExtendMode",
     "LayoutAlignContent",

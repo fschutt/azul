@@ -342,8 +342,14 @@ def gen_css_property():
     return out
 
 
+# Types the hand-written half of the lowering (css/src/codegen/lower.rs)
+# produces without the generated walk reaching them: `CssProperty::inherit /
+# auto / initial` take a `CssPropertyType`.
+HAND_LOWERED = {'CssPropertyType'}
+
+
 def gen_api_modules(cl):
-    names = sorted(set(t for t, v in cl.items() if v is not None) | {'CssPropertyType'})
+    names = sorted(set(t for t, v in cl.items() if v is not None) | HAND_LOWERED)
     out = [
         '/// The api.json module of every type the lowering can produce, sorted by',
         '/// name (binary-searchable). Printers whose bindings are split into',
@@ -353,9 +359,9 @@ def gen_api_modules(cl):
     for t in names:
         out.append(f'    ("{t}", "{ALLC[t][0]}"),')
     c_like = sorted(
-        t for t, v in cl.items()
-        if v is not None and v[1].get('enum_fields') is not None and not v[1].get('generic_params')
-        and all('type' not in vv for vm in v[1]['enum_fields'] for vv in vm.values())
+        t for t in names
+        if ALLC[t][1].get('enum_fields') is not None and not ALLC[t][1].get('generic_params')
+        and all('type' not in vv for vm in ALLC[t][1]['enum_fields'] for vv in vm.values())
     )
     out += [
         '];',

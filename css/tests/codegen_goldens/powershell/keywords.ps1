@@ -27,7 +27,7 @@ function Get-Keywords {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.AzCssProperty]@{ Width = [Azul.AzCssPropertyVariant_Width]@{ tag = [Azul.AzCssProperty_Tag]::Width; payload = [Azul.AzLayoutWidthValue]@{ Revert = [Azul.AzLayoutWidthValueVariant_Revert]@{ tag = [Azul.AzLayoutWidthValue_Tag]::Revert } } } }),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_caretWidth([Azul.AzCaretWidthValue]@{ Unset = [Azul.AzCaretWidthValueVariant_Unset]@{ tag = [Azul.AzCaretWidthValue_Tag]::Unset } })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_auto([Azul.AzCssPropertyType]::Height)),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_none([Azul.AzCssPropertyType]::TextShadow))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_auto([Azul.CssPropertyType]::Height)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_none([Azul.CssPropertyType]::TextShadow))
     ))
 }

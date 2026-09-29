@@ -127,7 +127,7 @@ function Get-StyleBox {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_marginTop([Azul.AzLayoutMarginTop]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]7.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_marginRight([Azul.AzLayoutMarginRight]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]8.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_marginBottom([Azul.AzLayoutMarginBottom]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]9.0) })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_auto([Azul.AzCssPropertyType]::MarginLeft)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_auto([Azul.CssPropertyType]::MarginLeft)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_overflowX([Azul.LayoutOverflow]::Hidden)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_overflowY([Azul.LayoutOverflow]::Scroll)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_overflowBlock([Azul.AzLayoutOverflowValue]@{ Exact = [Azul.AzLayoutOverflowValueVariant_Exact]@{ tag = [Azul.AzLayoutOverflowValue_Tag]::Exact; payload = [Azul.LayoutOverflow]::Clip } })),
