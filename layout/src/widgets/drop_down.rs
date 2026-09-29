@@ -1767,3 +1767,38 @@ mod autotest_generated {
         }
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn choices() -> azul_css::StringVec {
+        azul_css::StringVec::from_vec(alloc::vec![
+            azul_css::AzString::from("one"),
+            azul_css::AzString::from("two"),
+        ])
+    }
+
+    #[test]
+    fn a_new_drop_down_has_no_theme_of_its_own() {
+        assert_eq!(
+            DropDown::new(choices()).theme,
+            crate::widgets::themes::OptionUiTheme::None,
+            "a new drop-down follows the app theme"
+        );
+    }
+
+    #[test]
+    fn a_drop_down_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "drop_down",
+            || DropDown::new(choices()).dom(),
+            |t: UiTheme| DropDown::new(choices()).with_theme(t).dom(),
+        );
+    }
+}

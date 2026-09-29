@@ -4152,3 +4152,28 @@ mod theme_tests {
         assert!(has_class(&flora, COLOR_INPUT_CLASS));
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_color_input_without_a_theme_follows_the_app_theme() {
+        let color = azul_css::props::basic::ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        checks::assert_follows_the_app_theme(
+            "color_input",
+            || ColorInput::create(color).dom(),
+            |t: UiTheme| ColorInput::create(color).with_theme(t).dom(),
+        );
+    }
+}

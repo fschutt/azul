@@ -1420,3 +1420,40 @@ mod theme_tests {
         assert!(classes(&flora).iter().any(|c| c == MENUBAR_CLASS), "the shell's marker");
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn menu() -> Menu {
+        Menu::create(MenuItemVec::from_vec(alloc::vec![
+            MenuItem::String(StringMenuItem::create(azul_css::AzString::from("File"))),
+            MenuItem::String(StringMenuItem::create(azul_css::AzString::from("Edit"))),
+        ]))
+    }
+
+    #[test]
+    fn a_menubar_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "menubar",
+            || Menubar::create(menu()).dom(),
+            |t: UiTheme| Menubar::create(menu()).with_theme(t).dom(),
+        );
+    }
+
+    #[test]
+    fn the_windows_injected_bar_follows_the_app_theme() {
+        // `build_menubar_dom` is how the shell injects a window's own bar:
+        // no theme, so the app's.
+        checks::assert_follows_the_app_theme(
+            "injected menubar",
+            || build_menubar_dom(&menu()),
+            |t: UiTheme| Menubar::create(menu()).with_theme(t).dom(),
+        );
+    }
+}

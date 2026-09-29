@@ -586,3 +586,24 @@ mod tests {
         );
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    // The row's parts are a DatePicker and a TimePicker: this follows the
+    // app theme end to end once both of those do (TimePicker: T3).
+    #[test]
+    fn a_datetime_local_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "datetime_local",
+            || DateTimeLocalPicker::create(2024, 2, 15, 9, 30).dom(),
+            |t: UiTheme| DateTimeLocalPicker::create(2024, 2, 15, 9, 30).with_theme(t).dom(),
+        );
+    }
+}

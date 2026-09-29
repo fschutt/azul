@@ -2087,3 +2087,46 @@ mod autotest_generated {
         }
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const TYPES: [ButtonType; 8] = [
+        ButtonType::Default,
+        ButtonType::Primary,
+        ButtonType::Secondary,
+        ButtonType::Success,
+        ButtonType::Danger,
+        ButtonType::Warning,
+        ButtonType::Info,
+        ButtonType::Link,
+    ];
+
+    #[test]
+    fn a_button_without_a_theme_follows_the_app_theme() {
+        for ty in TYPES {
+            let button = || Button::create(azul_css::AzString::from("OK")).with_button_type(ty);
+            checks::assert_follows_the_app_theme(
+                &format!("button {ty:?}"),
+                || button().dom(),
+                |t: UiTheme| button().with_theme(t).dom(),
+            );
+        }
+    }
+
+    #[test]
+    fn a_submit_button_without_a_theme_follows_the_app_theme() {
+        let button = || Button::create_submit(azul_css::AzString::from("Send"));
+        checks::assert_follows_the_app_theme(
+            "submit button",
+            || button().dom(),
+            |t: UiTheme| button().with_theme(t).dom(),
+        );
+    }
+}

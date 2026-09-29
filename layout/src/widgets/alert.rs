@@ -2130,3 +2130,36 @@ mod theme_tests {
         assert_eq!(own.root.style.iter_inline_properties().count(), 0);
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const KINDS: [AlertKind; 4] = [
+        AlertKind::Info,
+        AlertKind::Success,
+        AlertKind::Warning,
+        AlertKind::Danger,
+    ];
+
+    fn alert(kind: AlertKind) -> Alert {
+        Alert::with_kind(azul_css::AzString::from("Something happened"), kind)
+            .with_dismissible(true)
+    }
+
+    #[test]
+    fn an_alert_without_a_theme_follows_the_app_theme() {
+        for kind in KINDS {
+            checks::assert_follows_the_app_theme(
+                &format!("alert {kind:?}"),
+                || alert(kind).dom(),
+                |t: UiTheme| alert(kind).with_theme(t).dom(),
+            );
+        }
+    }
+}

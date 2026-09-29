@@ -5853,3 +5853,32 @@ mod theme_tests {
         }
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_date_picker_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "date_picker date",
+            || DatePicker::create(2024, 2, 15).dom(),
+            |t: UiTheme| DatePicker::create(2024, 2, 15).with_theme(t).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "date_picker month",
+            || DatePicker::create_month(2024, 2).dom(),
+            |t: UiTheme| DatePicker::create_month(2024, 2).with_theme(t).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "date_picker week",
+            || DatePicker::create_week(2024, 7).dom(),
+            |t: UiTheme| DatePicker::create_week(2024, 7).with_theme(t).dom(),
+        );
+    }
+}

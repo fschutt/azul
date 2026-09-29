@@ -1613,3 +1613,52 @@ mod tests {
         }
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn content() -> DomVec {
+        DomVec::from_vec(alloc::vec![Dom::create_div(), Dom::create_div()])
+    }
+
+    #[test]
+    fn a_form_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "form",
+            || Form::create(content()).dom(),
+            |t: UiTheme| Form::create(content()).with_theme(t).dom(),
+        );
+    }
+
+    #[test]
+    fn a_forms_content_is_not_split_into_theme_blocks() {
+        // The content is the caller's: the same in every theme, so it is
+        // carried once, untouched.
+        let styled = || {
+            DomVec::from_vec(alloc::vec![Dom::create_div().with_css_props(
+                CssPropertyWithConditionsVec::from_vec(alloc::vec![
+                    azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(
+                        azul_css::props::property::CssProperty::const_display(
+                            azul_css::props::layout::LayoutDisplay::Block
+                        )
+                    )
+                ])
+            )])
+        };
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || Form::create(styled()).dom());
+            let child = &dom.children.as_ref()[0];
+            assert!(
+                checks::theme_names(child).is_empty(),
+                "built for {}: the caller's content gained theme blocks",
+                theme.name()
+            );
+        }
+    }
+}

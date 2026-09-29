@@ -1602,3 +1602,51 @@ mod theme_tests {
             .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-theme-flora")));
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn trail() -> Breadcrumb {
+        Breadcrumb::create(azul_css::StringVec::from_vec(alloc::vec![
+            azul_css::AzString::from("Home"),
+            azul_css::AzString::from("Docs"),
+            azul_css::AzString::from("Page"),
+        ]))
+    }
+
+    #[test]
+    fn a_breadcrumb_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "breadcrumb",
+            || trail().dom(),
+            |t: UiTheme| trail().with_theme(t).dom(),
+        );
+    }
+
+    #[test]
+    fn a_followed_trail_writes_the_app_themes_separator() {
+        // Structure follows the app theme: flat's "/" and flora's chevron are
+        // the text of the separator node, not a declaration.
+        let flat = checks::under(UiTheme::Flat, || trail().dom());
+        let flora = checks::under(UiTheme::Flora, || trail().dom());
+        let pinned_flat = trail().with_theme(UiTheme::Flat).dom();
+        let pinned_flora = trail().with_theme(UiTheme::Flora).dom();
+        let texts = |dom: &Dom| -> Vec<String> {
+            crate::widgets::themes::theme_checks::nodes(dom)
+                .into_iter()
+                .filter_map(|(_, n)| match n.root.get_node_type() {
+                    azul_core::dom::NodeType::Text(t) => Some(t.as_ref().as_str().to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(texts(&flat), texts(&pinned_flat));
+        assert_eq!(texts(&flora), texts(&pinned_flora));
+    }
+}

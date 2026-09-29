@@ -59,9 +59,15 @@ pub(crate) fn find_all<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
 }
 
 /// Whether a declaration's conditions all hold for a node in the `dark` (or
-/// light) theme and in `state` (or at rest).
+/// light) theme and in `state` (or at rest), under the APP theme the test
+/// builds for (`azul_core::app_theme::current_theme`: flat, unless a
+/// `ThemeScope` says otherwise) - a widget that follows the app theme carries
+/// every theme's `@theme(<name>)` block, and only the live one applies.
 fn applies(conds: &DynamicSelectorVec, dark: bool, state: Option<PseudoStateType>) -> bool {
     conds.as_ref().iter().all(|c| match c {
+        DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
+            name.as_str() == azul_core::app_theme::current_theme().as_str()
+        }
         DynamicSelector::Theme(ThemeCondition::Dark) => dark,
         DynamicSelector::Theme(ThemeCondition::Light) => !dark,
         DynamicSelector::PseudoState(s) => Some(*s) == state,
@@ -256,8 +262,9 @@ pub(crate) fn a11y_outline(dom: &Dom) -> Vec<String> {
 }
 
 /// The theme-pair invariant (`widgets::theme_pairs`) over one tree: every
-/// dark twin has a light declaration of the same property and pseudo-states
-/// BEFORE it. Returns one message per violation.
+/// dark twin has a light declaration of the same property, pseudo-states and
+/// app theme (`@theme(<name>)` block) BEFORE it. Returns one message per
+/// violation.
 pub(crate) fn half_pairs(dom: &Dom) -> Vec<String> {
     let mut out = Vec::new();
     for (path, node) in nodes(dom) {
@@ -276,10 +283,12 @@ pub(crate) fn half_pairs(dom: &Dom) -> Vec<String> {
             }
             let ty = twin.property.get_type();
             let states = twin.pseudo_state_conditions();
+            let themes = twin.theme_names();
             let at = props.iter().position(|p| {
                 p.property.get_type() == ty
                     && p.is_light_half()
                     && p.pseudo_state_conditions() == states
+                    && p.theme_names() == themes
             });
             match at {
                 None => out.push(format!("{path}: dark {ty:?} {states:?} has no light half")),

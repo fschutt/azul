@@ -1481,3 +1481,45 @@ mod theme_tests {
         assert_eq!(inline(&d.dom()), expected);
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_divider_without_a_theme_follows_the_app_theme() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            checks::assert_follows_the_app_theme(
+                &format!("divider {orientation:?}"),
+                || Divider::create_with_orientation(orientation).dom(),
+                |t: UiTheme| Divider::create_with_orientation(orientation).with_theme(t).dom(),
+            );
+        }
+    }
+
+    #[test]
+    fn a_callers_divider_style_is_every_themes() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                7
+            )))
+        ]);
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || {
+                let mut d = Divider::create();
+                d.divider_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+                d.dom()
+            });
+            assert!(
+                checks::theme_names(&dom).is_empty(),
+                "built for {}: the caller chose this style for every theme",
+                theme.name()
+            );
+        }
+    }
+}

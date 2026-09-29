@@ -1897,3 +1897,23 @@ mod theme_tests {
         assert!(has_class(&dom, "__azul-theme-flora"));
     }
 }
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_frame_without_a_theme_follows_the_app_theme() {
+        let frame = || Frame::create(azul_css::AzString::from("Group"), Dom::create_div());
+        checks::assert_follows_the_app_theme(
+            "frame",
+            || frame().dom(),
+            |t: UiTheme| frame().with_theme(t).dom(),
+        );
+    }
+}

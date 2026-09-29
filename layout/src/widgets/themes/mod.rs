@@ -9,6 +9,9 @@ pub(crate) mod decl;
 
 // ==== W3b: shared style builders + the theme marker, and their test helpers ====
 pub mod style_kit;
+/// Widgets that follow the app theme: every theme's `@theme(<name>)` block
+/// in one DOM (T2/T3 migration).
+pub(crate) mod theme_blocks;
 #[cfg(test)]
 pub(crate) mod theme_checks;
 

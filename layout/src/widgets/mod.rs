@@ -387,11 +387,10 @@ pub(crate) mod theme_probe {
     /// additions left out. Pair it with [`dark`] so skipping them here cannot
     /// hide a theme that forgot its dark half.
     pub(crate) fn unthemed(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| !is_theme_gated(c))
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
             .collect()
     }
 
@@ -404,25 +403,52 @@ pub(crate) mod theme_probe {
     /// carries conditional declarations the widget itself never declared; a test
     /// comparing "what landed on this node" against a widget's style wants this.
     pub(crate) fn unconditional(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| c.as_ref().is_empty())
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
             .collect()
     }
 
     /// The node's inline declarations that apply only in dark mode.
     pub(crate) fn dark(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| {
                 c.as_ref()
                     .iter()
                     .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
             })
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
+            .collect()
+    }
+
+    /// The node's inline declarations as the APP theme the test builds for
+    /// sees them (`azul_core::app_theme::current_theme`: flat, unless a
+    /// `ThemeScope` says otherwise): a declaration inside another app theme's
+    /// block (`@theme(<name>)`) is dropped and the live theme's name is
+    /// stripped from the rest. A widget that follows the app theme carries
+    /// every theme's block; read through here it is exactly the widget pinned
+    /// to the live theme, so the probes above answer the same for both.
+    fn live(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
+        let theme = azul_core::app_theme::current_theme();
+        dom.root
+            .style
+            .iter_inline_properties()
+            .filter_map(|(p, c)| {
+                let mut kept = Vec::new();
+                for s in c.as_ref() {
+                    match s {
+                        DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
+                            if name.as_str() != theme.as_str() {
+                                return None;
+                            }
+                        }
+                        other => kept.push(other.clone()),
+                    }
+                }
+                Some((p.clone(), DynamicSelectorVec::from_vec(kept)))
+            })
             .collect()
     }
 }
