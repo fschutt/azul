@@ -49,7 +49,10 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::{callbacks::CallbackInfo, widgets::themes::system_palette};
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::themes::{style_kit, system_palette, OptionUiTheme, UiTheme},
+};
 
 static STEPPER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-stepper"))];
 static STEPPER_STEP_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -105,6 +108,11 @@ pub struct Stepper {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the steps are built from
+    /// (and the colours a click restyles them with), so switching it rebuilds
+    /// the stepper.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -193,13 +201,14 @@ const TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
 const TRANSPARENT_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRANSPARENT_BG_ITEMS);
 
-const CIRCLE_SIZE: isize = 28;
-const CIRCLE_RADIUS: isize = 14;
-const CONNECTOR_HEIGHT: isize = 2;
+// Every theme's step has this geometry.
+pub(crate) const CIRCLE_SIZE: isize = 28;
+pub(crate) const CIRCLE_RADIUS: isize = 14;
+pub(crate) const CONNECTOR_HEIGHT: isize = 2;
 
 /// Connector fill state for one half-segment.
-#[derive(Copy, Clone)]
-enum ConnFill {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ConnFill {
     /// Reached (accent).
     Accent,
     /// Not reached (muted grey).
@@ -238,7 +247,7 @@ static STEPPER_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 
 /// One step cell: a vertical flex column (indicator row over label) that grows to
 /// an equal share of the row (`flex-grow: 1; flex-basis: 0`).
-static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -269,7 +278,7 @@ fn row_style() -> CssPropertyWithConditionsVec {
 
 /// Builds the style for one numbered circle. Background + number colour are the
 /// only reached-dependent properties.
-fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if reached {
         (ACCENT_BG, WHITE)
     } else {
@@ -322,7 +331,7 @@ fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
 }
 
 /// Builds the style for one connector half-line (left or right of a circle).
-fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
+pub(crate) fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             1,
@@ -335,7 +344,7 @@ fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
 }
 
 /// Builds the style for one step label.
-fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
     let text = if reached {
         DARK_TEXT_COLOR
     } else {
@@ -360,7 +369,7 @@ fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
 /// A style vec with the dark twins appended after its (unconditional) light
 /// face. The builders above stay the light face alone; `dom()` renders with
 /// this.
-fn with_dark_twins(
+pub(crate) fn with_dark_twins(
     light: CssPropertyWithConditionsVec,
     twins: &[CssPropertyWithConditions],
 ) -> CssPropertyWithConditionsVec {
@@ -373,7 +382,7 @@ fn with_dark_twins(
 /// themes; an upcoming one takes the desktop's quiet neutral highlight
 /// (#e9ecef on a dark window is a light island) and its secondary label
 /// colour.
-fn circle_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+pub(crate) fn circle_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
     if reached {
         Vec::new()
     } else {
@@ -385,7 +394,7 @@ fn circle_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
 }
 
 /// Dark twins of [`connector_style`]: only the muted line changes.
-fn connector_dark_twins(fill: ConnFill) -> Vec<CssPropertyWithConditions> {
+pub(crate) fn connector_dark_twins(fill: ConnFill) -> Vec<CssPropertyWithConditions> {
     match fill {
         ConnFill::Muted => vec![system_palette::DARK_SELECTION_BACKGROUND_INACTIVE],
         ConnFill::Accent | ConnFill::Hidden => Vec::new(),
@@ -395,7 +404,7 @@ fn connector_dark_twins(fill: ConnFill) -> Vec<CssPropertyWithConditions> {
 /// Dark twins of [`label_style`]: the desktop's label colour for a reached
 /// step (#212529 on a dark window is dark-on-dark), its secondary one for
 /// an upcoming step.
-fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+pub(crate) fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
     vec![if reached {
         system_palette::DARK_TEXT
     } else {
@@ -436,6 +445,77 @@ const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
     }
 }
 
+/// What a theme supplies for a stepper: the style of every part, and the
+/// colours a click restyles them with (by day, `false`, or by night, `true`).
+/// Built by `themes::flat::stepper_skin` / `themes::flora::stepper_skin`.
+#[derive(Clone, Copy)]
+pub(crate) struct StepperSkin {
+    pub theme: UiTheme,
+    /// A step cell - the focusable part, so it owes the focus ring.
+    pub cell: fn() -> CssPropertyWithConditionsVec,
+    /// A step's numbered circle, reached or upcoming.
+    pub circle: fn(bool) -> CssPropertyWithConditionsVec,
+    /// One connector half-line.
+    pub connector: fn(ConnFill) -> CssPropertyWithConditionsVec,
+    /// A step's label, reached or upcoming.
+    pub label: fn(bool) -> CssPropertyWithConditionsVec,
+    /// The circle's fill and number ink the restyle writes.
+    pub circle_colours: fn(bool, bool) -> (StyleBackgroundContentVec, ColorU),
+    /// A connector's fill the restyle writes.
+    pub connector_fill: fn(ConnFill, bool) -> StyleBackgroundContentVec,
+    /// A label's ink the restyle writes.
+    pub label_ink: fn(bool, bool) -> ColorU,
+}
+
+/// The skin `theme` draws steppers with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> StepperSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::stepper_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::stepper_skin(),
+    }
+}
+
+/// The flat theme's restyle colours for a circle - the established palette
+/// (the accent in both modes, the desktop's quiet highlight by night).
+#[must_use]
+pub(crate) fn established_circle_colours(
+    reached: bool,
+    dark: bool,
+) -> (StyleBackgroundContentVec, ColorU) {
+    if reached {
+        (ACCENT_BG, WHITE)
+    } else if dark {
+        (
+            system_palette::SELECTION_BACKGROUND_INACTIVE,
+            system_palette::SECONDARY_TEXT,
+        )
+    } else {
+        (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
+    }
+}
+
+/// The flat theme's restyle fill for a connector.
+#[must_use]
+pub(crate) const fn established_connector_fill(fill: ConnFill, dark: bool) -> StyleBackgroundContentVec {
+    if dark {
+        fill.dark_bg()
+    } else {
+        fill.bg()
+    }
+}
+
+/// The flat theme's restyle ink for a label.
+#[must_use]
+pub(crate) const fn established_label_ink(reached: bool, dark: bool) -> ColorU {
+    match (reached, dark) {
+        (true, false) => DARK_TEXT_COLOR,
+        (false, false) => MUTED_TEXT_COLOR,
+        (true, true) => system_palette::TEXT,
+        (false, true) => system_palette::SECONDARY_TEXT,
+    }
+}
+
 impl Stepper {
     /// Creates a stepper from the given step labels, with the first step current.
     #[must_use]
@@ -451,7 +531,23 @@ impl Stepper {
             },
             labels,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the stepper renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this stepper renders with.
@@ -519,8 +615,21 @@ impl Stepper {
         self
     }
 
+    /// Renders the stepper. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::stepper(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::stepper(self),
+        }
+    }
+
+    /// Renders the stepper with `skin` styling its parts - what
+    /// `themes::flat::stepper` / `themes::flora::stepper` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: StepperSkin) -> Dom {
         // Read before the state is moved into the callbacks below.
         let step_now = self.stepper_state.inner.current_step;
         // Resolved before `the state` is moved out below.
@@ -555,35 +664,24 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(with_dark_twins(
-                                connector_style(conn_left_fill(i, current)),
-                                &connector_dark_twins(conn_left_fill(i, current)),
-                            )),
+                            .with_css_props((skin.connector)(conn_left_fill(i, current))),
                         crate::widgets::widget_p_with_text(AzString::from(
                             format!("{}", i + 1).as_str(),
                         ))
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CIRCLE_CLASS))
-                        .with_css_props(with_dark_twins(
-                            circle_style(reached),
-                            &circle_dark_twins(reached),
-                        )),
+                        .with_css_props((skin.circle)(reached)),
                         Dom::create_div()
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(with_dark_twins(
-                                connector_style(conn_right_fill(i, last, current)),
-                                &connector_dark_twins(conn_right_fill(i, last, current)),
-                            )),
+                            .with_css_props((skin.connector)(conn_right_fill(i, last, current))),
                     ]
                     .into(),
                 );
 
             let cell = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_STEP_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    STEPPER_STEP_STYLE,
-                ))
+                .with_css_props((skin.cell)())
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::Click),
@@ -615,10 +713,7 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))
-                            .with_css_props(with_dark_twins(
-                                label_style(reached),
-                                &label_dark_twins(reached),
-                            )),
+                            .with_css_props((skin.label)(reached)),
                     ]
                     .into(),
                 );
@@ -626,8 +721,12 @@ impl Stepper {
             children.push(cell);
         }
 
+        // The stepper carries the theme's marker: the click restyle reads it
+        // back to write the colours of the theme it was built in.
+        let mut classes: Vec<IdOrClass> = STEPPER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -696,9 +795,13 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
 
     // Live-restyle every cell: circle (reached → accent fill + white number),
     // its two connector half-lines, and its label colour - in the theme the
-    // window renders in (the writes are plain overrides and beat the twins).
+    // stepper was BUILT in (its marker class) and the mode the window renders
+    // in (the writes are plain overrides and beat the twins).
     let dark = renders_dark(&info);
-    let fill_bg = |f: ConnFill| if dark { f.dark_bg() } else { f.bg() };
+    let skin = skin_for(style_kit::theme_of_classes(
+        info.get_node_classes(parent).as_ref(),
+    ));
+    let fill_bg = |f: ConnFill| (skin.connector_fill)(f, dark);
     for (i, cell) in cells.iter().enumerate() {
         let reached = i <= clicked_idx;
 
@@ -711,16 +814,7 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let label = info.get_next_sibling(row);
 
         if let Some(circle) = circle {
-            let (bg, text) = if reached {
-                (ACCENT_BG, WHITE)
-            } else if dark {
-                (
-                    system_palette::SELECTION_BACKGROUND_INACTIVE,
-                    system_palette::SECONDARY_TEXT,
-                )
-            } else {
-                (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
-            };
+            let (bg, text) = (skin.circle_colours)(reached, dark);
             info.set_css_property(circle, CssProperty::const_background_content(bg));
             info.set_css_property(
                 circle,
@@ -744,12 +838,7 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
             );
         }
         if let Some(label) = label {
-            let text = match (reached, dark) {
-                (true, false) => DARK_TEXT_COLOR,
-                (false, false) => MUTED_TEXT_COLOR,
-                (true, true) => system_palette::TEXT,
-                (false, true) => system_palette::SECONDARY_TEXT,
-            };
+            let text = (skin.label_ink)(reached, dark);
             info.set_css_property(
                 label,
                 CssProperty::const_text_color(StyleTextColor { inner: text }),

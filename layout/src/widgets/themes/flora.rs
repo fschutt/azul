@@ -3456,3 +3456,159 @@ pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
         divider: CssPropertyWithConditionsVec::from_vec(divider),
     })
 }
+
+// ==== stepper ====
+//
+// A flora stepper marks the way walked in accent STONES - each reached step a
+// raised accent stone under the rig and the specular streak flora lays on every
+// stone (`.btn-primary`), numbered in `--fl-on-acc`, its own colour by day and by
+// night - joined by an accent line. The way ahead is raised paper (`--fl-rT` over
+// `--fl-rB`) numbered in soft ink (`--fl-soft1`), joined by a `--fl-bd` line.
+// Every circle wears a `--fl-bd2` hairline inside its box. Labels are ink for
+// the way walked and soft ink ahead. A cell washes to `--fl-hov` under the
+// pointer and is ringed on focus: the accent by day, the glow by night.
+
+/// Flora's stepper skin.
+#[must_use]
+pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
+    crate::widgets::stepper::StepperSkin {
+        theme: super::UiTheme::Flora,
+        cell: stepper_cell,
+        circle: stepper_circle,
+        connector: stepper_connector,
+        label: stepper_label,
+        circle_colours: stepper_circle_colours,
+        connector_fill: stepper_connector_fill,
+        label_ink: stepper_label_ink,
+    }
+}
+
+fn stepper_cell() -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    let mut v = crate::widgets::stepper::STEPPER_STEP_STYLE.to_vec();
+    v.extend(kit::padding(2, 2, 4, 2));
+    v.extend(kit::radius(3));
+    v.extend(kit::ring_slot());
+    // States last.
+    v.extend(kit::hover_bg(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    v.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_circle(reached: bool) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    use crate::widgets::stepper as s;
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(s::CIRCLE_SIZE))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(s::CIRCLE_SIZE))),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(s::CIRCLE_SIZE))),
+        // The hairline sits inside the circle: same size as every theme's.
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        kit::font_size(13),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    ];
+    v.extend(kit::radius(s::CIRCLE_RADIUS));
+    v.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    if reached {
+        v.push(P::simple(kit::layers(stone_face(LIGHT_ACC, STONE_STREAK))));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+    } else {
+        v.extend(kit::themed_layers(
+            vec![RAISED_FACE_LIGHT],
+            vec![RAISED_FACE_DARK],
+        ));
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_connector(fill: crate::widgets::stepper::ConnFill) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    use crate::widgets::stepper::{self as s, ConnFill};
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(s::CONNECTOR_HEIGHT))),
+    ];
+    match fill {
+        ConnFill::Accent => v.push(P::simple(kit::bg(LIGHT_ACC))),
+        ConnFill::Muted => v.extend(kit::themed_bg(LIGHT_BD, DARK_BD)),
+        ConnFill::Hidden => v.push(P::simple(kit::bg(ColorU::TRANSPARENT))),
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        kit::font_size(12),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+    ];
+    if reached {
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    } else {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_circle_colours(reached: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+    match (reached, dark) {
+        (true, _) => (
+            StyleBackgroundContentVec::from_vec(stone_face(LIGHT_ACC, STONE_STREAK)),
+            LIGHT_ON_ACC,
+        ),
+        (false, false) => (
+            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_LIGHT]),
+            LIGHT_SOFT1,
+        ),
+        (false, true) => (
+            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_DARK]),
+            DARK_SOFT1,
+        ),
+    }
+}
+
+fn stepper_connector_fill(
+    fill: crate::widgets::stepper::ConnFill,
+    dark: bool,
+) -> StyleBackgroundContentVec {
+    use crate::widgets::stepper::ConnFill;
+    let color = match (fill, dark) {
+        (ConnFill::Accent, _) => LIGHT_ACC,
+        (ConnFill::Muted, false) => LIGHT_BD,
+        (ConnFill::Muted, true) => DARK_BD,
+        (ConnFill::Hidden, _) => ColorU::TRANSPARENT,
+    };
+    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(color)])
+}
+
+const fn stepper_label_ink(reached: bool, dark: bool) -> ColorU {
+    match (reached, dark) {
+        (true, false) => LIGHT_INK,
+        (true, true) => DARK_INK,
+        (false, false) => LIGHT_SOFT1,
+        (false, true) => DARK_SOFT1,
+    }
+}
+
+/// Renders a [`crate::widgets::stepper::Stepper`] in the flora theme.
+#[must_use]
+pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
+    s.build(stepper_skin())
+}

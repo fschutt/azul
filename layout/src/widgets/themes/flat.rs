@@ -3656,3 +3656,55 @@ pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
         divider: CssPropertyWithConditionsVec::from_vec(divider),
     })
 }
+
+// ==== stepper ====
+//
+// Flat is the established stepper: accent circles and line for the way walked,
+// #e9ecef circles and a #ced4da line ahead, dark / muted labels, the desktop's
+// quiet highlight and label colours in the dark - and the same colours from the
+// click restyle. What it adds is the focus ring the step cells never had: each
+// cell is a tab stop, so it takes an inset 2px ring (`FIELD_RING` / `DARK_ACC`)
+// on focus - declared for `:focus` only, so the resting cell is unchanged.
+
+/// Flat's stepper skin.
+#[must_use]
+pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
+    use crate::widgets::stepper as s;
+    s::StepperSkin {
+        theme: super::UiTheme::Flat,
+        cell: stepper_cell,
+        circle: stepper_circle,
+        connector: stepper_connector,
+        label: stepper_label,
+        circle_colours: s::established_circle_colours,
+        connector_fill: s::established_connector_fill,
+        label_ink: s::established_label_ink,
+    }
+}
+
+fn stepper_cell() -> CssPropertyWithConditionsVec {
+    let mut v = crate::widgets::stepper::STEPPER_STEP_STYLE.to_vec();
+    v.extend(super::style_kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_circle(reached: bool) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::circle_style(reached), &s::circle_dark_twins(reached))
+}
+
+fn stepper_connector(fill: crate::widgets::stepper::ConnFill) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::connector_style(fill), &s::connector_dark_twins(fill))
+}
+
+fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::label_style(reached), &s::label_dark_twins(reached))
+}
+
+/// Renders a [`crate::widgets::stepper::Stepper`] in the flat theme.
+#[must_use]
+pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
+    s.build(stepper_skin())
+}
