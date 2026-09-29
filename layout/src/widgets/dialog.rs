@@ -2415,4 +2415,39 @@ mod theme_tests {
             assert_eq!(props, alloc::vec![own.as_ref()[0].property.clone()], "{theme:?}");
         }
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_dialog_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_blocks::checks::{under, BOTH};
+        for theme in BOTH {
+            for modal in [false, true] {
+                for title in ["", "Settings"] {
+                    for show_close_button in [false, true] {
+                        let dom = under(theme, || {
+                            let mut d = Dialog::create(body())
+                                .with_title(AzString::from(title))
+                                .with_invoker(Dom::create_div())
+                                .with_modal(modal)
+                                .with_open(true);
+                            d.show_close_button = show_close_button;
+                            d.dom()
+                        });
+                        tc::assert_structure_is_shared(
+                            &format!(
+                                "dialog (modal: {modal}, title: {title:?}, close button: \
+                                 {show_close_button}) built for {}",
+                                theme.name()
+                            ),
+                            &dom,
+                            &[],
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

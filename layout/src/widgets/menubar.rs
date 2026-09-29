@@ -1462,4 +1462,23 @@ mod app_theme_tests {
             |t: UiTheme| Menubar::create(menu()).with_theme(t).dom(),
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_menubar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            let own = checks::under(theme, || Menubar::create(menu()).dom());
+            assert_structure_is_shared(&format!("menubar built for {}", theme.name()), &own, &[]);
+            let injected = checks::under(theme, || build_menubar_dom(&menu()));
+            assert_structure_is_shared(
+                &format!("injected menubar built for {}", theme.name()),
+                &injected,
+                &[],
+            );
+        }
+    }
 }

@@ -1576,4 +1576,24 @@ mod app_theme_tests {
              {flat_night:?}"
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_divider_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+                let dom =
+                    checks::under(theme, || Divider::create_with_orientation(orientation).dom());
+                assert_structure_is_shared(
+                    &format!("divider {orientation:?} built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

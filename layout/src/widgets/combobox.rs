@@ -3960,4 +3960,28 @@ mod theme_tests {
             CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE)
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_combobox_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_blocks::checks::{under, BOTH};
+        for theme in BOTH {
+            for open in [false, true] {
+                let dom = under(theme, || {
+                    let mut c = ComboBox::new(items()).with_accessibility_name("Pick");
+                    c.combo_state.inner.open = open;
+                    c.combo_state.inner.selected = 1;
+                    c.dom()
+                });
+                tc::assert_structure_is_shared(
+                    &format!("combobox (open: {open}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

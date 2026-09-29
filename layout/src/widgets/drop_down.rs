@@ -1804,4 +1804,27 @@ mod app_theme_tests {
             |t: UiTheme| DropDown::new(choices()).with_theme(t).dom(),
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_drop_down_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            for selected in [0_usize, 1, 7] {
+                let dom = checks::under(theme, || {
+                    let mut d = DropDown::new(choices());
+                    d.selected = selected;
+                    d.dom()
+                });
+                assert_structure_is_shared(
+                    &format!("drop_down (selected {selected}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

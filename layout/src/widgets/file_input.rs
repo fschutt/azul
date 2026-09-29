@@ -2003,6 +2003,29 @@ mod theme_tests {
         assert_eq!(f.resolved_label_style(), b.resolved_label_style());
         assert_eq!(f.resolved_image_style(), b.resolved_image_style());
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_file_input_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_blocks::checks::{under, BOTH};
+        let paths = [
+            ("no file", OptionString::None),
+            ("a file", OptionString::Some(AzString::from("/tmp/report.pdf"))),
+        ];
+        for theme in BOTH {
+            for (what, path) in &paths {
+                let dom = under(theme, || FileInput::create(path.clone()).dom());
+                tc::assert_structure_is_shared(
+                    &format!("file_input ({what}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }
 
 /// HTML's `accept` - file extensions, MIME types, `image/*` - as the patterns

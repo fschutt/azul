@@ -6063,4 +6063,28 @@ mod app_theme_tests {
             |t: UiTheme| DatePicker::create_week(2024, 7).with_theme(t).dom(),
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_date_picker_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let pickers: [(&str, fn() -> DatePicker); 3] = [
+            ("date", || DatePicker::create(2024, 2, 15)),
+            ("month", || DatePicker::create_month(2024, 2)),
+            ("week", || DatePicker::create_week(2024, 7)),
+        ];
+        for theme in checks::BOTH {
+            for (mode, picker) in pickers {
+                let dom = checks::under(theme, || picker().dom());
+                assert_structure_is_shared(
+                    &format!("date_picker {mode} built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

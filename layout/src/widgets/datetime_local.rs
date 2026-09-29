@@ -624,4 +624,25 @@ mod app_theme_tests {
             |t: UiTheme| DateTimeLocalPicker::create(2024, 2, 15, 9, 30).with_theme(t).dom(),
         );
     }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_datetime_local_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            let mut row =
+                checks::under(theme, || DateTimeLocalPicker::create(2024, 2, 15, 9, 30).dom());
+            // The row alone: its parts are a DatePicker and a TimePicker,
+            // which answer for their own structure in their own tests.
+            let _parts = core::mem::take(&mut row.children);
+            assert_structure_is_shared(
+                &format!("datetime_local row built for {}", theme.name()),
+                &row,
+                &[],
+            );
+        }
+    }
 }
