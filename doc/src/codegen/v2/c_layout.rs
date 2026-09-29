@@ -13,17 +13,42 @@
 //!
 //! - unit enums are C `enum`s → 4 bytes (azul.h spells fields with the enum type, which is
 //!   `int`-sized in C);
-//! - tagged unions are `union { struct { tag; payload... } variant; ... }` where the tag is
-//!   `uint8_t` iff the repr contains "u8", else the C tag enum (4 bytes);
+//! - tagged unions are `union { struct { tag; [padding;] payload... } variant; ... }` where the
+//!   tag is `uint8_t` iff the repr contains "u8", else the C tag enum (4 bytes);
 //! - non-Owned field refs (Ref/Ptr/Boxed/...) are pointers (8 bytes);
 //! - callback typedefs are function pointers (8 bytes).
 //!
-//! Verified against `clang` ground truth (sizeof/alignof of every type in
-//! azul.h) — 1536/1536 types match; see the 2026-07-04 session notes.
+//! # Tagged-union payloads: the ONE place that decides where they sit
+//!
+//! Rust lays a `#[repr(C, u8)]` / `#[repr(C)]` enum out as
+//! `struct { tag; union { one repr(C) struct per variant } }`, so EVERY
+//! variant's payload starts at the tag's size rounded up to the largest
+//! alignment of ANY variant. A C struct `{ tag; payload; }` per variant
+//! aligns the payload to its OWN alignment instead, which put e.g.
+//! `StyleBackgroundContent::Color` (ColorU, align 1) at offset 1 in azul.h
+//! and at 8 in Rust (210 variants of 47 unions were off; the sizes agreed,
+//! so only readers broke). [`union_payload_layout`] computes Rust's offset
+//! and the padding each per-variant struct needs after its tag to reach
+//! it; lang_c and every binding that mirrors the per-variant structs emit
+//! exactly that padding, and this module's own union layout models the
+//! padded structs.
+//!
+//! # What was verified against what
+//!
+//! 2026-07-04: sizeof/alignof of every type in azul.h, computed here,
+//! matched clang on the header itself (1536/1536). That compares this model
+//! with the HEADER, not with Rust - it did not catch the misplaced union
+//! payloads above, because the header had them misplaced too and the
+//! sizes agree. Against Rust, the tests are
+//! `bug_classes::a_union_variant_payload_starts_where_rust_puts_it`
+//! (every union, offsets), `bug_classes::c_layout_sizes_every_tagged_union_like_rust`
+//! (every union, sizes), the `_Static_assert`s azul.h carries for every
+//! padded variant (checked by every C/C++ build), and the Rust ground truth
+//! in `css/tests/a_union_payload_sits_after_the_largest_alignment.rs`.
 
 use super::ir::{
     CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
-    MonomorphizedTypeDef,
+    MonomorphizedTypeDef, MonomorphizedVariant,
 };
 
 /// Size + alignment of a type under the 64-bit C ABI.
@@ -130,29 +155,7 @@ fn enum_layout(e: &EnumDef, ir: &CodegenIR, depth: usize) -> Option<AbiLayout> {
         // and the Fortran side declares them `integer(c_int)`.
         return Some(AbiLayout::new(4, 4));
     }
-    let tag = tag_layout(e.repr.as_deref());
-    let mut size = 0usize;
-    let mut align = tag.align;
-    for v in &e.variants {
-        let vl = match &v.kind {
-            EnumVariantKind::Unit => tag,
-            EnumVariantKind::Tuple(types) => variant_layout(
-                tag,
-                types.iter().map(|(t, rk)| (t.as_str(), *rk)),
-                ir,
-                depth,
-            )?,
-            EnumVariantKind::Struct(fields) => variant_layout(
-                tag,
-                fields.iter().map(|f| (f.type_name.as_str(), f.ref_kind)),
-                ir,
-                depth,
-            )?,
-        };
-        size = size.max(vl.size);
-        align = align.max(vl.align);
-    }
-    Some(AbiLayout::new(align_to(size.max(1), align), align))
+    union_layout(&enum_union_shape(e), ir, depth).map(|u| u.abi)
 }
 
 /// Layout of a monomorphized generic instantiation.
@@ -173,23 +176,7 @@ pub(crate) fn mono_layout(
             // C enum for monos; lang_c stopped doing that, and every one of
             // the 13 `CssPropertyValue<Color>` blobs was 8 bytes in Fortran
             // against 5 in C. See `tests::mono_u8_union_tag_matches_lang_c`.
-            let tag = tag_layout(repr.as_deref());
-            let mut size = 0usize;
-            let mut align = tag.align;
-            for v in variants {
-                let vl = match &v.payload_type {
-                    None => tag,
-                    Some(p) => variant_layout(
-                        tag,
-                        std::iter::once((p.as_str(), v.payload_ref_kind)),
-                        ir,
-                        depth,
-                    )?,
-                };
-                size = size.max(vl.size);
-                align = align.max(vl.align);
-            }
-            Some(AbiLayout::new(align_to(size.max(1), align), align))
+            union_layout(&mono_union_shape(repr.as_deref(), variants), ir, depth).map(|u| u.abi)
         }
     }
 }
@@ -204,21 +191,192 @@ fn tag_layout(repr: Option<&str>) -> AbiLayout {
     }
 }
 
-/// C struct layout over `tag` + the payload members (a union variant).
-fn variant_layout<'a>(
+// ----------------------------------------------------------------------------
+// Tagged-union payloads
+// ----------------------------------------------------------------------------
+
+/// Where the variant payloads of one tagged union sit (Rust's rule, see the
+/// module doc), and what each per-variant C struct `{ tag; payload... }`
+/// needs between its tag and its first payload member to put its payload
+/// there. Computed by [`union_payload_layout`] - the one place bindings ask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnionPayloadLayout {
+    /// The tag: `uint8_t` for `repr(C, u8)`, the int-sized C enum otherwise.
+    pub tag: AbiLayout,
+    /// Byte offset of EVERY variant's payload: the tag's size rounded up to
+    /// the largest alignment of any variant.
+    pub payload_offset: usize,
+    /// The whole union: the largest padded per-variant struct.
+    pub abi: AbiLayout,
+    /// Per variant, in declaration order: `(name, padding)`.
+    variants: Vec<(String, usize)>,
+}
+
+impl UnionPayloadLayout {
+    /// Bytes the C struct of `variant` needs right after its tag (azul.h:
+    /// `uint8_t _pad0[N];`) so its payload starts at `payload_offset`:
+    /// `payload_offset - tag.size` when C's own alignment of the first
+    /// payload member would put it anywhere else, 0 otherwise (and for a
+    /// unit variant or an unknown name). A binding whose records follow C's
+    /// alignment rules emits exactly this; one that lays records out
+    /// without alignment needs `payload_offset` itself.
+    pub fn padding(&self, variant: &str) -> usize {
+        self.variants
+            .iter()
+            .find(|(n, _)| n == variant)
+            .map_or(0, |(_, p)| *p)
+    }
+
+    /// The variants that need padding, in declaration order:
+    /// `(name, padding)`.
+    pub fn padded_variants(&self) -> impl Iterator<Item = (&str, usize)> + '_ {
+        self.variants
+            .iter()
+            .filter(|(_, p)| *p > 0)
+            .map(|(n, p)| (n.as_str(), *p))
+    }
+}
+
+/// The payload layout of the tagged union named `name` (api.json spelling,
+/// no `Az` prefix): a data-carrying enum or a monomorphized generic alias
+/// (`CaretColorValue = CssPropertyValue<CaretColor>`). `None` for any other
+/// type, a generic template, or a payload without a known C layout.
+pub(crate) fn union_payload_layout(name: &str, ir: &CodegenIR) -> Option<UnionPayloadLayout> {
+    let name = name.trim();
+    if let Some(e) = ir.find_enum(name) {
+        if !e.is_union || !e.generic_params.is_empty() {
+            return None;
+        }
+        return union_layout(&enum_union_shape(e), ir, 0);
+    }
+    match &ir.find_type_alias(name)?.monomorphized_def.as_ref()?.kind {
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            union_layout(&mono_union_shape(repr.as_deref(), variants), ir, 0)
+        }
+        _ => None,
+    }
+}
+
+/// Shorthand for an emitter that writes one variant struct at a time:
+/// [`UnionPayloadLayout::padding`] of `variant` in the union `union_name`
+/// (0 when the union's layout is unknown). An emitter looping over all
+/// variants of a union should call [`union_payload_layout`] once instead.
+pub(crate) fn variant_payload_padding(union_name: &str, variant: &str, ir: &CodegenIR) -> usize {
+    union_payload_layout(union_name, ir).map_or(0, |u| u.padding(variant))
+}
+
+/// A tagged union as its layout sees it: the tag, and per variant its name
+/// and payload members `(api type, ref kind)` in declaration order (empty
+/// for a unit variant). Regular enums and monomorphized aliases both reduce
+/// to this, so ONE function lays both out.
+struct UnionShape<'a> {
     tag: AbiLayout,
-    payloads: impl Iterator<Item = (&'a str, FieldRefKind)>,
+    variants: Vec<(&'a str, Vec<(&'a str, FieldRefKind)>)>,
+}
+
+fn enum_union_shape(e: &EnumDef) -> UnionShape<'_> {
+    UnionShape {
+        tag: tag_layout(e.repr.as_deref()),
+        variants: e
+            .variants
+            .iter()
+            .map(|v| {
+                let members = match &v.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    EnumVariantKind::Tuple(types) => {
+                        types.iter().map(|(t, rk)| (t.as_str(), *rk)).collect()
+                    }
+                    EnumVariantKind::Struct(fields) => fields
+                        .iter()
+                        .map(|f| (f.type_name.as_str(), f.ref_kind))
+                        .collect(),
+                };
+                (v.name.as_str(), members)
+            })
+            .collect(),
+    }
+}
+
+fn mono_union_shape<'a>(
+    repr: Option<&str>,
+    variants: &'a [MonomorphizedVariant],
+) -> UnionShape<'a> {
+    UnionShape {
+        tag: tag_layout(repr),
+        variants: variants
+            .iter()
+            .map(|v| {
+                let members = v
+                    .payload_type
+                    .iter()
+                    .map(|p| (p.as_str(), v.payload_ref_kind))
+                    .collect();
+                (v.name.as_str(), members)
+            })
+            .collect(),
+    }
+}
+
+/// Rust's payload offset for `shape`, each variant's padding, and the
+/// union's layout as azul.h declares it (the largest padded per-variant
+/// struct, which is also Rust's size: see
+/// `bug_classes::c_layout_sizes_every_tagged_union_like_rust`).
+fn union_layout(
+    shape: &UnionShape<'_>,
     ir: &CodegenIR,
     depth: usize,
-) -> Option<AbiLayout> {
-    let mut off = tag.size;
+) -> Option<UnionPayloadLayout> {
+    let tag = shape.tag;
+    // Each variant's payload members: the repr(C) struct Rust puts in the
+    // union. The union is aligned to the most-aligned of them.
+    let mut members_of: Vec<Vec<AbiLayout>> = Vec::with_capacity(shape.variants.len());
+    let mut union_align = 1usize;
+    for (_, members) in &shape.variants {
+        let layouts = members
+            .iter()
+            .map(|(t, rk)| member_layout(t, *rk, ir, depth))
+            .collect::<Option<Vec<AbiLayout>>>()?;
+        union_align = layouts.iter().fold(union_align, |a, l| a.max(l.align));
+        members_of.push(layouts);
+    }
+    let payload_offset = align_to(tag.size, union_align);
+
+    let mut size = tag.size;
     let mut align = tag.align;
-    for (ty, rk) in payloads {
-        let l = member_layout(ty, rk, ir, depth)?;
+    let mut variants = Vec::with_capacity(shape.variants.len());
+    for ((name, _), layouts) in shape.variants.iter().zip(&members_of) {
+        // Only the first payload member needs help: once it sits at
+        // `payload_offset` (a multiple of every member's alignment), C
+        // places the rest exactly where Rust's repr(C) payload struct does.
+        let padding = match layouts.first() {
+            Some(first) if align_to(tag.size, first.align) != payload_offset => {
+                payload_offset - tag.size
+            }
+            _ => 0,
+        };
+        let v = variant_struct_layout(tag, padding, layouts);
+        size = size.max(v.size);
+        align = align.max(v.align);
+        variants.push((name.to_string(), padding));
+    }
+    Some(UnionPayloadLayout {
+        tag,
+        payload_offset,
+        abi: AbiLayout::new(align_to(size.max(1), align), align),
+        variants,
+    })
+}
+
+/// One per-variant struct of azul.h, `{ tag; uint8_t _pad0[padding];
+/// members... }`, under C's struct rules.
+fn variant_struct_layout(tag: AbiLayout, padding: usize, members: &[AbiLayout]) -> AbiLayout {
+    let mut off = tag.size + padding;
+    let mut align = tag.align;
+    for l in members {
         off = align_to(off, l.align) + l.size;
         align = align.max(l.align);
     }
-    Some(AbiLayout::new(align_to(off, align), align))
+    AbiLayout::new(align_to(off, align), align)
 }
 
 /// C struct layout over plain named fields.
@@ -307,5 +465,59 @@ mod tests {
             (8, 4),
             "int tag + u8 payload, padded"
         );
+    }
+
+    fn variant(name: &str, payload: Option<&str>) -> MonomorphizedVariant {
+        MonomorphizedVariant {
+            name: name.into(),
+            payload_type: payload.map(str::to_string),
+            payload_ref_kind: FieldRefKind::Owned,
+        }
+    }
+
+    /// Rust puts EVERY payload of a `repr(C, u8)` union at the tag rounded up
+    /// to the largest variant alignment: the `u8` payload sits at 8 next to
+    /// a `u64` one, so its C struct needs 7 bytes after the tag; the `u64`
+    /// variant is already there on its own, the unit variant has no payload.
+    #[test]
+    fn a_small_payload_is_padded_to_the_largest_variant_alignment() {
+        let ir = CodegenIR::new();
+        let variants = vec![
+            variant("Empty", None),
+            variant("Small", Some("u8")),
+            variant("Wide", Some("u64")),
+        ];
+        let u = union_layout(&mono_union_shape(Some("C, u8"), &variants), &ir, 0)
+            .expect("layout");
+        assert_eq!(u.payload_offset, 8);
+        assert_eq!(
+            (u.padding("Empty"), u.padding("Small"), u.padding("Wide")),
+            (0, 7, 0)
+        );
+        assert_eq!(u.padded_variants().collect::<Vec<_>>(), vec![("Small", 7)]);
+        assert_eq!((u.abi.size, u.abi.align), (16, 8), "Rust: 8 + 8, 8-aligned");
+    }
+
+    /// A `repr(C)` union's tag is the int-sized C enum: a `u16` payload next
+    /// to a `u64` one sits at 8, 4 bytes after the tag, not at 4.
+    #[test]
+    fn an_int_tag_pads_to_the_largest_variant_alignment_too() {
+        let ir = CodegenIR::new();
+        let variants = vec![variant("Short", Some("u16")), variant("Wide", Some("f64"))];
+        let u = union_layout(&mono_union_shape(Some("C"), &variants), &ir, 0).expect("layout");
+        assert_eq!((u.tag.size, u.payload_offset), (4, 8));
+        assert_eq!((u.padding("Short"), u.padding("Wide")), (4, 0));
+        assert_eq!((u.abi.size, u.abi.align), (16, 8));
+    }
+
+    /// When no variant is more aligned than the tag allows, nothing moves.
+    #[test]
+    fn a_union_of_one_alignment_needs_no_padding() {
+        let ir = CodegenIR::new();
+        let variants = vec![variant("A", Some("u32")), variant("B", Some("f32"))];
+        let u = union_layout(&mono_union_shape(Some("C, u8"), &variants), &ir, 0).expect("layout");
+        assert_eq!(u.payload_offset, 4);
+        assert_eq!(u.padded_variants().count(), 0);
+        assert_eq!((u.abi.size, u.abi.align), (8, 4));
     }
 }

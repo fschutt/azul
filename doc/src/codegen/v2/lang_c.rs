@@ -132,6 +132,15 @@ pub(crate) fn escape_cpp_keyword_for_c(name: &str) -> String {
 
 pub struct CGenerator;
 
+/// One variant of a tagged union as `CGenerator::generate_union_type` emits
+/// it: its name and payload members `(C member name, api type, ref kind)` -
+/// empty for a unit variant. Data-carrying enums and monomorphized aliases
+/// both lower to this, so one emitter writes both.
+struct CUnionVariant<'a> {
+    name: &'a str,
+    members: Vec<(String, &'a str, FieldRefKind)>,
+}
+
 impl LanguageGenerator for CGenerator {
     fn generate(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
@@ -264,13 +273,13 @@ impl LanguageGenerator for CGenerator {
                     self.generate_struct(&mut builder, struct_def, config);
                 }
                 SortedType::Enum(enum_def) => {
-                    self.generate_enum(&mut builder, enum_def, config);
+                    self.generate_enum(&mut builder, enum_def, ir, config);
                 }
                 SortedType::Callback(callback) => {
                     self.generate_callback_typedef(&mut builder, callback, config);
                 }
                 SortedType::TypeAlias(type_alias) => {
-                    self.generate_type_alias(&mut builder, type_alias, config);
+                    self.generate_type_alias(&mut builder, type_alias, ir, config);
                 }
             }
         }
@@ -397,6 +406,26 @@ impl CGenerator {
         builder.line("#endif");
         builder.blank();
 
+        // Compile-time layout checks. The tagged unions below pin every
+        // padded variant payload offset to Rust's (`#ifdef AZ_LAYOUT_CHECK`
+        // blocks after each union); pre-C11 / pre-C++11 compilers skip them.
+        // Defining AZ_LAYOUT_CHECK(cond, msg) before the include overrides it.
+        builder.line("/* Compile-time layout checks: C11 _Static_assert / C++11 static_assert */");
+        builder.line("#ifndef AZ_LAYOUT_CHECK");
+        builder.line(
+            "#  if defined(__cplusplus) && (__cplusplus >= 201103L || (defined(_MSC_VER) && \
+             _MSC_VER >= 1600))",
+        );
+        builder.line("#    define AZ_LAYOUT_CHECK(cond, msg) static_assert(cond, msg);");
+        builder.line(
+            "#  elif !defined(__cplusplus) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= \
+             201112L",
+        );
+        builder.line("#    define AZ_LAYOUT_CHECK(cond, msg) _Static_assert(cond, msg);");
+        builder.line("#  endif");
+        builder.line("#endif");
+        builder.blank();
+
         // C++ extern "C" wrapper opening
         builder.line("/* C++ compatibility wrapper */");
         builder.line("#ifdef __cplusplus");
@@ -472,13 +501,14 @@ impl CGenerator {
         &self,
         builder: &mut CodeBuilder,
         type_alias: &TypeAliasDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&type_alias.name);
 
         // If this type alias has a monomorphized definition, generate it as a full type
         if let Some(ref mono_def) = type_alias.monomorphized_def {
-            self.generate_monomorphized_type(builder, &name, mono_def, config);
+            self.generate_monomorphized_type(builder, &type_alias.name, &name, mono_def, ir, config);
             return;
         }
 
@@ -513,74 +543,34 @@ impl CGenerator {
     fn generate_monomorphized_type(
         &self,
         builder: &mut CodeBuilder,
+        api_name: &str,
         name: &str,
         mono_def: &MonomorphizedTypeDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         match &mono_def.kind {
             MonomorphizedKind::TaggedUnion { repr, variants } => {
-                let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-
-                // Generate tag enum
-                builder.line(&format!("enum {}_Tag {{", name));
-                builder.indent();
-                for variant in variants {
-                    builder.line(&format!("{}_Tag_{},", name, variant.name));
-                }
-                if is_u8_repr {
-                    builder.line(&format!("{}_Tag__Force8Bit = 0xFF,", name));
-                }
-                builder.dedent();
-                builder.line("};");
-                builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
-                builder.blank();
-
-                // Generate variant structs. The tag FIELD must be `uint8_t`
-                // for a `#[repr(C, u8)]` enum: a C `enum` is `int`-sized no
-                // matter how small its values (the `__Force8Bit = 0xFF`
-                // sentinel above documents the intent, it does not shrink the
-                // type), so `X_Tag tag;` made every variant struct 4 bytes
-                // of tag + padding to the payload's alignment. For payloads
-                // aligned to 8 that coincides with the u8 layout by luck; for
-                // the 13 `CssPropertyValue<Color>` types (ColorU: 4×u8, align
-                // 1) the header said 8 where the DLL and Pascal said 5. Same
-                // rule as the regular tagged-enum emitter below.
-                for variant in variants {
-                    builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
-                    builder.indent();
-                    if is_u8_repr {
-                        builder.line("uint8_t tag;");
-                    } else {
-                        builder.line(&format!("{}_Tag tag;", name));
-                    }
-
-                    if let Some(ref payload_type) = variant.payload_type {
-                        let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
-                        let (ptr_prefix, ptr_suffix) =
-                            self.ref_kind_to_c_syntax(&variant.payload_ref_kind);
-                        builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
-                    }
-
-                    builder.dedent();
-                    builder.line("};");
-                    builder.line(&format!(
-                        "typedef struct {}Variant_{} {}Variant_{};",
-                        name, variant.name, name, variant.name
-                    ));
-                    builder.blank();
-                }
-
-                // Generate union
-                builder.line(&format!("union {} {{", name));
-                builder.indent();
-                for variant in variants {
-                    builder.line(&format!(
-                        "{}Variant_{} {};",
-                        name, variant.name, variant.name
-                    ));
-                }
-                builder.dedent();
-                builder.line("};");
+                let variants: Vec<CUnionVariant> = variants
+                    .iter()
+                    .map(|v| CUnionVariant {
+                        name: &v.name,
+                        members: v
+                            .payload_type
+                            .iter()
+                            .map(|t| ("payload".to_string(), t.as_str(), v.payload_ref_kind))
+                            .collect(),
+                    })
+                    .collect();
+                self.generate_union_type(
+                    builder,
+                    api_name,
+                    name,
+                    repr.as_deref(),
+                    &variants,
+                    ir,
+                    config,
+                );
                 builder.blank();
             }
 
@@ -715,7 +705,13 @@ impl CGenerator {
         builder.blank();
     }
 
-    fn generate_enum(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, config: &CodegenConfig) {
+    fn generate_enum(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
         let name = config.apply_prefix(&enum_def.name);
 
         // Doc comment
@@ -729,7 +725,7 @@ impl CGenerator {
 
         if enum_def.is_union {
             // Tagged union: generate tag enum + union struct
-            self.generate_tagged_union(builder, enum_def, config);
+            self.generate_tagged_union(builder, enum_def, ir, config);
         } else {
             // Simple enum
             // Check if this enum has a u8 repr (for size enforcement)
@@ -765,26 +761,90 @@ impl CGenerator {
         &self,
         builder: &mut CodeBuilder,
         enum_def: &EnumDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        // Generate tagged union for C:
-        // 1. Tag enum with _Tag suffix
-        // 2. Variant structs with tag + payload
-        // 3. Main union type
-
         let name = config.apply_prefix(&enum_def.name);
+        let variants: Vec<CUnionVariant> = enum_def
+            .variants
+            .iter()
+            .map(|variant| CUnionVariant {
+                name: &variant.name,
+                members: match &variant.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    // Rust enum tuple variants typically have one element: `payload`.
+                    EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                        vec![("payload".to_string(), types[0].0.as_str(), types[0].1)]
+                    }
+                    EnumVariantKind::Tuple(types) => types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (t, rk))| (format!("payload_{}", i), t.as_str(), *rk))
+                        .collect(),
+                    EnumVariantKind::Struct(fields) => fields
+                        .iter()
+                        .map(|f| {
+                            (
+                                escape_cpp_keyword_for_c(&f.name),
+                                f.type_name.as_str(),
+                                f.ref_kind,
+                            )
+                        })
+                        .collect(),
+                },
+            })
+            .collect();
+        self.generate_union_type(
+            builder,
+            &enum_def.name,
+            &name,
+            enum_def.repr.as_deref(),
+            &variants,
+            ir,
+            config,
+        );
+    }
 
-        // Check if this enum has a u8 repr
-        let is_u8_repr = enum_def
-            .repr
-            .as_ref()
-            .map(|r| r.contains("u8"))
-            .unwrap_or(false);
+    /// ONE tagged union - a data-carrying enum or a monomorphized generic
+    /// alias, which lower to the same C:
+    ///
+    /// 1. the tag enum `<Name>_Tag`,
+    /// 2. one struct per variant, `{ tag; [uint8_t _pad0[N];] payload... }`,
+    /// 3. the union of those structs (its typedef is a forward declaration),
+    /// 4. a compile-time `offsetof` check for every padded variant.
+    ///
+    /// The tag FIELD is `uint8_t` for a `#[repr(C, u8)]` enum: a C `enum` is
+    /// `int`-sized no matter how small its values (the `__Force8Bit = 0xFF`
+    /// sentinel documents the intent, it does not shrink the type), so
+    /// `X_Tag tag;` made every variant struct 4 bytes of tag + padding (the
+    /// 13 `CssPropertyValue<Color>` types were 8 bytes here and 5 in the DLL).
+    ///
+    /// The padding `N` comes from `c_layout::union_payload_layout`, the one
+    /// place that decides where a payload sits. Rust puts EVERY variant's
+    /// payload at the tag rounded up to the largest alignment of ANY variant;
+    /// `{ tag; payload; }` alone aligns it to its OWN alignment, which put
+    /// `StyleBackgroundContent::Color` (ColorU, align 1) at 1 instead of 8
+    /// and made every C reader - and the `matchRef`/`matchMut` helpers -
+    /// read the wrong bytes.
+    #[allow(clippy::too_many_arguments)]
+    fn generate_union_type(
+        &self,
+        builder: &mut CodeBuilder,
+        api_name: &str,
+        name: &str,
+        repr: Option<&str>,
+        variants: &[CUnionVariant<'_>],
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let is_u8_repr = repr.map(|r| r.contains("u8")).unwrap_or(false);
+        let layout = super::c_layout::union_payload_layout(api_name, ir);
+        let padding = |variant: &str| layout.as_ref().map_or(0, |l| l.padding(variant));
 
         // Tag enum with _Tag suffix
         builder.line(&format!("enum {}_Tag {{", name));
         builder.indent();
-        for variant in &enum_def.variants {
+        for variant in variants {
             builder.line(&format!("{}_Tag_{},", name, variant.name));
         }
         // Add sentinel value to force enum size for u8 repr
@@ -797,52 +857,23 @@ impl CGenerator {
         builder.blank();
 
         // Variant structs (with tag field in each variant)
-        for variant in &enum_def.variants {
-            let has_payload = match &variant.kind {
-                EnumVariantKind::Tuple(types) => !types.is_empty(),
-                EnumVariantKind::Struct(fields) => !fields.is_empty(),
-                EnumVariantKind::Unit => false,
-            };
-
+        for variant in variants {
             builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
             builder.indent();
-            // Use uint8_t for tag if repr is u8, otherwise use the enum type
             if is_u8_repr {
                 builder.line("uint8_t tag;");
             } else {
                 builder.line(&format!("{}_Tag tag;", name));
             }
-
-            match &variant.kind {
-                EnumVariantKind::Tuple(types) if !types.is_empty() => {
-                    // Single payload field (Rust enum tuple variants typically have one element)
-                    for (i, (type_name, ref_kind)) in types.iter().enumerate() {
-                        let c_type = self.rust_type_to_c_with_prefix(type_name, config);
-                        let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
-                        if types.len() == 1 {
-                            builder
-                                .line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
-                        } else {
-                            builder.line(&format!(
-                                "{}{}{} payload_{};",
-                                ptr_prefix, c_type, ptr_suffix, i
-                            ));
-                        }
-                    }
-                }
-                EnumVariantKind::Struct(fields) if !fields.is_empty() => {
-                    for field in fields {
-                        let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
-                        builder.line(&format!(
-                            "{} {};",
-                            c_type,
-                            escape_cpp_keyword_for_c(&field.name)
-                        ));
-                    }
-                }
-                _ => {}
+            let pad = padding(variant.name);
+            if pad > 0 && !variant.members.is_empty() {
+                builder.line(&format!("uint8_t _pad0[{}];", pad));
             }
-
+            for (member, type_name, ref_kind) in &variant.members {
+                let c_type = self.rust_type_to_c_with_prefix(type_name, config);
+                let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
+                builder.line(&format!("{}{}{} {};", ptr_prefix, c_type, ptr_suffix, member));
+            }
             builder.dedent();
             builder.line("};");
             builder.line(&format!(
@@ -855,7 +886,7 @@ impl CGenerator {
         // Main union type
         builder.line(&format!("union {} {{", name));
         builder.indent();
-        for variant in &enum_def.variants {
+        for variant in variants {
             builder.line(&format!(
                 "{}Variant_{} {};",
                 name, variant.name, variant.name
@@ -863,6 +894,35 @@ impl CGenerator {
         }
         builder.dedent();
         builder.line("};");
+
+        // Every C/C++ build checks the padded payload offsets against Rust's.
+        // Guarded, so pre-C11 compilers and the LuaJIT / PHP cdef converter
+        // (which drops `#if` blocks) never see them.
+        if let Some(layout) = &layout {
+            let checks: Vec<String> = variants
+                .iter()
+                .filter(|v| padding(v.name) > 0)
+                .filter_map(|v| v.members.first().map(|(member, _, _)| (v.name, member)))
+                .map(|(variant, member)| {
+                    format!(
+                        "AZ_LAYOUT_CHECK(offsetof({name}Variant_{variant}, {member}) == {off}, \
+                         \"{name}::{variant}: payload at byte {off}, as in Rust's repr(C) \
+                         enum layout\")",
+                        name = name,
+                        variant = variant,
+                        member = member,
+                        off = layout.payload_offset,
+                    )
+                })
+                .collect();
+            if !checks.is_empty() {
+                builder.line("#ifdef AZ_LAYOUT_CHECK");
+                for check in &checks {
+                    builder.line(check);
+                }
+                builder.line("#endif");
+            }
+        }
         // Note: typedef for union already done in forward declarations
     }
 
