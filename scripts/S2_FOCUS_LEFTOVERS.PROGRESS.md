@@ -48,13 +48,14 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 
 - Items 1+2: 53e3ec605 RED (`parent_key_route` pure rule + unit test, 5 dll tests + 2 guards, 5 combobox unit tests), 03ee7ff0e fix (AzulListPopupWindow / WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE / Wayland handle_key; one routing rule; deliver_forwarded_keys on macOS, Win32, Wayland; `focus_list_popup_on_navigation` removed; list closes on parent deactivation; widget: active option via marker class + theme fill + Selected, Enter picks via `pick_option`, field aria-expanded, Down/Up opens).
 
+- Item 5b: 05b4b0470 RED (2 date_picker tests + 1 dll end-to-end), a27e2b747 fix (`shifted_date` + `move_to_date` shared with `month_nav`; day cells keyed by date, Tab-stop day `autofocus`; common/layout.rs: a popup whose focused node a rebuild unmounted focuses its `autofocus` node).
+
 ## IN PROGRESS
 
-- Item 5b.
+- Item 7.
 
 ## NEXT
 
-7. Item 5b: date grid across months (needs a post-rebuild focus target).
 8. Item 7: device-faithful variant with the parent's activation round trip.
 
 ## Open questions
