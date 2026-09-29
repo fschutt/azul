@@ -157,5 +157,82 @@ test('the editor follows the document (undo, load) but never overwrites text not
     assert.strictEqual(L.sheetText('x', undefined, false), '', 'no stylesheet in the answer: empty');
 });
 
+// ── 3. drops onto the window canvas ─────────────────────────────────────
+
+// body(0) > [ p(1) "A", div(2) > [ span(4) ], user:card(3) ]
+function canvasDoc() {
+    return el(0, 'body', {}, [
+        el(1, 'p', { text: 'A' }),
+        el(2, 'div', {}, [el(4, 'span')]),
+        inst(3, 'user', 'card'),
+    ]);
+}
+const hitAt = (uid, relY, rect) => ({ hit: true, uid, rel_y: relY, rect: rect || { x: 0, y: 0, width: 400, height: 40 } });
+const card = (component, library) => ({ type: 'component', library: library || 'builtin', component });
+
+test('a point on the picture is a point in the window, whatever size the picture is shown at', () => {
+    const shown = { left: 100, top: 50, width: 200, height: 150 };
+    const logical = { width: 400, height: 300 };
+    assert.deepStrictEqual(L.canvasPoint(100, 50, shown, logical), { x: 0, y: 0 });
+    assert.deepStrictEqual(L.canvasPoint(200, 125, shown, logical), { x: 200, y: 150 });
+    assert.deepStrictEqual(L.canvasPoint(90, 400, shown, logical), { x: 0, y: 300 }, 'clamped to the window');
+    assert.strictEqual(L.canvasPoint(0, 0, shown, null), null, 'no window size yet');
+});
+
+test('a drop on the canvas lands like a drop on the tree row of the node under it', () => {
+    const d = canvasDoc();
+    // The middle of a container: into it.
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.5), d),
+        { uid: 2, zone: 'into', msg: { op: 'builder_insert', parent: 2, component: 'span' } });
+    // Its top quarter: before it; its bottom quarter: after it.
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.1), d).msg,
+        { op: 'builder_insert', parent: 0, component: 'span', index: 1 });
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.9), d).msg,
+        { op: 'builder_insert', parent: 0, component: 'span', index: 2 });
+    // A leaf (an instance) splits in halves.
+    assert.strictEqual(L.canvasDrop(card('span'), hitAt(3, 0.4), d).zone, 'before');
+    assert.strictEqual(L.canvasDrop(card('span'), hitAt(3, 0.6), d).zone, 'after');
+    // A palette component of a library is named in the message.
+    assert.deepStrictEqual(L.canvasDrop(card('card', 'user'), hitAt(2, 0.5), d).msg,
+        { op: 'builder_insert', parent: 2, component: 'card', library: 'user' });
+});
+
+test('where INTO is refused (a <div> in a <p>) the drop goes before or after the node instead', () => {
+    const d = canvasDoc();
+    const top = L.canvasDrop(card('div'), hitAt(1, 0.4), d);
+    assert.strictEqual(top.zone, 'before');
+    assert.deepStrictEqual(top.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 0 });
+    const bottom = L.canvasDrop(card('div'), hitAt(1, 0.6), d);
+    assert.strictEqual(bottom.zone, 'after');
+    assert.deepStrictEqual(bottom.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 1 });
+});
+
+test('outside every document node the drop appends to <body>; a moved row cannot land in itself', () => {
+    const d = canvasDoc();
+    assert.deepStrictEqual(L.canvasDrop(card('p'), { hit: false, uid: null }, d),
+        { uid: 0, zone: 'into', msg: { op: 'builder_insert', parent: 0, component: 'p' } });
+    // A tree row dragged onto the canvas moves.
+    assert.deepStrictEqual(L.canvasDrop({ type: 'builder-node', uid: 1 }, hitAt(2, 0.5), d).msg,
+        { op: 'builder_move', node: 1, parent: 2 });
+    assert.strictEqual(L.canvasDrop({ type: 'builder-node', uid: 2 }, hitAt(4, 0.5), d).msg, null,
+        'the div into its own span');
+    assert.strictEqual(L.canvasDrop(null, hitAt(2, 0.5), d), null);
+});
+
+test('the drop indicator on the picture: the node for INTO, a line for BEFORE / AFTER', () => {
+    const shown = { width: 200, height: 150 };
+    const logical = { width: 400, height: 300 };
+    const hit = hitAt(2, 0.5, { x: 20, y: 40, width: 200, height: 40 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'into', shown, logical),
+        { zone: 'into', left: 10, top: 20, width: 100, height: 20 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'before', shown, logical),
+        { zone: 'before', left: 10, top: 19, width: 100, height: 2 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'after', shown, logical),
+        { zone: 'after', left: 10, top: 39, width: 100, height: 2 });
+    assert.deepStrictEqual(L.canvasIndicator({ hit: false }, 'into', shown, logical),
+        { zone: 'into', left: 0, top: 0, width: 200, height: 150 }, 'the whole window: <body>');
+    assert.strictEqual(L.canvasIndicator(hit, 'into', shown, null), null);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

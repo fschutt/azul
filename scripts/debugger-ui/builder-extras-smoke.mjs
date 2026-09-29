@@ -40,10 +40,17 @@ const registry = { libraries: [
 const builder = builderMock(registry);
 const sent = [];
 
+// The window's CPU picture: 800x600 px for a 400x300 logical window (dpi 2),
+// so the page must map through the LOGICAL size, not the picture's pixels.
+const WINDOW_PICTURE = 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">'
+    + '<rect width="800" height="600" fill="#fff"/><rect y="0" width="800" height="80" fill="#cde"/></svg>');
+
 function handle(msg) {
     sent.push(msg);
     switch (msg.op) {
-        case 'get_state': return {};
+        case 'get_state': return { logical_width: 400, logical_height: 300, hidpi_factor: 2 };
+        case 'take_screenshot': return { data: WINDOW_PICTURE };
         case 'get_component_registry': return clone(registry);
         case 'get_libraries':
             return { libraries: registry.libraries.map((l) => ({
@@ -85,6 +92,34 @@ window.__t = {
     document.body.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, mods || {})));
   },
   visible(id) { const e = document.getElementById(id); return !!e && e.offsetParent !== null; },
+  canvasImg() { return document.getElementById('azb-canvas-img'); },
+  /** Client coordinates of the LOGICAL window point (x, y) on the picture. */
+  at(x, y) {
+    const r = this.canvasImg().getBoundingClientRect();
+    return { clientX: r.left + x * r.width / 400, clientY: r.top + y * r.height / 300 };
+  },
+  /** Start dragging a palette card and hover the picture at (x, y): accepted? */
+  canvasOver(key, x, y) {
+    const src = [...document.querySelectorAll('.azb-card')].find(c => c.dataset.key === key);
+    window.__dt = new DataTransfer();
+    window.__src = src;
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: __dt }));
+    const o = Object.assign({ bubbles: true, cancelable: true, dataTransfer: __dt }, this.at(x, y));
+    this.canvasImg().dispatchEvent(new DragEvent('dragenter', o));
+    const over = new DragEvent('dragover', o);
+    this.canvasImg().dispatchEvent(over);
+    return over.defaultPrevented;
+  },
+  canvasDrop(x, y) {
+    const o = Object.assign({ bubbles: true, cancelable: true, dataTransfer: __dt }, this.at(x, y));
+    this.canvasImg().dispatchEvent(new DragEvent('drop', o));
+    __src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: __dt }));
+    return true;
+  },
+  mark() {
+    const m = document.getElementById('azb-canvas-mark');
+    return m && !m.classList.contains('hidden') ? m.dataset.zone : null;
+  },
   typeSheet(text) {
     const t = document.getElementById('azb-sheet-text');
     if (!t) return false;
@@ -209,11 +244,64 @@ async function main() {
             await cdp.eval(`document.getElementById('azb-sheet-status').textContent.includes('unclosed block')`),
             await cdp.eval(`document.getElementById('azb-sheet-status').textContent`));
 
+        // ── 3. drops onto the window canvas ──
+        // Document now: body > p(1), user:card(2), span(3) - 40px rows in the mock window.
+        await waitFor(cdp, `!!__t.canvasImg() && __t.canvasImg().naturalWidth === 800`);
+        check('the Inspector shows the window as a picture (take_screenshot), mapped by its logical size (get_state)',
+            await cdp.eval(`__t.visible('azb-canvas') && __t.canvasImg().naturalWidth === 800`)
+            && countSent('take_screenshot') > 0 && countSent('get_state') > 0,
+            { shots: countSent('take_screenshot'), state: countSent('get_state') });
+        const shots = countSent('take_screenshot');
+
+        let accepted = await cdp.eval(`__t.canvasOver('builtin:div', 100, 60)`);
+        await waitFor(cdp, `__t.mark() !== null`);
+        const probe = lastSent('builder_hit_test');
+        check('hovering the picture hit-tests the window point under the pointer (builder_hit_test)',
+            accepted && probe && Math.abs(probe.x - 100) < 1.5 && Math.abs(probe.y - 60) < 1.5, probe);
+        check('...and shows where the drop lands: AFTER the instance (a leaf, lower half)',
+            await cdp.eval(`__t.mark()`) === 'after', await cdp.eval(`__t.mark()`));
+        await cdp.eval(`__t.canvasDrop(100, 60)`);
+        await waitFor(cdp, `!!__t.row(4)`);
+        check('dropping inserts there, like the tree drop (builder_insert after the instance)',
+            same(lastSent('builder_insert'), { op: 'builder_insert', parent: 0, component: 'div', index: 2 })
+            && await cdp.eval(`__t.mark() === null`), lastSent('builder_insert'));
+        // body > p(1), card(2), div(4), span(3)
+        await cdp.eval(`__t.canvasOver('builtin:span', 100, 20)`);
+        await waitFor(cdp, `__t.mark() === 'into'`);
+        await cdp.eval(`__t.canvasDrop(100, 20)`);
+        await waitFor(cdp, `!!__t.row(5)`);
+        check('the middle of a container drops INTO it',
+            same(lastSent('builder_insert'), { op: 'builder_insert', parent: 1, component: 'span' }),
+            lastSent('builder_insert'));
+        await cdp.eval(`__t.canvasOver('builtin:div', 100, 25)`);
+        await waitFor(cdp, `__t.mark() === 'after'`);
+        await cdp.eval(`__t.canvasDrop(100, 25)`);
+        await waitFor(cdp, `!!__t.row(6)`);
+        check('a <div> over the middle of a <p> goes after it (INTO would be undone by the parser)',
+            same(lastSent('builder_insert'), { op: 'builder_insert', parent: 0, component: 'div', index: 1 }),
+            lastSent('builder_insert'));
+        await cdp.eval(`__t.canvasOver('builtin:p', 100, 280)`);
+        await waitFor(cdp, `__t.mark() === 'into'`);
+        await cdp.eval(`__t.canvasDrop(100, 280)`);
+        await waitFor(cdp, `!!__t.row(7)`);
+        check('below every node the drop appends to <body>',
+            same(lastSent('builder_insert'), { op: 'builder_insert', parent: 0, component: 'p' }),
+            lastSent('builder_insert'));
+        check('the picture follows the edits (a new take_screenshot after them)',
+            await waitFor(cdp, `true`) && countSent('take_screenshot') > shots,
+            { before: shots, after: countSent('take_screenshot') });
+        // body > p(1), div(6), card(2), div(4), span(3), p(7): (100, 100) is the card.
+        await cdp.eval(`(() => { const p = __t.at(100, 100);
+            __t.canvasImg().dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true }, p))); return true; })()`);
+        await waitFor(cdp, `azDnd.state.selected === 2 && !!__t.prop('href')`);
+        check('clicking the picture selects the node under the pointer (tree and Properties)',
+            await cdp.eval(`azDnd.state.selected === 2 && __t.row(2).classList.contains('selected') && !!__t.prop('href')`));
+
         // ── Live DOM hides the builder panels ──
         await cdp.eval(`document.querySelector('.azb-seg button[data-mode=live]').click(); true`);
-        const hidden = await waitFor(cdp, `!__t.visible('azb-side')`);
+        const hidden = await waitFor(cdp, `!__t.visible('azb-side') && !__t.visible('azb-canvas')`);
         await cdp.eval(`document.querySelector('.azb-seg button[data-mode=document]').click(); true`);
-        const shown = await waitFor(cdp, `__t.visible('azb-side')`);
+        const shown = await waitFor(cdp, `__t.visible('azb-side') && __t.visible('azb-canvas')`);
         check('Live DOM hides the builder panels, Document shows them again', hidden && shown);
 
         const shot = argVal('--screenshot');

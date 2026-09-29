@@ -17,14 +17,15 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 - 1 RED `bb244292b` (node test + smoke + lib/smoke.mjs)
 - 1 GREEN `68b3a492b` properties panel (node 7/7, smoke 17/17, other smokes unchanged)
 - 2 RED `c196ff546` (builder_tests / export_tests / project_tests scenarios, node, smoke)
+- 2 GREEN `17bdb34e7` document stylesheet (node 9/9, smoke 24/24; Rust not run)
 
 ## IN PROGRESS
 
-2. Document stylesheet: implementation commit (this one).
+3. Canvas drops: RED committed (this commit), implementation next.
 
 ## NEXT
 
-2 (implementation) → 5, then the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
+3 (implementation) → 5, then the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
 
 ## Open questions
 

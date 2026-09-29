@@ -233,6 +233,16 @@ export function builderMock(registry) {
                 d.stylesheet = s.stylesheet;
                 return commit();
             }
+            case 'builder_hit_test': {
+                // The mock window lays <body>'s children out as 40px rows
+                // across a 400px wide window; below them nothing is hit.
+                const i = Math.floor(msg.y / 40);
+                const kid = d.root.children[i];
+                if (!m.doc || !kid || msg.y < 0) return { hit: false, x: msg.x, y: msg.y, uid: null };
+                return { hit: true, x: msg.x, y: msg.y, uid: kid.uid, node: i + 2,
+                    rect: { x: 0, y: i * 40, width: 400, height: 40 },
+                    rel_x: msg.x / 400, rel_y: (msg.y - i * 40) / 40 };
+            }
             case 'builder_get_stylesheet':
                 return { active: !!m.doc, stylesheet: d.stylesheet, css: d.stylesheet, rules: [], warnings: [] };
             case 'builder_set_stylesheet': {

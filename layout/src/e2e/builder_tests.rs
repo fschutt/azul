@@ -475,3 +475,82 @@ fn the_documents_own_stylesheet_styles_the_window_beats_component_css_survives_a
     );
     assert_passes(&result);
 }
+
+// ── B5: drops onto the window canvas ──
+
+/// The `value` of step `i`'s JSON answer (the step must have passed).
+fn answer(result: &E2eTestResult, i: usize) -> serde_json::Value {
+    let step = result
+        .steps
+        .iter()
+        .find(|s| s.step_index == i)
+        .unwrap_or_else(|| panic!("no step {i}:\n{}", failures(result)));
+    assert_eq!(
+        step.status,
+        "pass",
+        "step {i} `{}` must pass:\n{}",
+        step.op,
+        failures(result)
+    );
+    step.response
+        .as_ref()
+        .and_then(|r| r.get("value"))
+        .cloned()
+        .unwrap_or_else(|| panic!("step {i} `{}` answered no data", step.op))
+}
+
+#[test]
+fn a_point_in_the_window_hit_tests_to_the_document_node_under_it_through_its_marker() {
+    let [wf, w] = settle();
+    let result = run(
+        "builder_hit_test",
+        true,
+        steps(vec![
+            /* 0 */
+            serde_json::json!({ "op": "builder_set_stylesheet",
+                "css": "body { margin: 0px; padding: 0px; } #a { height: 40px; } #b { height: 40px; }" }),
+            /* 1: uid 1 */
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "div",
+                                "attrs": { "id": "a" } }),
+            /* 2: uid 2 */
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "div",
+                                "attrs": { "id": "b" } }),
+            /* 3 */ serde_json::json!({ "op": "create_library", "name": "lib9" }),
+            /* 4 */
+            serde_json::json!({ "op": "create_component", "library": "lib9", "name": "card",
+                                "render_tree": { "tag": "div", "classes": ["card"],
+                                    "children": [ { "tag": "p", "text": "inner" } ] } }),
+            /* 5 */
+            serde_json::json!({ "op": "update_component", "library": "lib9", "name": "card",
+                                "css": ".card { height: 60px; }" }),
+            /* 6: uid 3, an instance: only its root carries the marker */
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "library": "lib9",
+                                "component": "card" }),
+            /* 7 */ wf,
+            /* 8 */ w,
+            /* 9: the middle of #a */
+            serde_json::json!({ "op": "builder_hit_test", "x": 10, "y": 20 }),
+            /* 10: the top quarter of #b */
+            serde_json::json!({ "op": "builder_hit_test", "x": 10, "y": 50 }),
+            /* 11: inside the card, over its <p> or its own box */
+            serde_json::json!({ "op": "builder_hit_test", "x": 10, "y": 110 }),
+        ]),
+    );
+    let a = answer(&result, 9);
+    assert_eq!(a["hit"], true, "{a}");
+    assert_eq!(a["uid"], 1, "{a}");
+    let rel = |v: &serde_json::Value, k: &str| v[k].as_f64().unwrap_or(-1.0);
+    assert!((rel(&a, "rel_y") - 0.5).abs() < 0.05, "the middle of #a: {a}");
+    assert!(
+        a["rect"]["height"].as_f64().is_some_and(|h| (h - 40.0).abs() < 1.0),
+        "the rect of the marked node, in window coordinates: {a}"
+    );
+    let b = answer(&result, 10);
+    assert_eq!(b["uid"], 2, "{b}");
+    assert!((rel(&b, "rel_y") - 0.25).abs() < 0.05, "the top quarter of #b: {b}");
+    let card = answer(&result, 11);
+    assert_eq!(
+        card["uid"], 3,
+        "a node inside an instance belongs to the instance: {card}"
+    );
+}
