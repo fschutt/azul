@@ -1411,3 +1411,159 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look a card renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    fn card(theme: UiTheme) -> Dom {
+        Card::create(Dom::create_p_with_text("Body text"))
+            .with_flex_grow(1.0)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn radius(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
+            _ => None,
+        }
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_card_without_a_theme_renders_flat() {
+        let plain = Card::create(Dom::create_div());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Card::create(Dom::create_div());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Card::create(Dom::create_div()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_card_is_a_panel_on_the_window_surface_at_night() {
+        let dark = theme_probe::dark(&card(UiTheme::Flat));
+        assert_eq!(
+            last(&dark, bg),
+            Some(system_palette::WINDOW_BACKGROUND.as_ref().to_vec())
+        );
+        assert_eq!(last(&dark, top_edge), Some(system_palette::SEPARATOR));
+    }
+
+    #[test]
+    fn a_flora_card_is_a_leaf_on_the_page_in_a_hairline() {
+        let rest = theme_probe::unconditional(&card(UiTheme::Flora));
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)]),
+            "flora.css --fl-sur: 'a leaf laid on the page: cards, panels'"
+        );
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        assert_eq!(
+            last(&rest, radius),
+            Some(PixelValue::const_px(5)),
+            "--fl-r2: nothing is rounder than 5"
+        );
+        assert!(last(&rest, shadow).is_some(), "a leaf casts a shadow");
+    }
+
+    #[test]
+    fn a_flora_card_at_night_is_the_night_leaf() {
+        let dark = theme_probe::dark(&card(UiTheme::Flora));
+        assert_eq!(
+            last(&dark, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+        );
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+        assert!(last(&dark, shadow).is_some(), "the night shadow");
+    }
+
+    #[test]
+    fn a_flora_card_keeps_its_content_its_flex_grow_and_its_click() {
+        let dom = Card::create(Dom::create_p_with_text("Body"))
+            .with_flex_grow(2.0)
+            .with_on_click(RefAny::new(0u8), noop as CardOnClickCallbackType)
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(dom.children.as_ref().len(), 1, "the content is the card's child");
+        assert_eq!(dom.root.get_callbacks().as_ref().len(), 1, "the click still fires");
+        assert_eq!(
+            theme_probe::unconditional(&dom).first(),
+            Some(&CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::new(2.0)
+                }
+            ))),
+            "the card's own flex-grow leads its style"
+        );
+    }
+
+    #[test]
+    fn a_flora_card_carries_the_flora_theme_marker() {
+        let dom = card(UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-card"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+}

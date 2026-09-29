@@ -438,3 +438,20 @@ fn alerts_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn cards_hold_readable_text_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::card::Card;
+    let widgets = LOOKS
+        .iter()
+        .map(|(look, theme)| {
+            (
+                format!("{look} card + text"),
+                Card::create(Dom::create_p_with_text("Body text"))
+                    .with_theme(*theme)
+                    .dom(),
+            )
+        })
+        .collect();
+    assert_follow_the_theme(widgets);
+}
