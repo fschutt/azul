@@ -38,8 +38,9 @@ const LOOP_WAKER_RS: &str = include_str!("loop_waker.rs");
 const APP_EVENTS_RS: &str = include_str!("app_events.rs");
 
 /// The text of the first top-level `fn` whose signature contains `name`, up
-/// to its closing brace in column 0.
-fn top_level_fn_body<'a>(source: &'a str, name: &str) -> &'a str {
+/// to its closing brace in column 0. Shared with
+/// `notifications::platform_invariants`.
+pub(crate) fn top_level_fn_body<'a>(source: &'a str, name: &str) -> &'a str {
     let start = source
         .find(name)
         .unwrap_or_else(|| panic!("{name} not found - was it renamed?"));

@@ -63,6 +63,9 @@ mod apple;
 mod linux;
 #[cfg(target_os = "windows")]
 mod windows;
+/// Source-text invariants for the platform code a host cannot run.
+#[cfg(test)]
+mod platform_invariants;
 
 /// Set by the headless run loop (`AZ_BACKEND=headless`): no notification is
 /// shown, every post is RECORDED for tests and `assert_notification`.
