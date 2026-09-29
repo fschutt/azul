@@ -570,6 +570,16 @@ impl FormControlMemory {
         inner.entries.remove(&value_key).is_some()
     }
 
+    /// The app's default of the replaced control whose root carries
+    /// `control` in its [`MEMORY_KEY_ATTRIBUTE`] - what a form reset puts it
+    /// back to. `None` for a control this memory did not build.
+    #[must_use]
+    pub fn default_of(&self, control: u64) -> Option<FormValue> {
+        let inner = self.inner.lock().ok()?;
+        let default = inner.controls.get(&control).map(|r| r.default.clone());
+        default
+    }
+
     /// What the replaced control whose root carries `control` in its
     /// [`MEMORY_KEY_ATTRIBUTE`] contributes to its form's `FormData` NOW:
     /// the user's latest value, else the one it was built with.

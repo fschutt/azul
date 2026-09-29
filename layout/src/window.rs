@@ -2720,6 +2720,12 @@ impl LayoutWindow {
                 if let Some(lr) = self.layout_results.get(&dom_id) {
                     // Split borrow: overlay and layout_results are separate fields.
                     let styled_dom = &lr.styled_dom;
+                    // A value the app SET (rendered something other than the
+                    // text the user typed over) beats the typing - only a DOM
+                    // the app just built can say so.
+                    if new_generation {
+                        self.content_overlay.gc_app_set_text(dom_id, styled_dom);
+                    }
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
             }
@@ -19206,6 +19212,83 @@ impl LayoutWindow {
         crate::overlay::flatten_inline_content(content)
     }
 
+    /// `CallbackChange::ChangeNodeText`: the app sets the text of the text
+    /// node `node_id` of `dom_id` to `text`. Returns whether anything changed;
+    /// the caller owes the relayout (and, in a shell, its cache invalidation).
+    ///
+    /// The app's text is the truth from here on - also over what the user
+    /// TYPED there, which the text overlay otherwise keeps on screen until the
+    /// app's model catches up. That is HTML's `input.value = ..`: a form
+    /// reset, a search field's clear button, any widget or app setting a
+    /// field's value from a callback. So the overlay entry of the IFC holding
+    /// the node is retired and the IFC re-shaped from the DOM; the carets of
+    /// an editing session there move across the change on the next layout
+    /// pass (`shift_carets_across_generation`), a caret past the new end
+    /// landing at it.
+    ///
+    /// A write of the byte-identical string is a no-op - unless typing covers
+    /// the node: then the DOM already says it, the screen does not (the form
+    /// reset of a field built with the text it goes back to).
+    pub fn set_node_text(&mut self, dom_id: DomId, node_id: NodeId, text: &AzString) -> bool {
+        let Some(unchanged) = self.layout_results.get(&dom_id).and_then(|lr| {
+            lr.styled_dom
+                .node_data
+                .as_container()
+                .get(node_id)
+                .map(|node| {
+                    matches!(
+                        node.get_node_type(),
+                        NodeType::Text(existing) if existing.as_str() == text.as_str()
+                    )
+                })
+        }) else {
+            return false;
+        };
+        let typed_over = self.typed_text_root_of(dom_id, node_id);
+        if unchanged && typed_over.is_none() {
+            return false;
+        }
+        if !unchanged {
+            if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                if let Some(node) = nodes.get_mut(node_id) {
+                    node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+                        text.clone(),
+                    )));
+                }
+            }
+        }
+        if let Some(root) = typed_over {
+            self.content_overlay.remove_text(dom_id, root);
+            // The shaping the typing left behind, rebuilt from the DOM (and
+            // any composition in flight there) - a layout reading the cached
+            // IFC before the next pass sees the app's text too.
+            let content = self.spliced_text_with_preedits(dom_id, root);
+            self.reshape_text_node(dom_id, root, content);
+        }
+        true
+    }
+
+    /// The IFC root whose text-overlay entry covers `node_id` - the node
+    /// itself or its nearest ancestor holding one (the edit keys the entry to
+    /// the caret's inline-layout owner, the value `<p>` of a text field, not
+    /// to the text leaf a `ChangeNodeText` names).
+    fn typed_text_root_of(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        if self.content_overlay.text_len() == 0 {
+            return None;
+        }
+        let lr = self.layout_results.get(&dom_id)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        while let Some(node) = current {
+            if self.content_overlay.text_for_node(dom_id, node).is_some() {
+                return Some(node);
+            }
+            current = hierarchy.get(node).and_then(|h| h.parent_id());
+        }
+        None
+    }
+
     /// Update the text cache after a text edit
     ///
     /// This is the ONLY place where we mutate the text cache.
@@ -19249,6 +19332,18 @@ impl LayoutWindow {
         // text revision and stamps the entry it produced.
         self.document_text_revision += 1;
         let cursor = self.text_edit_manager.get_primary_cursor();
+        // What the user is typing OVER: the app's rendered text, read when
+        // the first keystroke lands and kept while the entry lives - the
+        // generation GC tells "the app has not adopted the typing" (it
+        // renders this again) from "the app set a value" (it renders
+        // something else) by it.
+        let typed_over = match self.content_overlay.text_for_node(dom_id, node_id) {
+            Some(entry) => entry.typed_over.clone(),
+            None => self
+                .layout_results
+                .get(&dom_id)
+                .and_then(|lr| crate::overlay::dom_text_of(&lr.styled_dom, node_id)),
+        };
         self.content_overlay.set_text(
             dom_id,
             node_id,
@@ -19257,6 +19352,7 @@ impl LayoutWindow {
                 cursor,
                 needs_ancestor_relayout: false, // Will be set if size changes
                 revision: self.document_text_revision,
+                typed_over,
             },
         );
         // An ENGINE edit placed its carets itself; the generation diff must

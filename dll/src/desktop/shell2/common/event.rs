@@ -6239,37 +6239,20 @@ pub trait PlatformWindow {
                     None => return ProcessEventResult::DoNothing,
                 };
 
-                // NO-OP SHORT CIRCUIT (mirrors the headless E2E runner):
-                // re-setting the byte-identical string used to drop the ENTIRE
-                // incremental shaped-text cache and re-shape every run in the
-                // DOM for a write that changed nothing — and produced no damage,
-                // so nothing could ever observe the waste.
-                let unchanged = self.get_layout_window().is_some_and(|lw| {
-                    lw.layout_results.get(&dom_id).is_some_and(|lr| {
-                        let nodes = lr.styled_dom.node_data.as_container();
-                        nodes.get(internal_node_id).is_some_and(|node| {
-                            matches!(
-                                node.get_node_type(),
-                                azul_core::dom::NodeType::Text(existing)
-                                    if existing.as_str() == text.as_str()
-                            )
-                        })
-                    })
-                });
-                if unchanged {
-                    return ProcessEventResult::DoNothing;
-                }
-
-                // Update StyledDom text content
+                // The DOM text AND what the user typed over it: the app's
+                // text wins, as `input.value = ..` does (a form reset, a
+                // clear button) - `LayoutWindow::set_node_text`, shared with
+                // the headless E2E runner.
+                //
+                // NO-OP SHORT CIRCUIT (inside it): re-setting the
+                // byte-identical string used to drop the ENTIRE incremental
+                // shaped-text cache and re-shape every run in the DOM for a
+                // write that changed nothing — and produced no damage, so
+                // nothing could ever observe the waste. (Unless the user typed
+                // there: then the DOM agrees and the screen does not.)
                 if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {
-                        let idx = internal_node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
-                                .set_node_type(azul_core::dom::NodeType::Text(
-                                    azul_css::css::BoxOrStatic::heap(text.clone()),
-                                ));
-                        }
+                    if !lw.set_node_text(dom_id, internal_node_id, text) {
+                        return ProcessEventResult::DoNothing;
                     }
                     // The incremental layout cache keys its shaped-text runs on
                     // the DOM pointer, which a text mutation does not change — so

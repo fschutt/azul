@@ -47,12 +47,16 @@
 //! cascade (`crate::form_controls`), and so do its raw controls - into the
 //! widgets this module reads.
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, Update},
-    dom::{AttributeType, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, NodeId},
+    dom::{
+        AttributeType, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, NodeData, NodeId,
+        NodeType,
+    },
     refany::{OptionRefAny, RefAny},
+    styled_dom::NodeHierarchyItemId,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
@@ -62,13 +66,13 @@ use azul_css::{
 
 use crate::{
     callbacks::CallbackInfo,
-    form_controls::Submission,
+    form_controls::{FormValue, Submission},
     widgets::{
         button::ButtonFormAction,
         date_picker::DatePickerData,
         datetime_local::DateTimeLocalPickerStateWrapper,
         text_area::TextAreaStateWrapper,
-        text_input::TextInputStateWrapper,
+        text_input::{TextInputKind, TextInputStateWrapper},
     },
 };
 
@@ -515,21 +519,10 @@ fn from_submission(
 /// submits now (by the [`crate::form_controls::MEMORY_KEY_ATTRIBUTE`] on its
 /// root). [`Submission::Unknown`] for any other node.
 fn replaced_submission(info: &CallbackInfo, node: DomNodeId) -> Submission {
-    let Some(id) = node.node.into_crate_internal() else {
-        return Submission::Unknown;
-    };
-    let layout_window = info.get_layout_window();
-    let Some(layout) = layout_window.get_layout_result(&node.dom) else {
-        return Submission::Unknown;
-    };
-    let node_data = layout.styled_dom.node_data.as_container();
-    let Some(key) = node_data
-        .get(id)
-        .and_then(|data| memory_key_of(data.attributes().as_ref()))
-    else {
-        return Submission::Unknown;
-    };
-    layout_window.form_control_memory.submission(key)
+    match memory_key_at(info, node) {
+        Some(key) => info.get_layout_window().form_control_memory.submission(key),
+        None => Submission::Unknown,
+    }
 }
 
 /// Whether `dataset` is the state of a control this module reads.
@@ -773,8 +766,9 @@ pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
 }
 
 /// Reset the rendered form at `form`: every text field goes back to its
-/// initial value (mirror and line), then the app's `on_reset` is handed the
-/// initial values to restore everything else from. Returns its `Update`.
+/// initial value (mirror and line - whatever the user typed there is
+/// superseded), then the app's `on_reset` is handed the initial values to
+/// restore everything else from. Returns its `Update`.
 pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
     let Some(mut dataset) = info.get_dataset(form) else {
         return Update::DoNothing;
@@ -784,39 +778,8 @@ pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
         None => return Update::DoNothing,
     };
 
-    // The controls in document order are the ones `initial` was recorded
-    // from, in the same order: a name's n-th control takes that name's n-th
-    // initial value.
-    let mut seen: Vec<(AzString, usize)> = Vec::new();
-    for (node, name) in named_controls(info, form) {
-        let nth = match seen.iter_mut().find(|(n, _)| *n == name) {
-            Some((_, count)) => {
-                *count += 1;
-                *count - 1
-            }
-            None => {
-                seen.push((name.clone(), 1));
-                0
-            }
-        };
-        let Some(value) = initial
-            .entries
-            .as_ref()
-            .iter()
-            .filter(|e| e.name == name)
-            .nth(nth)
-            .map(|e| e.value.clone())
-        else {
-            continue;
-        };
-        let (field_node, dataset) = control_state(info, node);
-        let Some(mut field) = dataset else {
-            continue;
-        };
-        let Some(mut w) = field.downcast_mut::<TextInputStateWrapper>() else {
-            continue;
-        };
-        crate::widgets::text_input::restore_text_input(info, field_node, &mut w, value.as_str());
+    for (field, value) in reset_values(info, form, &initial) {
+        restore_field(info, field, &value);
     }
 
     // The raw controls the form-control replacement turned into widgets
@@ -852,9 +815,13 @@ fn memory_key_of(attributes: &[AttributeType]) -> Option<u64> {
         .and_then(|a| a.value().as_str().trim().parse::<u64>().ok())
 }
 
-/// The memory keys of the replaced controls inside the rendered `form`, in
-/// document order - named or not: a reset resets every control.
-fn replaced_controls(info: &CallbackInfo, form: DomNodeId) -> Vec<u64> {
+/// `pick` over every node inside the rendered `form`, in document order - a
+/// node's descendants are the contiguous run after it.
+fn within_form<T>(
+    info: &CallbackInfo,
+    form: DomNodeId,
+    mut pick: impl FnMut(NodeId, &NodeData) -> Option<T>,
+) -> Vec<T> {
     let Some(form_id) = form.node.into_crate_internal() else {
         return Vec::new();
     };
@@ -862,13 +829,178 @@ fn replaced_controls(info: &CallbackInfo, form: DomNodeId) -> Vec<u64> {
         return Vec::new();
     };
     let node_data = layout.styled_dom.node_data.as_container();
-    // A node's descendants are the contiguous run after it.
     let start = form_id.index() + 1;
     let end = start + layout.styled_dom.node_hierarchy.as_container().subtree_len(form_id);
     (start..end)
-        .filter_map(|index| node_data.get(NodeId::new(index)))
-        .filter_map(|data| memory_key_of(data.attributes().as_ref()))
+        .filter_map(|index| {
+            let id = NodeId::new(index);
+            node_data.get(id).and_then(|data| pick(id, data))
+        })
         .collect()
+}
+
+/// The memory keys of the replaced controls inside the rendered `form`, in
+/// document order - named or not: a reset resets every control.
+fn replaced_controls(info: &CallbackInfo, form: DomNodeId) -> Vec<u64> {
+    within_form(info, form, |_, data| memory_key_of(data.attributes().as_ref()))
+}
+
+/// Whether `dataset` is the state of a text field - a `TextInput` or a
+/// `TextArea` host (the node the user types into).
+fn is_text_field_state(dataset: &RefAny) -> bool {
+    // One probe per statement: each shared borrow must end before the next
+    // one is taken.
+    let mut d = dataset.clone();
+    if d.downcast_ref::<TextInputStateWrapper>().is_some() {
+        return true;
+    }
+    let is_area = d.downcast_ref::<TextAreaStateWrapper>().is_some();
+    is_area
+}
+
+/// Every text field inside the rendered `form`, in document order.
+fn text_fields(info: &CallbackInfo, form: DomNodeId) -> Vec<DomNodeId> {
+    within_form(info, form, |id, data| {
+        data.get_dataset()
+            .is_some_and(is_text_field_state)
+            .then(|| DomNodeId {
+                dom: form.dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(id)),
+            })
+    })
+}
+
+/// What the text field hosted at `field` was BUILT with: the text its DOM
+/// line holds (`container > p > text`) - the app's value at the build, HTML's
+/// default value - not what the engine shows over it. `None` for a password
+/// built non-empty: its DOM holds the mask, and the real value is gone.
+fn built_value(info: &mut CallbackInfo, field: DomNodeId) -> Option<String> {
+    let line = info.get_first_child(field)?;
+    let leaf = info.get_first_child(line)?;
+    let leaf_id = leaf.node.into_crate_internal()?;
+    let text = {
+        let layout = info.get_layout_window().get_layout_result(&leaf.dom)?;
+        let node_data = layout.styled_dom.node_data.as_container();
+        let text = match node_data.get(leaf_id)?.get_node_type() {
+            NodeType::Text(t) => t.as_str().to_string(),
+            _ => return None,
+        };
+        text
+    };
+    let masked = info.get_dataset(field).is_some_and(|mut state| {
+        let kind = state
+            .downcast_ref::<TextInputStateWrapper>()
+            .map(|w| w.inner.kind);
+        kind == Some(TextInputKind::Password)
+    });
+    (!masked || text.is_empty()).then_some(text)
+}
+
+/// The key of the replaced control the text field `field` belongs to: on the
+/// field itself, or on the row a `type=search` field sits in.
+fn replaced_key_of(info: &CallbackInfo, field: DomNodeId) -> Option<u64> {
+    memory_key_at(info, field)
+        .or_else(|| info.get_parent(field).and_then(|row| memory_key_at(info, row)))
+}
+
+/// The [`crate::form_controls::MEMORY_KEY_ATTRIBUTE`] of the rendered `node`.
+fn memory_key_at(info: &CallbackInfo, node: DomNodeId) -> Option<u64> {
+    let id = node.node.into_crate_internal()?;
+    let layout = info.get_layout_window().get_layout_result(&node.dom)?;
+    let node_data = layout.styled_dom.node_data.as_container();
+    let key = node_data
+        .get(id)
+        .and_then(|data| memory_key_of(data.attributes().as_ref()));
+    key
+}
+
+/// The text fields inside the rendered `form` and the value a reset puts
+/// each back to, in document order - named or not, a text area as much as a
+/// text input (HTML resets every control):
+///
+/// * a NAMED control: its initial value. The controls in document order are
+///   the ones `initial` was recorded from, so a name's n-th control takes
+///   that name's n-th initial value;
+/// * a replaced raw control: its default (the replacement's memory knows it;
+///   the rebuild the reset asks for shows it too);
+/// * any other field: the text it was built with ([`built_value`]).
+fn reset_values(
+    info: &mut CallbackInfo,
+    form: DomNodeId,
+    initial: &FormData,
+) -> Vec<(DomNodeId, String)> {
+    let mut out: Vec<(DomNodeId, String)> = Vec::new();
+    let mut seen: Vec<(AzString, usize)> = Vec::new();
+    for (node, name) in named_controls(info, form) {
+        let nth = match seen.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, count)) => {
+                *count += 1;
+                *count - 1
+            }
+            None => {
+                seen.push((name.clone(), 1));
+                0
+            }
+        };
+        let Some(value) = initial
+            .entries
+            .as_ref()
+            .iter()
+            .filter(|e| e.name == name)
+            .nth(nth)
+            .map(|e| e.value.as_str().to_string())
+        else {
+            continue;
+        };
+        let (field, _) = control_state(info, node);
+        out.push((field, value));
+    }
+    for field in text_fields(info, form) {
+        if out.iter().any(|(named, _)| *named == field) {
+            continue;
+        }
+        let default = replaced_key_of(info, field).and_then(|key| {
+            match info.get_layout_window().form_control_memory.default_of(key) {
+                Some(FormValue::Text(text)) => Some(text),
+                _ => None,
+            }
+        });
+        if let Some(value) = default.or_else(|| built_value(info, field)) {
+            out.push((field, value));
+        }
+    }
+    out
+}
+
+/// Put the text field hosted at `field` back to `value` (see
+/// [`reset_values`]).
+fn restore_field(info: &mut CallbackInfo, field: DomNodeId, value: &str) {
+    let Some(mut state) = info.get_dataset(field) else {
+        return;
+    };
+    if let Some(mut w) = state.downcast_mut::<TextInputStateWrapper>() {
+        crate::widgets::text_input::restore_text_input(info, field, &mut w, value);
+        return;
+    }
+    if let Some(mut w) = state.downcast_mut::<TextAreaStateWrapper>() {
+        restore_text_area(info, field, &mut w, value);
+    }
+}
+
+/// `restore_text_input` for a `TextArea` - the same `container > p > text`
+/// shape, no value-dependent looks: the mirror, and the engine's line (the
+/// user's typing there superseded).
+fn restore_text_area(
+    info: &mut CallbackInfo,
+    container: DomNodeId,
+    wrapper: &mut TextAreaStateWrapper,
+    value: &str,
+) {
+    if wrapper.inner.get_text() != value {
+        wrapper.inner.text = value.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        wrapper.inner.cursor_pos = value.len();
+    }
+    crate::widgets::text_input::replace_engine_line(info, container, value);
 }
 
 /// Forget what the user gave the replaced controls inside the rendered

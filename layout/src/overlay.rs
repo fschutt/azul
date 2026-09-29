@@ -56,6 +56,43 @@ pub struct DirtyTextNode {
     /// entries are exempt from the acked-revision GC and fall back to the
     /// text-equality rule.
     pub revision: u64,
+    /// The DOM's text at this node when the user started typing over it - what
+    /// the app last rendered there ([`dom_text_of`]). A new generation that
+    /// renders something ELSE here (neither this nor the typed text) is the
+    /// app setting the value, HTML's `input.value = ..`: the app's text wins
+    /// ([`ContentOverlay::gc_app_set_text`]). `None` = unknown (an entry
+    /// written without a DOM to read, or constructed directly): exempt, as
+    /// before.
+    pub typed_over: Option<String>,
+}
+
+/// The text the DOM holds at `node_id`, flattened the way the text overlay
+/// compares it: a text node's own text, or - for an element (a
+/// contenteditable host, a paragraph) - the concatenated text of its DIRECT
+/// text children. `None` when the DOM has no such node.
+#[must_use]
+pub fn dom_text_of(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+    let node_data = styled_dom.node_data.as_container();
+    let node = node_data.get(node_id)?;
+    if let NodeType::Text(s) = node.get_node_type() {
+        return Some(s.as_str().to_string());
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut text = String::new();
+    if let Some(n) = hierarchy.get(node_id) {
+        let mut child = n.first_child_id(node_id);
+        while let Some(c) = child {
+            if let Some(cd) = node_data.get(c) {
+                if let NodeType::Text(t) = cd.get_node_type() {
+                    text.push_str(t.as_str());
+                }
+            }
+            child = hierarchy
+                .get(c)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        }
+    }
+    Some(text)
 }
 
 /// Flatten inline content to the plain string it displays.
@@ -365,6 +402,12 @@ impl ContentOverlay {
         self.text.get_mut(&(dom_id, node_id))
     }
 
+    /// Drop the text entry of one IFC root: the app set that node's text
+    /// (`LayoutWindow::set_node_text`), which supersedes the user's typing.
+    pub(crate) fn remove_text(&mut self, dom_id: DomId, node_id: NodeId) -> Option<DirtyTextNode> {
+        self.text.remove(&(dom_id, node_id))
+    }
+
     /// The pending structural deltas of `dom` (empty slice = none).
     #[must_use]
     pub fn pending_structure(&self, dom_id: DomId) -> &[PendingStructure] {
@@ -484,38 +527,45 @@ impl ContentOverlay {
     /// remapped forward FOREVER and DOM-reading exports silently saw pre-edit
     /// text.
     pub(crate) fn gc_converged_text(&mut self, dom_id: DomId, styled_dom: &StyledDom) {
-        let node_data = styled_dom.node_data.as_container();
         self.text.retain(|&(d, node_id), dirty| {
             if d != dom_id {
                 return true;
             }
-            let Some(node) = node_data.get(node_id) else {
-                // Node gone in the new generation: nothing to converge to.
-                return false;
+            // Non-text IFC roots (contenteditable hosts) compare against the
+            // concatenated text of their DIRECT text children (`dom_text_of`).
+            // Node gone in the new generation: nothing to converge to.
+            dom_text_of(styled_dom, node_id)
+                .is_some_and(|dom_text| flatten_inline_content(&dirty.content) != dom_text)
+        });
+    }
+
+    /// App-set GC - the other half of convergence, for a NEW generation only
+    /// (a DOM the app just built from its model): an entry whose node now
+    /// renders a text that is neither what the user typed over
+    /// ([`DirtyTextNode::typed_over`]) nor what they typed has been SET by the
+    /// app - a clear, a fill, a formatter, a changed default - and the app's
+    /// text wins, as `input.value = ..` does in HTML. The same text as before
+    /// means the app has not adopted the typing (a raw input, a widget without
+    /// a hook): the entry stays authoritative. The typed text itself is the
+    /// equality rule's ([`Self::gc_converged_text`]); entries without a
+    /// `typed_over` are exempt.
+    ///
+    /// What this cannot see: an app that adopted the typing WITHOUT rendering
+    /// it and then set the value back to the one typed over (clear-after-send
+    /// on a field built empty). That app says so with
+    /// `CallbackInfo::mark_text_revision_synced`, or sets the text through
+    /// `ChangeNodeText` (`LayoutWindow::set_node_text`).
+    pub(crate) fn gc_app_set_text(&mut self, dom_id: DomId, styled_dom: &StyledDom) {
+        self.text.retain(|&(d, node_id), dirty| {
+            if d != dom_id {
+                return true;
+            }
+            let (Some(typed_over), Some(dom_text)) =
+                (dirty.typed_over.as_deref(), dom_text_of(styled_dom, node_id))
+            else {
+                return true;
             };
-            let dom_text = if let NodeType::Text(s) = node.get_node_type() {
-                s.as_str().to_string()
-            } else {
-                // Non-text IFC roots (contenteditable hosts): compare against
-                // the concatenated text of DIRECT text children.
-                let hierarchy = styled_dom.node_hierarchy.as_container();
-                let mut s = String::new();
-                if let Some(n) = hierarchy.get(node_id) {
-                    let mut child = n.first_child_id(node_id);
-                    while let Some(c) = child {
-                        if let Some(cd) = node_data.get(c) {
-                            if let NodeType::Text(t) = cd.get_node_type() {
-                                s.push_str(t.as_str());
-                            }
-                        }
-                        child = hierarchy
-                            .get(c)
-                            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
-                    }
-                }
-                s
-            };
-            flatten_inline_content(&dirty.content) != dom_text
+            dom_text == typed_over || dom_text == flatten_inline_content(&dirty.content)
         });
     }
 
@@ -1076,6 +1126,7 @@ mod tests {
                 cursor: None,
                 needs_ancestor_relayout: false,
                 revision,
+                typed_over: None,
             }
         }
 
@@ -1125,6 +1176,7 @@ mod tests {
                 cursor: None,
                 needs_ancestor_relayout: false,
                 revision: 0,
+                typed_over: None,
             }
         }
 

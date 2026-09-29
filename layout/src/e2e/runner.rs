@@ -2316,39 +2316,26 @@ impl Runner {
                 let Some(internal_node_id) = node_id.node.into_crate_internal() else {
                     return ProcessEventResult::DoNothing;
                 };
-                let lw = &mut self.layout_window;
-
-                // NO-OP SHORT CIRCUIT. Setting the text to the byte-identical
-                // string used to throw away the ENTIRE incremental shaped-text
-                // cache and re-shape every run in the DOM, then relayout the
-                // whole root — the maximum work in the engine, for a write that
-                // changed nothing. It also went green: the re-shape reproduces
-                // identical glyphs, so the display list is identical, so the
-                // damage is `none` and `assert_damage {"kind":"none"}` passed
-                // while the engine did everything. That IS over-invalidation,
-                // and it was invisible to every assertion the harness had.
-                let unchanged = lw.layout_results.get(&dom_id).is_some_and(|lr| {
-                    let nodes = lr.styled_dom.node_data.as_container();
-                    nodes.get(internal_node_id).is_some_and(|node| {
-                        matches!(
-                            node.get_node_type(),
-                            azul_core::dom::NodeType::Text(existing)
-                                if existing.as_str() == text.as_str()
-                        )
-                    })
-                });
-                if unchanged {
+                // The text AND what the user typed over it (the app's text
+                // wins, as `input.value = ..` does): `set_node_text`, shared
+                // with the shells.
+                //
+                // NO-OP SHORT CIRCUIT (inside it). Setting the text to the
+                // byte-identical string used to throw away the ENTIRE
+                // incremental shaped-text cache and re-shape every run in the
+                // DOM, then relayout the whole root — the maximum work in the
+                // engine, for a write that changed nothing. It also went green:
+                // the re-shape reproduces identical glyphs, so the display list
+                // is identical, so the damage is `none` and
+                // `assert_damage {"kind":"none"}` passed while the engine did
+                // everything. That IS over-invalidation, and it was invisible
+                // to every assertion the harness had. (Unless the user typed
+                // there: then the DOM agrees and the screen does not.)
+                if !self
+                    .layout_window
+                    .set_node_text(dom_id, internal_node_id, text)
+                {
                     return ProcessEventResult::DoNothing;
-                }
-
-                if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {
-                    let idx = internal_node_id.index();
-                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                        layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
-                            .set_node_type(azul_core::dom::NodeType::Text(
-                                azul_css::css::BoxOrStatic::heap(text.clone()),
-                            ));
-                    }
                 }
                 // NO cache reset (USER mandate: per-IFC text patching). The
                 // reconcile fingerprints node CONTENT, so the changed text

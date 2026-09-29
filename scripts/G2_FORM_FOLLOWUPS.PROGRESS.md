@@ -21,13 +21,16 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
 | 9 | `collect_form_data` not in api.json | STILL OPEN (list only) | `widgets/form.rs:894` is Rust-only; no FFI-shaped entry point exists. |
 
 ## DONE
-- `a1` audit (this table)
+- `3d1c5a6a9` audit (this table)
+- item 1: RED `530b34601` (+ `f6ab00b72` caret check), fix = next commit
+  (`LayoutWindow::set_node_text` shared by shell + runner; `DirtyTextNode::typed_over` +
+  `ContentOverlay::gc_app_set_text` at a new generation; `reset_form` walks every text field)
 
 ## IN PROGRESS
-- item 1
+- item 6 (password undo)
 
 ## NEXT
-- items 1, 6, 2, 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 6, 2, 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
 
 ## Open questions
 - none yet

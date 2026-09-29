@@ -1542,49 +1542,16 @@ fn clear_field(
 }
 
 /// Replace what the engine shows on the line of the field hosted at
-/// `container` with `shown` (for a password: its mask).
+/// `container` with `shown` (for a password: its mask). A `TextArea` has the
+/// same `container > p > text` shape and is re-texted here too.
 ///
-/// Two copies of the line exist and both are written: the engine's EDIT buffer
-/// - the user's uncommitted typing, which wins over the DOM until the DOM
-/// catches up - is emptied through the edit pipeline (select all, delete; the
-/// same path Backspace takes, so the post-edit notification it raises finds a
-/// mirror that already agrees), and the DOM's text is set so the two converge.
-///
-/// KNOWN LIMIT: only emptying goes through the edit buffer. Inserting a new
-/// value there would raise an `Input` the handlers would mirror a second time;
-/// a non-empty replacement therefore reaches the screen through the DOM text
-/// alone, which the edit buffer outranks while it holds typing the app has not
-/// adopted (see the W1 report, engine follow-up).
-fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId, shown: &str) {
-    use azul_core::selection::{
-        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
-    };
-
-    if shown.is_empty() {
-        let old_len = info
-            .get_node_text_content(container)
-            .map_or(0, |t| t.len());
-        if old_len > 0 {
-            if let Some(node_id) = container.node.into_crate_internal() {
-                let at = |byte: usize| TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: 0,
-                        start_byte_in_run: u32::try_from(byte).unwrap_or(u32::MAX),
-                    },
-                    affinity: CursorAffinity::Leading,
-                };
-                info.set_selection(
-                    container.dom,
-                    node_id,
-                    Selection::Range(SelectionRange {
-                        start: at(0),
-                        end: at(old_len),
-                    }),
-                );
-                info.delete_backward(container);
-            }
-        }
-    }
+/// One write, the line's text leaf: `ChangeNodeText` is the app SETTING the
+/// text, and the engine lets it supersede whatever the user typed there
+/// (`LayoutWindow::set_node_text`) - the edit buffer (the user's uncommitted
+/// typing, which otherwise outranks the DOM until the DOM catches up) is
+/// retired and the caret moves across the change. No edit is raised, so no
+/// handler mirrors the new value a second time.
+pub(crate) fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId, shown: &str) {
     if let Some(line) = info.get_first_child(container) {
         if let Some(leaf) = info.get_first_child(line) {
             info.change_node_text(leaf, AzString::from(shown));
@@ -1685,26 +1652,34 @@ fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bo
 }
 
 /// Put the field hosted at `container` back to `value` - what a form reset
-/// does. The mirror, the engine's line (see [`replace_engine_line`] for its
-/// limit) and the live looks all follow; no hook is asked, because a reset is
-/// the app's own action, reported to it through the form's `on_reset`.
+/// does. The mirror, the engine's line (whatever the user typed there is
+/// superseded, see [`replace_engine_line`]) and the live looks all follow; no
+/// hook is asked, because a reset is the app's own action, reported to it
+/// through the form's `on_reset`.
+///
+/// The line is re-texted even when the mirror already says `value`: the
+/// screen is the ENGINE's, and what it shows is not the mirror's to vouch for.
+/// A line that already shows `value` costs the engine nothing (the write is a
+/// no-op there).
 pub(crate) fn restore_text_input(
     info: &mut CallbackInfo,
     container: DomNodeId,
     wrapper: &mut TextInputStateWrapper,
     value: &str,
 ) {
-    if wrapper.inner.get_text() == value {
-        return;
-    }
+    let changed = wrapper.inner.get_text() != value;
     let looks_before = looks_of(&wrapper.inner);
-    wrapper.inner.text = to_units(value);
-    wrapper.inner.cursor_pos = value.len();
-    wrapper.inner.selection = None.into();
-    wrapper.inner.validity = validity_of(&wrapper.inner);
+    if changed {
+        wrapper.inner.text = to_units(value);
+        wrapper.inner.cursor_pos = value.len();
+        wrapper.inner.selection = None.into();
+        wrapper.inner.validity = validity_of(&wrapper.inner);
+    }
     let shown = display_text(&wrapper.inner);
     replace_engine_line(info, container, &shown);
-    sync_live_looks(info, container, looks_before, &wrapper.inner);
+    if changed {
+        sync_live_looks(info, container, looks_before, &wrapper.inner);
+    }
 }
 
 /// Paint the invalid look on the field hosted at `container` if its current
