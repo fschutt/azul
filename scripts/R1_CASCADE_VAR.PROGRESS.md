@@ -5,25 +5,21 @@ Task: cascade-level custom properties (`--name` / `var()`), design
 pitfalls 1, 2, 11.
 
 ## DONE
-- (none yet)
+- 6c4c0b13c test: RED (core/tests/custom_properties.rs, I5 epoch extension, parser2
+  shape tests, css/tests/custom_property_resolution.rs, widget var-fallback lint)
+- 20ec9b875 feat(css): CssDeclaration::CustomProperty, parser keeps definitions and
+  var() Dynamic, azul_css::custom_properties resolver, codegen + match arms
+- 989832a63 feat(core): variable pass in restyle, CustomPropertyEnvs, resolved_inline,
+  inline_properties view, context re-cascade, diff CUSTOM_PROPERTIES
 
 ## IN PROGRESS
-- RED tests
+- review pass (compile-by-reading), report
 
 ## NEXT
-1. RED: core/tests/custom_properties.rs (step-1 test, cross-sheet, inheritance, fallback,
-   cycle), I5 epoch extension, diff test, parser2 shape tests, lint test.
-2. css: `CssDeclaration::CustomProperty(CssCustomProperty)`, parser keeps `--x` and leaves
-   `var()` Dynamic (fallback chain in dynamic_id, no fallback = initial + warning),
-   resolver module `css/src/custom_properties.rs`.
-3. core: per-node env in `restyle`, css_props placeholders resolved, inline side table +
-   `CssPropertyCache::inline_properties` iterator used by every inline reader in
-   prop_cache.rs / compact.rs / styled_dom.rs.
-4. context change re-runs restyle when variables depend on it; diff marks
-   custom-property changes (CUSTOM_PROPERTIES flag, Full scope).
-5. match arms elsewhere (xml.rs, dom.rs, e2e export, widgets, reftest, codegen).
-6. lint in the widget manifest lint (layout/src/widgets/mod.rs).
-7. report.
+1. second read of every changed site for compile errors
+2. report scripts/R1_CASCADE_VAR_2026_09_29.md (api.json list, least-sure spots,
+   test commands, what is left)
 
 ## Open questions
-- (none yet)
+- icon.rs copy_appropriate_styles_vec copies static declarations only (a var() on an
+  <icon> node is dropped when the icon resolves) - pre-existing, left for the icon work.
