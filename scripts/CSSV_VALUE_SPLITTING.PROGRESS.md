@@ -29,11 +29,12 @@ Branch `wt/cssv-value-splitting`, base `d240a1b1d`.
 
 ## IN PROGRESS
 
-- Report.
+(none)
 
 ## NEXT
 
-- Report `scripts/CSSV_VALUE_SPLITTING_2026_09_29.md`.
+- Done: report `scripts/CSSV_VALUE_SPLITTING_2026_09_29.md`. The parent compiles and runs the
+  test commands listed there.
 
 ## Open questions
 
