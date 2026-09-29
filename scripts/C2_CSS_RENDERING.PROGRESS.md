@@ -10,24 +10,19 @@ Branch `wt/c2-css-rendering`, base `d9ce25179`. Nothing compiled (house rule).
 - 9bc3c0af7 docs(c2): progress
 - a66988711 test(css): an env() among a shorthand's components feeds its own sides (RED)
 - 9d8112a6d fix(css): an env() among a shorthand's components feeds only its own longhands
+- a13cdcfe8 docs(c2): progress
+- 714258f65 test(cascade): a node's own :hover block applies only when it is hovered (RED)
+- aebb26349 fix(css): a node's own :hover block becomes a :hover condition at the inline parse
+- 1e4dea28a perf(css): a shorthand value without env( skips the env component scan
+- report: scripts/C2_CSS_RENDERING_2026_09_29.md
 
 ## IN PROGRESS
-- 4. V2 P1
+- (none)
 
 ## NEXT
-- 4. V2 P1: RED (layout/tests) then fix: `Css::parse_inline` lowers node-targeting
-  pseudo-states into conditions; `Dom::set_css` keeps the selector form
-- report
-
-## Findings so far
-- Item 1 is ALREADY FIXED on the base: 3ffdafbb8 (RED) + 2b3e82c81 (fix,
-  `getters::get_box_shadows` paints each distinct slot shadow once). The new
-  test is a pin, not RED. The Rust helpers cannot become the shorthand: the
-  single slot is how style_kit's roles stack (see e37bb50a4). node_graph.rs is
-  codegen output (the shorthand's four slots) - left alone.
-- Item 4 is a real bug, worse than V2 guessed: `color: blue; :hover { color: red; }`
-  never turns red (both rules have empty conditions, the base rule comes last);
-  `:hover { color: red; }` alone is red at rest.
+- parent: compile + run the suites listed in the report; api.json autofix (parse_inline doc,
+  optional Css.parse_scoped)
+- follow-up (not this task): `form_controls::graft` lowering, keep-last shadow dedup
 
 ## Open questions
-- (none)
+- Add `Css.parse_scoped` to api.json for FFI? (recommended, see report)
