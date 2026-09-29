@@ -722,7 +722,7 @@ fn the_documents_own_stylesheet_is_the_exported_apps_stylesheet_and_the_document
     let styles = files["src/styles.rs"]
         .as_str()
         .unwrap_or_else(|| panic!("an app with a stylesheet has src/styles.rs: {files}"));
-    has(styles, "\"note\"");
+    has(styles, "pub fn style_note() -> CssPropertyWithConditionsVec");
     has(styles, "PixelValue::px(7.0)");
     has(files["src/main.rs"].as_str().expect("src/main.rs"), "mod styles;");
     // ...and the rule reaches the node it matches.

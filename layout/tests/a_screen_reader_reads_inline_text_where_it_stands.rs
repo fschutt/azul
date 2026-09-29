@@ -136,7 +136,9 @@ fn a_caret_in_an_inline_host_is_read_in_its_own_text() {
 /// `body(0) > div.p[contenteditable](1) > div.p(2) > ["a "(3),
 /// div.ib(4) > "inner"(5), " b"(6)]`
 const HOST: usize = 1;
-const IB: usize = 4;
+/// The inline-block's text: its own block is keyed by the text node (the
+/// inline-block's box holds no inline layout of its own).
+const INNER: usize = 5;
 
 fn inline_block() -> LayoutWindow {
     layout(
@@ -163,7 +165,7 @@ fn inline_block() -> LayoutWindow {
 fn an_inline_block_is_read_where_it_stands_in_its_paragraph() {
     let lw = inline_block();
     assert_ne!(
-        block_of(&lw, IB),
+        block_of(&lw, INNER),
         block_of(&lw, 2),
         "premise: the inline-block's text is a block of its own"
     );
@@ -172,7 +174,7 @@ fn an_inline_block_is_read_where_it_stands_in_its_paragraph() {
     assert_eq!(scope.text(), "a inner b", "read once, in its place");
 
     // "in|ner" is byte 4 of the host's text, and byte 4 is "in|ner".
-    let inner = block_of(&lw, IB);
+    let inner = block_of(&lw, INNER);
     let caret = lw
         .caret_at_node_byte(inner, NodeId::new(5), 2)
         .expect("premise: \"inner\" is laid out in its block");
