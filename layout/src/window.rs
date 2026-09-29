@@ -16598,6 +16598,33 @@ impl LayoutWindow {
         )
     }
 
+    /// An XML document as the E2E `mount` op installs it in place of the
+    /// app's DOM: parsed, its raw form controls replaced by widgets with THIS
+    /// window's memory ([`Self::resolve_form_controls`]), its icons resolved,
+    /// cascaded.
+    ///
+    /// The window's memory, not a throw-away one: it is where the form a
+    /// replaced checkbox or slider sits in reads its value, where a form
+    /// reset forgets what the user gave it, and what a re-mount of the same
+    /// document (a theme switch re-mounts it) hands the user's values back
+    /// from.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `XmlError` if the XML cannot be parsed.
+    #[cfg(feature = "xml")]
+    pub fn style_xml_document(
+        &self,
+        xml: &str,
+        provider: &azul_core::icon::SharedIconProvider,
+        system_style: &azul_css::system::SystemStyle,
+    ) -> Result<StyledDom, crate::xml::XmlError> {
+        crate::xml::styled_xml_document(xml, provider, system_style, |_dom| {
+            #[cfg(feature = "widgets")]
+            let _ = self.resolve_form_controls(_dom);
+        })
+    }
+
     /// THE path from a user `Dom` to a `StyledDom`: replace raw form controls
     /// by widgets, resolve `<icon>` nodes, then cascade (the full order is on
     /// [`Self::style_user_dom_in_scope`]).

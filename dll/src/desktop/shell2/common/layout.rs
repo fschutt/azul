@@ -903,11 +903,10 @@ pub fn regenerate_layout(
                 // Keep the already-mounted DOM (with any debug DOM mutations
                 // applied to it) instead of rebuilding it from the XML.
                 Some(styled) => styled,
-                None => match azul_layout::xml::parse_xml_to_styled_dom_resolving_icons(
-                    &xml,
-                    icon_provider,
-                    system_style,
-                ) {
+                // With THIS window's form-control memory: the document's
+                // replaced controls report their values to its forms, and a
+                // re-mount (a theme switch) keeps what the user gave them.
+                None => match layout_window.style_xml_document(&xml, icon_provider, system_style) {
                     Ok(styled) => {
                         log_debug!(
                             LogCategory::Layout,

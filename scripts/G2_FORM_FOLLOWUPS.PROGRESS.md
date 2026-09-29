@@ -30,11 +30,16 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
 - item 6: RED `42d80d0a9`, fix = next commit (`record_text_edit_undo` records nothing for a
   `type=password` host, `LayoutWindow::is_password_field`)
 
+- item 6 fix `826c75a76`
+- item 2: RED `aa9759757`, fix = next commit (`LayoutWindow::style_xml_document`; one generator
+  `xml::styled_xml_document` behind it and `parse_xml_to_styled_dom_resolving_icons`; the DLL
+  mount calls the window's)
+
 ## IN PROGRESS
-- item 2 (XML mount memory)
+- item 3 (raw `<button>`)
 
 ## NEXT
-- items 2, 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
 
 ## Open questions
 - none yet
