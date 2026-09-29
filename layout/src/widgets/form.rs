@@ -446,6 +446,47 @@ fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> 
     value_attribute.map(|value| ControlValue { value, valid: true })
 }
 
+/// Whether `dataset` is the state of a control this module reads.
+fn is_control_state(dataset: &RefAny) -> bool {
+    let mut d = dataset.clone();
+    d.downcast_ref::<TextInputStateWrapper>().is_some()
+        || d.downcast_ref::<DatePickerData>().is_some()
+        || d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some()
+}
+
+/// The dataset of an UNSTYLED named node: its own, or - for a widget whose
+/// root is a wrapper around the field holding the state (a `type=search`
+/// row, or a root the form-control replacement put the `name` on) - its first
+/// child's, when that is a control's state.
+fn built_control_state(named: &Dom) -> Option<RefAny> {
+    if let Some(own) = named.root.get_dataset() {
+        return Some(own.clone());
+    }
+    named
+        .children
+        .as_ref()
+        .first()
+        .and_then(|child| child.root.get_dataset())
+        .filter(|ds| is_control_state(ds))
+        .cloned()
+}
+
+/// [`built_control_state`] for a RENDERED named node: the node holding the
+/// state (the named node or its first child) and the state.
+fn control_state(info: &mut CallbackInfo, named: DomNodeId) -> (DomNodeId, Option<RefAny>) {
+    if let Some(own) = info.get_dataset(named) {
+        return (named, Some(own));
+    }
+    if let Some(child) = info.get_first_child(named) {
+        if let Some(ds) = info.get_dataset(child) {
+            if is_control_state(&ds) {
+                return (child, Some(ds));
+            }
+        }
+    }
+    (named, None)
+}
+
 /// The `name` attribute among `attributes`.
 fn name_of(attributes: &[AttributeType]) -> Option<AzString> {
     attributes.iter().find_map(|a| match a {
@@ -469,7 +510,7 @@ fn collect_initial(children: &[Dom], entries: &mut Vec<FormEntry>, invalid: &mut
         let attributes = child.root.attributes();
         if let Some(name) = name_of(attributes.as_ref()) {
             let value = control_value(
-                child.root.get_dataset().cloned(),
+                built_control_state(child),
                 value_attribute_of(attributes.as_ref()),
             );
             if let Some(value) = value {
@@ -527,12 +568,12 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
     let mut invalid = Vec::new();
     let mut invalid_nodes = Vec::new();
     for (node, name) in named_controls(info, form) {
-        let dataset = info.get_dataset(node);
+        let (field, dataset) = control_state(info, node);
         let value_attribute = info.get_node_attribute(node, "value");
         if let Some(value) = control_value(dataset, value_attribute) {
             if !value.valid {
                 invalid.push(name.clone());
-                invalid_nodes.push(node);
+                invalid_nodes.push(field);
             }
             entries.push(FormEntry {
                 name,
@@ -636,9 +677,15 @@ pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
         else {
             continue;
         };
-        if let Some(mut field) = info.get_dataset(node) {
+        let (field_node, dataset) = control_state(info, node);
+        if let Some(mut field) = dataset {
             if let Some(mut w) = field.downcast_mut::<TextInputStateWrapper>() {
-                crate::widgets::text_input::restore_text_input(info, node, &mut w, value.as_str());
+                crate::widgets::text_input::restore_text_input(
+                    info,
+                    field_node,
+                    &mut w,
+                    value.as_str(),
+                );
             }
         }
     }
