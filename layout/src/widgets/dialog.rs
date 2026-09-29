@@ -336,7 +336,7 @@ pub struct Dialog {
     /// Style of a modal dialog's `::backdrop` (its window's root), or `None`
     /// for the default dim.
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the dialog's parts are
     /// built from, so switching it rebuilds the dialog.
     pub theme: OptionUiTheme,
@@ -366,8 +366,8 @@ impl Dialog {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the dialog renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the dialog follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -612,12 +612,15 @@ impl Dialog {
     /// dialog's `<transient-window>`.
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
-    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
+    /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
+    /// dialog follows the APP theme: built in the structure of the theme
+    /// its DOM is built for, carrying every theme's blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::dialog(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::dialog(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::dialog(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -805,6 +808,44 @@ pub(crate) fn skin_for(theme: UiTheme) -> DialogSkin {
     match theme {
         UiTheme::Flat => crate::widgets::themes::flat::dialog_skin(),
         UiTheme::Flora => crate::widgets::themes::flora::dialog_skin(),
+    }
+}
+
+/// The skin an UNPINNED dialog or modal is built with, so it follows the
+/// app theme: `structure`'s theme (its marker goes on the wrapper) and every
+/// part in BOTH themes' blocks (`themes::flat::follow_props`) - the cascade
+/// keeps the live theme's.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> DialogSkin {
+    follow_skins(structure, skin_for(UiTheme::Flat), skin_for(UiTheme::Flora))
+}
+
+/// `flat` and `flora` merged part by part under `structure` - what
+/// [`follow_skin`] and the popover (which swaps in its own panels first)
+/// build with.
+#[must_use]
+pub(crate) fn follow_skins(structure: UiTheme, flat: DialogSkin, flora: DialogSkin) -> DialogSkin {
+    use crate::widgets::themes::flat::follow_props as both;
+    DialogSkin {
+        theme: structure,
+        panel: both(flat.panel.as_slice(), flora.panel.as_slice()),
+        title: both(flat.title.as_slice(), flora.title.as_slice()),
+        close_row: both(flat.close_row.as_slice(), flora.close_row.as_slice()),
+        close: both(flat.close.as_slice(), flora.close.as_slice()),
+        content: both(flat.content.as_slice(), flora.content.as_slice()),
+        backdrop: both(flat.backdrop.as_slice(), flora.backdrop.as_slice()),
+    }
+}
+
+/// The skin a dialog or modal carrying `theme` renders with: the pinned
+/// theme's, or - unpinned - [`follow_skin`] in the structure of the theme
+/// the DOM is built for. What the renders and the style resolvers
+/// (`Modal::resolved_backdrop_style`) both ask, so they cannot drift.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> DialogSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
     }
 }
 

@@ -19,15 +19,20 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
 
 ## DONE
 
-(none yet)
+- plan f8fdaae5e
+- helper: RED 26e1fe2e4, impl f4cfefa2a (`flat::{follow_props, follow_dom, follow_app_theme}`)
+- dialog / modal / popover: RED a413d272d (+ the integration file), impl: see git log
+  (`dialog::{follow_skin, follow_skins, skin_of}`, `popover::follow_popover_skin`; the modal /
+  popover resolvers answer the follow skin when unpinned; their two "default resolver = flat"
+  pins now pin `with_theme(Flat)`)
 
 ## IN PROGRESS
 
-- plan
+- tooltip
 
 ## NEXT
 
-helper, then dialog/modal/popover, tooltip, split_pane, radio_group, time_picker, toast,
+tooltip, split_pane, radio_group, time_picker, toast,
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).

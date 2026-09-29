@@ -38,8 +38,8 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         dialog::{
-            build_dialog, skin_for, DialogClasses, DialogClosedBy, DialogCompat, DialogParts,
-            DialogSkin, OptionDialogOnCancel, OptionDialogOnClose,
+            build_dialog, follow_skin, skin_of, DialogClasses, DialogClosedBy, DialogCompat,
+            DialogParts, DialogSkin, OptionDialogOnCancel, OptionDialogOnClose,
         },
         themes::{OptionUiTheme, UiTheme},
     },
@@ -97,7 +97,7 @@ pub struct Modal {
     /// Style of the `::backdrop` - the modal window's root, which fills the
     /// window and centres the panel - or `None` for the default dim.
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the modal's parts are
     /// built from, so switching it rebuilds the modal.
     pub theme: OptionUiTheme,
@@ -142,13 +142,14 @@ impl Modal {
     /// not a style: the backdrop is the root of the modal's own window.
     #[must_use]
     pub fn resolved_backdrop_style(&self) -> CssPropertyWithConditionsVec {
-        self.backdrop_style.clone().into_option().unwrap_or_else(|| {
-            skin_for(self.theme.into_option().unwrap_or_default()).backdrop
-        })
+        self.backdrop_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).backdrop)
     }
 
-    /// Pick the widget theme. Unset (`None`), the modal renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the modal follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -257,12 +258,16 @@ impl Modal {
     /// the `__azul-native-modal-panel`.
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
-    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
+    /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
+    /// modal follows the APP theme: built in the structure of the theme its
+    /// DOM is built for, carrying every theme's blocks
+    /// (`dialog::follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::modal(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::modal(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::modal(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -488,7 +493,12 @@ mod tests {
         assert!(m.show_close_button);
         assert!(m.title.as_str().is_empty());
         assert!(m.modal_state.on_close.is_none());
-        assert_eq!(m.resolved_backdrop_style(), default_backdrop_style());
+        // Flat's backdrop is the default dim (an unpinned modal answers with
+        // every theme's blocks - `dialog::follow_skin`).
+        assert_eq!(
+            m.clone().with_theme(UiTheme::Flat).resolved_backdrop_style(),
+            default_backdrop_style()
+        );
         assert_eq!(Modal::default(), Modal::create(Dom::default()));
     }
 

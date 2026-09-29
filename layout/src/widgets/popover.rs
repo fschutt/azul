@@ -55,8 +55,8 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         dialog::{
-            build_dialog, DialogClasses, DialogClosedBy, DialogCompat, DialogParts, DialogSkin,
-            OptionDialogOnCancel, OptionDialogOnClose,
+            build_dialog, follow_skins, DialogClasses, DialogClosedBy, DialogCompat, DialogParts,
+            DialogSkin, OptionDialogOnCancel, OptionDialogOnClose,
         },
         themes::{OptionUiTheme, UiTheme},
     },
@@ -142,7 +142,7 @@ pub struct Popover {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub content_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the panel is built
     /// from, so switching it rebuilds the popover.
     pub theme: OptionUiTheme,
@@ -275,6 +275,20 @@ pub(crate) fn build_panel_style() -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// The skin an UNPINNED popover is built with, so it follows the app theme:
+/// each theme's dialog skin with that theme's popover panel swapped in (what
+/// `themes::flat::popover` / `themes::flora::popover` do), merged part by
+/// part under `structure` (`dialog::follow_skins`).
+#[must_use]
+fn follow_popover_skin(structure: UiTheme) -> DialogSkin {
+    use crate::widgets::themes::{flat, flora};
+    let mut flat_skin = flat::dialog_skin();
+    flat_skin.panel = flat::popover_panel_style();
+    let mut flora_skin = flora::dialog_skin();
+    flora_skin.panel = flora::popover_panel_style();
+    follow_skins(structure, flat_skin, flora_skin)
+}
+
 impl Popover {
     /// Creates a popover whose `anchor`, when clicked, shows a panel holding
     /// `content`. The panel starts closed.
@@ -290,8 +304,8 @@ impl Popover {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the popover renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the popover follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -323,9 +337,16 @@ impl Popover {
     #[must_use]
     pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
         self.content_style.clone().into_option().unwrap_or_else(|| {
-            match self.theme.into_option().unwrap_or_default() {
-                UiTheme::Flat => crate::widgets::themes::flat::popover_panel_style(),
-                UiTheme::Flora => crate::widgets::themes::flora::popover_panel_style(),
+            use crate::widgets::themes::{flat, flora};
+            match self.theme.into_option() {
+                Some(UiTheme::Flat) => flat::popover_panel_style(),
+                Some(UiTheme::Flora) => flora::popover_panel_style(),
+                // Unpinned: every theme's panel, as `follow_popover_skin`
+                // puts it on the render.
+                None => flat::follow_props(
+                    flat::popover_panel_style().as_slice(),
+                    flora::popover_panel_style().as_slice(),
+                ),
             }
         })
     }
@@ -384,12 +405,16 @@ impl Popover {
     /// `<transient-window>` (the panel is `__azul-native-popover-content`).
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
-    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
+    /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
+    /// popover follows the APP theme: built in the structure of the theme
+    /// its DOM is built for, carrying every theme's blocks
+    /// (`follow_popover_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::popover(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::popover(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::popover(self),
+            None => self.build(follow_popover_skin(UiTheme::current())),
         }
     }
 
@@ -692,7 +717,12 @@ mod tests {
         assert_eq!(pop.content, content);
         assert!(!pop.popover_state.inner.open);
         assert!(pop.popover_state.on_toggle.is_none());
-        assert_eq!(pop.resolved_content_style(), build_panel_style());
+        // Flat's panel is the established one (an unpinned popover answers
+        // with every theme's blocks - `follow_popover_skin`).
+        assert_eq!(
+            pop.clone().with_theme(UiTheme::Flat).resolved_content_style(),
+            build_panel_style()
+        );
         assert_eq!(
             pop.resolved_wrapper_style(),
             CssPropertyWithConditionsVec::from_const_slice(POPOVER_WRAPPER_STYLE)
