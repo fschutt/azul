@@ -5838,10 +5838,12 @@ pub(crate) fn statusbar_style(
 // window chrome, one step deeper than the ribbon's toolbar strip under it,
 // with the window's title in `--fl-intro` and the glyphs in `--fl-icon` (the
 // customize chevron in `--fl-soft2`). Every action and window control is a
-// toolbar key. The close key warms to clay under the pointer - flora's
-// warning stone (`--fl-clay`) as a soft wash by day, its deep by night, rimmed
-// in its glow, and the stone itself while held: the caption red of a desktop
-// titlebar, said in flora's palette.
+// toolbar key. The close key warms to clay under the pointer - flora's red
+// alternate, the stone its danger commands are cut from ([`STONE_CLAY`]) - as
+// a soft wash by day and its deep by night, rimmed in its glow, and deepens
+// while held (the glow by day, the stone by night): the caption red of a
+// desktop titlebar, said in flora's palette. The glyph keeps its ink on both
+// washes.
 
 /// Flora's title band: every part the caller left `None` in `s` filled with
 /// flora's paint on the flat part's geometry (see the chrome section above).

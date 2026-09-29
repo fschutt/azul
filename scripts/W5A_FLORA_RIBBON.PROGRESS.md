@@ -18,16 +18,16 @@ follows the app theme through `theme_blocks::{follow_app_theme, follow_dom}`
 ## DONE
 - 380e204f4 plumbing: theme option + pin pass-down + marker, all three;
   style-reading unit tests pinned to Flat
-- RED (this commit): widget `flora_tests` modules (ribbon/statusbar/
-  quick_access), `flora::{CHROME_METRICS, chrome_metric_findings}` test
-  helpers, integration follow tests + flora-look-of-its-own guard (single-
-  look guard lost the three), light/dark harness entry
+- 4637a0edc RED: widget `flora_tests`, `flora::chrome_metric_findings`,
+  integration follow tests + own-look guard, light/dark harness entry
+- 0d39eebd4 flora looks (flora.rs chrome section, decl right-edge helper)
+- report scripts/W5A_FLORA_RIBBON_2026_09_29.md (this commit)
 
 ## IN PROGRESS
-- flora looks in flora.rs (`// ==== chrome ... ====` section + per widget)
+- none
 
 ## NEXT
-- report scripts/W5A_FLORA_RIBBON_2026_09_29.md
+- parent: compile after U1 lands, run the commands in the report
 
 ## Open questions
-- none
+- see report section 4 (design guesses) and 7 (Ribbon field order / padding)
