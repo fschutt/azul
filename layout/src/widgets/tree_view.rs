@@ -173,7 +173,7 @@ const ICON_COLOR: ColorU = ColorU {
 
 // -- Tree container style --
 
-static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
     )),
@@ -199,7 +199,7 @@ static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 
 // -- Row style (each tree node row) --
 
-static ROW_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -229,7 +229,7 @@ static ROW_STYLE: &[CssPropertyWithConditions] = &[
 // const-slice styling does not support runtime composition. If you change
 // padding/layout in ROW_STYLE, update ROW_SELECTED_STYLE to match.
 
-static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -261,7 +261,7 @@ static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
 
 // -- Children container style --
 
-static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -275,7 +275,7 @@ static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
 // NOTE: Icon font-size (16px) must match LEAF_SPACER_STYLE width so that
 // leaf nodes align with parent nodes that have a disclosure icon.
 
-static ICON_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -288,14 +288,14 @@ static ICON_STYLE: &[CssPropertyWithConditions] = &[
 
 // -- Leaf spacer (same width as icon, for alignment) --
 
-static LEAF_SPACER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static LEAF_SPACER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
 // -- Label style --
 
-static LABEL_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(4),
@@ -396,6 +396,10 @@ pub struct TreeView {
     /// (Right on a closed parent, Left on an open one). Without it those two
     /// keys do nothing; every other key of the tree works regardless.
     pub on_node_toggle: OptionTreeViewOnNodeToggle,
+    /// The widget theme this tree is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl TreeView {
@@ -406,7 +410,21 @@ impl TreeView {
             root,
             on_node_click: None.into(),
             on_node_toggle: None.into(),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the tree keeps this look whatever the app theme
+    /// is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the callback invoked when any tree node is clicked.
@@ -458,19 +476,35 @@ impl TreeView {
     }
 
     /// Renders the tree view into a [`Dom`] subtree.
+    ///
+    /// The look comes from the theme module (`themes::flat::tree_view_look` /
+    /// `themes::flora::tree_view_look`); with no theme pinned every part
+    /// carries both looks, each in its `@theme(<name>)` block, and the app
+    /// theme picks. The rows, the roving Tab stop, the click and the arrow
+    /// keys are the same in every theme.
     #[must_use]
     pub fn dom(self) -> Dom {
         const TREE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_CLASS_NAME))];
 
+        let look = TreeViewLook::of(self.theme);
         let root = self.root;
         // WAI-ARIA APG tree view: the tree is ONE Tab stop - the first VISIBLE
         // selected row, or the first row when none is. The arrow keys move
         // within it (`on_tree_row_key`).
         let stop = first_visible_selected(&root, &mut 0).unwrap_or(0);
+        let container = look.container.clone();
+        let classes = match look.marker {
+            None => IdOrClassVec::from_const_slice(TREE_CLASS),
+            Some(marker) => IdOrClassVec::from_vec(vec![
+                Class(AzString::from_const_str(TREE_CLASS_NAME)),
+                Class(AzString::from_const_str(marker)),
+            ]),
+        };
         let rows = RowContext {
             on_click: self.on_node_click,
             on_toggle: self.on_node_toggle,
             stop,
+            look,
         };
 
         let mut children = Vec::new();
@@ -478,11 +512,73 @@ impl TreeView {
         render_rows(&root, &rows, &mut index, &mut children);
 
         Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                TREE_CONTAINER_STYLE,
-            ))
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_CLASS))
+            .with_css_props(container)
+            .with_ids_and_classes(classes)
             .with_children(DomVec::from_vec(children))
+    }
+}
+
+/// What a theme gives a tree view: one style per part, and the marker class
+/// its root carries (`None` for flat, whose root carries none). The rows, the
+/// roving Tab stop, the click and the arrow keys are the widget's, the same
+/// in every theme; a selected row's disclosure icon and label have a style of
+/// their own so a look can write them in the selection's ink.
+#[derive(Debug, Clone)]
+pub(crate) struct TreeViewLook {
+    /// The tree's own surface.
+    pub(crate) container: CssPropertyWithConditionsVec,
+    /// A row.
+    pub(crate) row: CssPropertyWithConditionsVec,
+    /// A selected row.
+    pub(crate) row_selected: CssPropertyWithConditionsVec,
+    /// The container an open parent's children sit in (the indent).
+    pub(crate) children: CssPropertyWithConditionsVec,
+    /// The disclosure icon of a parent row.
+    pub(crate) icon: CssPropertyWithConditionsVec,
+    /// The disclosure icon of a selected parent row.
+    pub(crate) icon_selected: CssPropertyWithConditionsVec,
+    /// The empty block a leaf row keeps in the icon's place.
+    pub(crate) leaf_spacer: CssPropertyWithConditionsVec,
+    /// A row's label.
+    pub(crate) label: CssPropertyWithConditionsVec,
+    /// A selected row's label.
+    pub(crate) label_selected: CssPropertyWithConditionsVec,
+    /// The theme marker class on the tree's root, if the look has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl TreeViewLook {
+    /// The look `theme` pins, or - unpinned - the look that follows the app
+    /// theme: every part carries both themes' declarations, each theme's in
+    /// its `@theme(<name>)` block (`theme_blocks::follow_props`), and the root
+    /// the marker of the theme the DOM is built for.
+    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match theme.into_option() {
+            Some(UiTheme::Flat) => flat::tree_view_look(),
+            Some(UiTheme::Flora) => flora::tree_view_look(),
+            None => {
+                let (a, b) = (flat::tree_view_look(), flora::tree_view_look());
+                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
+                    follow_props(x.as_ref(), y.as_ref())
+                };
+                Self {
+                    container: both(&a.container, &b.container),
+                    row: both(&a.row, &b.row),
+                    row_selected: both(&a.row_selected, &b.row_selected),
+                    children: both(&a.children, &b.children),
+                    icon: both(&a.icon, &b.icon),
+                    icon_selected: both(&a.icon_selected, &b.icon_selected),
+                    leaf_spacer: both(&a.leaf_spacer, &b.leaf_spacer),
+                    label: both(&a.label, &b.label),
+                    label_selected: both(&a.label_selected, &b.label_selected),
+                    marker: match UiTheme::current() {
+                        UiTheme::Flat => a.marker,
+                        UiTheme::Flora => b.marker,
+                    },
+                }
+            }
+        }
     }
 }
 
@@ -496,6 +592,8 @@ struct RowContext {
     on_toggle: OptionTreeViewOnNodeToggle,
     /// The depth-first index of the row that holds the tree's one Tab stop.
     stop: usize,
+    /// The styles every row, icon, label and children container takes.
+    look: TreeViewLook,
 }
 
 /// The depth-first index of the first selected node a user can SEE (every
@@ -522,8 +620,8 @@ fn first_visible_selected(node: &TreeViewNode, index: &mut usize) -> Option<usiz
     None
 }
 
-/// `render_rows` with no toggle hook and the first row as the Tab stop - the
-/// shape the rendering tests drive directly.
+/// `render_rows` with no toggle hook, the first row as the Tab stop and the
+/// flat look - the shape the rendering tests drive directly.
 #[cfg(test)]
 fn render_node(
     node: &TreeViewNode,
@@ -535,6 +633,7 @@ fn render_node(
         on_click: on_click.clone(),
         on_toggle: None.into(),
         stop: *index,
+        look: crate::widgets::themes::flat::tree_view_look(),
     };
     render_rows(node, &rows, index, out);
 }
@@ -544,12 +643,13 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
     *index += 1;
 
     let has_children = !node.children.as_slice().is_empty();
+    let look = &rows.look;
 
-    // Choose row style based on selection state
-    let row_style = if node.is_selected {
-        ROW_SELECTED_STYLE
+    // Choose the row's parts by selection state
+    let (row_style, icon_style, label_style) = if node.is_selected {
+        (&look.row_selected, &look.icon_selected, &look.label_selected)
     } else {
-        ROW_STYLE
+        (&look.row, &look.icon, &look.label)
     };
 
     // Build the disclosure icon or spacer
@@ -559,23 +659,20 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         } else {
             "chevron_right"
         };
-        Dom::create_icon(AzString::from_const_str(icon_name))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ICON_STYLE))
+        Dom::create_icon(AzString::from_const_str(icon_name)).with_css_props(icon_style.clone())
     } else {
         // Empty spacer for leaf alignment
-        Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            LEAF_SPACER_STYLE,
-        ))
+        Dom::create_div().with_css_props(look.leaf_spacer.clone())
     };
 
     // Build the label
-    let label = crate::widgets::widget_p_with_text(node.label.clone())
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE));
+    let label =
+        crate::widgets::widget_p_with_text(node.label.clone()).with_css_props(label_style.clone());
 
     // Build the row: one Tab stop per tree (the roving tabindex), the arrow
     // keys on every row, the click only when the app listens for it.
     let mut row = Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(row_style))
+        .with_css_props(row_style.clone())
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_ROW_CLASS))
         .with_tab_index(crate::widgets::roving::item_tab_index(
             current_index,
@@ -635,9 +732,7 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         }
 
         let children_container = Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                CHILDREN_STYLE,
-            ))
+            .with_css_props(look.children.clone())
             .with_children(DomVec::from_vec(child_doms));
 
         out.push(children_container);
@@ -864,10 +959,17 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        widgets::roving::test_support as rv,
+        widgets::{roving::test_support as rv, themes::UiTheme},
         window::LayoutWindow,
         window_state::FullWindowState,
     };
+
+    /// `tv` in the FLAT look: the tests below compare rendered styles with
+    /// the flat const slices, which an unpinned tree (following the app
+    /// theme) carries inside its `@theme(flat)` block.
+    fn flat_dom(tv: TreeView) -> Dom {
+        tv.with_theme(UiTheme::Flat).dom()
+    }
 
     // ------------------------------------------------------------------
     // Fixtures: trees
@@ -1770,7 +1872,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_root_carries_the_container_class_and_style() {
-        let dom = TreeView::new(leaf("root")).dom();
+        let dom = flat_dom(TreeView::new(leaf("root")));
 
         let classes = dom.root.get_ids_and_classes();
         assert!(
@@ -1788,7 +1890,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_leaf_renders_a_spacer_and_no_icon() {
-        let dom = TreeView::new(leaf("only")).dom();
+        let dom = flat_dom(TreeView::new(leaf("only")));
         assert_eq!(dom.children.as_ref().len(), 1, "a leaf emits just its row");
 
         let row = &dom.children.as_ref()[0];
@@ -1812,7 +1914,7 @@ mod autotest_generated {
             .with_child(leaf("a"))
             .with_child(leaf("b"))
             .with_expanded(true);
-        let dom = TreeView::new(tree).dom();
+        let dom = flat_dom(TreeView::new(tree));
 
         assert_eq!(
             dom.children.as_ref().len(),
@@ -1850,7 +1952,7 @@ mod autotest_generated {
     #[test]
     fn dom_expanded_but_childless_node_still_renders_a_spacer() {
         // `is_expanded` is documented as meaningful only with children.
-        let dom = TreeView::new(leaf("empty").with_expanded(true)).dom();
+        let dom = flat_dom(TreeView::new(leaf("empty").with_expanded(true)));
         assert_eq!(dom.children.as_ref().len(), 1, "nothing to expand into");
         let (icon, _) = row_parts(&dom.children.as_ref()[0]);
         assert_eq!(icon_of(icon), None);
@@ -1863,7 +1965,7 @@ mod autotest_generated {
             .with_expanded(true)
             .with_child(leaf("a").with_selected(true))
             .with_child(leaf("b"));
-        let dom = TreeView::new(tree).dom();
+        let dom = flat_dom(TreeView::new(tree));
         let rows = rows_of(dom.children.as_ref());
         assert_eq!(rows.len(), 3);
 

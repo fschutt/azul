@@ -4487,3 +4487,30 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
 pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
     c.build(combobox_skin())
 }
+
+// ==== tree_view ====
+//
+// The flat tree is the widget's established look, unchanged: a near-white
+// field (the list view's surface) in the system font, rows that wash on hover
+// (`ROW_HOVER`, with its dark twin), the selected row in the Windows accent
+// with white ink, a 16px indent per level. Its selected row's icon and label
+// keep the resting styles, as they always had.
+
+/// Flat's tree-view look: the tree's established const styles.
+#[must_use]
+pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
+    use crate::widgets::tree_view as t;
+    let part = CssPropertyWithConditionsVec::from_const_slice;
+    t::TreeViewLook {
+        container: part(t::TREE_CONTAINER_STYLE),
+        row: part(t::ROW_STYLE),
+        row_selected: part(t::ROW_SELECTED_STYLE),
+        children: part(t::CHILDREN_STYLE),
+        icon: part(t::ICON_STYLE),
+        icon_selected: part(t::ICON_STYLE),
+        leaf_spacer: part(t::LEAF_SPACER_STYLE),
+        label: part(t::LABEL_STYLE),
+        label_selected: part(t::LABEL_STYLE),
+        marker: None,
+    }
+}

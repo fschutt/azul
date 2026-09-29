@@ -5891,3 +5891,13 @@ pub(crate) fn quick_access_style(
     });
     s
 }
+
+// ==== tree_view ====
+//
+// PLACEHOLDER until the flora tree lands: the flat look.
+
+/// Flora's tree-view look.
+#[must_use]
+pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
+    super::flat::tree_view_look()
+}
