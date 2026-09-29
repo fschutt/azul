@@ -3193,7 +3193,8 @@ pub struct TranslateBlitResult {
 /// One blit PER MOVER RECT (never the union — the gaps between movers are
 /// static backdrop that must not be dragged). Clip per mover =
 /// old∪(old+delta) so both the vacated source and the destination lie
-/// inside the memmove region; exposed strips repaint per mover.
+/// inside the memmove region; exposed strips repaint per mover, and so do
+/// the scrollbars painted over a mover, which the memmove dragged.
 #[must_use]
 pub fn execute_translate_blit(
     output: &mut AzulPixmap,
@@ -3239,6 +3240,7 @@ pub fn execute_translate_blit(
             },
         };
         let strips = scroll_shift_region_exact(output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
+        let moved = !strips.is_empty();
         // Inflate the vacated strips by 1px: LCD fringe of a run hugging the
         // mover's edge hangs one device pixel OUTSIDE the mover rect, so the
         // un-inflated vacated region leaves that column stale after the move
@@ -3291,10 +3293,41 @@ pub fn execute_translate_blit(
                 }
             }
         }
+        // What is painted OVER a mover without moving with it: a scroll
+        // container's bar (the viewport's tops the whole page). It is the
+        // bar of the movers' ANCESTOR, which `compute_patch_move_summary`
+        // takes to paint below them, yet a box paints its bar after its
+        // content. The memmove dragged the part of the bar inside `clip` by
+        // the move, and an unchanged bar is in no diff's damage: the old
+        // thumb stayed where the move put it. Repaint that part where it is
+        // and where its pixels were dragged to. (The hint is refused while
+        // anything is scrolled - `translate_hint_for_patch` - so the list's
+        // bounds are where things are painted.)
+        if moved {
+            for bar in new_display_list.items.iter().filter_map(scrollbar_bounds) {
+                let under = intersect_logical_rects(bar, clip);
+                if under.size.width > 0.0 && under.size.height > 0.0 {
+                    res.damage.push(under);
+                    res.damage.push(intersect_logical_rects(
+                        moved_by(under, (-d.0, -d.1)),
+                        clip,
+                    ));
+                }
+            }
+        }
         res.present_extra.push(clip);
     }
     res.damage.extend(exceptions.iter().copied());
     res
+}
+
+/// If `it` draws a scrollbar, the bar's bounds (track and buttons).
+fn scrollbar_bounds(it: &DisplayListItem) -> Option<LogicalRect> {
+    match it {
+        DisplayListItem::ScrollBarStyled { info } => Some(*info.bounds.inner()),
+        DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds.inner()),
+        _ => None,
+    }
 }
 
 /// [`compute_display_list_damage`] + the translate hint. Returns
