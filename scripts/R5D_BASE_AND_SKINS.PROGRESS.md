@@ -10,15 +10,16 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
   border-box; `circle_style_declares_the_same_property_set_for_both_states` 18 -> 19.
 - d70ed0c15 GREEN tabs: `HEADER_BASE` / `AFTER_BASE` / `TAB_BASE` / `PANEL_BASE`; allowed header
   align-items and before-tabs flex-grow; 4 flat-const comparisons now compare with the flat look.
+- 55902f260 RED text_input: `the_clear_button_shows_with_the_display_a_filled_field_builds_it_with`.
+- 59a6d3ada GREEN text_input: `SEARCH_FIELD_BASE`, `search_clear_base`, `SEARCH_CLEAR_SHOWN` (flex, also
+  the live show).
 
 ## IN PROGRESS
 
-- GREEN text_input.
+- GREEN time_picker / toast / tooltip / tree_view.
 
 ## NEXT
 
-3. GREEN text_input: search row base + clear-button base (display flex/none, justify/align center);
-   live show writes `flex`.
 4. GREEN (already shared, flora restates): time_picker, toast, tooltip, tree_view bases.
 5. Report `scripts/R5D_BASE_AND_SKINS_2026_09_29.md`.
 
