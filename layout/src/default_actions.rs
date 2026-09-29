@@ -588,7 +588,8 @@ fn spatial_navigation_action(
     else {
         return StyleSpatialNavigationAction::Auto;
     };
-    let Some(sn) = lr.styled_dom.styled_nodes.as_container().get(container) else {
+    let styled_nodes = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = styled_nodes.get(container) else {
         return StyleSpatialNavigationAction::Auto;
     };
     match get_spatial_navigation_action(&lr.styled_dom, container, &sn.styled_node_state) {

@@ -4566,12 +4566,10 @@ pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] = [LIGHT_OPTION_HOVER, DARK
 /// (`theme_blocks::follow_props`), so the part is simply the two lists one
 /// after the other - no `@theme` rank to keep (`theme_blocks::stack_parts`
 /// is for stacking parts that already carry theme blocks).
+/// (`decl::on_base` as the vector type flat's builders answer.)
 fn on_base(
     base: &[CssPropertyWithConditions],
     skin: &[CssPropertyWithConditions],
 ) -> CssPropertyWithConditionsVec {
-    let mut v = Vec::with_capacity(base.len() + skin.len());
-    v.extend_from_slice(base);
-    v.extend_from_slice(skin);
-    CssPropertyWithConditionsVec::from_vec(v)
+    CssPropertyWithConditionsVec::from_vec(super::decl::on_base(base, skin))
 }
