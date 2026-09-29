@@ -11,14 +11,16 @@ pitfalls 1, 2, 11.
   var() Dynamic, azul_css::custom_properties resolver, codegen + match arms
 - 989832a63 feat(core): variable pass in restyle, CustomPropertyEnvs, resolved_inline,
   inline_properties view, context re-cascade, diff CUSTOM_PROPERTIES
+- ddc5e3b92 docs(guide), b7efc5199 test helper, 1bf8908e4 relayout scope of var()
+- read-only review agent: no compile error found; findings fixed or in the report
+- report: scripts/R1_CASCADE_VAR_2026_09_29.md
 
 ## IN PROGRESS
-- review pass (compile-by-reading), report
+- (none)
 
 ## NEXT
-1. second read of every changed site for compile errors
-2. report scripts/R1_CASCADE_VAR_2026_09_29.md (api.json list, least-sure spots,
-   test commands, what is left)
+- parent: compile, run the suites in the report, apply the api.json entries via autofix and
+  regenerate (blocking: FFI enum mismatch until then)
 
 ## Open questions
 - icon.rs copy_appropriate_styles_vec copies static declarations only (a var() on an
