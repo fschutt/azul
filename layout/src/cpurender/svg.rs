@@ -153,8 +153,16 @@ fn rasterize_svg(
     paint: &SvgPaintContext,
 ) -> Result<AzulPixmap, String> {
     with_svg_root(svg_data, |svg_node| -> Result<AzulPixmap, String> {
-        // Parse viewBox for coordinate mapping
-        let vb = parse_viewbox(svg_node);
+        // Parse viewBox for coordinate mapping. An ABSENT viewBox is
+        // `0 0 <width> <height>` (SVG's own sizing rule), not "the target's
+        // pixels": an icon written `width="16" height="16"` rasterised at 2x
+        // would otherwise draw its 16 units into a quarter of the image.
+        let vb = parse_viewbox(svg_node).or_else(|| {
+            match (svg_length(svg_node, "width"), svg_length(svg_node, "height")) {
+                (Some(w), Some(h)) => Some((0.0, 0.0, f64::from(w), f64::from(h))),
+                _ => None,
+            }
+        });
         let (vb_x, vb_y, vb_w, vb_h) =
             vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
         let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
@@ -179,13 +187,7 @@ fn rasterize_svg(
 #[allow(clippy::cast_possible_truncation)] // user units are f32 everywhere else
 pub fn svg_natural_size(svg_data: &[u8]) -> Option<(f32, f32)> {
     with_svg_root(svg_data, |svg| {
-        let length = |key: &str| {
-            let v = svg.attributes.get_key(key)?;
-            let v = v.as_str().trim();
-            let v = v.strip_suffix("px").unwrap_or(v).trim();
-            v.parse::<f32>().ok().filter(|n| n.is_finite() && *n > 0.0)
-        };
-        match (length("width"), length("height")) {
+        match (svg_length(svg, "width"), svg_length(svg, "height")) {
             (Some(w), Some(h)) => Some((w, h)),
             _ => parse_viewbox(svg)
                 .map(|(_, _, w, h)| (w as f32, h as f32))
@@ -194,6 +196,18 @@ pub fn svg_natural_size(svg_data: &[u8]) -> Option<(f32, f32)> {
     })
     .ok()
     .flatten()
+}
+
+/// A positive, finite `width` / `height` of the `<svg>` element, as a bare
+/// number or in `px` (a percentage or another unit states no size).
+fn svg_length(svg: &azul_core::xml::XmlNode, key: &str) -> Option<f32> {
+    let value = svg.attributes.get_key(key)?;
+    let value = value.as_str().trim();
+    let value = value.strip_suffix("px").unwrap_or(value).trim();
+    value
+        .parse::<f32>()
+        .ok()
+        .filter(|n| n.is_finite() && *n > 0.0)
 }
 
 /// Is every paint of the document `currentColor` (or `none`), with at least
