@@ -1933,9 +1933,11 @@ pub struct CursorInfo {
     pub dom_id: u32,
     /// Node ID within the DOM
     pub node_id: u64,
-    /// Cursor position (grapheme cluster index)
+    /// The caret's byte offset in the block's text, affinity resolved (a
+    /// `trailing` caret is after its character), as `get_selection_state`
+    /// reports a caret
     pub position: usize,
-    /// Cursor affinity ("upstream" or "downstream")
+    /// Cursor affinity ("leading" or "trailing")
     pub affinity: String,
     /// Whether the cursor is currently visible (false during blink off phase)
     pub is_visible: bool,
@@ -18049,11 +18051,19 @@ pub fn process_debug_event(
             let response = if let (Some(cursor), Some(mc)) =
                 (tem.get_primary_cursor(), tem.multi_cursor.as_ref())
             {
-                let position = cursor.cluster_id.start_byte_in_run as usize;
-                let affinity = match cursor.affinity {
-                    azul_core::selection::CursorAffinity::Leading => "leading".to_string(),
-                    azul_core::selection::CursorAffinity::Trailing => "trailing".to_string(),
-                };
+                // Read like `get_selection_state` reads a caret: the byte
+                // offset in the block's text, affinity resolved (a Trailing
+                // caret is AFTER its character). The raw `start_byte_in_run`
+                // put a caret at the end of "hello" at 4.
+                let info = selection_range_info(
+                    layout_window,
+                    mc.block,
+                    &azul_core::selection::Selection::Cursor(cursor),
+                );
+                let position = info
+                    .cursor_position
+                    .unwrap_or(cursor.cluster_id.start_byte_in_run as usize);
+                let affinity = info.cursor_affinity.unwrap_or_default();
 
                 CursorStateResponse {
                     has_cursor: true,
