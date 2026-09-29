@@ -24,13 +24,15 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
 5. generation shift in a list item: b1e38aef0 test (a_list_item_caret_moves_with_the_apps_text.rs),
    64d90b739 fix (diff + writer snapshot both read `element_content`).
 
+6. inspect previews: d50ff317a test (unit tests in callbacks.rs), fb68e7516 fix
+   (new `LayoutWindow::delete_preview` / `select_all_preview`; the two inspect fns call them).
+
 ## IN PROGRESS
 
-6. `inspect_delete_changeset` / `inspect_select_all_changeset` with session carets.
+7. E2E `get_selection_state` reporting a document selection.
 
 ## NEXT
 
-7. E2E `get_selection_state` reporting a document selection.
 8. ScopeText inline host / nested block order.
 9. `TextTarget::caret_at_byte` caller switch + dead code.
 10. Re-verify review §5 #5 / #7.
