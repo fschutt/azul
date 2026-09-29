@@ -127,7 +127,15 @@ fn the_export_dialogs_get_one_language_list_every_code_generator_and_whether_it_
         .filter(|l| l["dom"] == true)
         .filter_map(|l| l["id"].as_str())
         .collect();
-    assert_eq!(dom, ["rust", "c", "cpp", "python"]);
+    let printers: Vec<&str> = azul_css::codegen::all_backends()
+        .iter()
+        .filter(|b| b.exports_dom())
+        .map(|b| b.lang())
+        .collect();
+    assert_eq!(dom, printers, "`dom` is each printer's exports_dom()");
+    for lang in ["rust", "c", "cpp", "python", "java", "go", "swift"] {
+        assert!(dom.contains(&lang), "{lang} exports a DOM: {dom:?}");
+    }
     assert!(langs
         .iter()
         .all(|l| l["label"].is_string() && l["ext"].is_string() && l["dom"].is_boolean()));
@@ -240,7 +248,7 @@ fn a_document_subtree_exports_as_one_render_function_per_language() {
         /* 9 */ serde_json::json!({ "op": "export_subtree_code", "node": 99, "language": "rust" }),
         /* 10 */
         serde_json::json!({ "op": "export_subtree_code", "node": 1, "language": "klingon" }),
-        /* 11: a printer without DOM export answers, and says why it prints no UI */
+        /* 11: a printer that builds the DOM through its binding's wrapper classes */
         serde_json::json!({ "op": "export_subtree_code", "node": 1, "language": "java" }),
     ]);
     let result = run("export_subtree", steps);
@@ -300,13 +308,12 @@ fn a_document_subtree_exports_as_one_render_function_per_language() {
 
     let java = value(&result, 11);
     assert_eq!(java["file_name"], "render_card.java");
-    has(java["code"].as_str().expect("code"), "not implemented");
+    let java_code = java["code"].as_str().expect("code");
+    has(java_code, "public static Dom renderCard() {");
+    has(java_code, ".withClass(\"card\")");
+    has(java_code, "Dom.createH2WithText(\"Hello\")");
     assert!(
-        java["warnings"]
-            .as_array()
-            .is_some_and(|w| w.iter().any(|w| w
-                .as_str()
-                .is_some_and(|w| w.contains("does not print DOM")))),
+        java["warnings"].as_array().is_some_and(Vec::is_empty),
         "{java}"
     );
 }

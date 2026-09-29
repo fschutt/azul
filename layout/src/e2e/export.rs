@@ -909,6 +909,11 @@ fn readme(b: &dyn CodegenBackend, files: &[String], component_paths: &[String]) 
         "c" | "cpp" => "make AZUL_INCLUDE=<azul>/target/codegen AZUL_LIB=<azul>/target/release\n./app"
             .to_string(),
         "python" => "python3 main.py   # needs the azul extension module next to it".to_string(),
+        // The printer's project files carry their build steps as header comments.
+        _ if b.exports_dom() => format!(
+            "# see the comments at the top of the {} build file and main file above",
+            b.display_name()
+        ),
         _ => format!(
             "# see the {} files above; the {} printer does not write a runnable app yet",
             b.display_name(),
@@ -992,8 +997,15 @@ mod tests {
             .filter(|l| l["dom"] == true)
             .filter_map(|l| l["id"].as_str())
             .collect();
-        assert_eq!(dom, ["rust", "c", "cpp", "python"]);
-        assert!(langs.iter().any(|l| l["id"] == "java" && l["dom"] == false));
+        let printers: Vec<&str> = all_backends()
+            .iter()
+            .filter(|b| b.exports_dom())
+            .map(|b| b.lang())
+            .collect();
+        assert_eq!(dom, printers, "`dom` is each printer's exports_dom()");
+        for lang in ["rust", "c", "cpp", "python", "java", "go", "swift"] {
+            assert!(dom.contains(&lang), "{lang} exports a DOM: {dom:?}");
+        }
     }
 
     #[test]
@@ -1026,10 +1038,30 @@ mod tests {
 
     #[test]
     fn a_language_without_dom_export_says_why_instead_of_printing_a_ui() {
+        // Any printer that does not export a DOM (none left: nothing to say).
+        let Some(lang) = all_backends()
+            .iter()
+            .find(|b| !b.exports_dom())
+            .map(|b| b.lang())
+        else {
+            return;
+        };
+        let map = badge_map();
+        let out = component_code(&map, "user", "badge", lang).expect(lang);
+        assert!(
+            out.warnings.iter().any(|w| w.contains("does not print DOM")),
+            "{lang}: {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn a_wrapper_layer_language_exports_the_component_and_says_why_it_cannot_register_it() {
         let map = badge_map();
         let out = component_code(&map, "user", "badge", "java").expect("java");
-        assert!(out.warnings.iter().any(|w| w.contains("does not print DOM")));
-        assert!(out.code.contains("not implemented"), "{}", out.code);
+        assert!(out.warnings.iter().all(|w| !w.contains("does not print DOM")));
+        assert!(out.code.contains("public static Dom renderBadge(String text) {"), "{}", out.code);
+        assert!(out.code.contains("is not registered here"), "{}", out.code);
     }
 
     #[test]
