@@ -35,16 +35,19 @@ P2:
   VecRef/destructor types emitted, UByte u8 tag.
 - 076ffec91 test RED + 87100fd51 fix(red): unions are C-sized blobs, sort_order, mono aliases.
 
+- fb769705d test RED + cabfe7228 fix(vb6): every aggregate function through its Byref twin
+  (uses_byref_twin / declared_symbol / call_lines in lang_vb6/functions.rs).
+- ALGOL 68: listed, not fixable by reading (a68g 3.11.3 rejects `ALIEN` and `REF VOID` even in
+  1-line files).
+- Final report `scripts/F1_BINDINGS_LAYOUT_2026_09_29.md` (this commit).
+
 ## IN PROGRESS
 
-- P2 VB6: Declare the `<fn>Byref` twins libazul exports (by-pointer aggregates), instead of
-  SKIPPED Declares that pass UDTs ByRef to by-value C functions.
+(nothing)
 
 ## NEXT
 
-1. P2 ALGOL 68: list precisely (a68g 3.11.3 installed: `--check` on the types section shows
-   `PROC (REF VOID)` etc. rejected; `ALIEN` undeclared).
-2. Final report `scripts/F1_BINDINGS_LAYOUT_2026_09_29.md`.
+(nothing - the parent compiles, regenerates and runs the suites; see the report, section 7)
 
 ## Facts found
 
