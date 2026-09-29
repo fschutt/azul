@@ -33,12 +33,15 @@ Nothing is compiled here (house rule).
 
 - 3 RED 8da8a8a20, fix ea3ef9457 (`widgets::style_only_build`; follow_app_theme's other build)
 
+- 4 RED bb3ddfcdc, fix 6820d6bd8 (audit: pinned embedders already pass; single-look embedders
+  ribbon / statusbar / quick_access / backstage / node_graph pin to `UiTheme::SINGLE_LOOK`)
+
 ## IN PROGRESS
 
-- 4 embedders pass their pin (audit + RED)
+- 5 frame skin merge (accordion: V1 owns it, call-site switch only)
 
 ## NEXT
 
-- 5 frame skin merge, report
+- report
 
 ## Open questions
