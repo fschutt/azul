@@ -448,12 +448,33 @@ impl Frame {
             Some(UiTheme::Flat) => crate::widgets::themes::flat::frame(self),
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
-            None => crate::widgets::themes::theme_blocks::follow_app_theme(
-                self,
-                crate::widgets::themes::flat::frame,
-                crate::widgets::themes::flora::frame,
-            ),
+            // Built ONCE from the merged look: the caller's content goes in
+            // as it is, never cloned for a second build.
+            None => build(self, &follow_look(UiTheme::current())),
         }
+    }
+}
+
+/// Both themes' frame looks in one, part by part
+/// (`themes::theme_blocks::follow_props`), with the `structure` theme's
+/// marker: the look an unpinned frame is built with.
+fn follow_look(structure: crate::widgets::themes::UiTheme) -> FrameLook {
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+    let (flat, flora) = (flat::frame_look(), flora::frame_look());
+    let both = |a: &[CssPropertyWithConditions], b: &[CssPropertyWithConditions]| {
+        follow_props(a, b).into_library_owned_vec()
+    };
+    FrameLook {
+        root: both(flat.root.as_slice(), flora.root.as_slice()),
+        header: both(flat.header.as_slice(), flora.header.as_slice()),
+        before: both(flat.before.as_slice(), flora.before.as_slice()),
+        title: both(flat.title.as_slice(), flora.title.as_slice()),
+        after: both(flat.after.as_slice(), flora.after.as_slice()),
+        content: both(flat.content.as_slice(), flora.content.as_slice()),
+        marker: match structure {
+            UiTheme::Flat => flat.marker,
+            UiTheme::Flora => flora.marker,
+        },
     }
 }
 

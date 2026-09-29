@@ -4780,9 +4780,10 @@ pub fn card(c: crate::widgets::card::Card) -> Dom {
 // --fl-bd, the house's hairline, instead of a neutral grey. At night the
 // label and the rules take their night values. A frame takes no focus.
 
-/// The flora frame: the frame's own geometry, flora's label and rules.
+/// The flora frame's look: the frame's own geometry, flora's label and
+/// rules.
 #[must_use]
-pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+pub(crate) fn frame_look() -> crate::widgets::frame::FrameLook {
     use super::decl;
     use crate::widgets::frame::{
         FrameLook, FRAME_AFTER_STYLE, FRAME_BEFORE_STYLE, FRAME_CONTENT_STYLE,
@@ -4811,18 +4812,21 @@ pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
     title.push(decl::letter_spacing_em(0.12));
     title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
-    crate::widgets::frame::build(
-        f,
-        &FrameLook {
-            root: FRAME_ROOT_STYLE.to_vec(),
-            header: FRAME_HEADER_STYLE.to_vec(),
-            before,
-            title,
-            after,
-            content,
-            marker: Some("__azul-theme-flora"),
-        },
-    )
+    FrameLook {
+        root: FRAME_ROOT_STYLE.to_vec(),
+        header: FRAME_HEADER_STYLE.to_vec(),
+        before,
+        title,
+        after,
+        content,
+        marker: Some("__azul-theme-flora"),
+    }
+}
+
+/// The flora frame: the frame's own geometry, flora's label and rules.
+#[must_use]
+pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+    crate::widgets::frame::build(f, &frame_look())
 }
 
 // ==== breadcrumb ====

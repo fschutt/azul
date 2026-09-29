@@ -4279,25 +4279,28 @@ pub fn card(c: crate::widgets::card::Card) -> Dom {
 // around an 11px system-UI title, the desktop's separator for every rule at
 // night. A frame takes no focus.
 
-/// The flat frame: the widget's own part styles.
+/// The flat frame's look: the widget's own part styles.
 #[must_use]
-pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+pub(crate) fn frame_look() -> crate::widgets::frame::FrameLook {
     use crate::widgets::frame::{
         FrameLook, FRAME_AFTER_STYLE, FRAME_BEFORE_STYLE, FRAME_CONTENT_STYLE,
         FRAME_HEADER_STYLE, FRAME_ROOT_STYLE, FRAME_TITLE_STYLE,
     };
-    crate::widgets::frame::build(
-        f,
-        &FrameLook {
-            root: FRAME_ROOT_STYLE.to_vec(),
-            header: FRAME_HEADER_STYLE.to_vec(),
-            before: FRAME_BEFORE_STYLE.to_vec(),
-            title: FRAME_TITLE_STYLE.to_vec(),
-            after: FRAME_AFTER_STYLE.to_vec(),
-            content: FRAME_CONTENT_STYLE.to_vec(),
-            marker: None,
-        },
-    )
+    FrameLook {
+        root: FRAME_ROOT_STYLE.to_vec(),
+        header: FRAME_HEADER_STYLE.to_vec(),
+        before: FRAME_BEFORE_STYLE.to_vec(),
+        title: FRAME_TITLE_STYLE.to_vec(),
+        after: FRAME_AFTER_STYLE.to_vec(),
+        content: FRAME_CONTENT_STYLE.to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat frame: the widget's own part styles.
+#[must_use]
+pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+    crate::widgets::frame::build(f, &frame_look())
 }
 
 // ==== breadcrumb ====
