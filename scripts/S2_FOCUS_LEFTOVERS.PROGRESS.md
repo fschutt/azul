@@ -46,13 +46,14 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 
 - Item 5a: c8a6999ec RED (9 tests + `rv::announced_states` / `rv::declared`), b203042a0 fix (`roving::announce_chosen`; roles: segment RadioButton, tab PageTab + header PageTabList, list row ListItem, tree Outline + OutlineItem rows with Expanded/Collapsed/Selected).
 
+- Items 1+2: 53e3ec605 RED (`parent_key_route` pure rule + unit test, 5 dll tests + 2 guards, 5 combobox unit tests), 03ee7ff0e fix (AzulListPopupWindow / WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE / Wayland handle_key; one routing rule; deliver_forwarded_keys on macOS, Win32, Wayland; `focus_list_popup_on_navigation` removed; list closes on parent deactivation; widget: active option via marker class + theme fill + Selected, Enter picks via `pick_option`, field aria-expanded, Down/Up opens).
+
 ## IN PROGRESS
 
-- Items 1+2.
+- Item 5b.
 
 ## NEXT
 
-6. Items 1+2: combobox active descendant + non-activating keep-focus popups.
 7. Item 5b: date grid across months (needs a post-rebuild focus target).
 8. Item 7: device-faithful variant with the parent's activation round trip.
 
