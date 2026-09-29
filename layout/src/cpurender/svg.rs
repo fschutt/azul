@@ -106,12 +106,15 @@ pub fn render_svg_to_imageref_painted(
 ) -> Result<ImageRef, String> {
     // Transparent background so whatever is behind shows through any gaps.
     let pixmap = rasterize_svg(svg_data, target_width, target_height, (0, 0, 0, 0), paint)?;
+    // The pixmap is AGG's PREMULTIPLIED output, and says so: labelled
+    // straight, the image load premultiplied it a second time and a
+    // translucent paint (`system:text` at 85%) came out darker than itself.
     let rgba = pixmap.data().to_vec();
     let raw = azul_core::resources::RawImage {
         pixels: azul_core::resources::RawImageData::U8(rgba.into()),
         width: target_width as usize,
         height: target_height as usize,
-        premultiplied_alpha: false,
+        premultiplied_alpha: true,
         data_format: azul_core::resources::RawImageFormat::RGBA8,
         tag: Vec::new().into(),
     };
