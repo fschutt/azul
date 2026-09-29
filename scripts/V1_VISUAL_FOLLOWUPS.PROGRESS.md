@@ -19,11 +19,12 @@ Branch `wt/v1-visual-followups`, cut from `0a326afe5`. Nothing compiled (house r
 
 - item 3: f84365212 RED / dfb18ac7b feat (css: `transform::interpolate_transform_lists`, a transform tweens per function); 686adb878 RED / 8efedd119 feat (accordion: disclosure indicator box + icon, turned by the click, tweened on the body's beat)
 
+- item 2: a9ad59994 RED / 46c9edf67 feat (spinner ring: frame > window(half-box clip, tail) > body(half-annulus, head) + 2 caps; 4 rotate tracks, 2 s loop)
+
 ## IN PROGRESS
-- item 2
+- item 5
 
 ## NEXT
-4. item 2 (arc sweep)
-5. item 5 (engine: `CallbackInfo::set_node_inline_style`; widgets)
+5. item 5: (a) plumbing `CallbackInfo::set_node_inline_style` / `CallbackChange::SetNodeInlineStyle` / `ContentChange::NodeStyle` (stub); (b) engine RED + impl; (c) integration RED (click -> scheme switch -> new mode's colours) for segmented / stepper / pagination / date_picker; (d) per-widget fixes, delete `window_is_dark` / `renders_dark` twins; text_input's invalid ring asks `get_resolved_color_scheme`
 
 ## Open questions
