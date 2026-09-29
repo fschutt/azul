@@ -1130,7 +1130,7 @@ fn restore_field(info: &mut CallbackInfo, field: DomNodeId, value: &str) {
     }
     if let Some(mut w) = state.downcast_mut::<TextAreaStateWrapper>() {
         restore_text_area(info, field, &mut w, value);
-    }
+    };
 }
 
 /// `restore_text_input` for a `TextArea` - the same `container > p > text`

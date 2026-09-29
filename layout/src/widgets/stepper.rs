@@ -1575,10 +1575,14 @@ mod autotest_generated {
     fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
         changes
             .iter()
-            .map(|change| match change {
+            .filter_map(|change| match change {
                 CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
-                    (node_id.index(), style.clone())
+                    Some((node_id.index(), style.clone()))
                 }
+                // The one tab stop moving with the step and the live
+                // "step N of M" value (S2) are not style writes.
+                CallbackChange::SetNodeTabIndex { .. }
+                | CallbackChange::ChangeNodeAccessibilityValue { .. } => None,
                 other => panic!("the restyle must only replace inline styles, got {other:?}"),
             })
             .collect()

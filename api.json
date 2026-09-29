@@ -8920,6 +8920,91 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.debug_lookup(icon_name.as_str())"
+                            },
+                            "set_pack_rank": {
+                                "doc": [
+                                    "Rank a pack: packs are searched in rank order (lower first), packs of",
+                                    "equal rank in registration order, and packs without a rank after",
+                                    "every ranked one. The user's theme packs rank by their theme's place",
+                                    "in the theme chain, so they beat the app's packs although the app",
+                                    "registered first."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "rank": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_pack_rank(pack_name.as_str(), rank)"
+                            },
+                            "add_icon_remap_rule": {
+                                "doc": [
+                                    "Add a global remap rule: while `apply_if` holds",
+                                    "([`parse_icon_apply_if`]; empty = always), `icon_name` is drawn as",
+                                    "`target_spec`. Rules for one name are tried in the order they were",
+                                    "added; the first that applies and resolves wins. Evaluated at lookup",
+                                    "against the live window context, so `mode=dark` follows a mode switch."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "apply_if": "String"
+                                    },
+                                    {
+                                        "target_spec": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_icon_remap_rule(icon_name.as_str(), apply_if.as_str(), target_spec.as_str())"
+                            },
+                            "add_theme_icon_remap_rule": {
+                                "doc": [
+                                    "[`Self::add_icon_remap_rule`] for a rule of the THEME `theme`",
+                                    "(`xyz:pink`): it applies only while that theme is in the window's",
+                                    "theme chain, and beats the rules of the themes after it in the chain",
+                                    "and the global table - whatever order the rules were added in."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "apply_if": "String"
+                                    },
+                                    {
+                                        "target_spec": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_theme_icon_remap_rule(theme.as_str(), icon_name.as_str(), apply_if.as_str(), target_spec.as_str())"
+                            },
+                            "set_app_name": {
+                                "doc": [
+                                    "The application's name, which `app=` rule terms compare against."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "app_name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_app_name(app_name.as_str())"
                             }
                         },
                         "repr": "C"
@@ -9995,6 +10080,197 @@
                             {
                                 "Flat": {},
                                 "Flora": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IconDesignedFor": {
+                        "external": "azul_core::icon::IconDesignedFor",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Any": {},
+                                "Light": {},
+                                "Dark": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IconMeta": {
+                        "external": "azul_core::icon::IconMeta",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "variants": {
+                                    "type": "IconVariants"
+                                },
+                                "recolor": {
+                                    "type": "IconRecolor"
+                                },
+                                "designed_for": {
+                                    "type": "IconDesignedFor"
+                                },
+                                "monochrome": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "with_light_variant": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_light_variant(spec)"
+                            },
+                            "with_dark_variant": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_dark_variant(spec)"
+                            },
+                            "with_high_contrast_variant": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_high_contrast_variant(spec)"
+                            },
+                            "with_variants": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "variants": "IconVariants"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_variants(variants)"
+                            },
+                            "with_recolor": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "recolor": "IconRecolor"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_recolor(recolor)"
+                            },
+                            "with_designed_for": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "designed_for": "IconDesignedFor"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_designed_for(designed_for)"
+                            },
+                            "with_monochrome": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "monochrome": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "object.with_monochrome(monochrome)"
+                            },
+                            "is_mask_artwork": {
+                                "doc": [
+                                    "Is the artwork an alpha mask a colour can be flooded through?"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_mask_artwork()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IconVariants": {
+                        "external": "azul_core::icon::IconVariants",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "light": {
+                                    "type": "OptionString"
+                                },
+                                "dark": {
+                                    "type": "OptionString"
+                                },
+                                "high_contrast": {
+                                    "type": "OptionString"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -19652,6 +19928,59 @@
                                     }
                                 ],
                                 "fn_body": "object.set_theme(name)"
+                            },
+                            "get_form_data": {
+                                "doc": [
+                                    "The CURRENT values of the form `node` sits in - `node` may be the",
+                                    "form, a field or a button: what a submit would hand over, without",
+                                    "submitting. `None` when `node` is in no form.",
+                                    "",
+                                    "How a plain callback reads a form: the app's own `Submit` handler on a",
+                                    "raw `<form>` runs as that form's `on_submit`, with the `CallbackInfo`",
+                                    "of whatever submitted it, so it asks",
+                                    "`info.get_form_data(info.get_hit_node())`; a button's click handler",
+                                    "does the same. (The FFI face of [`collect_form_data`].)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFormData"
+                                },
+                                "fn_body": "object.get_form_data(node)"
+                            },
+                            "set_node_inline_style": {
+                                "doc": [
+                                    "Replace `node_id`'s whole inline style - every declaration and its",
+                                    "conditions - with `style` (applied after the callback returns).",
+                                    "",
+                                    "The live restyle for a state a widget owns (the selected segment, the",
+                                    "current page, a picked day): write the node's style for the new state",
+                                    "exactly as a rebuild would build it, dark twins and `:hover` / `:focus`",
+                                    "rules included. [`Self::set_css_property`] pins one VALUE - a user",
+                                    "override outranks every declaration, so a colour baked for light mode",
+                                    "stays light after a switch to dark, and outranks the node's hover and",
+                                    "focus rules. This pins nothing: the cascade re-resolves the new",
+                                    "declarations on every mode switch and state change, like any built",
+                                    "style. A `node_id` without a node is ignored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_node_inline_style(node_id, style)"
                             }
                         },
                         "repr": "C"
@@ -23190,6 +23519,26 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "ComboBoxOnTextInputCallbackType": {
+                        "external": "azul_layout::widgets::combobox::ComboBoxOnTextInputCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "ComboBoxState"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -48875,6 +49224,23 @@
                                     "type": "Css"
                                 },
                                 "fn_body": "object.create_csd_stylesheet()"
+                            },
+                            "get_rice_status": {
+                                "doc": [
+                                    "What the rice loader loaded - the theme chain, every file with its",
+                                    "priority, version, `requires` check and live versus inert rules under",
+                                    "the context this system style describes - and the warnings. For an",
+                                    "About panel and a bug report; [`RiceStatus::to_report`] prints it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceStatus"
+                                },
+                                "fn_body": "object.get_rice_status()"
                             }
                         },
                         "repr": "C"
@@ -55748,6 +56114,248 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "IconModeColors": {
+                        "external": "azul_core::icon::IconModeColors",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "light": {
+                                    "type": "ColorU"
+                                },
+                                "dark": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "for_mode": {
+                                "doc": [
+                                    "The colour for the given mode."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dark": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ColorU"
+                                },
+                                "fn_body": "object.for_mode(dark)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IconRecolor": {
+                        "external": "azul_core::icon::IconRecolor",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "CurrentColor": {},
+                                "Mask": {},
+                                "Palette": {
+                                    "type": "IconColorMappingVec"
+                                },
+                                "Fixed": {
+                                    "type": "IconModeColors"
+                                },
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "IconColorMapping": {
+                        "external": "azul_core::icon::IconColorMapping",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "from": {
+                                    "type": "ColorU"
+                                },
+                                "to": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RiceStatus": {
+                        "external": "azul_css::rice::RiceStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "root": {
+                                    "type": "String"
+                                },
+                                "app": {
+                                    "type": "String"
+                                },
+                                "azul_version": {
+                                    "type": "String"
+                                },
+                                "chain": {
+                                    "type": "StringVec"
+                                },
+                                "files": {
+                                    "type": "RiceFileStatusVec"
+                                },
+                                "warnings": {
+                                    "type": "StringVec"
+                                },
+                                "mode": {
+                                    "type": "RicingMode"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "to_report": {
+                                "doc": [
+                                    "The listing as text: the chain, one line per file, the warnings, and",
+                                    "the support policy with the `AZ_RICING=off` self-check."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.to_report().into()"
+                            },
+                            "live_rule_count": {
+                                "doc": [
+                                    "Rules of applied files whose conditions hold, over every file."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.live_rule_count()"
+                            },
+                            "is_beyond_base": {
+                                "doc": [
+                                    "Does any applied file cascade above `base`? (What the support policy",
+                                    "is about.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_beyond_base()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RicePriority": {
+                        "external": "azul_css::rice::RicePriority",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "Palette": {},
+                                "Base": {},
+                                "App": {},
+                                "Widgets": {},
+                                "Force": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RicingMode": {
+                        "external": "azul_css::system::RicingMode",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "Default": {},
+                                "Force": {},
+                                "Watch": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IconColorMappingVecSlice": {
+                        "external": "azul_core::icon::IconColorMappingVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IconColorMapping",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -56840,6 +57448,101 @@
                                     "type": "FileInput"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_paths": {
+                                "doc": [
+                                    "The selected files (the first is `path`) - what a `multiple` input",
+                                    "shows after a pick of several."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "paths": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_paths(paths)"
+                            },
+                            "with_paths": {
+                                "doc": [
+                                    "[`Self::set_paths`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "paths": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FileInput"
+                                },
+                                "fn_body": "object.with_paths(paths)"
+                            },
+                            "set_accept": {
+                                "doc": [
+                                    "HTML `accept`: the kinds of file the dialog offers (see",
+                                    "[`FileInputStateWrapper::accept`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "accept": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_accept(accept)"
+                            },
+                            "with_accept": {
+                                "doc": [
+                                    "[`Self::set_accept`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "accept": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FileInput"
+                                },
+                                "fn_body": "object.with_accept(accept)"
+                            },
+                            "set_multiple": {
+                                "doc": [
+                                    "HTML `multiple`: the dialog picks several files."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "multiple": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_multiple(multiple)"
+                            },
+                            "with_multiple": {
+                                "doc": [
+                                    "[`Self::set_multiple`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "multiple": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FileInput"
+                                },
+                                "fn_body": "object.with_multiple(multiple)"
                             }
                         },
                         "repr": "C"
@@ -56868,6 +57571,12 @@
                                 },
                                 "default_dir": {
                                     "type": "OptionString"
+                                },
+                                "accept": {
+                                    "type": "StringVec"
+                                },
+                                "multiple": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -56888,9 +57597,25 @@
                             {
                                 "path": {
                                     "type": "OptionString"
+                                },
+                                "paths": {
+                                    "type": "StringVec"
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create_with_paths": {
+                                "doc": [
+                                    "The state holding `paths`: `path` is the first."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "paths": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::file_input::FileInputState::create_with_paths(paths)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "FileInputOnPathChange": {
@@ -66167,6 +66892,43 @@
                                     "type": "ComboBox"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_text_input": {
+                                "doc": [
+                                    "Sets the callback invoked when the user types into the field."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_text_input": "ComboBoxOnTextInputCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_text_input(data, on_text_input)"
+                            },
+                            "with_on_text_input": {
+                                "doc": [
+                                    "Builder-style setter for the text-input callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_text_input": "ComboBoxOnTextInputCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComboBox"
+                                },
+                                "fn_body": "object.with_on_text_input(data, on_text_input)"
                             }
                         },
                         "repr": "C"
@@ -66192,6 +66954,9 @@
                                 },
                                 "on_select": {
                                     "type": "OptionComboBoxOnSelect"
+                                },
+                                "on_text_input": {
+                                    "type": "OptionComboBoxOnTextInput"
                                 }
                             }
                         ],
@@ -74694,6 +75459,70 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComboBoxOnTextInput": {
+                        "external": "azul_layout::widgets::combobox::ComboBoxOnTextInput",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "ComboBoxOnTextInputCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ComboBoxOnTextInputCallback": {
+                        "external": "azul_layout::widgets::combobox::ComboBoxOnTextInputCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "ComboBoxOnTextInputCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -123653,6 +124482,431 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "IconColorMappingVec": {
+                        "external": "azul_core::icon::IconColorMappingVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IconColorMapping",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "IconColorMappingVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `IconColorMappingVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IconColorMappingVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `IconColorMappingVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconColorMappingVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "icon_color_mapping_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "icon_color_mapping_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "icon_color_mapping_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `IconColorMappingVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "IconColorMapping"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconColorMappingVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `IconColorMappingVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const IconColorMapping"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconColorMappingVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIconColorMapping"
+                                },
+                                "fn_body": "icon_color_mapping_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `IconColorMappingVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconColorMappingVecSlice"
+                                },
+                                "fn_body": "icon_color_mapping_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconColorMappingVecSlice"
+                                },
+                                "fn_body": "icon_color_mapping_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IconColorMappingVecDestructorType": {
+                        "external": "azul_core::icon::IconColorMappingVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "IconColorMappingVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "IconColorMappingVecDestructor": {
+                        "external": "azul_core::icon::IconColorMappingVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "IconColorMappingVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RiceFileStatusVec": {
+                        "external": "azul_css::rice::RiceFileStatusVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RiceFileStatus",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RiceFileStatusVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RiceFileStatusVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RiceFileStatusVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RiceFileStatusVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceFileStatusVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "rice_file_status_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "rice_file_status_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "rice_file_status_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RiceFileStatusVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RiceFileStatus"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceFileStatusVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RiceFileStatusVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RiceFileStatus"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceFileStatusVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRiceFileStatus"
+                                },
+                                "fn_body": "rice_file_status_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RiceFileStatusVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceFileStatusVecSlice"
+                                },
+                                "fn_body": "rice_file_status_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RiceFileStatusVecSlice"
+                                },
+                                "fn_body": "rice_file_status_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RiceFileStatusVecDestructorType": {
+                        "external": "azul_css::rice::RiceFileStatusVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "RiceFileStatusVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RiceFileStatusVecDestructor": {
+                        "external": "azul_css::rice::RiceFileStatusVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RiceFileStatusVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -131494,6 +132748,107 @@
                                     "type": "FormEntry",
                                     "doc": [
                                         "Some value of type FormEntry"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionComboBoxOnTextInput": {
+                        "external": "azul_layout::widgets::combobox::OptionComboBoxOnTextInput",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ComboBoxOnTextInput"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFormData": {
+                        "external": "azul_layout::widgets::form::OptionFormData",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FormData"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRiceFileStatus": {
+                        "external": "azul_css::rice::OptionRiceFileStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RiceFileStatus",
+                                    "doc": [
+                                        "Some value of type RiceFileStatus"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionIconColorMapping": {
+                        "external": "azul_core::icon::OptionIconColorMapping",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "IconColorMapping",
+                                    "doc": [
+                                        "Some value of type IconColorMapping"
                                     ]
                                 }
                             }
@@ -144727,6 +146082,117 @@
                                 },
                                 "document_descriptor": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RiceFileStatus": {
+                        "external": "azul_css::rice::RiceFileStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "path": {
+                                    "type": "String"
+                                },
+                                "theme": {
+                                    "type": "String"
+                                },
+                                "version": {
+                                    "type": "String"
+                                },
+                                "app": {
+                                    "type": "String"
+                                },
+                                "requires": {
+                                    "type": "String"
+                                },
+                                "requires_check": {
+                                    "type": "String"
+                                },
+                                "note": {
+                                    "type": "String"
+                                },
+                                "first_rule": {
+                                    "type": "usize"
+                                },
+                                "rule_count": {
+                                    "type": "usize"
+                                },
+                                "live_rules": {
+                                    "type": "usize"
+                                },
+                                "inert_rules": {
+                                    "type": "usize"
+                                },
+                                "state": {
+                                    "type": "RiceFileState"
+                                },
+                                "priority": {
+                                    "type": "RicePriority"
+                                },
+                                "rule_priority": {
+                                    "type": "u8"
+                                },
+                                "per_app": {
+                                    "type": "bool"
+                                },
+                                "requires_ok": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RiceFileState": {
+                        "external": "azul_css::rice::RiceFileState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Applied": {},
+                                "OtherApp": {},
+                                "AzulVersionMismatch": {},
+                                "Off": {},
+                                "Refused": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RiceFileStatusVecSlice": {
+                        "external": "azul_css::rice::RiceFileStatusVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RiceFileStatus",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
