@@ -27,6 +27,10 @@ pub use full::*;
 // template components, palette thumbnails) behind the `builder_*` ops.
 mod builder;
 
+// AzBuilder projects: a folder on disk the builder browses, edits and saves
+// into (the `project_*` ops), every path confined to the project root.
+mod project;
+
 mod cpu_backend;
 
 mod runner;

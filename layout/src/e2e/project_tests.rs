@@ -212,13 +212,22 @@ fn a_project_folder_is_created_listed_and_its_files_are_read_written_renamed_and
     assert_passes(&result);
 
     let manifest = read_json(&root.path().join("azul-project.json"));
-    assert_eq!(manifest["format"], "azul-project", "the manifest names its format");
+    assert_eq!(
+        manifest["format"], "azul-project",
+        "the manifest names its format"
+    );
     assert!(root.path().join("components").is_dir());
     assert!(root.path().join("styles").is_dir());
     assert!(root.path().join("tests").is_dir());
     assert!(root.path().join("snapshots").is_dir());
-    assert_eq!(read(&root.path().join("styles/app.css")), "body { color: #123456; }");
-    assert!(!root.path().join("notes").exists(), "project_delete removes the folder");
+    assert_eq!(
+        read(&root.path().join("styles/app.css")),
+        "body { color: #123456; }"
+    );
+    assert!(
+        !root.path().join("notes").exists(),
+        "project_delete removes the folder"
+    );
 }
 
 /// The editor's "New file" and "Rename" must never clobber a file.
@@ -229,19 +238,36 @@ fn creating_a_file_that_exists_is_refused_and_the_file_is_kept() {
         "project_create_exists",
         true,
         vec![
-            /* 0 */ serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
-            /* 1 */ serde_json::json!({ "op": "project_create", "path": "a.txt", "content": "one" }),
-            /* 2 */ serde_json::json!({ "op": "project_create", "path": "a.txt", "content": "two" }),
-            /* 3 */ serde_json::json!({ "op": "project_rename", "from": "a.txt", "to": "azul-project.json" }),
+            /* 0 */
+            serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
+            /* 1 */
+            serde_json::json!({ "op": "project_create", "path": "a.txt", "content": "one" }),
+            /* 2 */
+            serde_json::json!({ "op": "project_create", "path": "a.txt", "content": "two" }),
+            /* 3 */
+            serde_json::json!({ "op": "project_rename", "from": "a.txt", "to": "azul-project.json" }),
         ],
     );
     for i in [0, 1] {
-        assert_eq!(step(&result, i).0, "pass", "step {i}:\n{}", failures(&result));
+        assert_eq!(
+            step(&result, i).0,
+            "pass",
+            "step {i}:\n{}",
+            failures(&result)
+        );
     }
     for i in [2, 3] {
         let (st, err) = step(&result, i);
-        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
-        assert!(err.contains("exists"), "step {i} must say the target exists: {err}");
+        assert_eq!(
+            st,
+            "fail",
+            "step {i} must be refused:\n{}",
+            failures(&result)
+        );
+        assert!(
+            err.contains("exists"),
+            "step {i} must say the target exists: {err}"
+        );
     }
     assert_eq!(read(&root.path().join("a.txt")), "one");
 }
@@ -257,7 +283,11 @@ fn every_path_that_leaves_the_project_root_is_refused_and_nothing_outside_is_tou
         .expect("a temp dir has a name")
         .to_string_lossy()
         .into_owned();
-    let absolute = outside.path().join("abs.txt").to_string_lossy().into_owned();
+    let absolute = outside
+        .path()
+        .join("abs.txt")
+        .to_string_lossy()
+        .into_owned();
 
     let result = run(
         "project_traversal",
@@ -295,9 +325,17 @@ fn every_path_that_leaves_the_project_root_is_refused_and_nothing_outside_is_tou
     );
     let (st, err) = step(&result, 0);
     assert_eq!(st, "fail", "a file op before project_open must be refused");
-    assert!(err.contains("no project is open"), "step 0 must say why: {err}");
+    assert!(
+        err.contains("no project is open"),
+        "step 0 must say why: {err}"
+    );
     for i in [1, 11] {
-        assert_eq!(step(&result, i).0, "pass", "step {i}:\n{}", failures(&result));
+        assert_eq!(
+            step(&result, i).0,
+            "pass",
+            "step {i}:\n{}",
+            failures(&result)
+        );
     }
     for (i, needle) in [
         (2, ".."),
@@ -311,7 +349,12 @@ fn every_path_that_leaves_the_project_root_is_refused_and_nothing_outside_is_tou
         (10, ".."),
     ] {
         let (st, err) = step(&result, i);
-        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
+        assert_eq!(
+            st,
+            "fail",
+            "step {i} must be refused:\n{}",
+            failures(&result)
+        );
         assert!(
             err.contains(needle),
             "step {i}'s refusal must say why (expected '{needle}' in: {err})"
@@ -324,7 +367,10 @@ fn every_path_that_leaves_the_project_root_is_refused_and_nothing_outside_is_tou
     assert!(!parent.join("evil.txt").exists());
     assert!(!parent.join("evil2.txt").exists());
     assert!(!parent.join("stolen.json").exists());
-    assert!(root.path().join("azul-project.json").is_file(), "the manifest survived");
+    assert!(
+        root.path().join("azul-project.json").is_file(),
+        "the manifest survived"
+    );
 }
 
 /// A symlink INSIDE the project that points OUTSIDE is a way out, whatever
@@ -348,27 +394,48 @@ fn a_symlink_that_leads_out_of_the_project_is_refused() {
         "project_symlink",
         true,
         vec![
-            /* 0 */ serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
-            /* 1 */ serde_json::json!({ "op": "project_read_file", "path": "escape/secret.txt" }),
-            /* 2 */ serde_json::json!({ "op": "project_write_file", "path": "escape/new.txt",
+            /* 0 */
+            serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
+            /* 1 */
+            serde_json::json!({ "op": "project_read_file", "path": "escape/secret.txt" }),
+            /* 2 */
+            serde_json::json!({ "op": "project_write_file", "path": "escape/new.txt",
                                         "content": "x" }),
-            /* 3 */ serde_json::json!({ "op": "project_read_file", "path": "secret-link.txt" }),
-            /* 4 */ serde_json::json!({ "op": "project_write_file", "path": "secret-link.txt",
+            /* 3 */
+            serde_json::json!({ "op": "project_read_file", "path": "secret-link.txt" }),
+            /* 4 */
+            serde_json::json!({ "op": "project_write_file", "path": "secret-link.txt",
                                         "content": "overwritten" }),
-            /* 5 */ serde_json::json!({ "op": "project_delete", "path": "escape/secret.txt" }),
+            /* 5 */
+            serde_json::json!({ "op": "project_delete", "path": "escape/secret.txt" }),
             /* 6: the listing shows the links but never walks into them */
             serde_json::json!({ "op": "project_list" }),
-            /* 7 */ serde_json::json!({ "op": "assert_response", "contains": "\"path\":\"escape\"" }),
-            /* 8 */ serde_json::json!({ "op": "assert_response", "not_contains": "escape/secret.txt" }),
+            /* 7 */
+            serde_json::json!({ "op": "assert_response", "contains": "\"path\":\"escape\"" }),
+            /* 8 */
+            serde_json::json!({ "op": "assert_response", "not_contains": "escape/secret.txt" }),
         ],
     );
     for i in [0, 6, 7, 8] {
-        assert_eq!(step(&result, i).0, "pass", "step {i}:\n{}", failures(&result));
+        assert_eq!(
+            step(&result, i).0,
+            "pass",
+            "step {i}:\n{}",
+            failures(&result)
+        );
     }
     for i in 1..=5 {
         let (st, err) = step(&result, i);
-        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
-        assert!(err.contains("outside"), "step {i} must say it leads outside: {err}");
+        assert_eq!(
+            st,
+            "fail",
+            "step {i} must be refused:\n{}",
+            failures(&result)
+        );
+        assert!(
+            err.contains("outside"),
+            "step {i} must say it leads outside: {err}"
+        );
     }
     assert_eq!(read(&outside.path().join("secret.txt")), "secret");
     assert!(!outside.path().join("new.txt").exists());
@@ -419,11 +486,18 @@ fn saving_the_project_writes_the_builder_document_and_one_file_per_user_componen
     assert_eq!(card["format"], "azul-component");
     assert_eq!(card["library"], "user");
     assert_eq!(card["name"], "card");
-    let template = card["template"].as_str().expect("a converted component has a template");
-    assert!(template.contains("{text}"), "the template keeps its placeholder: {template}");
+    let template = card["template"]
+        .as_str()
+        .expect("a converted component has a template");
+    assert!(
+        template.contains("{text}"),
+        "the template keeps its placeholder: {template}"
+    );
     let fields = card["fields"].as_array().expect("fields");
     assert!(
-        fields.iter().any(|f| f["name"] == "text" && f["default"] == "Title"),
+        fields
+            .iter()
+            .any(|f| f["name"] == "text" && f["default"] == "Title"),
         "the inferred parameter and its default: {card}"
     );
 }
@@ -618,28 +692,47 @@ fn a_project_exports_as_a_zip_and_a_zip_imports_back_without_leaving_the_root() 
         "project_zip",
         true,
         vec![
-            /* 0 */ serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
-            /* 1 */ serde_json::json!({ "op": "project_write_file", "path": "styles/x.css",
+            /* 0 */
+            serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
+            /* 1 */
+            serde_json::json!({ "op": "project_write_file", "path": "styles/x.css",
                                         "content": "#x { width: 2px; }" }),
             /* 2 */ serde_json::json!({ "op": "project_export_zip" }),
-            /* 3 */ serde_json::json!({ "op": "assert_response",
+            /* 3 */
+            serde_json::json!({ "op": "assert_response",
                                         "contains": "data:application/zip;base64,UEsDB" }),
-            /* 4 */ serde_json::json!({ "op": "project_import_zip",
+            /* 4 */
+            serde_json::json!({ "op": "project_import_zip",
                                         "data": format!("data:application/zip;base64,{good}") }),
-            /* 5 */ serde_json::json!({ "op": "assert_response", "contains": "styles/imported.css" }),
+            /* 5 */
+            serde_json::json!({ "op": "assert_response", "contains": "styles/imported.css" }),
             /* 6 */ serde_json::json!({ "op": "project_import_zip", "data": evil }),
             /* 7 */ serde_json::json!({ "op": "project_import_zip", "data": evil_abs }),
             /* 8 */ serde_json::json!({ "op": "project_list" }),
-            /* 9 */ serde_json::json!({ "op": "assert_response", "not_contains": "styles/ok.css" }),
+            /* 9 */
+            serde_json::json!({ "op": "assert_response", "not_contains": "styles/ok.css" }),
         ],
     );
     for i in [0, 1, 2, 3, 4, 5, 8, 9] {
-        assert_eq!(step(&result, i).0, "pass", "step {i}:\n{}", failures(&result));
+        assert_eq!(
+            step(&result, i).0,
+            "pass",
+            "step {i}:\n{}",
+            failures(&result)
+        );
     }
     for (i, needle) in [(6, ".."), (7, "absolute")] {
         let (st, err) = step(&result, i);
-        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
-        assert!(err.contains(needle), "step {i} must say why ({needle}): {err}");
+        assert_eq!(
+            st,
+            "fail",
+            "step {i} must be refused:\n{}",
+            failures(&result)
+        );
+        assert!(
+            err.contains(needle),
+            "step {i} must say why ({needle}): {err}"
+        );
     }
 
     assert_eq!(
@@ -647,7 +740,10 @@ fn a_project_exports_as_a_zip_and_a_zip_imports_back_without_leaving_the_root() 
         "#imported { width: 1px; }"
     );
     assert!(root.path().join("tests/t1.json").is_file());
-    assert!(!root.path().join("styles/ok.css").exists(), "an archive is all or nothing");
+    assert!(
+        !root.path().join("styles/ok.css").exists(),
+        "an archive is all or nothing"
+    );
     let parent = root.path().parent().expect("the temp dir has a parent");
     assert!(!parent.join("evil.txt").exists());
     assert!(!Path::new("/tmp/azb-evil-abs.txt").exists());
@@ -664,11 +760,9 @@ fn a_project_exports_as_a_zip_and_a_zip_imports_back_without_leaving_the_root() 
         .expect("a download_url")
         .to_string();
     let b64 = url.split_once(',').map(|(_, b)| b).expect("a data: URI");
-    let zip = crate::zip::ZipFile::from_bytes(
-        &base64_decode(b64),
-        &crate::zip::ZipReadConfig::default(),
-    )
-    .expect("the export is a zip");
+    let zip =
+        crate::zip::ZipFile::from_bytes(&base64_decode(b64), &crate::zip::ZipReadConfig::default())
+            .expect("the export is a zip");
     let paths = zip.paths();
     assert!(paths.contains(&"azul-project.json"), "{paths:?}");
     assert!(paths.contains(&"styles/x.css"), "{paths:?}");

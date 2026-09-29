@@ -571,6 +571,22 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("builder_reset",              Some("visual-editor/IDE surface, not engine behaviour")),
     ("builder_convert_to_component", Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's project folder ops (layout/src/e2e/project.rs): they read
+    // and write the user's disk — pinned by the project_tests module, never a
+    // generated behaviour test.
+    ("project_info",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_open",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_close",              Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_list",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_read_file",          Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_write_file",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_create",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_rename",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_delete",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_save",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_load",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_export_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_import_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
     ("export_code",                Some("codegen surface, not engine behaviour")),
     ("export_code_zip",            Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),

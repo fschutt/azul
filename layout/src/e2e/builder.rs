@@ -233,6 +233,126 @@ impl BuilderNode {
         );
         serde_json::Value::Object(m)
     }
+
+    /// The inverse of [`BuilderNode::to_json`], for a document read back from
+    /// a project file (B4). A `uid` in the JSON is ignored: the document
+    /// numbers its nodes itself ([`BuilderDocument::from_root`]).
+    ///
+    /// # Errors
+    /// Not an object, an unknown `kind`, an invalid tag / attribute /
+    /// component name, children on a node that takes none, a nesting the
+    /// HTML parser would undo, or a tree nested deeper than the cap.
+    pub fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+        Self::from_json_at(v, 0)
+    }
+
+    fn from_json_at(v: &serde_json::Value, depth: usize) -> Result<Self, String> {
+        use serde_json::Value;
+        if depth > MAX_TREE_DEPTH {
+            return Err(format!("the document is nested deeper than {MAX_TREE_DEPTH}"));
+        }
+        let obj = v
+            .as_object()
+            .ok_or("every document node must be a JSON object")?;
+        let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("element");
+        let tag = obj.get("tag").and_then(Value::as_str).unwrap_or("");
+
+        if kind == "text" {
+            let text = obj.get("text").and_then(Value::as_str).unwrap_or("");
+            return Ok(Self::text(0, text));
+        }
+
+        let mut attrs = BTreeMap::new();
+        if let Some(a) = obj.get("attrs") {
+            let a = a
+                .as_object()
+                .ok_or("`attrs` must be an object of strings")?;
+            for (k, val) in a {
+                if !is_valid_attr_name(k) {
+                    return Err(format!("{k:?} is not a valid attribute name"));
+                }
+                let s = match val {
+                    Value::String(s) => s.clone(),
+                    Value::Null => continue,
+                    other => other.to_string(),
+                };
+                attrs.insert(k.clone(), s);
+            }
+        }
+
+        let kind = match kind {
+            "element" => {
+                let tag = tag.to_ascii_lowercase();
+                if !is_valid_tag(&tag) {
+                    return Err(format!("{tag:?} is not a valid element name"));
+                }
+                BuilderNodeKind::Element { tag }
+            }
+            "component" => {
+                let library = obj.get("library").and_then(Value::as_str).unwrap_or("");
+                if !is_valid_library_name(library) || library == "builtin" {
+                    return Err(format!(
+                        "{library:?} is not a component library (an instance names a \
+                         non-builtin library)"
+                    ));
+                }
+                if tag.is_empty()
+                    || !tag
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                {
+                    return Err(format!("{tag:?} is not a valid component name"));
+                }
+                BuilderNodeKind::Component {
+                    library: library.to_string(),
+                    name: tag.to_string(),
+                }
+            }
+            other => {
+                return Err(format!(
+                    "unknown node kind {other:?} (element, text or component)"
+                ))
+            }
+        };
+
+        let mut node = Self {
+            uid: 0,
+            kind,
+            attrs,
+            children: Vec::new(),
+        };
+        let children: &[Value] = match obj.get("children") {
+            None | Some(Value::Null) => &[],
+            Some(Value::Array(cs)) => cs.as_slice(),
+            Some(_) => return Err("`children` must be an array".to_string()),
+        };
+        if !children.is_empty() {
+            let leaf = match &node.kind {
+                BuilderNodeKind::Element { tag } if is_void(tag) => {
+                    Some(format!("a <{tag}> is a void element and cannot have children"))
+                }
+                BuilderNodeKind::Element { .. } => None,
+                BuilderNodeKind::Text { .. } => {
+                    Some("a text node cannot have children".to_string())
+                }
+                BuilderNodeKind::Component { library, name } => Some(format!(
+                    "an instance of {library}:{name} cannot have children (its content comes \
+                     from the component)"
+                )),
+            };
+            if let Some(why) = leaf {
+                return Err(why);
+            }
+            for c in children {
+                let child = Self::from_json_at(c, depth + 1)?;
+                if let Some(why) = why_not_inside(&node.kind, &child.kind) {
+                    return Err(why);
+                }
+                node.children.push(child);
+            }
+        }
+        Ok(node)
+    }
 }
 
 // ===========================================================================
@@ -307,6 +427,37 @@ impl BuilderDocument {
         }
         doc.next_uid = uids.max(ROOT_UID + 1);
         doc
+    }
+
+    /// A document holding `root` — a tree read back from a project file (B4).
+    /// A root that is not a `<body>` is wrapped in one. uids are assigned in
+    /// DFS order from the root (uid 0), like [`BuilderDocument::from_styled_dom`];
+    /// the history starts empty (opening a file is not an edit).
+    #[must_use]
+    pub fn from_root(root: BuilderNode) -> Self {
+        let mut root = match &root.kind {
+            BuilderNodeKind::Element { tag } if tag == "body" => root,
+            _ => {
+                let mut body = BuilderNode::element(ROOT_UID, "body");
+                body.children.push(root);
+                body
+            }
+        };
+        fn number(node: &mut BuilderNode, next: &mut u64) {
+            node.uid = *next;
+            *next += 1;
+            for c in &mut node.children {
+                number(c, next);
+            }
+        }
+        let mut next = ROOT_UID;
+        number(&mut root, &mut next);
+        Self {
+            root,
+            next_uid: next.max(ROOT_UID + 1),
+            undo: Vec::new(),
+            redo: Vec::new(),
+        }
     }
 
     #[must_use]
@@ -615,12 +766,25 @@ impl BuilderDocument {
     /// instance expanded and every component's CSS in the `<style>`.
     #[must_use]
     pub fn to_mount_xml(&self, map: &ComponentMap) -> String {
+        self.to_mount_xml_with(map, "")
+    }
+
+    /// [`BuilderDocument::to_mount_xml`] plus the project's stylesheet (B4),
+    /// written AFTER the component CSS so the project's rules win on equal
+    /// specificity, as an app stylesheet does.
+    #[must_use]
+    pub fn to_mount_xml_with(&self, map: &ComponentMap, stylesheet: &str) -> String {
         let mut w = XmlWriter::new(map);
         let mut body = String::new();
         w.write_node(&mut body, &self.root, true, 0);
+        let mut css = w.css;
+        if !stylesheet.trim().is_empty() {
+            css.push_str(stylesheet);
+            css.push('\n');
+        }
         format!(
             "<html><head><style>{}</style></head>{body}</html>",
-            escape_xml(&w.css)
+            escape_xml(&css)
         )
     }
 }
@@ -661,6 +825,9 @@ struct Thumbnail {
 pub struct BuilderSession {
     doc: Option<BuilderDocument>,
     thumbnails: BTreeMap<u64, Thumbnail>,
+    /// The open project's stylesheets (`styles/**/*.css`, concatenated in
+    /// path order), mounted after the component CSS (B4, project.rs).
+    stylesheet: String,
 }
 
 impl BuilderSession {
@@ -668,6 +835,48 @@ impl BuilderSession {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.doc.is_some()
+    }
+
+    /// The project stylesheet the document is mounted with.
+    #[must_use]
+    pub fn stylesheet(&self) -> &str {
+        &self.stylesheet
+    }
+
+    /// Replace the project stylesheet. Answers the remount that shows it:
+    /// the document again if the builder has the window, else nothing (the
+    /// next edit mounts it).
+    pub fn set_stylesheet(&mut self, map: &ComponentMap, css: String) -> Remount {
+        if self.stylesheet == css {
+            return Remount::Keep;
+        }
+        self.stylesheet = css;
+        match &self.doc {
+            Some(d) => Remount::Mount(d.to_mount_xml_with(map, &self.stylesheet)),
+            None => Remount::Keep,
+        }
+    }
+
+    /// The tree a project save writes: the document, or — before the first
+    /// edit — what the window shows (what the first edit would start from).
+    #[must_use]
+    pub fn root_for_save(&self, live: Option<&StyledDom>) -> BuilderNode {
+        match &self.doc {
+            Some(d) => d.root.clone(),
+            None => BuilderDocument::from_styled_dom(live).root,
+        }
+    }
+
+    /// Take the window over with a document read back from a project: its
+    /// history starts empty, the window shows it at once.
+    pub fn load_document(&mut self, map: &ComponentMap, root: BuilderNode) -> BuilderReply {
+        let doc = BuilderDocument::from_root(root);
+        let reply = BuilderReply {
+            json: doc.to_json(true),
+            remount: Remount::Mount(doc.to_mount_xml_with(map, &self.stylesheet)),
+        };
+        self.doc = Some(doc);
+        reply
     }
 
     /// The document — or, before the first edit, what the first edit would
@@ -684,7 +893,9 @@ impl BuilderSession {
     /// for re-mounting after a component the document uses changed.
     #[must_use]
     pub fn remount_xml(&self, map: &ComponentMap) -> Option<String> {
-        self.doc.as_ref().map(|d| d.to_mount_xml(map))
+        self.doc
+            .as_ref()
+            .map(|d| d.to_mount_xml_with(map, &self.stylesheet))
     }
 
     /// Run one edit. The first edit imports the live DOM; an edit that fails
@@ -705,7 +916,7 @@ impl BuilderSession {
             Ok(r) => {
                 let reply = BuilderReply {
                     json: doc.to_json(true),
-                    remount: Remount::Mount(doc.to_mount_xml(map)),
+                    remount: Remount::Mount(doc.to_mount_xml_with(map, &self.stylesheet)),
                 };
                 self.doc = Some(doc);
                 Ok((r, reply))
@@ -2708,5 +2919,99 @@ mod tests {
         assert_eq!(title_case("my-card"), "My Card");
         assert_eq!(pascal_case("My Card"), "MyCard");
         assert_eq!(pascal_case("1 up"), "Component1Up");
+    }
+
+    // ── B4: a document read back from a project file ──
+
+    #[test]
+    fn a_document_written_as_json_reads_back_as_the_same_tree_with_fresh_uids() {
+        let mut doc = three_paragraphs();
+        doc.insert(2, None, el("span"), attrs(&[("text", "inner")]))
+            .expect("span in b");
+        doc.insert(
+            0,
+            Some(0),
+            BuilderNodeKind::Component {
+                library: "user".into(),
+                name: "card".into(),
+            },
+            attrs(&[("text", "Hi")]),
+        )
+        .expect("instance");
+        let json = doc.root.to_json();
+        let back = BuilderNode::from_json(&json).expect("reads back");
+        let loaded = BuilderDocument::from_root(back);
+        // Same shape, same attributes; uids renumbered in DFS order.
+        assert_eq!(loaded.root.children.len(), 4);
+        assert_eq!(
+            loaded.root.children[0].kind,
+            BuilderNodeKind::Component {
+                library: "user".into(),
+                name: "card".into()
+            }
+        );
+        assert_eq!(loaded.root.children[2].children[0].attrs["text"], "inner");
+        assert_eq!(kids(&loaded, 0), vec![1, 2, 3, 5]);
+        assert_eq!(kids(&loaded, 3), vec![4]);
+        assert!(!loaded.can_undo(), "opening a file is not an edit");
+        // The next insert takes a uid nobody has.
+        let mut loaded = loaded;
+        let uid = loaded
+            .insert(0, None, el("p"), BTreeMap::new())
+            .expect("insert after load");
+        assert_eq!(uid, 6);
+    }
+
+    #[test]
+    fn a_document_file_that_the_parser_would_undo_is_refused_with_a_reason() {
+        let cases: [(serde_json::Value, &str); 5] = [
+            (
+                serde_json::json!({ "kind": "element", "tag": "br",
+                    "children": [ { "kind": "text", "text": "x" } ] }),
+                "void",
+            ),
+            (
+                serde_json::json!({ "kind": "element", "tag": "p",
+                    "children": [ { "kind": "element", "tag": "div" } ] }),
+                "cannot go inside",
+            ),
+            (serde_json::json!({ "kind": "widget", "tag": "p" }), "unknown node kind"),
+            (serde_json::json!({ "kind": "element", "tag": "P P" }), "not a valid element"),
+            (
+                serde_json::json!({ "kind": "component", "library": "builtin", "tag": "div" }),
+                "not a component library",
+            ),
+        ];
+        for (json, needle) in cases {
+            let err = BuilderNode::from_json(&json).expect_err("refused");
+            assert!(err.contains(needle), "{json}: expected '{needle}' in {err}");
+        }
+    }
+
+    #[test]
+    fn the_project_stylesheet_is_mounted_after_the_component_css() {
+        let map = ComponentMap::default();
+        let mut session = BuilderSession::default();
+        assert_eq!(
+            session.set_stylesheet(&map, "#a { width: 1px; }".into()),
+            Remount::Keep,
+            "no document on screen: nothing to remount"
+        );
+        let reply = session.load_document(&map, BuilderNode::element(0, "body"));
+        match reply.remount {
+            Remount::Mount(xml) => assert!(xml.contains("#a { width: 1px; }"), "{xml}"),
+            other => panic!("load mounts the document, got {other:?}"),
+        }
+        match session.set_stylesheet(&map, "#a { width: 2px; }".into()) {
+            Remount::Mount(xml) => {
+                assert!(xml.contains("#a { width: 2px; }") && !xml.contains("1px"), "{xml}");
+            }
+            other => panic!("a new stylesheet remounts, got {other:?}"),
+        }
+        assert_eq!(
+            session.set_stylesheet(&map, "#a { width: 2px; }".into()),
+            Remount::Keep,
+            "the same text again changes nothing"
+        );
     }
 }

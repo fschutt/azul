@@ -3145,6 +3145,79 @@ pub enum DebugEvent {
         #[serde(default)]
         dpi: Option<f32>,
     },
+
+    // ── AzBuilder project (layout/src/e2e/project.rs) ──
+    //
+    // A project is a folder on disk: azul-project.json, document.json,
+    // components/<library>/<name>.json, styles/*.css, tests/, snapshots/,
+    // export/. Every path is RELATIVE to the project root; `..`, absolute
+    // paths, NUL and symlinks that lead out are refused. Writing a stylesheet,
+    // a component file or document.json also applies it to the builder.
+    /// The open project `{open, root, name, manifest, tree, cwd, suggested}`, or
+    /// `{open: false, cwd, suggested}`.
+    ProjectInfo,
+    /// Open a folder as the project; answers the project info plus `created`.
+    ProjectOpen {
+        /// Absolute path, `~/…`, or relative to the app's working directory.
+        path: String,
+        /// Create the folder if missing and give it the project skeleton.
+        #[serde(default)]
+        create: bool,
+    },
+    /// Close the project (its stylesheets leave the builder document).
+    ProjectClose,
+    /// The project's file tree `{root, name, tree}`.
+    ProjectList,
+    /// Read one file: `{path, size, binary, content}` (binary as base64).
+    ProjectReadFile {
+        /// Path relative to the project root.
+        path: String,
+    },
+    /// Write one file (folders are created). Answers
+    /// `{path, size, written, applied, apply_error?}`.
+    ProjectWriteFile {
+        /// Path relative to the project root.
+        path: String,
+        /// The file's text (or base64 with `encoding: "base64"`).
+        content: String,
+        /// `"utf-8"` (default) or `"base64"`.
+        #[serde(default)]
+        encoding: Option<String>,
+    },
+    /// Create a file or a folder; refuses one that exists.
+    ProjectCreate {
+        /// Path relative to the project root.
+        path: String,
+        /// A folder instead of a file.
+        #[serde(default)]
+        directory: bool,
+        /// The new file's text (default: empty).
+        #[serde(default)]
+        content: Option<String>,
+    },
+    /// Rename or move a file or folder inside the project; refuses to overwrite.
+    ProjectRename {
+        /// Current path, relative to the project root.
+        from: String,
+        /// New path, relative to the project root.
+        to: String,
+    },
+    /// Delete a file, or a folder with its content.
+    ProjectDelete {
+        /// Path relative to the project root.
+        path: String,
+    },
+    /// Save the builder document and every user component into the project.
+    ProjectSave,
+    /// Load the project's components, stylesheets and document into the builder.
+    ProjectLoad,
+    /// The whole project as a zip: `{download_url, filename, size_bytes, file_count}`.
+    ProjectExportZip,
+    /// Unpack a zip into the project; every entry is checked before one is written.
+    ProjectImportZip {
+        /// The archive, base64 or a `data:` URI.
+        data: String,
+    },
 }
 
 // ==================== Accessibility Action Parsing ====================
@@ -3668,6 +3741,9 @@ pub struct E2eScratch {
     /// over, and the palette thumbnail cache (the `builder_*` ops and
     /// `get_component_thumbnail`). Per window, like everything here.
     builder: super::builder::BuilderSession,
+    /// The AzBuilder project folder open in this window (the `project_*`
+    /// ops, layout/src/e2e/project.rs).
+    project: super::project::ProjectSession,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than
@@ -3800,6 +3876,31 @@ fn remount_builder_if_active(
         }
         None => false,
     }
+}
+
+/// Run one `project_*` op (layout/src/e2e/project.rs) against this window's
+/// project, builder document and component map, then answer it and show
+/// what changed exactly as a builder op does (`finish_builder_op`). Returns
+/// whether the DOM must be regenerated.
+#[cfg(feature = "std")]
+fn run_project_op(
+    request: &DebugRequest,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    op: super::project::ProjectOp<'_>,
+) -> bool {
+    let result = {
+        let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        let layout_window = callback_info.get_layout_window();
+        let live = layout_window
+            .layout_results
+            .get(&ROOT_DOM_ID)
+            .map(|lr| &lr.styled_dom);
+        let mut guard = scratch(callback_info);
+        let s = &mut *guard;
+        super::project::handle(op, &mut s.project, &mut s.builder, &mut map_guard, live)
+    };
+    finish_builder_op(request, callback_info, result)
 }
 
 /// Snapshot the (already `pub`) resource + font-manager counters that a leak
@@ -12754,7 +12855,7 @@ struct ScaffoldComponentInfo {
 /// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat
 /// format).
 #[cfg(feature = "std")]
-fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
+pub(super) fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
     use azul_core::xml::ComponentFieldType;
     match ft {
         ComponentFieldType::String => "String".to_string(),
@@ -12868,7 +12969,9 @@ fn field_type_to_structured(ft: &azul_core::xml::ComponentFieldType) -> Structur
 
 /// Convert `OptionComponentDefaultValue` to `Option<String>` for JSON serialization.
 #[cfg(feature = "std")]
-fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue) -> Option<String> {
+pub(super) fn default_value_to_opt_string(
+    dv: &azul_core::xml::OptionComponentDefaultValue,
+) -> Option<String> {
     use azul_core::xml::{ComponentDefaultValue, OptionComponentDefaultValue};
     match dv {
         OptionComponentDefaultValue::None => None,
@@ -13117,7 +13220,7 @@ fn parse_default_value(
 
 /// Validate all fields of an exported component definition for uniqueness and correctness.
 #[cfg(feature = "std")]
-fn validate_exported_fields(
+pub(super) fn validate_exported_fields(
     fields: &[ExportedDataField],
 ) -> Result<Vec<azul_core::xml::ComponentDataField>, String> {
     let mut seen_names = std::collections::HashSet::new();
@@ -20061,6 +20164,147 @@ pub fn process_debug_event(
                 Ok(json) => send_ok(request, None, Some(ResponseData::Json(json))),
                 Err(e) => send_err(request, e),
             }
+        }
+
+        // === AzBuilder project (layout/src/e2e/project.rs) ===
+        //
+        // A folder on disk, every path confined to its root. Writing a live
+        // file (a stylesheet, a component file, document.json) and loading
+        // the project re-mount the builder document (`run_project_op`).
+        DebugEvent::ProjectInfo => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Info,
+            );
+        }
+
+        DebugEvent::ProjectOpen { path, create } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Open {
+                    path,
+                    create: *create,
+                },
+            );
+        }
+
+        DebugEvent::ProjectClose => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Close,
+            );
+        }
+
+        DebugEvent::ProjectList => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::List,
+            );
+        }
+
+        DebugEvent::ProjectReadFile { path } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Read { path },
+            );
+        }
+
+        DebugEvent::ProjectWriteFile {
+            path,
+            content,
+            encoding,
+        } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Write {
+                    path,
+                    content,
+                    encoding: encoding.as_deref(),
+                },
+            );
+        }
+
+        DebugEvent::ProjectCreate {
+            path,
+            directory,
+            content,
+        } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Create {
+                    path,
+                    directory: *directory,
+                    content: content.as_deref(),
+                },
+            );
+        }
+
+        DebugEvent::ProjectRename { from, to } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Rename { from, to },
+            );
+        }
+
+        DebugEvent::ProjectDelete { path } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Delete { path },
+            );
+        }
+
+        DebugEvent::ProjectSave => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Save,
+            );
+        }
+
+        DebugEvent::ProjectLoad => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::Load,
+            );
+        }
+
+        DebugEvent::ProjectExportZip => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::ExportZip,
+            );
+        }
+
+        DebugEvent::ProjectImportZip { data } => {
+            needs_update |= run_project_op(
+                request,
+                callback_info,
+                component_map,
+                super::project::ProjectOp::ImportZip { data },
+            );
         }
 
         // UNREACHABLE TODAY — and that is the point. Every `DebugEvent` variant
