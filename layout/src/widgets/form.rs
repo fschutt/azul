@@ -1337,4 +1337,43 @@ mod tests {
             assert!(reset[0].has("token".into()));
         }
     }
+
+    // ------------------------------------------------------------------
+    // A name on a wrapper root (the form-control replacement puts it there)
+    // ------------------------------------------------------------------
+
+    mod wrapper_roots {
+        use super::*;
+
+        #[test]
+        fn a_name_on_a_search_rows_wrapper_still_reads_the_field_inside() {
+            let log = RefAny::new(Log::default());
+            // The replacement grafts `name` onto the widget ROOT, which for a
+            // search field is the row around it, not the field holding the
+            // state.
+            let search = TextInput::create_search()
+                .with_text("rust".into())
+                .dom()
+                .with_attribute(AttributeType::Name("q".into()));
+            let form = Form::create(DomVec::from_vec(vec![search]))
+                .with_on_submit(log.clone(), record_submit as FormOnSubmitCallbackType);
+            let dom = form.dom();
+            let mut ds = dom.root.get_dataset().cloned().expect("form state");
+            let initial = ds
+                .downcast_ref::<FormStateWrapper>()
+                .expect("form state")
+                .initial
+                .clone();
+            assert_eq!(pairs(&initial), vec![("q".to_string(), "rust".to_string())]);
+
+            let sd = StyledDom::create_from_dom(dom);
+            let _ = run(sd, dom_node(0), None, |mut info| submit_form(&mut info, dom_node(0)));
+            assert_eq!(
+                submitted(&log)
+                    .first()
+                    .map(|d| pairs(d)),
+                Some(vec![("q".to_string(), "rust".to_string())])
+            );
+        }
+    }
 }
