@@ -9,6 +9,7 @@
 //! - [`shape`]: Text shaping and glyph layout.
 //! - [`shape_parser`]: Font and shape metric parsing.
 //! - [`dynamic_selector`]: Runtime selector matching helpers.
+//! - [`theme_chain`]: The theme chain and the `AZ_THEME` / `AZ_MODE` variables.
 //! - [`compact_cache`]: Compact caching utilities for resolved styles.
 //! - [`corety`]: Core type aliases re-exported at crate root.
 // Lint policy: deny correctness/safety issues, warn on style
@@ -103,5 +104,7 @@ pub mod shape;
 pub mod shape_parser;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
+/// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.
+pub mod theme_chain;
 
 pub use self::corety::*;
