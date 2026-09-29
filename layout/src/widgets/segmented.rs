@@ -6,7 +6,9 @@
 //! Clicking a segment selects it: the internal handler computes the clicked
 //! segment's index from its position among its siblings, updates the
 //! `selected_index`, invokes the user's `on_change(index)`, and live-restyles
-//! every segment (selected vs unselected) via `set_css_property`.
+//! every segment (selected vs unselected) with the style a build in the new
+//! selection gives it (`CallbackInfo::set_node_inline_style`) - dark twins
+//! and states included, so the cascade keeps picking the mode's colours.
 //!
 //! Key types: [`Segmented`], [`SegmentedState`], [`SegmentedOnChange`].
 
@@ -353,34 +355,11 @@ pub(crate) fn segment_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// The fill and ink the click restyle writes for a segment in the flat theme,
-/// by day or by night. A `set_css_property` override outranks every inline
-/// declaration, dark twins included, so the restyle has to pick the dark face
-/// itself.
-pub(crate) fn segment_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
-    use crate::widgets::themes::system_palette as sys;
-
-    match (selected, dark) {
-        (true, false) => (SEG_SELECTED_BG, SEG_SELECTED_TEXT),
-        (false, false) => (SEG_UNSELECTED_BG, SEG_UNSELECTED_TEXT),
-        (true, true) => (sys::ACCENT_BACKGROUND, sys::ACCENT_TEXT),
-        (false, true) => (sys::BUTTON_FACE, sys::BUTTON_TEXT),
-    }
-}
-
-/// Whether the window a callback runs in cascades in the dark theme - the
-/// answer `LayoutWindow::dynamic_selector_context` gives: the `AZ_MODE` pin
-/// first, then the window's own theme.
-fn window_is_dark(info: &CallbackInfo) -> bool {
-    azul_css::dynamic_selector::mode_pinned_by_env().map_or_else(
-        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
-        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
-    )
-}
-
-/// What a theme supplies for a segmented control: every segment's style and
-/// the fill and ink a selection restyle writes. Built by
-/// `themes::flat::segmented_skin` / `themes::flora::segmented_skin`.
+/// What a theme supplies for a segmented control: every segment's style.
+/// Built by `themes::flat::segmented_skin` / `themes::flora::segmented_skin`.
+/// A selection restyles each segment with the same function
+/// (`CallbackInfo::set_node_inline_style`), so a clicked control is the
+/// control built in its new state - in every mode.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SegmentedSkin {
     pub theme: UiTheme,
@@ -388,9 +367,6 @@ pub(crate) struct SegmentedSkin {
     /// states - for whether it is selected, first (left-rounded) and last
     /// (right-rounded).
     pub segment: fn(bool, bool, bool) -> CssPropertyWithConditionsVec,
-    /// The fill and ink the selection restyle writes for a selected / other
-    /// segment, by day (`false`) or by night (`true`).
-    pub restyle: fn(bool, bool) -> (StyleBackgroundContentVec, ColorU),
 }
 
 /// The skin `theme` draws segmented controls with.
@@ -414,14 +390,13 @@ fn follow_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyW
 
 /// The skin an UNPINNED segmented control is built with, so it follows the
 /// app theme: `structure`'s theme (its marker goes on the control, so the
-/// selection restyle writes that theme's colours) and every segment in
-/// BOTH themes' blocks.
+/// selection restyle writes that theme's segments - a theme switch rebuilds
+/// the DOM) and every segment in BOTH themes' blocks.
 #[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> SegmentedSkin {
+pub(crate) const fn follow_skin(structure: UiTheme) -> SegmentedSkin {
     SegmentedSkin {
         theme: structure,
         segment: follow_segment,
-        restyle: skin_for(structure).restyle,
     }
 }
 
@@ -710,7 +685,7 @@ extern "C" fn on_segment_key(mut data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 /// Selects segment `selected` of `segments`: updates the shared state, invokes
-/// the user callback and live-restyles every segment in the window's theme.
+/// the user callback and live-restyles every segment.
 /// `None` when the payload is not this widget's state (or is already
 /// borrowed) - nothing was changed.
 fn select_segment(
@@ -719,9 +694,8 @@ fn select_segment(
     segments: &[azul_core::dom::DomNodeId],
     selected: usize,
 ) -> Option<Update> {
-    let dark = window_is_dark(info);
     // The theme the control was BUILT in, from the marker on the segments'
-    // parent: its colours are the ones to write.
+    // parent: its segments are the ones to write.
     let theme = segments
         .first()
         .and_then(|s| info.get_parent(*s))
@@ -743,15 +717,14 @@ fn select_segment(
         }
     };
 
-    // Live-restyle: selected segment gets the accent fill + its ink, the rest
-    // get the neutral fill + the neutral ink - in the window's theme.
+    // Live-restyle: every segment takes the style it would be BUILT with in
+    // the new selection - its light face, dark twins and states - so the
+    // cascade, not this handler, picks the mode's colours, now and after a
+    // light / dark switch (an override baked for the mode of the moment
+    // outlived the switch, and outranked the hover and focus rules).
+    let last = segments.len().saturating_sub(1);
     for (i, node) in segments.iter().enumerate() {
-        let (bg, text) = (skin.restyle)(i == selected, dark);
-        info.set_css_property(*node, CssProperty::const_background_content(bg));
-        info.set_css_property(
-            *node,
-            CssProperty::const_text_color(StyleTextColor { inner: text }),
-        );
+        info.set_node_inline_style(*node, (skin.segment)(i == selected, i == 0, i == last));
     }
 
     Some(result)
@@ -1250,10 +1223,11 @@ mod autotest_generated {
         (update, recorded)
     }
 
-    /// Every colour the live restyle wrote, as `(node index, "bg" | "text", colour)`
-    /// in emission order. Panics on any property other than the two the handler is
-    /// documented to write.
-    fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+    /// Every segment style the live restyle wrote (`set_node_inline_style`),
+    /// as `(node index, style)` in emission order. Panics on any change other
+    /// than the restyle and the roving Tab stop: the restyle pins no value
+    /// (`ChangeNodeCssProperties` would outlive a light / dark switch).
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
         let mut out = Vec::new();
         for change in changes {
             // The click also moves the control's roving Tab stop and announces
@@ -1266,36 +1240,47 @@ mod autotest_generated {
             ) {
                 continue;
             }
-            let CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } = change
-            else {
-                panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
+            let CallbackChange::SetNodeInlineStyle { node_id, style, .. } = change else {
+                panic!("the restyle must only replace inline styles, got {change:?}");
             };
-            for p in properties.as_ref() {
-                match p {
-                    CssProperty::BackgroundContent(v) => {
-                        let layers = v
-                            .get_property()
-                            .expect("restyle must write an exact background");
-                        assert_eq!(layers.as_ref().len(), 1, "a segment fill is a single layer");
-                        match &layers.as_ref()[0] {
-                            StyleBackgroundContent::Color(c) => {
-                                out.push((node_id.index(), "bg", *c));
-                            }
-                            other => panic!("segment background is not a flat colour: {other:?}"),
-                        }
-                    }
-                    CssProperty::TextColor(v) => {
-                        let c = v
-                            .get_property()
-                            .expect("restyle must write an exact text colour");
-                        out.push((node_id.index(), "text", c.inner));
-                    }
-                    other => panic!("unexpected restyle property: {other:?}"),
+            out.push((node_id.index(), style.clone()));
+        }
+        out
+    }
+
+    /// Every colour the live restyle wrote, as `(node index, "bg" | "text", colour)`
+    /// in emission order: the LIGHT resting face (the last unconditional
+    /// declaration) of every segment style the click wrote. The dark twins
+    /// travel in the same styles; `click_restyle_agrees_with_a_freshly_built_style`
+    /// pins the whole style.
+    fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+        let mut out = Vec::new();
+        for (node, style) in inline_writes(changes) {
+            let resting = |ty: CssPropertyType| {
+                style
+                    .as_ref()
+                    .iter()
+                    .filter(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+                    .last()
+                    .map(|p| p.property.clone())
+            };
+            if let Some(CssProperty::BackgroundContent(v)) =
+                resting(CssPropertyType::BackgroundContent)
+            {
+                let layers = v
+                    .get_property()
+                    .expect("restyle must write an exact background");
+                assert_eq!(layers.as_ref().len(), 1, "a segment fill is a single layer");
+                match &layers.as_ref()[0] {
+                    StyleBackgroundContent::Color(c) => out.push((node, "bg", *c)),
+                    other => panic!("segment background is not a flat colour: {other:?}"),
                 }
+            }
+            if let Some(CssProperty::TextColor(v)) = resting(CssPropertyType::TextColor) {
+                let c = v
+                    .get_property()
+                    .expect("restyle must write an exact text colour");
+                out.push((node, "text", c.inner));
             }
         }
         out
@@ -2482,6 +2467,20 @@ mod autotest_generated {
 
         for clicked in 0..n {
             let (_, changes) = run_click(Some(styled.clone()), seg_node(clicked), state.clone());
+            // The WHOLE style a build gives each segment - dark twins and
+            // states included - not a colour baked for the mode of the moment.
+            let styles = inline_writes(&changes);
+            assert_eq!(styles.len(), n);
+            for (i, written) in styles.iter().enumerate() {
+                assert_eq!(
+                    written,
+                    &(
+                        seg_node(i),
+                        (skin_for(UiTheme::Flat).segment)(i == clicked, i == 0, i + 1 == n)
+                    ),
+                    "clicked={clicked}: segment {i} takes the style a flat build gives it"
+                );
+            }
             let writes = restyle_writes(&changes);
             assert_eq!(writes.len(), 2 * n);
 
@@ -3001,9 +3000,10 @@ mod autotest_generated {
         );
     }
 
-    /// The click restyle writes the colours of the theme the control was BUILT
-    /// in (read back from its marker class): a flora control must not be
-    /// repainted in flat's white and blue on the first click.
+    /// The click restyle writes the segments of the theme the control was
+    /// BUILT in (read back from its marker class): a flora control must not be
+    /// repainted in flat's white and blue on the first click. Each segment
+    /// takes the whole style a flora build gives it.
     #[test]
     fn a_click_on_a_flora_segmented_restyles_in_flora_s_colours() {
         use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
@@ -3011,65 +3011,61 @@ mod autotest_generated {
         let (styled, state) =
             flatten(Segmented::create(labels(&["Day", "Week", "Month"])).with_theme(UiTheme::Flora));
         let (_, changes) = run_click(Some(styled), seg_node(2), state);
-        let writes: Vec<(usize, CssProperty)> = changes
-            .iter()
-            .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => Some((node_id.index(), properties.as_ref()[0].clone())),
-                _ => None,
-            })
-            .collect();
-        let bg_of = |node: usize| {
-            writes
-                .iter()
-                .find(|(n, p)| *n == node && matches!(p, CssProperty::BackgroundContent(_)))
-                .map(|(_, p)| tc::bg_layers(p))
-        };
-        let ink_of = |node: usize| {
-            writes.iter().find_map(|(n, p)| match p {
-                CssProperty::TextColor(v) if *n == node => v.get_property().map(|c| c.inner),
-                _ => None,
-            })
-        };
-
-        let first = bg_of(seg_node(0)).expect("segment 0 is restyled");
-        assert!(
-            first == vec![flora::RAISED_FACE_LIGHT] || first == vec![flora::RAISED_FACE_DARK],
-            "an unselected segment goes back to flora paper: {first:?}"
+        let written = inline_writes(&changes);
+        let flora_segment = flora::segmented_skin().segment;
+        assert_eq!(
+            written,
+            (0..3)
+                .map(|i| (seg_node(i), flora_segment(i == 2, i == 0, i == 2)))
+                .collect::<Vec<_>>(),
+            "every segment takes the style a flora build gives it"
         );
-        let third = bg_of(seg_node(2)).expect("segment 2 is restyled");
-        assert_eq!(third, flora::selected_stone(), "the selected segment is the stone");
-        assert_eq!(ink_of(seg_node(2)), Some(flora::LIGHT_ON_ACC));
+
+        // ...which is flora paper and the stone, with their night faces.
+        let node = |i: usize| Dom::create_div().with_css_props(written[i].1.clone());
+        for dark in [false, true] {
+            let first = tc::background(&node(0), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                first,
+                Some(vec![if dark {
+                    flora::RAISED_FACE_DARK
+                } else {
+                    flora::RAISED_FACE_LIGHT
+                }]),
+                "dark={dark}: an unselected segment goes back to flora paper"
+            );
+            let third = tc::background(&node(2), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                third,
+                Some(flora::selected_stone()),
+                "dark={dark}: the selected segment is the stone"
+            );
+        }
+        assert_eq!(tc::text_color(&node(2), false), Some(flora::LIGHT_ON_ACC));
     }
 
     /// An UNPINNED control follows the app theme, and so does its selection
-    /// restyle: built for flora, it repaints in flora's colours.
+    /// restyle: built for flora, it repaints in flora's segments.
     #[test]
     fn a_click_on_an_unpinned_segmented_built_for_flora_restyles_in_flora_s_colours() {
-        use crate::widgets::themes::flora;
+        use crate::widgets::themes::{flora, theme_checks as tc};
 
         let (styled, state) = {
             let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
             flatten(Segmented::create(labels(&["Day", "Week", "Month"])))
         };
         let (_, changes) = run_click(Some(styled), seg_node(2), state);
-        let ink = changes.iter().find_map(|c| match c {
-            CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } if node_id.index() == seg_node(2) => {
-                properties.as_ref().iter().find_map(|p| match p {
-                    CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
-                    _ => None,
-                })
-            }
-            _ => None,
-        });
-        assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "the selected segment wears flora's stone ink");
+        let third = inline_writes(&changes)
+            .into_iter()
+            .find(|(n, _)| *n == seg_node(2))
+            .map(|(_, style)| style)
+            .expect("segment 2 is restyled");
+        assert_eq!(third, (flora::segmented_skin().segment)(true, false, true));
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_css_props(third), false),
+            Some(flora::LIGHT_ON_ACC),
+            "the selected segment wears flora's stone ink"
+        );
     }
 }
 

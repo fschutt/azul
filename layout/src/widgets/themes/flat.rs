@@ -3615,7 +3615,6 @@ pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
     crate::widgets::segmented::SegmentedSkin {
         theme: super::UiTheme::Flat,
         segment: segmented_segment,
-        restyle: crate::widgets::segmented::segment_colours,
     }
 }
 

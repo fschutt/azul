@@ -3333,7 +3333,6 @@ pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
     crate::widgets::segmented::SegmentedSkin {
         theme: super::UiTheme::Flora,
         segment: segmented_segment,
-        restyle: segmented_colours,
     }
 }
 
@@ -3390,24 +3389,6 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
     let ring = if selected { LIGHT_GLOW } else { LIGHT_ACC };
     v.extend(kit::focus_shadow_ring(ring, DARK_GLOW));
     CssPropertyWithConditionsVec::from_vec(v)
-}
-
-/// The fill and ink a selection restyles a flora segment with.
-fn segmented_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
-    match (selected, dark) {
-        (true, _) => (
-            StyleBackgroundContentVec::from_vec(selected_stone()),
-            LIGHT_ON_ACC,
-        ),
-        (false, false) => (
-            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_LIGHT]),
-            LIGHT_INK,
-        ),
-        (false, true) => (
-            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_DARK]),
-            DARK_INK,
-        ),
-    }
 }
 
 /// Renders a [`crate::widgets::segmented::Segmented`] in the flora theme.
