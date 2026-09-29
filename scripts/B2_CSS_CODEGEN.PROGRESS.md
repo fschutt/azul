@@ -64,13 +64,16 @@ i.e. a monomorphized `CssPropertyValue<T>` alias which has no C constructor func
   (linear.rs gained inline `*_expr` hooks + COBOL data-item hooks; ExprSyntax gained
   `field_value`); all 35 languages registered in `lang::all()`
 
-## 3. IN PROGRESS
-- final report `scripts/B2_CSS_CODEGEN_2026_09_29.md`
+- final report `scripts/B2_CSS_CODEGEN_2026_09_29.md` (committed with this checkpoint)
 
-## 4. NEXT
-1. final report, then done. The debug-server message (`platform.rs:390`, "Supported: rust, cpp,
-   python") is OUTSIDE the allowed paths (only Cargo.toml wiring may be touched in dll/): left
-   for the parent as a one-line follow-up (`azul_css::codegen::supported_languages()`).
+## 3. IN PROGRESS
+- nothing - task complete, waiting for the parent to compile / bless.
+
+## 4. NEXT (parent)
+1. compile + run `codegen_structure`, bless `codegen_goldens` (commands in the report, section 7).
+2. The debug-server message (`platform.rs:390`, "Supported: rust, cpp, python") is OUTSIDE the
+   allowed paths (only Cargo.toml wiring may be touched in dll/): one-line follow-up
+   (`azul_css::codegen::supported_languages()`), see report section 9.
 
 Binding research (3 Explore agents, 2026-09-29) condensed in the session scratchpad:
 lang_cfamily_notes.md / lang_managed_notes.md / lang_exotic_notes.md (if lost: re-run the brief in
