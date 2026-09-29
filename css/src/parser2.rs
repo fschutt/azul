@@ -2448,6 +2448,9 @@ fn expand_env_components<'a>(
 ) -> Option<Result<Vec<CssDeclaration>, CssParseErrorInner<'a>>> {
     const PROBES: [&str; 2] = ["1px", "2px"];
 
+    if !value.contains("env(") {
+        return None;
+    }
     let components = crate::props::basic::parse::split_string_respect_whitespace(value);
     // (component index, its variable) for every `env()` component; the
     // value with each `env()` replaced by its fallback.
