@@ -3427,22 +3427,17 @@ fn stepper_circle(reached: bool) -> CssPropertyWithConditionsVec {
     use crate::widgets::stepper as s;
     type P = CssPropertyWithConditions;
 
-    let mut v = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // The circle's structure is the widget's (`stepper::CIRCLE_BASE`: the
+    // hairline below sits inside the box, the same 28px as every theme's);
+    // what follows is flora's skin on it.
+    let mut v = s::CIRCLE_BASE.to_vec();
+    v.extend([
         P::simple(CssProperty::const_width(LayoutWidth::const_px(s::CIRCLE_SIZE))),
         P::simple(CssProperty::const_height(LayoutHeight::const_px(s::CIRCLE_SIZE))),
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(s::CIRCLE_SIZE))),
-        // The hairline sits inside the circle: same size as every theme's.
-        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
         kit::font_size(13),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    ];
+    ]);
     v.extend(kit::radius(s::CIRCLE_RADIUS));
     v.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
     if reached {
@@ -3463,10 +3458,10 @@ fn stepper_connector(fill: crate::widgets::stepper::ConnFill) -> CssPropertyWith
     use crate::widgets::stepper::{self as s, ConnFill};
     type P = CssPropertyWithConditions;
 
-    let mut v = vec![
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-        P::simple(CssProperty::const_height(LayoutHeight::const_px(s::CONNECTOR_HEIGHT))),
-    ];
+    let mut v = s::CONNECTOR_BASE.to_vec();
+    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(
+        s::CONNECTOR_HEIGHT,
+    ))));
     match fill {
         ConnFill::Accent => v.push(P::simple(kit::bg(LIGHT_ACC))),
         ConnFill::Muted => v.extend(kit::themed_bg(LIGHT_BD, DARK_BD)),
@@ -3479,13 +3474,12 @@ fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
     use super::style_kit as kit;
     type P = CssPropertyWithConditions;
 
-    let mut v = vec![
+    let mut v = crate::widgets::stepper::LABEL_BASE.to_vec();
+    v.extend([
         kit::font_size(12),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
-    ];
+    ]);
     if reached {
         v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
     } else {

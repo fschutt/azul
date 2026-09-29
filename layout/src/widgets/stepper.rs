@@ -37,8 +37,9 @@ use azul_css::{
     props::{
         basic::{color::ColorU, PixelValue, StyleFontSize},
         layout::{
-            LayoutAlignItems, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop, LayoutWidth,
+            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutHeight, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop,
+            LayoutWidth,
         },
         property::{CssProperty, LayoutFlexBasisValue, LayoutWidthValue},
         style::{
@@ -254,6 +255,42 @@ pub(crate) static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
+// ---- R5: the parts' BASE - the structure every theme's step shares ----
+//
+// A theme's circle, connector and label are the base below, THEN its skin
+// (paint and metrics): `circle_style` & co. for flat, `themes::flora`'s
+// `stepper_*` for flora. The base comes first in every theme, so an unpinned
+// stepper (`follow_skin`) declares it once, outside every `@theme` block.
+
+/// A step circle's structure: a flex box that centres its number and keeps
+/// its size, any hairline a theme draws inside the box (`border-box`: the
+/// circle is the same 28px in every theme), and a clickable number - the
+/// pointer, never a text selection.
+pub(crate) static CIRCLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// A connector half-line's structure: it grows into what the row leaves.
+pub(crate) static CONNECTOR_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// A step label's structure: clickable text - the pointer, never a text
+/// selection.
+pub(crate) static LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
 /// Builds the indicator-row style: a full-width flex row that vertically centres
 /// the connectors (height `CONNECTOR_HEIGHT`) on the circle.
 fn row_style() -> CssPropertyWithConditionsVec {
@@ -270,26 +307,16 @@ fn row_style() -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Builds the style for one numbered circle. Background + number colour are the
-/// only reached-dependent properties.
+/// Builds the style for one numbered circle: [`CIRCLE_BASE`], then flat's skin.
+/// Background + number colour are the only reached-dependent properties.
 pub(crate) fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if reached {
         (ACCENT_BG, WHITE)
     } else {
         (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut v = CIRCLE_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             CIRCLE_SIZE,
         ))),
@@ -315,49 +342,48 @@ pub(crate) fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
             13,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// Builds the style for one connector half-line (left or right of a circle).
+/// Builds the style for one connector half-line (left or right of a circle):
+/// [`CONNECTOR_BASE`], then flat's skin.
 pub(crate) fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            1,
-        ))),
+    let mut v = CONNECTOR_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
             CONNECTOR_HEIGHT,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(fill.bg())),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// Builds the style for one step label.
+/// Builds the style for one step label: [`LABEL_BASE`], then flat's skin.
 pub(crate) fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
     let text = if reached {
         DARK_TEXT_COLOR
     } else {
         MUTED_TEXT_COLOR
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = LABEL_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             12,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(6),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// A style vec with the dark twins appended after its (unconditional) light
@@ -1759,12 +1785,14 @@ mod autotest_generated {
         let reached = circle_style(true);
         let unreached = circle_style(false);
 
+        // Nineteen: the eight of `CIRCLE_BASE` (R5 made `box-sizing:
+        // border-box` part of it), then flat's eleven.
         assert_eq!(
             reached.as_ref().len(),
-            18,
-            "the circle declares eighteen properties"
+            19,
+            "the circle declares nineteen properties"
         );
-        assert_eq!(unreached.as_ref().len(), 18);
+        assert_eq!(unreached.as_ref().len(), 19);
         assert_eq!(
             property_kinds(&reached),
             property_kinds(&unreached),
