@@ -5829,9 +5829,25 @@ mod theme_tests {
                     .collect()
             };
             assert_eq!(stops(&flora_dom), stops(&flat_dom), "{mode}: one roving stop");
+            // The FORM attributes (name, value, type...) - not the ids and
+            // classes, where a theme adds its own marker class.
+            let form_attributes = |dom: &Dom| {
+                dom.root
+                    .attributes()
+                    .as_ref()
+                    .iter()
+                    .filter(|a| {
+                        !matches!(
+                            a,
+                            azul_core::dom::AttributeType::Id(_)
+                                | azul_core::dom::AttributeType::Class(_)
+                        )
+                    })
+                    .count()
+            };
             assert_eq!(
-                flora_dom.root.attributes().as_ref().len(),
-                flat_dom.root.attributes().as_ref().len(),
+                form_attributes(&flora_dom),
+                form_attributes(&flat_dom),
                 "{mode}: the form attributes"
             );
         }
