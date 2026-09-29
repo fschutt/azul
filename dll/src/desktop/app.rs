@@ -175,6 +175,10 @@ impl App {
         // every window built from now on starts in it, and
         // `CallbackInfo::set_color_scheme` switches it for all of them.
         azul_layout::window::set_app_color_scheme(app_config.color_scheme);
+        // The app THEME (`@theme(<name>)`): every window built from now on
+        // builds and styles for it; `CallbackInfo::set_theme` switches it
+        // (a DOM rebuild of every window).
+        azul_core::app_theme::set_app_theme(app_config.theme.as_str());
 
         // Global hotkeys: NO backend here. `App::create` cannot know whether
         // the run will be headless, and installing the platform's backend

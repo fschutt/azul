@@ -7710,6 +7710,37 @@ pub trait PlatformWindow {
                 };
                 tier.max(nested)
             }
+            CallbackChange::SetTheme { theme } => {
+                // The APP theme, not the colour scheme: a theme may change a
+                // widget's STRUCTURE (flora wraps nodes flat does not), so a
+                // switch is always a DOM REBUILD, never a restyle.
+                //
+                // The choice is the app's: published first, so every window
+                // built from now on starts in it. Every window - this one
+                // and, through the registry walk, the others - is then asked
+                // for a rebuild, and `common::layout::regenerate_layout` is
+                // where a window ADOPTS the new theme: it sees its DOM was
+                // built under another theme than the app's, takes the app's,
+                // and tags the pass `AppThemeChange` whatever tag its request
+                // carried (the walk asks with a plain `RefreshDom`). One
+                // place, so a window the walk cannot reach (a backend without
+                // a registry) still adopts at its next rebuild.
+                let already = self
+                    .get_layout_window()
+                    .is_some_and(|lw| lw.app_theme == *theme);
+                azul_core::app_theme::set_app_theme(theme.as_str());
+                if already {
+                    return ProcessEventResult::DoNothing;
+                }
+                self.request_regeneration_all_windows();
+                // The incremental caches hold a tree and a display list built
+                // for the old theme.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.layout_cache.reset_incremental();
+                }
+                self.request_regeneration(azul_core::callbacks::RelayoutReason::AppThemeChange);
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
         }
     }
 

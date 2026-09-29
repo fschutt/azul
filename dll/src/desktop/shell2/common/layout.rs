@@ -254,6 +254,36 @@ pub fn regenerate_layout(
     azul_layout::probe::emit_phase_heap("start");
     let mut phases = PhaseTimer::new();
 
+    // ── The APP THEME (`CallbackInfo::set_theme`) ─────────────────────────
+    // THE place a window adopts the app's theme: a window whose DOM was
+    // built under another theme than the app's current one rebuilds under
+    // it NOW, and the pass says why (`AppThemeChange`) whatever tag its
+    // request carried - the switching window's fan-out asks the others with
+    // a plain `RefreshDom`, and a backend that cannot reach a window at all
+    // still has it adopt at its next rebuild. The theme is then entered for
+    // this whole pass, so every DOM built in it - `layout()`, the widgets it
+    // creates, the form controls resolved after it - is built for the theme
+    // its cascade will match (`dynamic_selector_context` reads the same
+    // `app_theme`).
+    let app_theme = azul_core::app_theme::app_theme();
+    let relayout_reason = if layout_window.app_theme == app_theme {
+        relayout_reason
+    } else {
+        layout_window.app_theme = app_theme;
+        azul_core::callbacks::RelayoutReason::AppThemeChange
+    };
+    let _theme_scope = azul_core::app_theme::ThemeScope::enter(layout_window.app_theme.clone());
+    // A theme switch takes the FULL path, like a colour-scheme rebuild: the
+    // pre-cascade skip's unchanged exit and the layout-equivalence shortcut
+    // below both keep the retained StyledDom without offering it the new
+    // context, and a migrated widget's DOM is often IDENTICAL across themes
+    // (it carries every theme's block; only the matcher differs).
+    let theme_rebuild = matches!(
+        relayout_reason,
+        azul_core::callbacks::RelayoutReason::ThemeChange
+            | azul_core::callbacks::RelayoutReason::AppThemeChange
+    );
+
     // ── Platform backends, registered BEFORE the layout callback runs ──────
     // Each of these installs a backend that a widget reads AT BUILD TIME, and
     // they used to run at the very END of this function — after the app's
@@ -656,7 +686,7 @@ pub fn regenerate_layout(
     );
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
-            relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+            !theme_rebuild
                 && !csd_changed_precheck
                 && fp.structure_root == prev.structure_root
                 && fp.style_root == prev.style_root
@@ -1193,7 +1223,7 @@ pub fn regenerate_layout(
         .layout_results
         .get(&azul_core::dom::DomId::ROOT_ID)
     {
-        if relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+        if !theme_rebuild
             && azul_core::styled_dom::is_layout_equivalent(
                 &old_layout_result.styled_dom,
                 &styled_dom,
