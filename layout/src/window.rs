@@ -7925,18 +7925,125 @@ impl LayoutWindow {
     }
 
     /// The node-style arm of [`Self::apply_content_change`]: replace the
-    /// node's whole inline style.
+    /// node's whole inline style, so it resolves like a node BUILT with it.
+    ///
+    /// No user override is written (that is `NodeCss`): the new declarations,
+    /// conditional ones included, go through the cascade like any built
+    /// style, so a later light / dark switch or `:hover` re-resolves them.
     fn apply_node_style_change(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
     ) -> crate::overlay::ContentChangeResult {
-        // Plumbing only: the write lands in the next commit.
-        let _ = (dom_id, node_id, style);
-        crate::overlay::ContentChangeResult {
-            tier: crate::overlay::ContentDirtyTier::Unchanged,
+        use azul_css::props::property::{CssProperty, CssPropertyType};
+
+        use crate::overlay::{ContentChangeResult, ContentDirtyTier};
+
+        let unchanged = ContentChangeResult {
+            tier: ContentDirtyTier::Unchanged,
+        };
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return unchanged;
+        };
+        if node_id.index() >= layout_result.styled_dom.node_data.as_ref().len() {
+            return unchanged;
         }
+
+        let new_style: azul_css::css::Css = style.into();
+        // The property types whose declarations the write changes: they
+        // decide the tier, and which overrides must go.
+        let changed: Vec<CssPropertyType> = {
+            let node_data = layout_result.styled_dom.node_data.as_container();
+            let old = node_data[node_id].get_style();
+            if *old == new_style {
+                return unchanged;
+            }
+            Self::changed_property_types(old, &new_style)
+        };
+        layout_result.styled_dom.node_data.as_container_mut()[node_id].set_style(new_style);
+        if changed.is_empty() {
+            // Regrouped, not restyled: every property resolves as before.
+            return unchanged;
+        }
+
+        // A user override outranks every declaration: one left on a property
+        // the new style declares (an older `set_css_property`) would keep the
+        // node from resolving like one built with the style. `initial` removes
+        // it (the property cache's single write site).
+        let pinned: Vec<CssProperty> = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .user_overridden_properties
+            .get(node_id.index())
+            .map(|overrides| {
+                overrides
+                    .iter()
+                    .filter(|(ty, _)| changed.contains(ty))
+                    .map(|(ty, _)| CssProperty::initial(*ty))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !pinned.is_empty() {
+            drop(
+                layout_result
+                    .styled_dom
+                    .restyle_user_property(&node_id, &pinned),
+            );
+        }
+
+        // Inline declarations feed the UA / inheritance / compact tail of the
+        // cascade, conditional ones evaluated against the window's context -
+        // the tail a theme flip re-runs. A new cascade generation keeps the
+        // display-list cache from answering with the old colours.
+        layout_result.styled_dom.recascade_ua_inheritance_and_compact();
+        {
+            let cache = layout_result.styled_dom.get_css_property_cache_mut();
+            cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        }
+
+        // Paint-only properties must not charge a layout pass; a geometry
+        // change relayouts in place (the `NodeCss` rule: child DOMs keep the
+        // display-list-only path).
+        let needs_relayout = changed.iter().any(|ty| ty.can_trigger_relayout());
+        if needs_relayout && dom_id == DomId::ROOT_ID {
+            self.relayout_root_dom_in_place();
+        } else {
+            self.regenerate_display_list_for_dom(dom_id);
+        }
+        ContentChangeResult {
+            tier: if needs_relayout {
+                ContentDirtyTier::Relayout
+            } else {
+                ContentDirtyTier::RebuildDisplayList
+            },
+        }
+    }
+
+    /// The property types whose inline declarations - values, conditions and
+    /// order among themselves - differ between two inline styles. Last match
+    /// wins PER PROPERTY, so a type whose own declarations are equal resolves
+    /// the same under every context.
+    fn changed_property_types(
+        old: &azul_css::css::Css,
+        new: &azul_css::css::Css,
+    ) -> Vec<azul_css::props::property::CssPropertyType> {
+        use azul_css::props::property::CssPropertyType;
+        let declarations = |css: &azul_css::css::Css, ty: CssPropertyType| {
+            css.iter_inline_properties()
+                .filter(|(p, _)| p.get_type() == ty)
+                .map(|(p, c)| (p.clone(), c.clone()))
+                .collect::<Vec<_>>()
+        };
+        let mut types: Vec<CssPropertyType> = old
+            .iter_inline_properties()
+            .chain(new.iter_inline_properties())
+            .map(|(p, _)| p.get_type())
+            .collect();
+        types.sort_unstable();
+        types.dedup();
+        types.retain(|ty| declarations(old, *ty) != declarations(new, *ty));
+        types
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].
