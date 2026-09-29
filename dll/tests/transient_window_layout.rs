@@ -2869,6 +2869,124 @@ fn escape_in_the_key_window_picker_returns_focus_through_the_activation_round_tr
     );
 }
 
+/// An app that keeps the picked colour and rebuilds on every change - what
+/// the widgets demo does (`on_color`: store, `RefreshDom`).
+struct SwatchApp {
+    color: azul_css::props::basic::color::ColorU,
+}
+
+extern "C" fn swatch_app_changed(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: azul_layout::widgets::color_input::ColorInputState,
+) -> Update {
+    if let Some(mut app) = data.downcast_mut::<SwatchApp>() {
+        app.color = state.color;
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn rebuilding_swatch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::color_input::{ColorInput, ColorInputOnValueChangeCallbackType};
+    let color = data
+        .downcast_ref::<SwatchApp>()
+        .map(|a| a.color)
+        .expect("the app data is a SwatchApp");
+    let on_change: ColorInputOnValueChangeCallbackType = swatch_app_changed;
+    let stop = |class: &'static str| -> Dom {
+        Dom::create_div()
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+            .with_css("width: 80px; height: 20px;".into())
+            .with_tab_index(azul_core::dom::TabIndex::Auto)
+    };
+    Dom::create_body()
+        .with_child(stop("stop-before"))
+        .with_child(
+            ColorInput::create(color)
+                .with_on_value_change(data.clone(), on_change)
+                .dom(),
+        )
+        .with_child(stop("stop-after"))
+}
+
+/// The ruling once more, with the widgets demo's app: every colour the
+/// arrows set in the picker REBUILDS the parent (the swatch repaints in the
+/// new colour). The swatch must survive those rebuilds as the same element -
+/// its focus and the focus the picker owes back to it follow the node - so
+/// that Escape still lands on it and Tab still moves on from it. If the
+/// rebuild lost the swatch, Escape would hand focus back to nothing and the
+/// next Tab would restart at the first stop: the device report.
+#[test]
+fn escape_after_the_picker_changed_the_colour_and_the_app_rebuilt_still_returns_to_the_swatch() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(SwatchApp {
+        color: azul_layout::widgets::color_input::color_from_hex("#ff5733").expect("a colour"),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 800.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = rebuilding_swatch_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    ring_on(&mut parent);
+    parent.regenerate_layout().expect("layout");
+    for site in ["t.tab1", "t.tab2"] {
+        key_down(&mut parent, VirtualKeyCode::Tab, &[], site);
+        keys_up(&mut parent, site);
+    }
+    assert_eq!(
+        focused(&parent),
+        Some(node_with_class(&parent, "native_color_input")),
+        "premise: two Tabs reach the swatch"
+    );
+    key_down(&mut parent, VirtualKeyCode::Space, &[], "t.space");
+    keys_up(&mut parent, "t.space.up");
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data.clone());
+    ring_on(&mut popup);
+    popup.regenerate_layout().expect("popup layout");
+    let _ = popup.process_window_events(0);
+
+    // Two arrows in the picker: each changes the colour, the app rebuilds.
+    for site in ["t.right1", "t.right2"] {
+        key_down(&mut popup, VirtualKeyCode::Right, &[], site);
+        keys_up(&mut popup, site);
+        parent.regenerate_layout().expect("the app rebuilds on the new colour");
+        popup.regenerate_layout().expect("the popup adopts the rebuilt subtree");
+    }
+    let picked = {
+        let mut app = app_data.borrow().clone();
+        let a = app.downcast_ref::<SwatchApp>().expect("SwatchApp");
+        a.color
+    };
+    assert_ne!(
+        picked,
+        azul_layout::widgets::color_input::color_from_hex("#ff5733").expect("a colour"),
+        "premise: the arrows changed the app's colour (and so rebuilt the parent)"
+    );
+
+    key_down(&mut popup, VirtualKeyCode::Escape, &[], "t.escape");
+    assert!(close_requested(&popup), "premise: Escape closed the picker");
+    parent.regenerate_layout().expect("the parent reads the dismissal");
+    let _ = parent.process_window_events(0);
+
+    let swatch = node_with_class(&parent, "native_color_input");
+    assert_eq!(focused(&parent), Some(swatch), "focus is back on the swatch");
+    assert!(
+        parent.get_layout_window().unwrap().focus_manager.focus_is_visible,
+        "as KEYBOARD focus"
+    );
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    assert_eq!(
+        focused(&parent),
+        Some(node_with_class(&parent, "stop-after")),
+        "Tab continues from the swatch to the stop after it, not from the first stop"
+    );
+}
+
 /// P2-11: a popup autofocuses its first control ONCE. The autofocus re-armed
 /// on every pass while nothing was focused, so a click on a non-focusable
 /// spot of the picker (its padding) - which clears focus, as a click on
