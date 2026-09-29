@@ -17,6 +17,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::StyledDom,
 };
+use azul_css::props::style::box_shadow::{parse_style_box_shadow, StyleBoxShadow};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{self, RenderOptions},
@@ -183,5 +184,30 @@ fn a_blurred_see_through_shadow_paints_no_denser_than_its_declared_alpha() {
     assert!(
         alpha >= 0.15,
         "premise: the shadow paints at all (darkest red={darkest}, alpha {alpha:.2})"
+    );
+}
+
+/// Every shadow the display list paints, in paint order (the last on top).
+fn painted_shadows(dl: &DisplayList) -> Vec<StyleBoxShadow> {
+    dl.items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::BoxShadow { shadow, .. } => Some(*shadow),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A `box-shadow` LIST paints every shadow once, and the FIRST on top (CSS
+/// paints a list back to front): the elevation shadow over the ring here.
+#[test]
+fn every_shadow_of_a_list_paints_once_with_the_first_on_top() {
+    let (_, dl) = laid_out("box-shadow: 0 1px 2px rgba(255, 0, 0, 0.5), 0 0 0 1px blue;");
+    let elevation = parse_style_box_shadow("0 1px 2px rgba(255, 0, 0, 0.5)").unwrap();
+    let ring = parse_style_box_shadow("0 0 0 1px blue").unwrap();
+    assert_eq!(
+        painted_shadows(&dl),
+        vec![ring, elevation],
+        "the ring first (underneath), the elevation shadow last (on top)"
     );
 }
