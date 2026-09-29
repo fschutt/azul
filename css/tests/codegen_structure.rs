@@ -539,7 +539,7 @@ fn exports_dom_is_true_exactly_for_the_printers_that_build_the_dom() {
         dom,
         [
             "rust", "c", "cpp", "python", "csharp", "java", "kotlin", "go", "swift", "node",
-            "ruby", "php", "lua", "zig", "nim", "d", "ocaml", "haskell", "julia", "pascal",
+            "ruby", "php", "lua", "zig", "nim", "d", "ocaml", "haskell", "julia", "pascal", "crystal", "odin",
         ]
     );
 }

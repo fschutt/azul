@@ -2,10 +2,35 @@
 package main
 
 import azul "azul"
+import "core:strings"
 
 css_str :: proc(s: string) -> azul.AzString {
 	return azul.AzString_fromUtf8(raw_data(s), uint(len(s)))
 }
 
+// Joins PARTS into one AzString (the Odin string is freed again).
+css_concat :: proc(parts: ..string) -> azul.AzString {
+	joined := strings.concatenate(parts)
+	defer delete(joined)
+	return css_str(joined)
+}
+
 // `user:card`: its texts and its link are parameters
-// render_card: not expressible with the Odin bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+render_card :: proc(title: string = "Hello", text: string = "Some text", href: string = "https://azul.rs", author: string = "me") -> azul.AzDom {
+	return azul.AzDom_withChild(
+		azul.AzDom_withChild(
+			azul.AzDom_withChild(
+				azul.AzDom_withChild(
+					azul.AzDom_withClass(
+						azul.AzDom_withCss(azul.AzDom_createDiv(), css_str("padding: 8px")),
+						css_str("card"),
+					),
+					azul.AzDom_createH2WithText(css_str(title)),
+				),
+				azul.AzDom_createPWithText(css_str(text)),
+			),
+			azul.AzDom_createA(css_str(href), css_str("Read more"), azul.AzSmallAriaInfo_label(css_str("Read more"))),
+		),
+		azul.AzDom_createSpanWithText(css_concat("by ", author)),
+	)
+}
