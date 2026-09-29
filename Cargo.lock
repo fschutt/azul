@@ -7182,8 +7182,7 @@ dependencies = [
 [[package]]
 name = "printpdf"
 version = "0.12.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95d50369c5e18e18d4716bd855172db3a70f9e82c966687ae051ea58138f285c"
+source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#8534db2bb1a33d129a939c86077d691ba19a925d"
 dependencies = [
  "allsorts-azul",
  "azul-core",

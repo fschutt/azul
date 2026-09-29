@@ -46,6 +46,12 @@ gleam = "0.15.1"
 # there is one ParsedFont. printpdf itself now comes from crates.io (0.10.0, in
 # dll/). Must NOT be an absolute path — breaks CI / `cargo metadata`.
 azul-css = { path = "css" }
+# TEMPORARY (2026-09-29): azul-core's ComponentDef::codegen replaced the
+# per-language compile_fn that printpdf 0.12.8's components used. Until
+# azul-core and printpdf are released as a pair (see THE RELEASE ORDER below),
+# printpdf comes from its branch that tracks this API. Drop this line, and pin
+# the released printpdf in dll/, at that release.
+printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-codegen-api" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
