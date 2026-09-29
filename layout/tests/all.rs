@@ -602,3 +602,5 @@ mod text_after_a_line_break_is_edited_at_its_caret;
 mod typing_after_collapsed_spaces_lands_at_the_caret;
 #[path = "a_list_item_caret_moves_with_the_apps_text.rs"]
 mod a_list_item_caret_moves_with_the_apps_text;
+#[path = "a_screen_reader_reads_inline_text_where_it_stands.rs"]
+mod a_screen_reader_reads_inline_text_where_it_stands;
