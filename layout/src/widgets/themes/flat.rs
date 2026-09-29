@@ -3795,7 +3795,8 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     t::TooltipSkin {
         theme: super::UiTheme::Flat,
         wrapper: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_WRAPPER_STYLE),
-        tip: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_TIP_STYLE),
+        // The widget's tip base (placement, one line, hidden), then flat's chip.
+        tip: on_base(t::TIP_BASE, t::TOOLTIP_TIP_STYLE),
     }
 }
 

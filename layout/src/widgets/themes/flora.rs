@@ -3735,17 +3735,11 @@ const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 36), ColorU::n
 pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     use super::style_kit as kit;
     use crate::widgets::tooltip as t;
-    type P = CssPropertyWithConditions;
-
-    let mut tip = vec![
-        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        P::simple(CssProperty::const_top(LayoutTop::const_px(t::TIP_OFFSET_Y))),
-        P::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
-        kit::font_size(12),
-        P::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
-            StyleWhiteSpace::Nowrap,
-        ))),
-    ];
+    // The widget's tip base (`tooltip::TIP_BASE`: placed below the wrapper,
+    // on one line, hidden until hovered - the value the leave handler writes
+    // back), then flora's ink panel.
+    let mut tip = t::TIP_BASE.to_vec();
+    tip.push(kit::font_size(12));
     tip.extend(kit::padding(4, 8, 4, 8));
     tip.extend(kit::radius(3));
     tip.extend(kit::border(
@@ -3757,8 +3751,6 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     tip.extend(kit::themed_bg(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
     tip.extend(kit::themed_ink(TOOLTIP_INK_FG.0, TOOLTIP_INK_FG.1));
     tip.extend(kit::drop_shadow(1, 2, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
-    // Hidden until hovered - the value the leave handler writes back.
-    tip.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))));
 
     t::TooltipSkin {
         theme: super::UiTheme::Flora,

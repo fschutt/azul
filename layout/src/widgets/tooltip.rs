@@ -90,11 +90,32 @@ pub(crate) static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// The tip itself: absolutely positioned, hidden by default (`opacity: 0`).
-pub(crate) static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
+// ---- R5: the tip's BASE - what every theme's tip shares ----
+//
+// A theme's tip is `TIP_BASE`, THEN its skin (paint and metrics):
+// `TOOLTIP_TIP_STYLE` for flat, `themes::flora::tooltip_skin` for flora. The
+// base comes first in every theme, so an unpinned tooltip (`follow_skin`)
+// declares it once, outside every `@theme` block. The wrapper has no skin:
+// `TOOLTIP_WRAPPER_STYLE` is its whole style in every theme.
+
+/// The tip's structure, placement and starting state in every theme:
+/// absolutely placed [`TIP_OFFSET_Y`] below the wrapper, on one line, and
+/// hidden (`opacity: 0`) - the value the leave handler writes back; the
+/// enter / leave handlers write the opacity and nothing else.
+pub(crate) static TIP_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
     CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+    // Preserve the tip on one line so it does not wrap into the anchor's width.
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Nowrap,
+    ))),
+    // Hidden until hovered.
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+];
+
+/// The tip: flat's dark chip, on [`TIP_BASE`].
+pub(crate) static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(8),
     )),
@@ -124,12 +145,6 @@ pub(crate) static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
         inner: TIP_TEXT_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
-    // Preserve the tip on one line so it does not wrap into the anchor's width.
-    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
-        StyleWhiteSpace::Nowrap,
-    ))),
-    // Hidden until hovered.
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
 ];
 
 /// A tooltip: an anchor [`Dom`] plus the text shown on hover.
@@ -733,18 +748,18 @@ mod autotest_generated {
             t.resolved_wrapper_style(),
             CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_WRAPPER_STYLE)
         );
+        // R5: the tip is the widget's `TIP_BASE`, then flat's table.
+        let flat_tip: Vec<CssPropertyWithConditions> =
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect();
         assert_eq!(
             t.resolved_tip_style(),
-            CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)
+            CssPropertyWithConditionsVec::from_vec(flat_tip.clone())
         );
         assert_eq!(
             t.resolved_wrapper_style().len(),
             TOOLTIP_WRAPPER_STYLE.len()
         );
-        assert_eq!(
-            t.resolved_tip_style().as_slice().len(),
-            TOOLTIP_TIP_STYLE.len()
-        );
+        assert_eq!(t.resolved_tip_style().as_slice().len(), flat_tip.len());
     }
 
     #[test]
@@ -995,11 +1010,13 @@ mod autotest_generated {
     #[test]
     fn tip_style_starts_hidden_with_exactly_one_opacity_declaration() {
         // Two opacity declarations would make the last one win and could leave
-        // the tip permanently visible.
+        // the tip permanently visible. R5: the hidden start is the widget's
+        // `TIP_BASE`; the whole flat tip is that base, then flat's table.
+        let flat_tip = CssPropertyWithConditionsVec::from_vec(
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect(),
+        );
         assert_eq!(
-            declared_opacities(&CssPropertyWithConditionsVec::from_const_slice(
-                TOOLTIP_TIP_STYLE
-            )),
+            declared_opacities(&flat_tip),
             vec![0.0],
             "the tip must be hidden by default via a single opacity declaration"
         );
@@ -1007,7 +1024,9 @@ mod autotest_generated {
 
     #[test]
     fn tip_style_is_absolutely_positioned_and_does_not_wrap() {
-        let style = CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE);
+        // R5: the placement and the single line are the widget's `TIP_BASE`,
+        // the same in every theme.
+        let style = CssPropertyWithConditionsVec::from_const_slice(TIP_BASE);
 
         assert_eq!(declared_positions(&style), vec![LayoutPosition::Absolute]);
         assert!(
@@ -1048,11 +1067,14 @@ mod autotest_generated {
 
     #[test]
     fn neither_style_table_declares_a_property_type_twice() {
+        // R5: the tip as flat builds it - `TIP_BASE`, then flat's table.
+        let flat_tip: Vec<CssPropertyWithConditions> =
+            TIP_BASE.iter().chain(TOOLTIP_TIP_STYLE.iter()).cloned().collect();
         for (name, table) in [
             ("wrapper", TOOLTIP_WRAPPER_STYLE),
-            ("tip", TOOLTIP_TIP_STYLE),
+            ("tip", flat_tip.as_slice()),
         ] {
-            let style = CssPropertyWithConditionsVec::from_const_slice(table);
+            let style = CssPropertyWithConditionsVec::from_vec(table.to_vec());
             let mut types = prop_types(&style);
             let declared = types.len();
             assert!(declared > 0, "{name} style must not be empty");
@@ -1068,7 +1090,7 @@ mod autotest_generated {
 
     #[test]
     fn both_style_tables_apply_unconditionally() {
-        for table in [TOOLTIP_WRAPPER_STYLE, TOOLTIP_TIP_STYLE] {
+        for table in [TOOLTIP_WRAPPER_STYLE, TIP_BASE, TOOLTIP_TIP_STYLE] {
             assert!(
                 table.iter().all(|p| p.apply_if.as_ref().is_empty()),
                 "a stray condition would leave the tooltip unstyled"
@@ -1113,8 +1135,8 @@ mod autotest_generated {
         assert_eq!(text_of(&children[1]), Some("tip"));
         assert_eq!(
             inline_properties(&children[1]).len(),
-            TOOLTIP_TIP_STYLE.len(),
-            "the tip must carry the full tip style"
+            TIP_BASE.len() + TOOLTIP_TIP_STYLE.len(),
+            "the tip must carry the full tip style (the widget's base, then flat's table)"
         );
         assert_eq!(
             inline_properties(&dom).len(),
@@ -1416,10 +1438,10 @@ mod autotest_generated {
     fn leave_restores_the_opacity_declared_in_the_static_tip_style() {
         // Round-trip: what the handler writes on leave must be exactly what the
         // stylesheet declares, otherwise the tip would not return to its
-        // initial rendering.
-        let declared = declared_opacities(&CssPropertyWithConditionsVec::from_const_slice(
-            TOOLTIP_TIP_STYLE,
-        ));
+        // initial rendering. The hidden start is the tip's base (R5), the
+        // same in every theme.
+        let declared =
+            declared_opacities(&CssPropertyWithConditionsVec::from_const_slice(TIP_BASE));
         let (_, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
             on_tooltip_leave(RefAny::new(()), info)
         });
