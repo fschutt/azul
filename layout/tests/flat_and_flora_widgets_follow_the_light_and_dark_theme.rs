@@ -654,3 +654,25 @@ fn ribbons_title_bands_and_status_bars_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+/// The flora tree in both modes (W5b): its sheet, rows, icons and labels,
+/// the selection's stone. The FLAT tree's labels carry a dark text twin with
+/// no light half on purpose (the light window takes the UA default) - parked
+/// in the crate's `widgets::theme_pairs::KNOWN_HALF_PAIRS` - so the flat
+/// tree's pairs are walked there, with its reason on file, and not here.
+#[test]
+fn flora_tree_views_read_in_both_themes() {
+    use azul_layout::widgets::tree_view::{TreeView, TreeViewNode};
+    let tree = TreeViewNode::new("Root")
+        .with_expanded(true)
+        .with_child(
+            TreeViewNode::new("Picked")
+                .with_selected(true)
+                .with_child(TreeViewNode::new("Inner")),
+        )
+        .with_child(TreeViewNode::new("Plain"));
+    assert_follow_the_theme(vec![(
+        "flora tree view".to_string(),
+        TreeView::new(tree).with_theme(UiTheme::Flora).dom(),
+    )]);
+}

@@ -2557,3 +2557,186 @@ mod autotest_generated {
         assert!(tv.on_node_toggle.is_some());
     }
 }
+
+/// The tree's two looks (W5b). Flat is the established field; flora is a
+/// sheet of field paper in a hairline, rows that wash to `--fl-hov` under the
+/// pointer and ring on focus, and the selection cut as the sunken accent
+/// stone in its own ink. Whichever look draws it, the rows, the roving Tab
+/// stop and the accessibility tree are the tree's.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLORA: &str = "__azul-theme-flora";
+
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    /// `Root` open over `Picked` (selected, a closed parent) and `Plain` (a
+    /// leaf): `root/0` is Root's row (`/0` its icon, `/1` its label),
+    /// `root/1` the children container, `root/1/0` Picked's row and
+    /// `root/1/1` Plain's.
+    fn tree() -> TreeViewNode {
+        TreeViewNode::new("Root")
+            .with_expanded(true)
+            .with_child(
+                TreeViewNode::new("Picked")
+                    .with_selected(true)
+                    .with_child(TreeViewNode::new("Inner")),
+            )
+            .with_child(TreeViewNode::new("Plain"))
+    }
+
+    fn built(theme: UiTheme) -> Dom {
+        TreeView::new(tree())
+            .with_on_node_click(RefAny::new(()), pick as TreeViewOnNodeClickCallbackType)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn at<'a>(dom: &'a Dom, path: &[usize]) -> &'a Dom {
+        path.iter().fold(dom, |node, i| &node.children.as_ref()[*i])
+    }
+
+    fn fill(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).as_ref().and_then(tc::bg_color)
+    }
+
+    fn layers(
+        node: &Dom,
+        dark: bool,
+        state: Option<PseudoStateType>,
+    ) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_tree_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
+        let tv = TreeView::new(tree());
+        assert_eq!(tv.theme, OptionUiTheme::None, "a fresh tree follows the app");
+        let mut pinned = tv.clone();
+        pinned.set_theme(UiTheme::Flora);
+        assert_eq!(pinned.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(pinned, tv.with_theme(UiTheme::Flora), "set_theme and with_theme agree");
+    }
+
+    #[test]
+    fn a_flora_tree_is_a_sheet_of_field_paper_in_a_hairline() {
+        let dom = built(UiTheme::Flora);
+        assert!(tc::has_class(&dom, FLORA), "the root carries flora's marker");
+        assert!(tc::has_class(&dom, TREE_CLASS_NAME), "and stays findable as a tree");
+        assert!(!tc::has_class(&built(UiTheme::Flat), FLORA));
+        for (dark, paper, rule, ink, icon) in [
+            (
+                false,
+                flora::LIGHT_FLD,
+                flora::LIGHT_BD2,
+                flora::LIGHT_INK,
+                flora::LIGHT_ICON,
+            ),
+            (
+                true,
+                flora::DARK_FLD,
+                flora::DARK_BD2,
+                flora::DARK_INK,
+                flora::DARK_ICON,
+            ),
+        ] {
+            assert_eq!(fill(&dom, dark), Some(paper), "dark={dark}: the sheet");
+            assert_eq!(
+                tc::border_top_color(&dom, dark, None),
+                Some(rule),
+                "dark={dark}: the hairline"
+            );
+            assert_eq!(
+                tc::text_color(at(&dom, &[0, 1]), dark),
+                Some(ink),
+                "dark={dark}: a label"
+            );
+            assert_eq!(
+                tc::text_color(at(&dom, &[0, 0]), dark),
+                Some(icon),
+                "dark={dark}: a disclosure icon is flora's icon ink"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_selected_row_is_the_accent_stone_written_in_its_own_ink() {
+        let dom = built(UiTheme::Flora);
+        let picked = at(&dom, &[1, 0]);
+        for dark in [false, true] {
+            assert_eq!(
+                layers(picked, dark, None),
+                flora::selected_stone(),
+                "dark={dark}: the selection is the sunken stone, its own colour in both modes"
+            );
+            assert_eq!(
+                tc::text_color(at(&dom, &[1, 0, 1]), dark),
+                Some(flora::LIGHT_ON_ACC),
+                "dark={dark}: the selected label"
+            );
+            assert_eq!(
+                tc::text_color(at(&dom, &[1, 0, 0]), dark),
+                Some(flora::LIGHT_ON_ACC),
+                "dark={dark}: the selected row's disclosure icon"
+            );
+            assert_ne!(
+                layers(at(&dom, &[1, 1]), dark, None),
+                flora::selected_stone(),
+                "dark={dark}: an unselected row is not the stone"
+            );
+        }
+    }
+
+    #[test]
+    fn flora_rows_wash_under_the_pointer_and_ring_on_focus_in_both_modes() {
+        let dom = built(UiTheme::Flora);
+        let plain = at(&dom, &[1, 1]);
+        for dark in [false, true] {
+            assert_ne!(
+                layers(plain, dark, Some(PseudoStateType::Hover)),
+                layers(plain, dark, None),
+                "dark={dark}: a row answers the pointer"
+            );
+            let rows: [&[usize]; 3] = [&[0], &[1, 0], &[1, 1]];
+            for path in rows {
+                assert!(
+                    tc::has_focus_ring(at(&dom, path), dark),
+                    "dark={dark}: row {path:?} shows no focus ring"
+                );
+            }
+        }
+        tc::assert_theme_invariants("flora tree", &dom);
+    }
+
+    #[test]
+    fn both_looks_build_the_same_rows_tab_stop_and_accessibility_tree() {
+        let (flat, flora) = (built(UiTheme::Flat), built(UiTheme::Flora));
+        let (a, b) = (tc::nodes(&flat), tc::nodes(&flora));
+        assert_eq!(a.len(), b.len(), "the same tree of nodes");
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora));
+        for ((path, x), (_, y)) in a.iter().zip(b.iter()) {
+            assert_eq!(
+                x.root.get_callbacks().as_ref().len(),
+                y.root.get_callbacks().as_ref().len(),
+                "{path}: the same click and arrow-key handlers"
+            );
+        }
+        assert_ne!(
+            tc::background(&flat, false),
+            tc::background(&flora, false),
+            "the two looks are two looks"
+        );
+    }
+}

@@ -715,7 +715,6 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
     use azul_layout::widgets::{
         tabs::{TabContent, TabHeader},
         titlebar::Titlebar,
-        tree_view::{TreeView, TreeViewNode},
     };
     fn boxed(make: impl Fn() -> Dom + 'static) -> Box<dyn Fn() -> Dom> {
         Box::new(make)
@@ -738,17 +737,6 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
         (
             "titlebar",
             boxed(|| Titlebar::create(AzString::from("Window")).dom()),
-        ),
-        (
-            "tree_view",
-            boxed(|| {
-                TreeView::new(
-                    TreeViewNode::new("root")
-                        .with_expanded(true)
-                        .with_child(TreeViewNode::new("child")),
-                )
-                .dom()
-            }),
         ),
     ];
     for (name, make) in &widgets {
@@ -903,5 +891,46 @@ fn the_ribbon_quick_access_bar_and_status_bar_each_have_a_flora_look_of_their_ow
         let flat = built_for(UiTheme::Flat, &|| look(UiTheme::Flat));
         let flora = built_for(UiTheme::Flat, &|| look(UiTheme::Flora));
         assert!(styles(&flat) != styles(&flora), "the {name} has no flora look of its own");
+    }
+
+/// A tree view follows the app theme (W5b): every row, icon, label and
+/// children container of an unpinned tree resolves like the tree pinned to
+/// the app theme - selected rows, open and closed parents, leaves, with and
+/// without a click handler (which is what makes the rows Tab stops).
+#[test]
+fn tree_views_follow_the_app_theme() {
+    use azul_core::{callbacks::Update, refany::RefAny};
+    use azul_layout::{
+        callbacks::CallbackInfo,
+        widgets::tree_view::{TreeView, TreeViewNode, TreeViewOnNodeClickCallbackType},
+    };
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+    let tree = || {
+        TreeViewNode::new("Root")
+            .with_expanded(true)
+            .with_child(
+                TreeViewNode::new("Picked")
+                    .with_selected(true)
+                    .with_child(TreeViewNode::new("Inner")),
+            )
+            .with_child(
+                TreeViewNode::new("Open")
+                    .with_expanded(true)
+                    .with_child(TreeViewNode::new("Leaf")),
+            )
+            .with_child(TreeViewNode::new("Plain"))
+    };
+    for clickable in [false, true] {
+        assert_follows_the_app_theme(&format!("tree view clickable={clickable}"), |t| {
+            let tv = TreeView::new(tree());
+            let tv = if clickable {
+                tv.with_on_node_click(RefAny::new(()), pick as TreeViewOnNodeClickCallbackType)
+            } else {
+                tv
+            };
+            pinned(tv, t, TreeView::with_theme).dom()
+        });
     }
 }
