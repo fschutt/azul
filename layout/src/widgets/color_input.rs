@@ -56,7 +56,53 @@ pub struct ColorInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// What a theme decides about a colour input: the swatch's own additions and
+/// the picker panel's surfaces. [`build`] keeps the structure (the live
+/// updates find the panel's parts by position) and the behaviour; built by
+/// `themes::flat::color_input` and `themes::flora::color_input`.
+pub(crate) struct ColorInputLook {
+    /// Appended to the swatch's own style (after its colour), when the
+    /// widget owns that style: its frame and its focus ring.
+    pub swatch: Vec<CssPropertyWithConditions>,
+    /// The picker panel's CSS (layout included), light and dark.
+    pub panel_css: &'static str,
+    /// The preview swatch's frame CSS (layout included).
+    pub preview_css: &'static str,
+    /// The eyedropper button's CSS (layout included).
+    pub eyedropper_css: &'static str,
+    /// The grip handle's CSS (layout included).
+    pub grip_handle_css: &'static str,
+    /// Inline additions to the plane, hue and alpha bars - keyboard stops,
+    /// so their focus ring.
+    pub slider_focus: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the swatch, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The established panel CSS (the flat look).
+pub(crate) const PANEL_CSS: &str =
+    "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; border: \
+     1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); \
+     font-size: 12px; color: #202020; @media (prefers-color-scheme: dark) { background: \
+     system:window-background; border-color: system:separator; color: system:text; }";
+/// The established preview frame CSS (the flat look).
+pub(crate) const PREVIEW_CSS: &str = "position: relative; width: 28px; height: 28px; \
+                                      border-radius: 4px; border: 1px solid #c8c8c8; overflow: \
+                                      hidden;";
+/// The established eyedropper CSS (the flat look).
+pub(crate) const EYEDROPPER_CSS: &str =
+    "display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; \
+     border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: #f4f4f4; \
+     color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { background: \
+     system:button-face; color: system:button-text; border-color: system:separator; }";
+/// The established grip-handle CSS (the flat look).
+pub(crate) const GRIP_HANDLE_CSS: &str =
+    "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;";
 
 /// Callback function type invoked when the color input value changes.
 pub type ColorInputOnValueChangeCallbackType =
@@ -180,7 +226,23 @@ impl ColorInput {
             },
             style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the input renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The swatch CSS this input renders with.
@@ -232,21 +294,37 @@ impl ColorInput {
     }
 
     /// Converts this `ColorInput` into a styled [`Dom`]: the swatch, with the
-    /// picker popup attached as its (closed) transient child.
+    /// picker popup attached as its (closed) transient child. The look comes
+    /// from the theme module (`themes::flat::color_input` /
+    /// `themes::flora::color_input`); `None` renders flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            a11y::{AccessibilityInfo, AccessibilityRole},
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{ComponentEventFilter, EventFilter, HoverEventFilter, IdOrClass::Class},
-        };
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::color_input(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::color_input(self),
+        }
+    }
+}
 
-        let color = self.color_input_state.inner.color;
-        let title = self.color_input_state.title.clone();
-        // Resolved before `self.accessibility_name` is moved out below.
-        let resolved_style = self.resolved_style();
-        let a11y_name = match self.accessibility_name {
+/// The colour input's DOM in `look`: the swatch (its colour, then the look's
+/// additions when the widget owns its style) with the picker popup as its
+/// transient child.
+pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole},
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{ComponentEventFilter, EventFilter, HoverEventFilter, IdOrClass::Class},
+    };
+
+    {
+        let color = input.color_input_state.inner.color;
+        let title = input.color_input_state.title.clone();
+        // Resolved before `input.accessibility_name` is moved out below.
+        let resolved_style = input.resolved_style();
+        let owns_style = input.style.as_ref().is_none();
+        let a11y_name = match input.accessibility_name {
             OptionString::Some(n) => n,
             OptionString::None => title,
         };
@@ -261,13 +339,13 @@ impl ColorInput {
         // The persistent half: hue/sat survive a pass through black, the
         // open flag survives the app's rebuilds, a drag survives a move.
         let data = RefAny::new(ColorPickerData {
-            state: self.color_input_state,
+            state: input.color_input_state,
             hsv: Hsv::from_color(color),
             open: false,
             drag: Drag::None,
         });
 
-        let panel = picker_panel(&data, color);
+        let panel = picker_panel(&data, color, look);
 
         // `tearoff`: the grip strip at the top of the panel tears the picker
         // off into a floating palette (a real toplevel) and docks it back.
@@ -314,9 +392,20 @@ impl ColorInput {
                     css_rgba(ColorU { a: 255, ..color }, color.a)
                 )));
         }
+        // The theme's frame and focus ring, after everything the swatch
+        // needs - and only on the widget's own style: a caller's `style`
+        // chose every property.
+        if owns_style {
+            style.extend(look.swatch.iter().cloned());
+        }
+
+        let mut classes = vec![Class(COLOR_INPUT_CLASS.into())];
+        if let Some(marker) = look.marker {
+            classes.push(Class(marker.into()));
+        }
 
         swatch
-            .with_ids_and_classes(vec![Class(COLOR_INPUT_CLASS.into())].into())
+            .with_ids_and_classes(classes.into())
             .with_css_props(style.into())
             .with_tab_index(azul_core::dom::TabIndex::Auto)
             .with_accessibility_info(AccessibilityInfo {
@@ -727,8 +816,10 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
     props.into()
 }
 
-/// The picker panel that lives inside the popup.
-fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
+/// The picker panel that lives inside the popup, in `look`. Its structure -
+/// grip, plane, hue, alpha, preview row, channel row - is the same in every
+/// look: `publish` finds the parts it restyles by position.
+fn picker_panel(data: &RefAny, color: ColorU, look: &ColorInputLook) -> Dom {
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
@@ -785,6 +876,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                  border-radius: 4px; cursor: crosshair; background: {};",
             plane_background_css(hsv.h)
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Saturation and brightness".into()).into(),
@@ -818,6 +910,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
                  cursor: pointer; background: {HUE_BACKGROUND_CSS};"
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Hue".into()).into(),
@@ -857,6 +950,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
              cursor: pointer; overflow: hidden;"
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Opacity".into()).into(),
@@ -877,10 +971,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Preview + hex. A translucent colour shows the checkerboard through it.
     let mut preview = Dom::create_div()
-        .with_css(
-            "position: relative; width: 28px; height: 28px; border-radius: 4px; border: 1px solid \
-             #c8c8c8; overflow: hidden;",
-        )
+        .with_css(look.preview_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
             accessibility_name: Some("Current colour".into()).into(),
@@ -908,13 +999,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // very node so it reaches the picker's data.
     let eyedropper = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
-        .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 28px; height: \
-             28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: \
-             #f4f4f4; color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { \
-             background: system:button-face; color: system:button-text; border-color: \
-             system:separator; }",
-        )
+        .with_css(look.eyedropper_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
             accessibility_name: Some("Pick a colour from the screen".into()).into(),
@@ -989,20 +1074,11 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             accessibility_name: Some("Drag to tear off".into()).into(),
             ..Default::default()
         })
-        .with_child(
-            Dom::create_div()
-                .with_css("width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;"),
-        );
+        .with_child(Dom::create_div().with_css(look.grip_handle_css));
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
-        .with_css(
-            "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; \
-             border: 1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, \
-             0, 0.25); font-size: 12px; color: #202020; @media (prefers-color-scheme: dark) { \
-             background: system:window-background; border-color: system:separator; color: \
-             system:text; }",
-        )
+        .with_css(look.panel_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,
             accessibility_name: Some("Colour picker".into()).into(),

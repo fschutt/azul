@@ -4357,3 +4357,25 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
 pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
     crate::widgets::menubar::build_flat(&m.menu)
 }
+
+// ==== color_input ====
+
+/// The flat colour input.
+#[must_use]
+pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    use crate::widgets::color_input::{
+        ColorInputLook, EYEDROPPER_CSS, GRIP_HANDLE_CSS, PANEL_CSS, PREVIEW_CSS,
+    };
+    crate::widgets::color_input::build(
+        c,
+        &ColorInputLook {
+            swatch: Vec::new(),
+            panel_css: PANEL_CSS,
+            preview_css: PREVIEW_CSS,
+            eyedropper_css: EYEDROPPER_CSS,
+            grip_handle_css: GRIP_HANDLE_CSS,
+            slider_focus: Vec::new(),
+            marker: None,
+        },
+    )
+}

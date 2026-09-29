@@ -5022,3 +5022,11 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
         |dom| dom.with_css_props(item.clone()),
     )
 }
+
+// ==== color_input ====
+
+/// The flora colour input.
+#[must_use]
+pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    super::flat::color_input(c)
+}
