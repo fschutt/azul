@@ -136,6 +136,85 @@ impl StyleColorMatrix {
             self.m17, self.m18, self.m19,
         ]
     }
+
+    /// `flood(color) composite(in)` as one matrix: every pixel takes
+    /// `color`'s RGB, at the input's alpha times `color`'s alpha.
+    ///
+    /// Row-major (SVG `feColorMatrix` order: the R, G, B, A rows, each four
+    /// input weights and an offset): the colour rows are pure offsets, the
+    /// alpha row scales the input alpha. Exact on unpremultiplied colour,
+    /// which is what a colour-matrix filter works on.
+    #[must_use]
+    pub fn flood_in(color: ColorU) -> Self {
+        let zero = FloatValue::new(0.0);
+        let unit = |c: u8| FloatValue::new(f32::from(c) / 255.0);
+        Self {
+            m0: zero,
+            m1: zero,
+            m2: zero,
+            m3: zero,
+            m4: unit(color.r),
+            m5: zero,
+            m6: zero,
+            m7: zero,
+            m8: zero,
+            m9: unit(color.g),
+            m10: zero,
+            m11: zero,
+            m12: zero,
+            m13: zero,
+            m14: unit(color.b),
+            m15: zero,
+            m16: zero,
+            m17: zero,
+            m18: unit(color.a),
+            m19: zero,
+        }
+    }
+
+    /// This matrix in the layout WebRender's `ColorMatrix` takes: the
+    /// weights of each INPUT channel as a column (R, G, B, A), then the
+    /// offset vector - a GLSL `mat4` built from four column vectors plus an
+    /// offset. The azul value is row-major (see [`Self::flood_in`]), so it
+    /// has to be transposed; passing it through as-is scrambles the matrix.
+    #[must_use]
+    pub fn to_column_major(&self) -> [f32; 20] {
+        let m = self.to_array();
+        let at = |row: usize, col: usize| m[row * 5 + col].get();
+        let mut out = [0.0_f32; 20];
+        for col in 0..5 {
+            for row in 0..4 {
+                out[col * 4 + row] = at(row, col);
+            }
+        }
+        out
+    }
+}
+
+/// `filters` with every `flood(c) composite(in)` pair folded into the one
+/// colour matrix it is ([`StyleColorMatrix::flood_in`]).
+///
+/// For renderers with a colour matrix but no composite step: WebRender's
+/// `Flood` op REPLACES its input with the colour (so the pair's first half
+/// alone paints a filled box) and it has no `composite()` at all. Any other
+/// flood or composite is left as it is.
+#[must_use]
+pub fn fold_flood_in(filters: &[StyleFilter]) -> Vec<StyleFilter> {
+    let mut out = Vec::with_capacity(filters.len());
+    let mut i = 0;
+    while i < filters.len() {
+        match (filters[i], filters.get(i + 1)) {
+            (StyleFilter::Flood(color), Some(StyleFilter::Composite(StyleCompositeFilter::In))) => {
+                out.push(StyleFilter::ColorMatrix(StyleColorMatrix::flood_in(color)));
+                i += 2;
+            }
+            (other, _) => {
+                out.push(other);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -4882,6 +4882,9 @@ where
 
             // Filter. `flood()` / `drop-shadow()` may carry a `system:`
             // keyword: the renderers get the theme's colour, never the token.
+            // A `flood()` may also carry the currentColor token (an icon
+            // following the text colour): that one is THIS node's `color`,
+            // which only the node knows.
             if let Some(filter_vec_value) = self
                 .ctx
                 .styled_dom
@@ -4890,10 +4893,28 @@ where
                 .get_filter(node_data, &dom_id, node_state)
             {
                 if let Some(filter_vec) = filter_vec_value.get_property() {
+                    let current_color = || {
+                        let color = self
+                            .ctx
+                            .styled_dom
+                            .css_property_cache
+                            .ptr
+                            .get_text_color_or_default(node_data, &dom_id, node_state)
+                            .inner;
+                        super::getters::system_colors_resolved(self.ctx.styled_dom, color)
+                    };
                     let filters: Vec<_> = filter_vec
                         .as_ref()
                         .iter()
                         .map(|f| super::getters::system_colors_resolved(self.ctx.styled_dom, *f))
+                        .map(|f| match f {
+                            StyleFilter::Flood(c)
+                                if azul_css::props::basic::color::is_current_color_token(c) =>
+                            {
+                                StyleFilter::Flood(current_color())
+                            }
+                            other => other,
+                        })
                         .collect();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushFilter {
@@ -8636,6 +8657,17 @@ pub(crate) fn node_establishes_stacking_context(
             if !t.is_empty() {
                 return true;
             }
+        }
+
+        // `filter` other than `none` (Filter Effects 1, section 5): the filter
+        // applies to the element and its descendants as ONE group, and the
+        // display list paints a filter only around a stacking context. Without
+        // this a filter on an ordinary box was silently dropped - an icon's
+        // tint above all (ledger E15). Fast path: the compact cache's bit.
+        if crate::solver3::getters::get_filter(styled_dom, dom_id, node_state)
+            .is_some_and(|f| !f.as_ref().is_empty())
+        {
+            return true;
         }
     }
 

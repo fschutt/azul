@@ -814,6 +814,91 @@ pub enum MaskEntry {
         /// the corners that belong to the clip it is popping.
         clip_depth: usize,
     },
+    /// A `filter` group (`PushFilter`); `Some` when it is isolated (see
+    /// [`FilterGroup`]), `None` when the push carries no work here. Every
+    /// push has one, so a `PopFilter` always closes its own push.
+    Filter(Option<Box<FilterGroup>>),
+}
+
+/// Does a `filter` list need its group's own pixels apart from the backdrop?
+/// `flood()` fills the group and `composite()` reads the group's own alpha,
+/// so both do; the colour filters that act per pixel do not.
+fn filter_group_needs_isolation(filters: &[StyleFilter]) -> bool {
+    filters
+        .iter()
+        .any(|f| matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_)))
+}
+
+/// An isolated `filter` group of the direct (layer-less) render path.
+///
+/// [`Self::begin`] sets the pixels under the group aside and clears them to
+/// transparent, so the group paints onto nothing; [`Self::finish`] filters
+/// what the group painted (the SOURCE graphic of `composite()`) and
+/// composites the result back over the saved backdrop.
+#[derive(Debug)]
+pub struct FilterGroup {
+    backdrop: Vec<u8>,
+    filters: Vec<StyleFilter>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl FilterGroup {
+    /// Set aside and clear the device-pixel region `r` covers (its bounding
+    /// box: the near edges floored, the far ones ceiled).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
+    fn begin(pixmap: &mut AzulPixmap, r: &AzRect, filters: &[StyleFilter]) -> Self {
+        let x = r.x.floor() as i32;
+        let y = r.y.floor() as i32;
+        let width = ((r.x + r.width).ceil() as i32).saturating_sub(x).max(0) as u32;
+        let height = ((r.y + r.height).ceil() as i32).saturating_sub(y).max(0) as u32;
+        let backdrop = snapshot_region(pixmap, x, y, width, height);
+        let clear = vec![0u8; backdrop.len()];
+        write_region(pixmap, &clear, width, height, x, y);
+        Self {
+            backdrop,
+            filters: filters.to_vec(),
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// Filter what the group painted and composite it over the backdrop.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // colour math
+    fn finish(&self, pixmap: &mut AzulPixmap, dpi_factor: f32) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let painted = snapshot_region(pixmap, self.x, self.y, self.width, self.height);
+        let mut group = AzulPixmap {
+            data: painted.into(),
+            width: self.width,
+            height: self.height,
+        };
+        super::compositor::apply_layer_filters(&mut group, &self.filters, dpi_factor);
+
+        // straight-alpha source-over: the filtered group over the backdrop
+        let mut out = self.backdrop.clone();
+        for (dst, src) in out.chunks_exact_mut(4).zip(group.data.chunks_exact(4)) {
+            let sa = f32::from(src[3]) / 255.0;
+            let da = f32::from(dst[3]) / 255.0;
+            let oa = sa + da * (1.0 - sa);
+            if oa <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            for c in 0..3 {
+                let v = (f32::from(src[c]) * sa + f32::from(dst[c]) * da * (1.0 - sa)) / oa;
+                dst[c] = v.round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (oa * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        write_region(pixmap, &out, self.width, self.height, self.x, self.y);
+    }
 }
 
 /// One corner box of a [`MaskEntry::RoundedClip`], in device pixels.
@@ -1008,7 +1093,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
                 blend_masked_region(pixmap, &c.snapshot, &c.mask, c.x, c.y, c.w, c.h);
             }
         }
-        MaskEntry::Opacity { .. } => {}
+        MaskEntry::Opacity { .. } | MaskEntry::Filter(_) => {}
     }
 }
 
@@ -2693,15 +2778,38 @@ pub fn render_single_item(
 
         // --- Filter effects ---
         //
-        // `filter` (PushFilter/PopFilter) is intentionally a no-op *here*: the
-        // effect is realized by the compositor layer path, which allocates a
+        // A blur is realized by the compositor layer path, which allocates a
         // dedicated pixbuf for the filtered subtree in
-        // `allocate_layers_from_display_list` and applies the blur/color filters
-        // at composite time via `apply_layer_filters`. The content between
+        // `allocate_layers_from_display_list` and applies the filters at
+        // composite time via `apply_layer_filters`; the content between
         // Push/PopFilter is rendered into that layer's pixbuf by this very
-        // function, so the markers themselves carry no work at item level.
-        DisplayListItem::PushFilter { .. } => {}
-        DisplayListItem::PopFilter => {}
+        // function, so for it the markers carry no work at item level.
+        //
+        // `flood()` and `composite()` are different: they need the group's
+        // OWN pixels apart from whatever is behind it (a flood fills the
+        // group, `composite(in)` keeps it only where the group painted - the
+        // icon tint), and no layer is promoted for them. Such a group is
+        // ISOLATED right here: the region under it is set aside and cleared,
+        // the group paints onto transparent pixels, and the pop filters them
+        // and composites the result back over what was there. Every push
+        // leaves an entry (`None` when nothing is isolated), so a pop always
+        // closes its own push however filters nest.
+        DisplayListItem::PushFilter { bounds, filters } => {
+            let group = if filter_group_needs_isolation(filters) {
+                logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
+                    .map(|r| FilterGroup::begin(pixmap, &r, filters))
+            } else {
+                None
+            };
+            mask_stack.push(MaskEntry::Filter(group.map(Box::new)));
+        }
+        DisplayListItem::PopFilter => {
+            if matches!(mask_stack.last(), Some(MaskEntry::Filter(_))) {
+                if let Some(MaskEntry::Filter(Some(group))) = mask_stack.pop() {
+                    group.finish(pixmap, dpi_factor);
+                }
+            }
+        }
 
         // TODO(superplan g4): `backdrop-filter` is unimplemented in the CPU
         // renderer. Unlike `filter` (which acts on the element's own content),

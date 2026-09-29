@@ -2477,8 +2477,12 @@ fn translate_style_filters_to_wr(
     filters: &[azul_css::props::style::filter::StyleFilter],
     dpi_scale: f32,
 ) -> Vec<WrFilterOp> {
-    use azul_css::props::style::filter::StyleFilter;
+    use azul_css::props::style::filter::{fold_flood_in, StyleFilter};
 
+    // WebRender's `Flood` REPLACES its input with the colour and it has no
+    // composite step, so `flood(c) composite(in)` - an icon tint - would paint
+    // a filled box (ledger E15). The pair is one colour matrix; fold it first.
+    let filters = fold_flood_in(filters);
     filters
         .iter()
         .filter_map(|f| match f {
@@ -2512,14 +2516,11 @@ fn translate_style_filters_to_wr(
             StyleFilter::Invert(v) => Some(WrFilterOp::Invert(v.normalized())),
             StyleFilter::Saturate(v) => Some(WrFilterOp::Saturate(v.normalized())),
             StyleFilter::Sepia(v) => Some(WrFilterOp::Sepia(v.normalized())),
-            StyleFilter::ColorMatrix(m) => {
-                let vals = m.to_array();
-                let mut arr = [0.0f32; 20];
-                for (i, v) in vals.iter().enumerate() {
-                    arr[i] = v.get();
-                }
-                Some(WrFilterOp::ColorMatrix(arr))
-            }
+            // The azul matrix is row-major (SVG order); WebRender takes the
+            // input-channel columns, then the offsets. Passed through as-is
+            // (as it was) the matrix was scrambled - the icon grayscale
+            // matrix came out as a different colour transform entirely.
+            StyleFilter::ColorMatrix(m) => Some(WrFilterOp::ColorMatrix(m.to_column_major())),
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
                     scale_px(

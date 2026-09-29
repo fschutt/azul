@@ -2532,9 +2532,37 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 )] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
-fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
+pub(crate) fn apply_layer_filters(
+    pixmap: &mut AzulPixmap,
+    filters: &[StyleFilter],
+    dpi_factor: f32,
+) {
+    // `composite()` combines the chain's result so far with the SOURCE
+    // graphic - the layer as it was before the first filter - so that has to
+    // be kept aside. Only when a composite asks for it: the copy is a whole
+    // layer.
+    let source: Option<Vec<u8>> = filters
+        .iter()
+        .any(|f| matches!(f, StyleFilter::Composite(_)))
+        .then(|| pixmap.data.to_vec());
     for filter in filters {
         match filter {
+            // `flood()` REPLACES every pixel with the colour (WebRender's
+            // semantics). On its own it paints the layer's whole box; a tint
+            // follows it with `composite(in)`.
+            StyleFilter::Flood(c) => {
+                for chunk in pixmap.data.chunks_exact_mut(4) {
+                    chunk[0] = c.r;
+                    chunk[1] = c.g;
+                    chunk[2] = c.b;
+                    chunk[3] = c.a;
+                }
+            }
+            StyleFilter::Composite(op) => {
+                if let Some(source) = source.as_deref() {
+                    composite_with_source(pixmap, source, *op);
+                }
+            }
             StyleFilter::Blur(blur) => {
                 let rx = blur
                     .width
@@ -2651,9 +2679,94 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     chunk[2] = nb.clamp(0.0, 255.0) as u8;
                 }
             }
-            _ => {} /* Blend, Flood, ColorMatrix, DropShadow, ComponentTransfer, Offset,
-                     * Composite not yet implemented */
+            _ => {} /* Blend, ColorMatrix, DropShadow, ComponentTransfer, Offset not yet
+                     * implemented */
         }
+    }
+}
+
+/// `composite(op)`: the chain's result so far (`A`, in `pixmap`) combined
+/// with the source graphic (`B`) by the Porter-Duff operator `op`, as SVG's
+/// `feComposite in=<result> in2=SourceGraphic` does.
+///
+/// Straight (unpremultiplied) RGBA in and out, like every other filter here;
+/// the operators are applied on premultiplied values in between.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::many_single_char_names
+)] // bounded colour math
+fn composite_with_source(
+    pixmap: &mut AzulPixmap,
+    source: &[u8],
+    op: azul_css::props::style::filter::StyleCompositeFilter,
+) {
+    use azul_css::props::style::filter::StyleCompositeFilter as Op;
+
+    for (a_px, b_px) in pixmap
+        .data
+        .chunks_exact_mut(4)
+        .zip(source.chunks_exact(4))
+    {
+        let unit = |v: u8| f32::from(v) / 255.0;
+        let (aa, ba) = (unit(a_px[3]), unit(b_px[3]));
+        // premultiplied colour channels
+        let ac = [unit(a_px[0]) * aa, unit(a_px[1]) * aa, unit(a_px[2]) * aa];
+        let bc = [unit(b_px[0]) * ba, unit(b_px[1]) * ba, unit(b_px[2]) * ba];
+        // (factor on A, factor on B) for the Porter-Duff operators
+        let (out_c, out_a): ([f32; 3], f32) = match op {
+            Op::Arithmetic(k) => {
+                let (k1, k2, k3, k4) = (k.k1.get(), k.k2.get(), k.k3.get(), k.k4.get());
+                let f = |a: f32, b: f32| (k1 * a * b + k2 * a + k3 * b + k4).clamp(0.0, 1.0);
+                let out_a = f(aa, ba);
+                (
+                    [
+                        f(ac[0], bc[0]).min(out_a),
+                        f(ac[1], bc[1]).min(out_a),
+                        f(ac[2], bc[2]).min(out_a),
+                    ],
+                    out_a,
+                )
+            }
+            Op::Lighter => {
+                let out_a = (aa + ba).min(1.0);
+                (
+                    [
+                        (ac[0] + bc[0]).min(out_a),
+                        (ac[1] + bc[1]).min(out_a),
+                        (ac[2] + bc[2]).min(out_a),
+                    ],
+                    out_a,
+                )
+            }
+            _ => {
+                let (fa, fb) = match op {
+                    Op::Over => (1.0, 1.0 - aa),
+                    Op::In => (ba, 0.0),
+                    Op::Out => (1.0 - ba, 0.0),
+                    Op::Atop => (ba, 1.0 - aa),
+                    Op::Xor => (1.0 - ba, 1.0 - aa),
+                    Op::Lighter | Op::Arithmetic(_) => (1.0, 1.0),
+                };
+                (
+                    [
+                        ac[0] * fa + bc[0] * fb,
+                        ac[1] * fa + bc[1] * fb,
+                        ac[2] * fa + bc[2] * fb,
+                    ],
+                    aa * fa + ba * fb,
+                )
+            }
+        };
+        let to_u8 = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        if out_a <= 0.0 {
+            a_px.copy_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        a_px[0] = to_u8(out_c[0] / out_a);
+        a_px[1] = to_u8(out_c[1] / out_a);
+        a_px[2] = to_u8(out_c[2] / out_a);
+        a_px[3] = to_u8(out_a);
     }
 }
 
