@@ -75,10 +75,11 @@ document instance), drag a component file onto the Document tree.
 | `e06aea928` | feat(builder): project.rs + builder.rs stylesheet/load + full.rs arms + gene2e rows (+ 8 project.rs unit tests, 3 builder.rs unit tests; rustfmt applied to the two new files) |
 | `0d53eea05` | test(debugger-ui): node logic test + headless smoke, RED |
 | `245e936b1` | feat(debugger): debugger-project.js + dnd hook + html/build.rs/platform.rs route — node 13/13, smoke 42/42, B1 smoke 25/25 |
+| `f69bce04a` | docs(site): /ui hero link + AzBuilder section; release Demos block + AzBuilder in DEMO_APPS (desktop only) |
 
 ## 4. IN PROGRESS
 
-- Site: /ui landing section + release page "Demos" AzBuilder entry.
+- Guide refresh `doc/guide/en/architecture/gui-builder.md`.
 
 ## 5. NEXT
 
