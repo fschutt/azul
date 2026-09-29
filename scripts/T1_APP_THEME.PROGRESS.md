@@ -10,9 +10,10 @@ Final report: `scripts/T1_APP_THEME_2026_09_29.md`. Nothing compiled (house rule
 - `ff811a074` RED layout: `layout/tests/app_theme_override.rs` (+ all.rs), `set_theme` unit test in `layout/src/callbacks.rs`
 - `a8850021c` RED dll: `dll/tests/app_theme_headless.rs` (new test target)
 - `fe6356f51` css impl: from_block_name, theme_chain + matcher, DEFAULT_APP_THEME, app_theme_chain, theme_conditions!, helpers
+- `7bf0475d3` core impl: AppConfig.theme + builders, `azul_core::app_theme` (global + ThemeScope), get_theme_name, AppThemeChange
 
 ## IN PROGRESS
-- implementation: core next (AppConfig.theme, azul_core::app_theme, get_theme_name, AppThemeChange)
+- implementation: layout next (LayoutWindow::app_theme, context, SetTheme, CallbackInfo, form-controls scope, E2E arm)
 
 ## NEXT
 1. css: `@theme(name)` -> `ThemeCondition::Custom(name)` (both parsers); `DynamicSelectorContext.theme_chain`
