@@ -25,7 +25,7 @@ use azul_core::{
     callbacks::{Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
     dom::{
         AttributeNameValue, AttributeType, Dom, DomId, DomNodeId, EventFilter, HoverEventFilter,
-        IdOrClass, NodeData, NodeId, NodeType, TabIndex,
+        NodeData, NodeId, NodeType, TabIndex,
     },
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -244,7 +244,7 @@ fn with_info<R>(
         ctx: core::cell::RefCell::new(OptionRefAny::None),
     };
     let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
-    let mut info = CallbackInfo::new(
+    let info = CallbackInfo::new(
         &ref_data,
         &changes,
         hit,
