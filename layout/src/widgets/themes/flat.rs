@@ -3583,3 +3583,48 @@ pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
         label: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_LABEL_STYLE),
     })
 }
+
+// ==== segmented ====
+//
+// Flat is the established control: white segments under a #ced4da hairline,
+// the choice in the fixed accent, the desktop's button face and accent in the
+// dark, and the same colours from the selection restyle. What it adds are the
+// states it never had: an unselected segment hovers to `LIGHT_HT` / `DARK_HT`
+// and presses to `LIGHT_PT` / `DARK_PT`, and every segment is ringed on focus
+// with an inset 2px ring (inner segments share their side borders) -
+// `FIELD_RING` / `DARK_ACC`, white on the accent choice.
+
+/// Flat's segmented skin.
+#[must_use]
+pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
+    crate::widgets::segmented::SegmentedSkin {
+        theme: super::UiTheme::Flat,
+        segment: segmented_segment,
+        restyle: crate::widgets::segmented::segment_colours,
+    }
+}
+
+/// One flat segment: the established face and dark twins, then the states.
+fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+
+    let mut v = crate::widgets::segmented::segment_style(selected, is_first, is_last)
+        .into_library_owned_vec();
+    if !selected {
+        v.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
+        v.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+    }
+    let (ring, ring_dark) = if selected {
+        (LIGHT_ON_ACC, DARK_ON_ACC)
+    } else {
+        (FIELD_RING, DARK_ACC)
+    };
+    v.extend(kit::focus_shadow_ring(ring, ring_dark));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::segmented::Segmented`] in the flat theme.
+#[must_use]
+pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
+    s.build(segmented_skin())
+}

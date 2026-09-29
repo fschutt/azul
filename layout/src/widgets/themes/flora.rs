@@ -3295,3 +3295,102 @@ pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
         label: CssPropertyWithConditionsVec::from_vec(label),
     })
 }
+
+// ==== segmented ====
+//
+// A flora segmented control is the pager's language applied to a choice: raised
+// paper segments (`--fl-rT` over `--fl-rB`, flora ink) joined under one
+// `--fl-bd2` hairline with the house radius on the outer corners, and the chosen
+// segment cut as the sunken accent stone (`flora::selected_stone`, in
+// `--fl-on-acc`) - its own colour by day and by night. A segment hovers and
+// presses on flora's faces and is ringed on focus with an inset ring, in the
+// accent by day, the glow by night and on the stone.
+
+/// Flora's segmented skin.
+#[must_use]
+pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
+    crate::widgets::segmented::SegmentedSkin {
+        theme: super::UiTheme::Flora,
+        segment: segmented_segment,
+        restyle: segmented_colours,
+    }
+}
+
+/// One flora segment: box, joined hairline, face, then states.
+fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        kit::font_size(13),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    v.extend(kit::padding(6, 12, 6, 12));
+    // Joined: only the first segment draws a left edge.
+    let edges = kit::Edges {
+        top: true,
+        right: true,
+        bottom: true,
+        left: is_first,
+    };
+    v.extend(kit::border(edges, 1, LIGHT_BD2, DARK_BD2));
+    v.extend(kit::radius_corners(
+        if is_first { 3 } else { 0 },
+        if is_last { 3 } else { 0 },
+        if is_last { 3 } else { 0 },
+        if is_first { 3 } else { 0 },
+    ));
+    if selected {
+        v.push(P::simple(kit::layers(selected_stone())));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+    } else {
+        v.extend(kit::themed_layers(
+            vec![RAISED_FACE_LIGHT],
+            vec![RAISED_FACE_DARK],
+        ));
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+        // States last: a resting dark twin matches in every state.
+        v.extend(kit::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(kit::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+    }
+    let ring = if selected { LIGHT_GLOW } else { LIGHT_ACC };
+    v.extend(kit::focus_shadow_ring(ring, DARK_GLOW));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The fill and ink a selection restyles a flora segment with.
+fn segmented_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+    match (selected, dark) {
+        (true, _) => (
+            StyleBackgroundContentVec::from_vec(selected_stone()),
+            LIGHT_ON_ACC,
+        ),
+        (false, false) => (
+            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_LIGHT]),
+            LIGHT_INK,
+        ),
+        (false, true) => (
+            StyleBackgroundContentVec::from_vec(vec![RAISED_FACE_DARK]),
+            DARK_INK,
+        ),
+    }
+}
+
+/// Renders a [`crate::widgets::segmented::Segmented`] in the flora theme.
+#[must_use]
+pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
+    s.build(segmented_skin())
+}

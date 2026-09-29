@@ -43,7 +43,10 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static SEGMENTED_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-segmented"))];
@@ -92,6 +95,11 @@ pub struct Segmented {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the segments are built
+    /// from (and the colours a selection restyles them with), so switching it
+    /// rebuilds the control.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -333,18 +341,23 @@ fn dark_segment_twins(selected: bool, is_first: bool) -> Vec<CssPropertyWithCond
     v
 }
 
-/// One segment's full style as `dom()` renders it: the light face, then its
-/// dark twins.
-fn segment_style(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+/// One segment's resting style in the flat theme: the light face, then its
+/// dark twins (`themes::flat::segmented_skin` appends the states).
+pub(crate) fn segment_style(
+    selected: bool,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
     let mut v = build_segment_style(selected, is_first, is_last).into_library_owned_vec();
     v.extend(dark_segment_twins(selected, is_first));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// The fill and ink the click restyle writes for a segment, in the window's
-/// theme. A `set_css_property` override outranks every inline declaration,
-/// dark twins included, so the restyle has to pick the dark face itself.
-fn segment_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
+/// The fill and ink the click restyle writes for a segment in the flat theme,
+/// by day or by night. A `set_css_property` override outranks every inline
+/// declaration, dark twins included, so the restyle has to pick the dark face
+/// itself.
+pub(crate) fn segment_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
     use crate::widgets::themes::system_palette as sys;
 
     match (selected, dark) {
@@ -365,6 +378,30 @@ fn window_is_dark(info: &CallbackInfo) -> bool {
     )
 }
 
+/// What a theme supplies for a segmented control: every segment's style and
+/// the fill and ink a selection restyle writes. Built by
+/// `themes::flat::segmented_skin` / `themes::flora::segmented_skin`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SegmentedSkin {
+    pub theme: UiTheme,
+    /// One segment's full style - resting light face, dark twins, then the
+    /// states - for whether it is selected, first (left-rounded) and last
+    /// (right-rounded).
+    pub segment: fn(bool, bool, bool) -> CssPropertyWithConditionsVec,
+    /// The fill and ink the selection restyle writes for a selected / other
+    /// segment, by day (`false`) or by night (`true`).
+    pub restyle: fn(bool, bool) -> (StyleBackgroundContentVec, ColorU),
+}
+
+/// The skin `theme` draws segmented controls with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> SegmentedSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::segmented_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::segmented_skin(),
+    }
+}
+
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
     #[must_use]
@@ -376,7 +413,23 @@ impl Segmented {
             },
             labels,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the control renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this segmented row renders with.
@@ -439,8 +492,21 @@ impl Segmented {
         self
     }
 
+    /// Renders the control. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::segmented(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::segmented(self),
+        }
+    }
+
+    /// Renders the control with `skin` styling its segments - what
+    /// `themes::flat::segmented` / `themes::flora::segmented` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: SegmentedSkin) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -465,7 +531,7 @@ impl Segmented {
         for (i, label) in self.labels.as_ref().iter().enumerate() {
             let is_first = i == 0;
             let is_last = i + 1 == count;
-            let seg_style = segment_style(i == selected, is_first, is_last);
+            let seg_style = (skin.segment)(i == selected, is_first, is_last);
 
             children.push(
                 crate::widgets::widget_p_with_text(label.clone())
@@ -503,8 +569,12 @@ impl Segmented {
             );
         }
 
+        // The control carries the theme's marker: the selection restyle reads
+        // it back to write the colours of the theme it was built in.
+        let mut classes: Vec<IdOrClass> = SEGMENTED_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENTED_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -596,6 +666,15 @@ fn select_segment(
     selected: usize,
 ) -> Option<Update> {
     let dark = window_is_dark(info);
+    // The theme the control was BUILT in, from the marker on the segments'
+    // parent: its colours are the ones to write.
+    let theme = segments
+        .first()
+        .and_then(|s| info.get_parent(*s))
+        .map_or(UiTheme::Flat, |parent| {
+            style_kit::theme_of_classes(info.get_node_classes(parent).as_ref())
+        });
+    let skin = skin_for(theme);
 
     let result = {
         let mut seg = data.downcast_mut::<SegmentedStateWrapper>()?;
@@ -613,7 +692,7 @@ fn select_segment(
     // Live-restyle: selected segment gets the accent fill + its ink, the rest
     // get the neutral fill + the neutral ink - in the window's theme.
     for (i, node) in segments.iter().enumerate() {
-        let (bg, text) = segment_colours(i == selected, dark);
+        let (bg, text) = (skin.restyle)(i == selected, dark);
         info.set_css_property(*node, CssProperty::const_background_content(bg));
         info.set_css_property(
             *node,
@@ -867,6 +946,22 @@ mod autotest_generated {
         node.root
             .style
             .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// A rendered node's declarations WITHOUT the interactive-state rules
+    /// (hover, press, focus ring) the theme appends after the resting style -
+    /// what `segment_style` builds.
+    fn resting_properties(node: &Dom) -> Vec<CssProperty> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                !c.as_ref().iter().any(|s| {
+                    matches!(s, azul_css::dynamic_selector::DynamicSelector::PseudoState(_))
+                })
+            })
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1967,7 +2062,7 @@ mod autotest_generated {
                 for (i, child) in children.iter().enumerate() {
                     let expected = properties(&segment_style(i == selected, i == 0, i + 1 == n));
                     assert_eq!(
-                        inline_properties(child),
+                        resting_properties(child),
                         expected,
                         "n={n} selected={selected}: segment {i} carries the wrong style"
                     );
@@ -2020,7 +2115,7 @@ mod autotest_generated {
             for (i, child) in dom.children.as_ref().iter().enumerate() {
                 let expected = properties(&segment_style(false, i == 0, i + 1 == n));
                 assert_eq!(
-                    inline_properties(child),
+                    resting_properties(child),
                     expected,
                     "selected={selected}: segment {i} must render unselected"
                 );
@@ -2092,7 +2187,7 @@ mod autotest_generated {
 
         let expected = properties(&segment_style(true, true, true));
         assert_eq!(
-            inline_properties(&children[0]),
+            resting_properties(&children[0]),
             expected,
             "a lone segment is simultaneously first and last"
         );
@@ -2271,7 +2366,7 @@ mod autotest_generated {
         for (i, child) in children.iter().enumerate() {
             assert_eq!(text_of(child), Some("same"));
             let expected = properties(&segment_style(i == 1, i == 0, i == 2));
-            assert_eq!(inline_properties(child), expected, "segment {i}");
+            assert_eq!(resting_properties(child), expected, "segment {i}");
         }
     }
 
