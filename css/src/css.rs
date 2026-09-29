@@ -13,7 +13,7 @@ use core::fmt;
 
 use crate::{
     corety::OptionString,
-    dynamic_selector::DynamicSelectorVec,
+    dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition},
     props::property::{CssProperty, CssPropertyType},
     AzString,
 };
@@ -928,7 +928,37 @@ impl_vec_partialeq!(CssDeclaration, CssDeclarationVec);
 impl_vec_eq!(CssDeclaration, CssDeclarationVec);
 impl_vec_hash!(CssDeclaration, CssDeclarationVec);
 
+/// Does any of `conditions` name an app theme (`@theme(<name>)`)? Only such
+/// a declaration can rank other than last.
+fn has_app_theme_condition(conditions: &[DynamicSelector]) -> bool {
+    conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))))
+}
+
 impl CssRuleBlock {
+    /// THE cascade order of a rule whose theme rank is `rank`
+    /// ([`crate::dynamic_selector::cascade_rank`]): rules sort ASCENDING by
+    /// this key, stably, and the last one of a property wins.
+    ///
+    /// `(priority, rank, selector specificity)`, then source order (the
+    /// stable sort) - CSS `@layer` semantics: the theme rank sorts BEFORE
+    /// specificity, so a spin-off's `.btn` beats its base's `.btn.primary`.
+    /// A LOWER rank is more specific and wins, hence `Reverse`; a rule
+    /// outside every theme block (`UNTHEMED_RANK`) sorts first of its
+    /// priority.
+    #[must_use]
+    pub fn cascade_key(
+        &self,
+        rank: usize,
+    ) -> (u8, core::cmp::Reverse<usize>, (usize, usize, usize, usize)) {
+        (
+            self.priority,
+            core::cmp::Reverse(rank),
+            get_specificity(&self.path),
+        )
+    }
+
     #[must_use]
     pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
         Self {
@@ -2141,12 +2171,86 @@ impl Css {
     /// Lower-priority rules sort first; ties break by selector specificity.
     /// This preserves layer identity (UA / SYSTEM / AUTHOR / INLINE / RUNTIME)
     /// without needing a separate `Stylesheet` boundary.
+    ///
+    /// Context-free: the THEME RANK of a rule depends on the window's theme
+    /// chain, so the cascade orders its matched rules by
+    /// [`CssRuleBlock::cascade_key`] on top of this order
+    /// ([`Self::sort_rules_in_cascade_order`]). Stable, so rules equal in
+    /// `(priority, specificity)` keep their source order.
     pub fn sort_by_specificity(&mut self) {
-        self.rules.as_mut().sort_by(|a, b| {
-            a.priority
-                .cmp(&b.priority)
-                .then_with(|| get_specificity(&a.path).cmp(&get_specificity(&b.path)))
-        });
+        self.rules
+            .as_mut()
+            .sort_by_cached_key(|r| r.cascade_key(crate::dynamic_selector::UNTHEMED_RANK));
+    }
+
+    /// Put `rules` in full CASCADE ORDER under a theme chain: ascending
+    /// [`CssRuleBlock::cascade_key`] - `(priority, theme rank, selector
+    /// specificity)` - so that the LAST rule of a property wins. `rank` is
+    /// the chain's [`crate::dynamic_selector::cascade_rank`] (the window
+    /// context's `cascade_rank`).
+    ///
+    /// `rules` must come in source order or in [`Self::sort_by_specificity`]
+    /// order: the sort is stable, so source order breaks every remaining tie.
+    pub fn sort_rules_in_cascade_order(
+        rules: &mut [&CssRuleBlock],
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+    ) {
+        if !rules.iter().any(|r| has_app_theme_condition(r.conditions.as_slice())) {
+            // Every rank is the same: the order is already the cascade's.
+            return;
+        }
+        rules.sort_by_cached_key(|r| r.cascade_key(rank(r.conditions.as_slice())));
+    }
+
+    /// THE resolution of a node's inline style for one property: among the
+    /// declarations of `property_type` whose conditions `applies` accepts,
+    /// the one of the LOWEST cascade rank wins (`rank`: the chain's
+    /// [`crate::dynamic_selector::cascade_rank`]), the LAST in source order
+    /// among equals. Inline declarations share priority and specificity, so
+    /// this is the rule order of [`CssRuleBlock::cascade_key`] reduced to
+    /// `(rank, source order)`: with no theme block in play, the last match.
+    pub fn winning_inline_property<'a>(
+        &'a self,
+        property_type: CssPropertyType,
+        mut applies: impl FnMut(&DynamicSelectorVec) -> bool,
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+    ) -> Option<&'a CssProperty> {
+        let mut best: Option<(usize, &'a CssProperty)> = None;
+        for (prop, conds) in self.iter_inline_properties() {
+            if prop.get_type() != property_type || !applies(conds) {
+                continue;
+            }
+            let r = rank(conds.as_slice());
+            if best.map_or(true, |(b, _)| r <= b) {
+                best = Some((r, prop));
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
+    /// This inline style's `(declaration, conditions)` pairs in CASCADE
+    /// ORDER, weakest first, into `out` (cleared first; a buffer the caller
+    /// reuses across nodes): applied in turn, later overwriting earlier, the
+    /// declarations that apply leave every property at the value
+    /// [`Self::winning_inline_property`] picks. Every declaration is listed,
+    /// applicable or not - the caller filters, as it did on
+    /// [`Self::iter_inline_properties`]. Source order when no declaration
+    /// sits in an app-theme block.
+    pub fn inline_properties_in_cascade_order<'a>(
+        &'a self,
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+        out: &mut Vec<(&'a CssProperty, &'a DynamicSelectorVec)>,
+    ) {
+        out.clear();
+        out.extend(self.iter_inline_properties());
+        if out
+            .iter()
+            .any(|(_, conds)| has_app_theme_condition(conds.as_slice()))
+        {
+            // Stable: source order among equal ranks. A HIGHER rank (less
+            // specific, outside every block last of all) applies first.
+            out.sort_by_key(|(_, conds)| core::cmp::Reverse(rank(conds.as_slice())));
+        }
     }
 
     pub fn rules(&self) -> core::slice::Iter<'_, CssRuleBlock> {
@@ -2303,6 +2407,90 @@ mod priority_sort_tests {
             .map(|r| get_specificity(&r.path))
             .collect();
         assert!(last_two_specificity[0] < last_two_specificity[1]);
+    }
+
+    fn in_theme(mut rule: CssRuleBlock, name: &'static str) -> CssRuleBlock {
+        rule.conditions = DynamicSelectorVec::from_vec(vec![DynamicSelector::Theme(
+            ThemeCondition::Custom(AzString::from_const_str(name)),
+        )]);
+        rule
+    }
+
+    /// `(priority, rank, specificity, source order)`: rank before specificity,
+    /// priority before rank.
+    #[test]
+    fn rules_sort_by_priority_then_theme_rank_then_specificity() {
+        let chain = ["xyz:pink", "xyz"];
+        let rank = |c: &[DynamicSelector]| crate::dynamic_selector::cascade_rank(&chain, c);
+        let class = |n: &str| CssPathSelector::Class(n.to_string().into());
+        let base_specific = in_theme(
+            rule_with(rule_priority::AUTHOR, vec![class("btn"), class("primary")]),
+            "xyz",
+        );
+        let spin_off_plain = in_theme(
+            rule_with(rule_priority::AUTHOR, vec![class("btn")]),
+            "xyz:pink",
+        );
+        let unthemed = rule_with(
+            rule_priority::AUTHOR,
+            vec![CssPathSelector::Id("x".to_string().into())],
+        );
+        let inline_unthemed = rule_with(rule_priority::INLINE, vec![CssPathSelector::Global]);
+        let mut rules = vec![&inline_unthemed, &spin_off_plain, &base_specific, &unthemed];
+        Css::sort_rules_in_cascade_order(&mut rules, rank);
+        assert_eq!(
+            rules,
+            vec![&unthemed, &base_specific, &spin_off_plain, &inline_unthemed],
+            "unthemed ranks last (weakest), the spin-off above its base whatever the \
+             specificity, and a higher priority above every rank"
+        );
+    }
+
+    /// A node's own declarations: the lowest rank wins, the last among equals.
+    #[test]
+    fn the_winning_inline_declaration_is_the_best_ranked_then_the_last() {
+        use crate::{
+            dynamic_selector::{CssPropertyWithConditions as P, CssPropertyWithConditionsVec},
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+        let ink = |v: u8| {
+            CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(v, v, v),
+            })
+        };
+        let named = |n: &'static str| {
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(n)))
+        };
+        let style: Css = CssPropertyWithConditionsVec::from_vec(vec![
+            P::with_condition(ink(1), named("xyz:pink")),
+            P::simple(ink(2)),
+            P::with_condition(ink(3), named("xyz")),
+            P::with_condition(ink(4), named("xyz:pink")),
+            P::with_condition(ink(5), named("xyz")),
+        ])
+        .into();
+        let chain = ["xyz:pink", "xyz"];
+        let rank = |c: &[DynamicSelector]| crate::dynamic_selector::cascade_rank(&chain, c);
+        let all = |_: &DynamicSelectorVec| true;
+        assert_eq!(
+            style.winning_inline_property(CssPropertyType::TextColor, all, rank),
+            Some(&ink(4)),
+            "the last of the best rank"
+        );
+        let no_spin_off =
+            |c: &DynamicSelectorVec| !c.as_slice().contains(&named("xyz:pink"));
+        assert_eq!(
+            style.winning_inline_property(CssPropertyType::TextColor, no_spin_off, rank),
+            Some(&ink(5))
+        );
+        let mut order = Vec::new();
+        style.inline_properties_in_cascade_order(rank, &mut order);
+        let applied: Vec<&CssProperty> = order.iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            applied,
+            vec![&ink(2), &ink(3), &ink(5), &ink(1), &ink(4)],
+            "weakest first, source order among equals"
+        );
     }
 }
 

@@ -49,7 +49,8 @@ fn built_for(theme: UiTheme, make: &dyn Fn() -> Dom) -> Dom {
 }
 
 /// `node`'s inline style under the theme chain `chain` (most specific first),
-/// the colour scheme and `state` (`None`: at rest): last match wins per property.
+/// the colour scheme and `state` (`None`: at rest): the declarations in the
+/// cascade's order, last match wins per property.
 fn resolve(
     node: &Dom,
     chain: &[&str],
@@ -71,7 +72,12 @@ fn resolve(
             .collect(),
     );
     let mut out: Vec<(CssPropertyType, CssProperty)> = Vec::new();
-    for (p, conds) in node.root.style.iter_inline_properties() {
+    // The cascade's own order: theme rank, then source order.
+    let mut in_order = Vec::new();
+    node.root
+        .style
+        .inline_properties_in_cascade_order(|c| ctx.cascade_rank(c), &mut in_order);
+    for (p, conds) in in_order {
         let applies = conds.as_ref().iter().all(|c| match c {
             DynamicSelector::PseudoState(s) => Some(*s) == state,
             other => other.matches(&ctx),

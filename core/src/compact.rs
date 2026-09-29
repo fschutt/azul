@@ -715,6 +715,16 @@ impl CssPropertyCache {
             };
         }
 
+        // A node's inline declarations in cascade order (theme rank, then
+        // source order), refilled per node: Step 4 applies them in turn.
+        let mut inline_in_order = Vec::new();
+        let dyn_ctx = self.dynamic_context.as_deref();
+        let rank = |conds: &[azul_css::dynamic_selector::DynamicSelector]| {
+            dyn_ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
+                ctx.cascade_rank(conds)
+            })
+        };
+
         for i in 0..node_count {
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
@@ -926,7 +936,13 @@ impl CssPropertyCache {
                 .dynamic_context
                 .is_none()
                 .then(crate::app_theme::current_theme);
-            for (prop, conds) in nd.style.iter_inline_properties() {
+            // In CASCADE ORDER, later overwriting earlier: a lower theme rank
+            // (`@theme(xyz:pink)` over `@theme(xyz)` over no block) applies
+            // later, source order among equals - the declaration
+            // `Css::winning_inline_property` picks on the slow path wins here.
+            nd.style
+                .inline_properties_in_cascade_order(rank, &mut inline_in_order);
+            for &(prop, conds) in &inline_in_order {
                 // Apply when the conditions hold for the RESTING state:
                 // pseudo-state conditions must be Normal, and every other
                 // condition (viewport/@media, theme, OS...) is evaluated

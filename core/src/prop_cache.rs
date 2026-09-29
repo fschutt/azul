@@ -1609,6 +1609,19 @@ impl CssPropertyCache {
                     condition_holds(dyn_ctx.as_deref(), no_context_theme.as_ref(), sel)
                 })
         };
+        // The THEME RANK of a rule or an inline declaration under the
+        // window's theme chain (`DynamicSelectorContext::cascade_rank`): the
+        // cascade orders by `(priority, rank, specificity, source order)`, a
+        // lower rank winning - so a live `@theme(xyz:pink)` block beats
+        // `@theme(xyz)` whatever their order. Without a context no theme
+        // block applies here, and every rank is the same.
+        let rank = |conds: &[DynamicSelector]| {
+            dyn_ctx
+                .as_deref()
+                .map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |c| {
+                    c.cascade_rank(conds)
+                })
+        };
 
         // Re-enter build phase before repopulating. restyle() is not
         // single-shot: StyledDom::create runs one restyle internally, and building
@@ -1669,6 +1682,10 @@ impl CssPropertyCache {
                     specific_rules.push(rule);
                 }
             }
+            // The theme rank on top of the context-free order: both lists are
+            // applied in turn (last wins), so they must be in cascade order.
+            Css::sort_rules_in_cascade_order(&mut global_only_rules, rank);
+            Css::sort_rules_in_cascade_order(&mut specific_rules, rank);
 
             for rule in &global_only_rules {
                 if !rule_applies(&rule.conditions) {
@@ -1814,10 +1831,17 @@ impl CssPropertyCache {
 
         // Inheritance: Inherit all values of the parent to the children, but
         // only if the property is inheritable and isn't yet set
+        let mut parent_inline = Vec::new();
         for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
             let Some(parent_id) = node_id.into_crate_internal() else {
                 continue;
             };
+            // The parent's own declarations in cascade order (theme rank, then
+            // source order), so the last match below is the one that won on
+            // the parent.
+            node_data[parent_id]
+                .style
+                .inline_properties_in_cascade_order(rank, &mut parent_inline);
 
             let all_states = [
                 PseudoStateType::Normal,
@@ -1851,7 +1875,7 @@ impl CssPropertyCache {
                 // right by accident.
                 let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = {
                     let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
-                    for (prop, conds) in node_data[parent_id].style.iter_inline_properties() {
+                    for &(prop, conds) in &parent_inline {
                         let conditions = conds.as_slice();
                         let decl_state = conditions
                             .iter()
@@ -2831,6 +2855,17 @@ impl CssPropertyCache {
                 })
             }
         };
+        // Among the inline declarations that apply, the one of the LOWEST
+        // theme rank wins (`@theme(xyz:pink)` over `@theme(xyz)` over a
+        // declaration outside every block), the LAST in source order among
+        // equals - `Css::winning_inline_property`, the same order the compact
+        // builder applies them in. With no theme block in play that is the
+        // plain last match a widget's merged style relies on.
+        let rank = |conds: &[DynamicSelector]| {
+            ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
+                ctx.cascade_rank(conds)
+            })
+        };
 
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
@@ -2849,20 +2884,11 @@ impl CssPropertyCache {
         // unstyled prompt inherit the field's font.
         if node_state.placeholder {
             // PRIORITY 1: inline declarations (`on_placeholder(...)`)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Placeholder)
-                            && prop.get_type() == *css_property_type
-                        {
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::Placeholder),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -2888,24 +2914,11 @@ impl CssPropertyCache {
         // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Focus)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::Focus),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -2932,24 +2945,11 @@ impl CssPropertyCache {
         // same three-tier lookup as `:focus`.
         if node_state.seat_focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::SeatFocus)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::SeatFocus),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -2974,24 +2974,11 @@ impl CssPropertyCache {
 
         if node_state.active {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Active)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::Active),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -3016,24 +3003,11 @@ impl CssPropertyCache {
 
         // :dragging pseudo-state (higher priority than :hover)
         if node_state.dragging {
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Dragging)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::Dragging),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -3056,24 +3030,11 @@ impl CssPropertyCache {
 
         // :drag-over pseudo-state (higher priority than :hover)
         if node_state.drag_over {
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::DragOver)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::DragOver),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -3096,24 +3057,11 @@ impl CssPropertyCache {
 
         if node_state.hover {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Hover)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
+            if let Some(p) = node_data.style.winning_inline_property(
+                *css_property_type,
+                |conds| matches_pseudo_state(conds, PseudoStateType::Hover),
+                rank,
+            ) {
                 return Some(p);
             }
 
@@ -3138,25 +3086,11 @@ impl CssPropertyCache {
 
         // Normal/fallback properties - always apply as base layer
         // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) =
-            node_data
-                .style
-                .iter_inline_properties()
-                .fold(None, |acc, (prop, conds)| {
-                    if matches_pseudo_state(conds, PseudoStateType::Normal)
-                        && prop.get_type() == *css_property_type
-                    {
-                        // LAST matching inline declaration wins (CSS source order),
-                        // same as the compact builder's later-overwrites-earlier and
-                        // get_property_with_context - the widget pattern
-                        // "display:none + display:flex @media(max-width)" relies on
-                        // exactly this ordering.
-                        Some(prop)
-                    } else {
-                        acc
-                    }
-                })
-        {
+        if let Some(p) = node_data.style.winning_inline_property(
+            *css_property_type,
+            |conds| matches_pseudo_state(conds, PseudoStateType::Normal),
+            rank,
+        ) {
             return Some(p);
         }
 
@@ -3172,9 +3106,13 @@ impl CssPropertyCache {
         // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
         // These are collected once during restyle and apply to all nodes.
         // Lower priority than per-node rules but higher than inheritance/UA.
+        // Collected in cascade order (priority, theme rank, source order), so
+        // the LAST of a property wins - as the compact builder, which applies
+        // them in turn, has it.
         if let Some(p) = self
             .global_css_props
             .iter()
+            .rev()
             .find(|p| p.get_type() == *css_property_type)
         {
             return Some(p);
@@ -3238,21 +3176,16 @@ impl CssPropertyCache {
             }
         }
 
-        // Check inline CSS properties with DynamicSelectorContext evaluation.
-        // Iterate in REVERSE order across the flat (prop, conds) view —
-        // "last found wins" semantics, replacing the old Focus > Active >
-        // Hover > Normal priority chain.
-        // "last found wins": scan the flat (prop, conds) view forward and keep the
-        // last match (iter_inline_properties is not DoubleEndedIterator, so this
-        // replaces an earlier collect-then-rev-find_map).
-        let mut last_inline = None;
-        for (prop, conds) in node_data.style.iter_inline_properties() {
-            let conditions_match = conds.as_slice().iter().all(|c| c.matches(context));
-            if prop.get_type() == *css_property_type && conditions_match {
-                last_inline = Some(prop);
-            }
-        }
-        if let Some(prop) = last_inline {
+        // Check inline CSS properties with DynamicSelectorContext evaluation:
+        // among the declarations whose every condition holds, the lowest
+        // theme rank wins, the LAST in source order among equals
+        // (`Css::winning_inline_property`) - replacing the old Focus > Active
+        // > Hover > Normal priority chain.
+        if let Some(prop) = node_data.style.winning_inline_property(
+            *css_property_type,
+            |conds| conds.as_slice().iter().all(|c| c.matches(context)),
+            |conds| context.cascade_rank(conds),
+        ) {
             return Some(prop);
         }
 
@@ -5201,10 +5134,19 @@ impl CssPropertyCache {
         // inherited default). Skipping every conditional declaration, as this
         // did, made a container's `dark_theme(color: ..)` twin invisible to
         // its children: the label under a dark-mode button inherited the light
-        // value and painted dark-on-dark. Source order, last match wins, like
-        // the node's own resolution.
+        // value and painted dark-on-dark. In cascade order (theme rank, then
+        // source order), last match wins, like the node's own resolution.
         let dyn_ctx = self.dynamic_context.as_deref();
-        for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
+        let mut in_order = Vec::new();
+        node_data[node_index].style.inline_properties_in_cascade_order(
+            |conds| {
+                dyn_ctx.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |ctx| {
+                    ctx.cascade_rank(conds)
+                })
+            },
+            &mut in_order,
+        );
+        for (prop, conds) in in_order {
             let applies = conds.as_slice().iter().all(|c| match c {
                 azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
                     *s == azul_css::dynamic_selector::PseudoStateType::Normal

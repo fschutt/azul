@@ -821,9 +821,10 @@ pub enum ThemeCondition {
     Dark,
     /// An APP THEME by name (`@theme(flora)`): `flat`, `flora`, later
     /// `native` and user themes (`AppConfig::with_theme`). Live iff the name
-    /// is in the context's [`DynamicSelectorContext::theme_chain`] - never
-    /// compared with the colour scheme. Case-sensitive, like other CSS custom
-    /// idents; `light` / `dark` are reserved for the colour scheme.
+    /// is in the context's [`DynamicSelectorContext::theme_chain`] by prefix
+    /// (and, for a compiled-in theme, is the chain's floor): [`app_theme_rank`].
+    /// Never compared with the colour scheme. Case-sensitive, like other CSS
+    /// custom idents; `light` / `dark` are reserved for the colour scheme.
     Custom(AzString),
     /// System preference
     SystemPreferred,
@@ -837,6 +838,116 @@ pub enum ThemeCondition {
 /// §4.5), and nothing else has to change.
 pub const DEFAULT_APP_THEME: &str = "flat";
 
+/// The COMPILED-IN app themes: the looks the application ships and every
+/// widget carries a COMPLETE `@theme(<name>)` block for (§7.3 "the
+/// application ships the hard-coded base themes"). THE one list.
+///
+/// They are exclusive FLOORS of the theme chain: only the first of them in a
+/// chain is live ([`structural_app_theme`]). Two complete looks never mix -
+/// under `[flora, flat]` (flora, with the default as the chain's implicit
+/// last entry) flat's blocks would otherwise fill every gap of flora's look
+/// (flora draws no `border` and would inherit flat's). User and rice themes
+/// are not in here: they layer on top of the floor at their rank.
+pub const COMPILED_IN_APP_THEMES: &[&str] = &["flat", "flora", "native"];
+
+/// Is `name` one of the [`COMPILED_IN_APP_THEMES`]?
+#[must_use]
+pub fn is_compiled_in_app_theme(name: &str) -> bool {
+    COMPILED_IN_APP_THEMES.contains(&name)
+}
+
+/// The rank of a declaration outside every app-theme block: LAST, below
+/// every live theme's (see [`cascade_rank`]).
+pub const UNTHEMED_RANK: usize = usize::MAX;
+
+/// The theme a spin-off extends: `xyz` for `xyz:pink`, `None` for a base.
+fn parent_app_theme(name: &str) -> Option<&str> {
+    name.rfind(':').map(|i| &name[..i])
+}
+
+/// Is `name` the app theme `entry` or one of the themes it extends - a
+/// prefix of it by whole `:` segments? `xyz` is one of `xyz:pink`, never of
+/// `xyzzy` (the `LanguageCondition::Prefix` precedent, with `:` for `-`).
+fn extends_or_is(entry: &str, name: &str) -> bool {
+    entry
+        .strip_prefix(name)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+}
+
+/// Every app theme `chain` makes live, in RANK order (most specific first):
+/// each entry followed by the themes it extends (`xyz:pink`, then `xyz`),
+/// every name at its first position only. On a chain whose spin-offs are
+/// already expanded (`[xyz:pink, xyz, flat]`) that is the chain itself, and
+/// a name's position is its index.
+fn chain_names<S: AsRef<str>>(chain: &[S]) -> impl Iterator<Item = &str> + '_ {
+    chain.iter().enumerate().flat_map(move |(i, entry)| {
+        core::iter::successors(Some(entry.as_ref()), |&n| parent_app_theme(n)).filter(
+            move |name| {
+                !chain[..i]
+                    .iter()
+                    .any(|earlier| extends_or_is(earlier.as_ref(), name))
+            },
+        )
+    })
+}
+
+/// The STRUCTURAL theme of `chain`: its first compiled-in theme, spin-offs
+/// counted (`flora` for `[flora:abc, flat]`). The one compiled-in theme
+/// whose blocks are live, and the one a widget builds its DOM shape for
+/// (§7.1: "the DOM shape comes from the highest-ranked compiled-in theme in
+/// the chain"). `None` for a chain naming no compiled-in theme.
+#[must_use]
+pub fn structural_app_theme<S: AsRef<str>>(chain: &[S]) -> Option<&str> {
+    chain_names(chain).find(|name| is_compiled_in_app_theme(name))
+}
+
+/// THE app-theme matcher: `Some(rank)` iff `@theme(<name>)` is live under
+/// `chain`, `None` when it is dead.
+///
+/// - Live iff `name` is in the chain BY PREFIX: an entry is `name` or a
+///   spin-off of it (`xyz` under `[xyz:pink]`), by whole `:` segments.
+/// - A compiled-in theme is live only as the chain's
+///   [`structural_app_theme`]: the first compiled-in theme is the floor, the
+///   others are dead.
+/// - The rank is `name`'s position in the chain, each entry followed by the
+///   themes it extends ([`chain_names`]) - 0 is the most specific. Rank
+///   decides between two live blocks declaring the same property, before
+///   selector specificity ([`cascade_rank`]).
+///
+/// Every evaluation of `@theme(<name>)` comes here: the window's context
+/// ([`DynamicSelectorContext::app_theme_rank`]) and the context-less
+/// cascade. Names compare exactly (case-sensitive, like CSS custom idents).
+#[must_use]
+pub fn app_theme_rank<S: AsRef<str>>(chain: &[S], name: &str) -> Option<usize> {
+    if is_compiled_in_app_theme(name) && structural_app_theme(chain) != Some(name) {
+        return None;
+    }
+    chain_names(chain).position(|live| live == name)
+}
+
+/// THE cascade rank of a declaration (or a rule) with `conditions` under
+/// `chain`: the rank of its most specific app-theme condition
+/// ([`app_theme_rank`]), [`UNTHEMED_RANK`] when it is in no theme block.
+///
+/// The cascade orders by `(priority, rank, selector specificity, source
+/// order)`: a LOWER rank wins, before specificity - CSS `@layer` semantics,
+/// so a spin-off's `.btn { }` beats its base's `.btn.primary { }`, and a
+/// theme block beats a declaration outside every block. Only meaningful
+/// for a declaration that applies (a dead theme answers `UNTHEMED_RANK`).
+#[must_use]
+pub fn cascade_rank<S: AsRef<str>>(chain: &[S], conditions: &[DynamicSelector]) -> usize {
+    conditions
+        .iter()
+        .filter_map(|c| match c {
+            DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
+                Some(app_theme_rank(chain, name.as_str()).unwrap_or(UNTHEMED_RANK))
+            }
+            _ => None,
+        })
+        .min()
+        .unwrap_or(UNTHEMED_RANK)
+}
+
 /// The theme chain the app theme `name` activates, most specific first: the
 /// list `@theme(<name>)` blocks are matched against
 /// ([`DynamicSelectorContext::theme_chain`]).
@@ -846,9 +957,8 @@ pub const DEFAULT_APP_THEME: &str = "flat";
 /// §7 design (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md)
 /// is built: `xyz:pink` expanding by prefix to `[xyz:pink, xyz]`, a theme
 /// file's `fallback:` header appending its list, the app's default theme as
-/// the implicit last entry. More than one entry needs the RANK (an entry's
-/// index) in the cascade's sort key in the same step, or two live themes'
-/// blocks would resolve by source order.
+/// the implicit last entry. The cascade already ranks the blocks of a longer
+/// chain by position ([`app_theme_rank`], [`cascade_rank`]).
 #[must_use]
 pub fn app_theme_chain(name: &str) -> StringVec {
     StringVec::from_vec(vec![AzString::from(name.to_string())])
@@ -1442,7 +1552,9 @@ pub struct DynamicSelectorContext {
     /// exactly like a theme flip does. APPENDED for ABI stability.
     pub system_colors: crate::system::SystemColors,
     /// The live APP THEMES, most specific first: `@theme(<name>)` blocks
-    /// ([`ThemeCondition::Custom`]) are live iff their name is in here.
+    /// ([`ThemeCondition::Custom`]) are live iff their name is in here by
+    /// prefix, and rank by its position ([`app_theme_rank`]; of the
+    /// compiled-in themes only the first is live).
     /// Separate from [`Self::theme`], the colour scheme: `@theme(dark)`
     /// keeps matching light / dark under any app theme.
     ///
@@ -1600,17 +1712,27 @@ impl DynamicSelectorContext {
             .map_or(DEFAULT_APP_THEME, AzString::as_str)
     }
 
-    /// Is the app theme `name` live - does `@theme(<name>)` apply?
-    ///
-    /// Exact membership in the chain. When the chain grows (§7: prefix
-    /// expansion, `fallback:`), the expansion happens in [`app_theme_chain`]
-    /// and this stays a membership test.
+    /// Is the app theme `name` live - does `@theme(<name>)` apply? In the
+    /// chain by prefix, and the chain's floor if it is a compiled-in theme
+    /// ([`app_theme_rank`]).
     #[must_use]
     pub fn has_app_theme(&self, name: &str) -> bool {
-        self.theme_chain
-            .as_ref()
-            .iter()
-            .any(|live| live.as_str() == name)
+        self.app_theme_rank(name).is_some()
+    }
+
+    /// `@theme(<name>)`'s rank under this context's chain, `None` when the
+    /// block is dead ([`app_theme_rank`], the one matcher).
+    #[must_use]
+    pub fn app_theme_rank(&self, name: &str) -> Option<usize> {
+        app_theme_rank(self.theme_chain.as_slice(), name)
+    }
+
+    /// The cascade rank of a declaration or rule with `conditions` under
+    /// this context's chain ([`cascade_rank`]): lower wins, before selector
+    /// specificity; [`UNTHEMED_RANK`] outside every theme block.
+    #[must_use]
+    pub fn cascade_rank(&self, conditions: &[DynamicSelector]) -> usize {
+        cascade_rank(self.theme_chain.as_slice(), conditions)
     }
 
     /// The colour the `system:` keyword `r` stands for under this context:
@@ -4704,6 +4826,62 @@ mod autotest_generated {
         assert!(dark.matches(&dark_flora));
         assert!(!dark.matches(&under_flora), "flora is not dark");
         assert!(DynamicSelector::Theme(ThemeCondition::SystemPreferred).matches(&under_flora));
+    }
+
+    #[test]
+    fn a_themes_rank_is_its_position_in_the_chain_its_spin_offs_before_it() {
+        let expanded = ["xyz:pink", "xyz", "flat"];
+        assert_eq!(app_theme_rank(&expanded, "xyz:pink"), Some(0));
+        assert_eq!(app_theme_rank(&expanded, "xyz"), Some(1));
+        assert_eq!(app_theme_rank(&expanded, "flat"), Some(2));
+        assert_eq!(app_theme_rank(&expanded, "xyzzy"), None);
+        // An entry not yet expanded: its bases follow it, each at its first position.
+        let bare = ["xyz:pink:night", "flat"];
+        assert_eq!(app_theme_rank(&bare, "xyz:pink:night"), Some(0));
+        assert_eq!(app_theme_rank(&bare, "xyz:pink"), Some(1));
+        assert_eq!(app_theme_rank(&bare, "xyz"), Some(2));
+        assert_eq!(app_theme_rank(&bare, "flat"), Some(3));
+        // The floor: only the first compiled-in theme ranks at all.
+        assert_eq!(app_theme_rank(&["flora", "flat"], "flora"), Some(0));
+        assert_eq!(app_theme_rank(&["flora", "flat"], "flat"), None);
+        assert_eq!(app_theme_rank(&["flora:abc", "flat"], "flora"), Some(1));
+        assert_eq!(app_theme_rank(&["abc", "flat"], "flat"), Some(1));
+        assert_eq!(structural_app_theme(&["abc", "flora:x", "flat"]), Some("flora"));
+        assert_eq!(structural_app_theme(&["abc"]), None);
+        let empty: [&str; 0] = [];
+        assert_eq!(app_theme_rank(&empty, "flat"), None);
+    }
+
+    #[test]
+    fn a_declarations_cascade_rank_is_its_most_specific_theme_and_last_outside_every_block() {
+        let named = |n: &'static str| {
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(n)))
+        };
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.theme_chain = StringVec::from_vec(vec![
+            AzString::from_const_str("xyz:pink"),
+            AzString::from_const_str("xyz"),
+            AzString::from_const_str("flat"),
+        ]);
+        assert_eq!(ctx.cascade_rank(&[]), UNTHEMED_RANK);
+        assert_eq!(
+            ctx.cascade_rank(&[DynamicSelector::Theme(ThemeCondition::Dark)]),
+            UNTHEMED_RANK,
+            "the colour scheme is not a layer"
+        );
+        assert_eq!(ctx.cascade_rank(&[named("xyz")]), 1);
+        assert_eq!(
+            ctx.cascade_rank(&[named("xyz"), DynamicSelector::Theme(ThemeCondition::Dark)]),
+            1
+        );
+        assert_eq!(
+            ctx.cascade_rank(&[named("xyz"), named("xyz:pink")]),
+            0,
+            "a block nested in two theme blocks ranks as the more specific"
+        );
+        assert!(ctx.cascade_rank(&[named("flat")]) < UNTHEMED_RANK);
+        assert_eq!(ctx.app_theme_rank("xyz"), Some(1));
+        assert!(ctx.has_app_theme("xyz") && !ctx.has_app_theme("flora"));
     }
 
     #[test]

@@ -57,13 +57,19 @@ impl UiTheme {
         }
     }
 
-    /// The theme the DOM being built is for - the window's app theme
-    /// (`azul_core::app_theme::current_theme`) - and `Flat` for a name no
-    /// widget theme knows. What a widget that follows the app theme builds
-    /// its STRUCTURE for.
+    /// The theme the DOM being built is for - the STRUCTURAL theme of the
+    /// window's app theme chain (`azul_css::dynamic_selector::structural_app_theme`:
+    /// its first compiled-in theme, so `flora` for `flora:abc`, the one whose
+    /// blocks are live) - and `Flat` for a chain no widget theme is in. What
+    /// a widget that follows the app theme builds its STRUCTURE for.
     #[must_use]
     pub fn current() -> Self {
-        Self::from_name(azul_core::app_theme::current_theme().as_str()).unwrap_or_default()
+        let chain = azul_css::dynamic_selector::app_theme_chain(
+            azul_core::app_theme::current_theme().as_str(),
+        );
+        azul_css::dynamic_selector::structural_app_theme(chain.as_slice())
+            .and_then(Self::from_name)
+            .unwrap_or_default()
     }
 }
 
@@ -92,5 +98,17 @@ mod name_tests {
             assert_eq!(UiTheme::from_name(t.name()), Some(t));
         }
         assert_eq!(UiTheme::from_name("monokai"), None);
+    }
+
+    /// Every widget theme is a complete look, so the theme chain must treat
+    /// it as an exclusive floor.
+    #[test]
+    fn every_widget_theme_is_a_compiled_in_app_theme() {
+        for t in [UiTheme::Flat, UiTheme::Flora] {
+            assert!(
+                azul_css::dynamic_selector::is_compiled_in_app_theme(t.name()),
+                "{t:?} is missing from COMPILED_IN_APP_THEMES"
+            );
+        }
     }
 }
