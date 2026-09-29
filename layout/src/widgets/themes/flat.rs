@@ -4472,14 +4472,18 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
     use super::style_kit as kit;
     use crate::widgets::combobox as c;
 
-    let mut option = c::COMBOBOX_OPTION_STYLE.to_vec();
+    // The widget's structure first (R5), then flat's skin.
+    let mut option = c::COMBOBOX_OPTION_BASE.to_vec();
+    option.extend_from_slice(c::COMBOBOX_OPTION_STYLE);
     // States last: the hover wash (and its dark twin) is already declared.
     option.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
 
     c::ComboBoxSkin {
         theme: super::UiTheme::Flat,
         wrapper: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_WRAPPER_STYLE),
-        field: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_INPUT_STYLE),
+        field: CssPropertyWithConditionsVec::from_vec(
+            [c::COMBOBOX_FIELD_BASE, c::COMBOBOX_INPUT_STYLE].concat(),
+        ),
         text: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_TEXT_STYLE),
         arrow: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_ARROW_STYLE),
         option: CssPropertyWithConditionsVec::from_vec(option),

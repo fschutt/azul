@@ -34,6 +34,14 @@ use azul_core::{
     menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
     refany::{OptionRefAny, RefAny},
 };
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        layout::{LayoutAlignItems, LayoutDisplay, LayoutFlexDirection},
+        property::CssProperty,
+        style::StyleCursor,
+    },
+};
 
 /// Class on the injected bar root — also the detection marker the renderer / tests
 /// use to recognise an injected software menu bar.
@@ -41,20 +49,50 @@ pub const MENUBAR_CLASS: &str = "__azul-native-menubar";
 /// Class on each top-level bar item.
 pub const MENUBAR_ITEM_CLASS: &str = "azul-menubar-item";
 
-/// Inline CSS for the bar root: a full-width horizontal flex row themed from the
-/// OS (`system:` colors + `system:ui` font). Bare declarations, so the rule is
-/// scoped node-only at flatten time.
-const MENUBAR_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; width: 100%; \
-                           height: 26px; background: system:window-background; color: \
-                           system:text; font-family: system:ui; font-size: 14px; padding-left: \
-                           2px;";
+/// Inline CSS for the bar root, after [`base_bar`]: the flat skin of a
+/// full-width row, themed from the OS (`system:` colors + `system:ui` font).
+/// Bare declarations, so the rule is scoped node-only at flatten time.
+const MENUBAR_CSS: &str = "width: 100%; height: 26px; background: system:window-background; \
+                           color: system:text; font-family: system:ui; font-size: 14px; \
+                           padding-left: 2px;";
 
-/// Inline CSS for a top-level item: vertically-centered click target with hover
-/// feedback (the `:hover` block nests via CSS nesting in `parse_inline`).
-const MENUBAR_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-                                padding-left: 10px; padding-right: 10px; color: system:text; \
-                                cursor: pointer; :hover { background: \
-                                system:selection-background; color: system:selection-text; }";
+/// Inline CSS for a top-level item, after [`base_item`]: the flat skin of a
+/// click target, with hover feedback (the `:hover` block nests via CSS
+/// nesting in `parse_inline`).
+const MENUBAR_ITEM_CSS: &str = "padding-left: 10px; padding-right: 10px; color: system:text; \
+                                :hover { background: system:selection-background; color: \
+                                system:selection-text; }";
+
+/// The bar's structure, the same in every theme (R5): a horizontal flex row
+/// whose items stretch to its height. Every theme's skin comes after it, so
+/// the merge (`themes::theme_blocks`) declares it once, outside every
+/// `@theme` block.
+#[must_use]
+pub(crate) fn base_bar() -> Vec<CssPropertyWithConditions> {
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Stretch,
+        )),
+    ]
+}
+
+/// A top-level item's structure, the same in every theme (R5): a row that
+/// centres its label vertically, a pointer target.
+#[must_use]
+pub(crate) fn base_item() -> Vec<CssPropertyWithConditions> {
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    ]
+}
 
 /// The software menu bar as a widget: a [`Menu`] and the theme to draw it in.
 ///
@@ -149,17 +187,28 @@ pub(crate) fn build(
     bar
 }
 
-/// The flat bar: the `system:`-coloured inline CSS the bar has always had.
+/// The flat bar: the widget's structure ([`base_bar`], [`base_item`]), then
+/// the `system:`-coloured inline CSS the bar has always had.
 pub(crate) fn build_flat(menu: &Menu) -> Dom {
-    build(menu, None, |bar| bar.with_css(MENUBAR_CSS), |item| {
-        item.with_css(MENUBAR_ITEM_CSS)
-    })
+    build(menu, None, style_flat_bar, style_flat_item)
+}
+
+/// The flat bar's root: its structure, then flat's skin.
+fn style_flat_bar(bar: Dom) -> Dom {
+    bar.with_css_props(CssPropertyWithConditionsVec::from_vec(base_bar()))
+        .with_css(MENUBAR_CSS)
+}
+
+/// A flat top-level item: its structure, then flat's skin.
+fn style_flat_item(item: Dom) -> Dom {
+    item.with_css_props(CssPropertyWithConditionsVec::from_vec(base_item()))
+        .with_css(MENUBAR_ITEM_CSS)
 }
 
 /// One clickable top-level bar item, in the flat look.
 #[cfg(test)]
 fn build_menubar_item(item: &StringMenuItem) -> Dom {
-    build_item(item, &|dom: Dom| dom.with_css(MENUBAR_ITEM_CSS))
+    build_item(item, &style_flat_item)
 }
 
 /// One clickable top-level bar item. Its `MouseUp` callback opens the item's

@@ -394,13 +394,40 @@ pub(crate) static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
 ];
 
-/// The clickable, focusable, editable input field (text + arrow).
-pub(crate) static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the structure: the same in every theme (R5) ----
+//
+// A part's layout - display, flex, alignment, cursor, user-select - is the
+// widget's, not a theme's: every theme's skin comes AFTER its base, so the
+// merge (`themes::theme_blocks`) declares the base once, outside every
+// `@theme` block, and it holds under any app theme.
+
+/// The field's structure: a row centring the text and the arrow, never
+/// growing, with the text cursor of an editable value.
+pub(crate) static COMBOBOX_FIELD_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+];
+
+/// The options panel's structure: a block filling its popup window (the
+/// WINDOW opens and closes, never the panel - see [`build_list_style`]).
+pub(crate) static COMBOBOX_LIST_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+];
+
+/// An option row's structure: a block, a pointer target whose label is not
+/// selectable text.
+pub(crate) static COMBOBOX_OPTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The clickable, focusable, editable input field (text + arrow): flat's
+/// skin of it, after [`COMBOBOX_FIELD_BASE`].
+pub(crate) static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     // padding: 3px 4px
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         3,
@@ -529,10 +556,11 @@ pub(crate) static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
 ///
 /// `open` therefore no longer selects `display` — the WINDOW opens and closes —
 /// but the parameter stays so the caller keeps one entry point, and the panel
-/// is explicitly `display: block` in both states.
+/// is explicitly `display: block` in both states ([`COMBOBOX_LIST_BASE`], the
+/// structure every theme's panel starts from; the rest is flat's skin).
 pub(crate) fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    let mut style = COMBOBOX_LIST_BASE.to_vec();
+    style.extend(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             MIN_WIDTH,
         ))),
@@ -603,12 +631,13 @@ pub(crate) fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
         // The list is a field surface: the desktop's field colour in dark.
         crate::widgets::themes::system_palette::DARK_CONTROL_BACKGROUND,
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
-/// Per-option row style: a padded, pointer-cursor block highlighted on hover.
+/// Per-option row style: flat's skin of a row - padded, highlighted on hover
+/// - after [`COMBOBOX_OPTION_BASE`] (the pointer-cursor block).
 pub(crate) static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         6,
     ))),
@@ -621,8 +650,6 @@ pub(crate) static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(10),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
@@ -3957,7 +3984,10 @@ mod theme_tests {
         let flat_combo = ComboBox::new(items()).with_theme(UiTheme::Flat);
         assert_eq!(
             flat_combo.resolved_field_style(),
-            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE)
+            CssPropertyWithConditionsVec::from_vec(
+                [COMBOBOX_FIELD_BASE, COMBOBOX_INPUT_STYLE].concat()
+            ),
+            "flat's field: the widget's structure, then flat's skin"
         );
     }
 

@@ -4836,14 +4836,9 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
 pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
     use super::decl;
 
-    let mut bar = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(
-            LayoutAlignItems::Stretch,
-        )),
+    // The widget's structure first (R5), then flora's strip.
+    let mut bar = crate::widgets::menubar::base_bar();
+    bar.extend([
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::Px(
             PixelValue::const_percent(100),
         ))),
@@ -4852,21 +4847,14 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
-    ];
+    ]);
     bar.extend(decl::padding(0, 0, 0, 4));
     bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::border_bottom(1));
     bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut item = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    ];
+    let mut item = crate::widgets::menubar::base_item();
     item.extend(decl::padding(0, 11, 0, 11));
     item.extend(decl::radius(3));
     item.extend(decl::hover_layers(
@@ -5070,14 +5058,9 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
     use crate::widgets::combobox as c;
     type P = CssPropertyWithConditions;
 
-    // The field: the widget's shape, flora's field paper sunk in its well.
-    let mut field = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        P::simple(CssProperty::const_cursor(StyleCursor::Text)),
-    ];
+    // The field: the widget's structure (R5), flora's field paper sunk in
+    // its well.
+    let mut field = c::COMBOBOX_FIELD_BASE.to_vec();
     field.extend(kit::padding(3, 4, 3, 4));
     field.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD));
     field.extend(kit::radius(3));
@@ -5095,21 +5078,16 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
     let mut arrow = c::COMBOBOX_ARROW_STYLE.to_vec();
     arrow.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON));
 
-    // The list: a small leaf, square along the field.
-    let mut list = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Block)),
-        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(c::MIN_WIDTH))),
-    ];
+    // The list: the widget's structure, then a small leaf, square along the
+    // field.
+    let mut list = c::COMBOBOX_LIST_BASE.to_vec();
+    list.push(P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(c::MIN_WIDTH))));
     list.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
     list.extend(kit::radius_corners(0, 0, 3, 3));
     list.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
     list.extend(kit::drop_shadow(2, 5, POPOVER_SHADOW_LIGHT, POPOVER_SHADOW_DARK));
 
-    let mut option = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Block)),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
+    let mut option = c::COMBOBOX_OPTION_BASE.to_vec();
     option.extend(kit::padding(6, 10, 6, 10));
     option.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
     // States last.
