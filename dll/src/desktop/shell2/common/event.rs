@@ -3462,6 +3462,29 @@ impl CommonWindowState {
         color
     }
 
+    /// The light / dark the window's NATIVE chrome (the macOS titlebar and
+    /// frame: `NSWindow.appearance`) has to be forced into; `None` = inherit
+    /// the desktop's.
+    ///
+    /// Forced whenever the window's mode does not simply follow the desktop:
+    /// an app or `AZ_THEME` pin is active - the desktop may flip under it
+    /// later and the chrome has to stay with the window - or the window shows
+    /// another mode than the desktop's (its own `WindowCreateOptions::theme`
+    /// seed). Otherwise it inherits, and a desktop flip reaches the chrome
+    /// with no work here.
+    #[must_use]
+    pub fn native_chrome_mode(&self) -> Option<azul_core::window::WindowTheme> {
+        use azul_core::window::WindowTheme;
+
+        let app = self.app_color_scheme();
+        // THE decision (`resolve_window_theme`), asked for both desktops: an
+        // answer that does not depend on the desktop is a pin.
+        let pinned = azul_layout::window::resolve_window_theme(app, WindowTheme::LightMode)
+            == azul_layout::window::resolve_window_theme(app, WindowTheme::DarkMode);
+        let shown = self.current_window_state.theme;
+        (pinned || shown != self.desktop_theme).then_some(shown)
+    }
+
     /// The OS just gave this window the keyboard focus. Called from every
     /// backend's focus-in handler (`windowDidBecomeKey`, X11 `FocusIn`,
     /// Wayland `wl_keyboard.enter` and its key-press inference, Win32

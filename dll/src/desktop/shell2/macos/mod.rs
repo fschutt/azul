@@ -4210,6 +4210,11 @@ pub struct MacOSWindow {
     /// setNeedsDisplay → drawRect gap; pure CVDisplayLink wakeups don't set it,
     /// so the idle early-return optimization stays intact.
     redraw_requested: bool,
+    /// The appearance this window's `NSWindow.appearance` was last set to by
+    /// [`MacOSWindow::sync_native_appearance`]: `Some(mode)` = forced into
+    /// Aqua / DarkAqua, `None` = nil (inherits the app's, i.e. the desktop's).
+    /// A fresh `NSWindow` inherits, so it starts `None`.
+    applied_chrome_mode: Option<azul_core::window::WindowTheme>,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -4538,6 +4543,8 @@ impl PlatformWindow for MacOSWindow {
             if w.adopt_app_color_scheme() {
                 w.request_redraw();
             }
+            // Even when its mode did not move: a pin forces the chrome.
+            w.sync_native_appearance();
         }
     }
 
@@ -4629,6 +4636,54 @@ impl PlatformWindow for MacOSWindow {
 }
 
 impl MacOSWindow {
+    /// Put the NATIVE chrome - the titlebar, the frame, AppKit's own controls
+    /// in this window - into the mode the window shows:
+    /// `NSWindow.appearance` = Aqua / DarkAqua while
+    /// `CommonWindowState::native_chrome_mode` forces one (an app or
+    /// `AZ_THEME` pin, or a window seeded into the other mode than the
+    /// desktop's), nil - inherit the desktop's - otherwise. Nothing set it, so
+    /// under a pin the titlebar stayed in the desktop's appearance (the
+    /// Windows backend's DWM caption already followed, `apply_titlebar_theme`).
+    ///
+    /// Only this window's appearance is set, never `NSApp.appearance`: the
+    /// desktop probe (`system_style::probe_effective_appearance`) reads
+    /// `NSApp.effectiveAppearance`, which must keep telling the DESKTOP's.
+    /// The `viewDidChangeEffectiveAppearance` this may trigger re-probes that
+    /// and finds the desktop unchanged - a no-op.
+    ///
+    /// The names are passed as literals: AppKit's `NSAppearanceNameAqua` /
+    /// `NSAppearanceNameDarkAqua` constants are the strings of their own
+    /// names, and a literal needs no dlsym of a data symbol.
+    fn sync_native_appearance(&mut self) {
+        use azul_core::window::WindowTheme;
+
+        let wanted = self.common.native_chrome_mode();
+        if wanted == self.applied_chrome_mode {
+            return;
+        }
+        unsafe {
+            let appearance: *mut NSObject = match wanted {
+                None => core::ptr::null_mut(),
+                Some(mode) => {
+                    let name = match mode {
+                        WindowTheme::DarkMode => ns_string!("NSAppearanceNameDarkAqua"),
+                        WindowTheme::LightMode => ns_string!("NSAppearanceNameAqua"),
+                    };
+                    let named: *mut NSObject =
+                        msg_send![objc2::class!(NSAppearance), appearanceNamed: name];
+                    if named.is_null() {
+                        // Unknown to this AppKit: leave the chrome as it is
+                        // rather than reset it to inherit.
+                        return;
+                    }
+                    named
+                }
+            };
+            let _: () = msg_send![&*self.window, setAppearance: appearance];
+        }
+        self.applied_chrome_mode = wanted;
+    }
+
     /// Determine which rendering backend to use.
     ///
     /// Delegates to `AzBackend::resolve()` for env-var / config priority,
@@ -5884,7 +5939,13 @@ impl MacOSWindow {
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
             redraw_requested: true,   // First frame must not be skipped
+            applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
         };
+
+        // The titlebar in the mode the window will show, before it is ever
+        // drawn: a window opened under a dark pin on a light desktop must not
+        // flash a light titlebar.
+        window.sync_native_appearance();
 
         // NOTE: Do NOT set the delegate pointer here!
         // The window will be moved out of this function (returned by value),
@@ -6426,6 +6487,12 @@ impl MacOSWindow {
     }
 
     fn sync_window_state(&mut self) {
+        // The native chrome follows the mode the window shows. Before the
+        // diff, not inside it: a pin that agrees with the window's mode
+        // changes no window state at all and still has to force the chrome
+        // (the desktop may flip under it later). Cached - free when unchanged.
+        self.sync_native_appearance();
+
         // Diff against the OS-SYNC baseline, never against `previous_window_state`
         // (which is the event-diff baseline and is free to hold a live delta —
         // diffing against it here would push half-processed geometry at AppKit).
