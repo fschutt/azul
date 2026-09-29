@@ -53,11 +53,12 @@ mod state {
 /// it, and every window's next DOM rebuild adopts it. `App::create` calls this
 /// with `AppConfig::theme`; `CallbackInfo::set_theme` with the new name.
 ///
-/// `AZ_THEME` outranks the choice ([`app_theme`]). The first call logs, once,
-/// what the environment asked for that is not taken as written (the
-/// deprecated `AZ_THEME=light|dark` mode pin, an unknown `AZ_MODE`).
+/// `AZ_THEME` outranks the choice ([`app_theme`]). Logs what the choice, as
+/// the environment resolves it, cannot honour as written: a mode word or a
+/// malformed name, a `fallback:` cycle, and once per process the deprecated
+/// `AZ_THEME=light|dark` mode pin or an unknown `AZ_MODE`.
 pub fn set_app_theme(name: &str) {
-    report_theme_env_once();
+    report_theme_choice(name);
     #[cfg(feature = "std")]
     {
         use alloc::string::ToString;
@@ -98,19 +99,30 @@ pub fn resolve_app_theme(choice: Option<&str>) -> AzString {
     AzString::from(azul_css::theme_chain::resolve_theme_head(env, choice))
 }
 
-/// Log, once per process, what the environment asked for that is not taken
-/// as written (`azul_css::theme_chain::ThemeEnv::warnings`): the deprecated
-/// `AZ_THEME=light|dark` mode pin, an unknown `AZ_MODE`. Through the
-/// framework diagnostics, so an app's own sink sees it.
-fn report_theme_env_once() {
+/// Log what the theme choice `name`, as the environment resolves it
+/// ([`resolve_app_theme`]), cannot honour as written, through the framework
+/// diagnostics so an app's own sink sees it:
+///
+/// - once per process, the environment's own lines
+///   (`azul_css::theme_chain::ThemeEnv::warnings`): the deprecated
+///   `AZ_THEME=light|dark` mode pin, an unknown `AZ_MODE`;
+/// - the chain's (`azul_css::dynamic_selector::expand_app_theme_chain`): a
+///   mode word or a malformed name, which the chain drops, and a `fallback:`
+///   cycle, which it cuts.
+fn report_theme_choice(name: &str) {
     #[cfg(feature = "std")]
     {
-        static REPORTED: std::sync::Once = std::sync::Once::new();
-        REPORTED.call_once(|| {
+        static ENV_REPORTED: std::sync::Once = std::sync::Once::new();
+        ENV_REPORTED.call_once(|| {
             for warning in &azul_css::theme_chain::theme_env().warnings {
                 crate::diagnostics::emit(alloc::format!("[azul][warn] {warning}"));
             }
         });
+    }
+    let head = resolve_app_theme(Some(name));
+    let chain = azul_css::dynamic_selector::expand_app_theme_chain(head.as_str());
+    for warning in chain.warnings {
+        crate::diagnostics::emit(alloc::format!("[azul][warn] {warning}"));
     }
 }
 

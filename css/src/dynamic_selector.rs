@@ -952,16 +952,28 @@ pub fn cascade_rank<S: AsRef<str>>(chain: &[S], conditions: &[DynamicSelector]) 
 /// list `@theme(<name>)` blocks are matched against
 /// ([`DynamicSelectorContext::theme_chain`]).
 ///
-/// Today the chain is `[name]` - exactly one theme is live, so a flat block
-/// and a flora block can never both apply. This is THE place the chain of the
-/// §7 design (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md)
-/// is built: `xyz:pink` expanding by prefix to `[xyz:pink, xyz]`, a theme
-/// file's `fallback:` header appending its list, the app's default theme as
-/// the implicit last entry. The cascade already ranks the blocks of a longer
-/// chain by position ([`app_theme_rank`], [`cascade_rank`]).
+/// THE place a context's chain comes from - [`DynamicSelectorContext::with_app_theme`],
+/// the default context and every window's (`LayoutWindow::dynamic_selector_context`)
+/// - built by the one chain builder ([`expand_app_theme_chain`], the §7.1
+/// design): `xyz:pink` -> `[xyz:pink, xyz, flat]`, `flora` -> `[flora, flat]`,
+/// the default theme always last, a mode word or a malformed name dropped.
+/// Which blocks of two themes in one chain apply, and which wins, is the
+/// matcher's decision (the rank, a compiled-in theme below another being
+/// inert), not the chain's.
 #[must_use]
 pub fn app_theme_chain(name: &str) -> StringVec {
-    StringVec::from_vec(vec![AzString::from(name.to_string())])
+    StringVec::from_vec(expand_app_theme_chain(name).names)
+}
+
+/// [`app_theme_chain`] with the warnings building it produced (a mode word or
+/// a malformed name, a `fallback:` cycle), for the one place a theme choice
+/// is reported (`azul_core::app_theme::set_app_theme`).
+///
+/// No theme has a `fallback:` list yet: the rice loader reads the file
+/// headers that carry them and plugs its header map in here.
+#[must_use]
+pub fn expand_app_theme_chain(name: &str) -> crate::theme_chain::ThemeChain {
+    crate::theme_chain::expand_chain(name, &|_: &str| Vec::new(), DEFAULT_APP_THEME)
 }
 
 /// The conditions of an app theme's block as a `&'static` slice, for the
@@ -1547,8 +1559,8 @@ pub struct DynamicSelectorContext {
     /// Built by [`app_theme_chain`] from the window's app theme
     /// ([`Self::with_app_theme`]); `[DEFAULT_APP_THEME]` until a window says
     /// otherwise. A chain rather than one name because that is the shape the
-    /// fuller design needs (spin-offs, fallbacks, the default as the floor);
-    /// today it holds exactly one name. Part of the equality, like the
+    /// fuller design needs: the app theme, its `:` prefixes and `fallback:`
+    /// themes, the default theme last as the floor. Part of the equality, like the
     /// palette: another app theme is another context. APPENDED for ABI
     /// stability.
     pub theme_chain: StringVec,
