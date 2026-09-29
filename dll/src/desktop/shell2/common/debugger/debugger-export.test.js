@@ -3,11 +3,12 @@
 //
 //     node dll/src/desktop/shell2/common/debugger/debugger-export.test.js
 //
-// No dependencies. Under node the module exports only its logic: which
-// language a dialog opens on, which message each dialog sends (the four
-// dialogs: Compile CSS to…, HTML → DOM (code), Subtree → code, Component →
-// code), which component "Component → code" starts from, how a parse error
-// reads, and the focus trap.
+// No dependencies. Under node the module exports only its logic: the Export
+// menu (Compile > CSS… / DOM…, Subtree as Component…, Components…, Code (ZIP)
+// > every language), the ONE language list, which language a dialog opens on,
+// which message each dialog sends, which component "Components…" starts from
+// and whether its library exports as JSON, how a parse error reads, and the
+// focus trap.
 'use strict';
 
 const assert = require('assert');

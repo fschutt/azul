@@ -1579,8 +1579,9 @@ const app = {
             input.value = '';
         },
 
-        exportComponentLibrary: async function() {
-            var libName = app.state.selectedLibrary;
+        /** `library`: which one (Export > Components…); else the one selected in the Components view. */
+        exportComponentLibrary: async function(library) {
+            var libName = library || app.state.selectedLibrary;
             if (!libName) {
                 app.log('No library selected. Select a library first in the Components panel.', 'warn');
                 return;
@@ -2425,7 +2426,7 @@ const app = {
                 });
                 srcDetails.appendChild(renderBtn);
 
-                // The component as code in any language: "Component → code"
+                // The component as code in any language: Export > "Components…"
                 // (debugger-export.js; the code generator derives it from the
                 // component, there is no per-language source to edit).
                 var compileBtn = document.createElement('button');

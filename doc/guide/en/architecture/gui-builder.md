@@ -46,13 +46,26 @@ the builder finds its nodes by it.
 ## Drag and drop
 
 The **Components** palette below the document tree shows every registered component as a card
-with a thumbnail. The thumbnails are rendered by Azul's own CPU renderer, so a Button card shows
-exactly the button the window will draw; the picture is also the drag image.
+with a thumbnail. The thumbnails are rendered by Azul's own CPU renderer, the way the window
+renders the document - a raw `<input>` or `<select>` as its widget - so a Button card shows
+exactly the button the window will draw; the picture is also the drag image. A builtin element
+previews with its default text (which a drop inserts too: a Span arrives as "Span text"), and a
+container with an example that a drop does not insert: a list shows two items, a table a header
+and a row, a `<section>` a labelled box. An element with nothing to show on its own - `<br>`,
+`<option>` outside a `<select>`, `<source>`, `<col>` - says **no visual** on its card instead,
+with the reason as its tooltip; it still drops (a `<br>` into a `<p>`, an `<option>` into a
+`<select>`). The document's own structure (`<html>`, `<body>`, `<head>` and what goes in it) is
+not in the palette.
 
-Drag a card onto a row of the document tree. The row tells you where the drop lands: a line
-above it (before), a highlighted row (into), a line below it (after). Drops the HTML parser would
-undo are refused before anything is sent - a `<div>` never goes into a `<p>`, and a text node or
-a component instance takes no children. Double-clicking a card inserts it at the selection.
+Drag a card onto a row of the document tree. While you drag, a line shows the gap the component
+lands in, starting at the indent it lands at: above the row (before), below the row and
+everything under it (after), or - for "into" - one level deeper below the row's last child,
+with the whole row tinted and outlined. A node that takes no children splits into halves, and
+where "into" is not allowed - a `<div>` never goes into a `<p>` - the middle of the row is its
+halves too. Drops the HTML parser would undo are refused before anything is sent, and a text
+node or a component instance takes no children. Below the last row a drop appends to `<body>`.
+Leaving the tree, dropping or cancelling (Escape) clears the indicator. Double-clicking a card
+inserts it at the selection.
 
 Rows move the same way: drag a row onto another one. Select a row and press **Delete** to remove
 it, **F2** or **Enter** (or double-click) to edit its text, and use the context menu for classes,
@@ -94,8 +107,8 @@ Below the properties sits the document's own **Stylesheet**. Type CSS and press 
 **Ctrl/Cmd+Enter**): it styles the native window at once, after the components' CSS and the
 project's `styles/`, so it wins over them on equal specificity - the way an app's stylesheet
 does. It is part of the document: it survives every later edit, **Ctrl/Cmd+Z** undoes a change of
-it like any other edit, it is saved in `document.json`, and **Export > Code** writes it as the
-app's stylesheet (named styles, `src/styles.rs` in Rust). A dot next to the title means the text
+it like any other edit, it is saved in `document.json`, and **Export > Code (ZIP)** writes it as
+the app's stylesheet (named styles, `src/styles.rs` in Rust). A dot next to the title means the text
 has not been applied yet; what the CSS parser skipped shows under the editor.
 
 Use it instead of the Inspector's CSS override for anything you want to keep: the override edits
@@ -184,26 +197,35 @@ imported zip, and a zip with one bad entry is refused as a whole.
 ## Export
 
 Once the layout is right you do not recreate it by hand. The **Export** menu turns what you built
-into code in your language (Rust, C, C++, Python and every other language with DOM export): the
-whole window as a runnable app, or the document's components, together with the component CSS.
-It also exports and imports component libraries as JSON (to share them with other projects) and
-your E2E tests in the format `AZ_E2E` runs.
+into code in your language:
 
-The same menu has quick exports that answer in a dialog, with Copy and Download:
+- **Compile >**
+  - **CSS…** - the document's stylesheet, a node's style, a component's CSS or pasted CSS - or
+    the rules you tick of it - as named styles.
+  - **DOM…** - paste HTML or XHTML (a fragment or a whole document) and get it as a render
+    function or a runnable app. `<style>` blocks and `style` attributes become each node's CSS;
+    tick "With its CSS as named styles" to also get the stylesheet as a file of its own. A
+    `<library:name>` tag is a call of that component of your app. Markup that does not parse
+    shows its line and column instead of code.
+- **Subtree as Component…** - the selected node and its children as a component's render
+  function, or as an app (also from the Document toolbar and a row's context menu).
+- **Components…** - one component as its function, plus its library's registration; **Library
+  as JSON** saves the component's whole library as a file (Import > Component Library reads it
+  back, to share components between projects). A builtin library cannot be saved.
+- **Code (ZIP) >** - the whole window as a runnable app, with the document's components, their
+  CSS and the document's stylesheet, as a project archive - one entry per language.
+- **Project as JSON**, **E2E Tests (CLI format)** (the format `AZ_E2E` runs) and **Builder
+  document (JSON)**.
 
-- **Compile CSS to…** - the document's stylesheet, or the rules you tick, as named styles.
-- **HTML → DOM (code)…** - paste HTML or XHTML (a fragment or a whole document) and get it as a
-  render function or a runnable app. `<style>` blocks and `style` attributes become each node's
-  CSS; tick "With its CSS as named styles" to also get the stylesheet as a file of its own. A
-  `<library:name>` tag is a call of that component of your app. Markup that does not parse shows
-  its line and column instead of code.
-- **Subtree → code…** - the selected node and its children as a render function or an app (also
-  from the Document toolbar and a row's context menu).
-- **Component → code…** - one component as its function, plus its library's registration.
+The dialogs answer in place, with Copy and Download. Every language list is the one list of the
+code generator's languages (`get_codegen_languages`): the CSS dialog offers all of them; the DOM
+exports and Code (ZIP) keep the languages without DOM export in the list, disabled, with the
+reason as their tooltip. An app answers a project: pick a file to see, copy or download it.
 
-Every dialog picks from the one list of the code generator's languages; in the three DOM dialogs
-the languages without DOM export stay in it, disabled, with their reason. An app answers a
-project: pick a file to see, copy or download it.
+Where the old menu items went: "Compile CSS to…" is Compile > CSS…, "HTML → DOM (code)…" is
+Compile > DOM…, "Subtree → code…" is Subtree as Component…, "Component → code…" and "Component
+Library (JSON)" are Components…, and "Code > Rust / C / C++ / Python" is Code (ZIP) with every
+language.
 
 This completes the workflow:
 
@@ -304,9 +326,11 @@ what `project_save` writes as `document.json`), and `builder_load_document {docu
 the document with one, as an undoable edit.
 
 **Components** - `builder_convert_to_component`, `get_component_thumbnail` (a PNG from the CPU
-renderer, cached until the component changes), `get_component_registry`, `create_component`
-(with a `render_tree` it stores a template), `update_component`, `get_component_render_tree`,
-`get_component_preview`.
+renderer, cached until the component changes; a builtin element with nothing to show answers
+`empty: true` and its `no_visual` reason, every other answer `no_visual: null`),
+`get_component_registry`, `create_component` (with a `render_tree` it stores a template),
+`update_component`, `get_component_render_tree`, `get_component_preview` (the thumbnail's
+render: a builtin element with its preview example, form controls as widgets).
 
 **Project** - `project_info`, `project_open` (with `"create": true` it makes the folder and the
 skeleton), `project_close`, `project_list`, `project_read_file`, `project_write_file`,
@@ -315,9 +339,11 @@ skeleton), `project_close`, `project_list`, `project_read_file`, `project_write_
 (`"applied": "stylesheet"`, `"component"` or `"document"`) or an `apply_error`.
 
 **Export** - `export_code`, `export_code_zip`, `export_component_library`,
-`import_component_library`, and for the dialogs `get_codegen_languages`, `get_css_rules`,
-`compile_css`, `html_to_code`, `export_subtree_code`, `export_component_code`. `html_to_code`
-answers a parse error as `errors: [{message, line, column}]` (1-based, in the text as pasted).
+`import_component_library`, and for the dialogs `get_codegen_languages` (`{languages: [{id,
+label, ext, dom, no_dom_reason}]}`, every code generator; `no_dom_reason` says why a language
+without DOM export cannot build a UI), `get_css_rules`, `compile_css`, `html_to_code`,
+`export_subtree_code`, `export_component_code`. `html_to_code` answers a parse error as
+`errors: [{message, line, column}]` (1-based, in the text as pasted).
 
 ## Cross-references
 

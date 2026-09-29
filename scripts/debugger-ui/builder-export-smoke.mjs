@@ -7,14 +7,16 @@
 // ops of builder-dnd-smoke.mjs + the export ops), starts a headless Chrome of its
 // own and drives the page with synthetic events:
 //
-//   Export menu -> "Compile CSS to…" (source, rule ticks, language, Copy,
-//   Download), "HTML -> DOM (code)" (paste, language, function / app, its CSS,
-//   a parse error with its line and column), "Subtree -> code" from the
-//   Document toolbar and from a row's
-//   context menu (mode, language, function name), "Component -> code", the
-//   focus trap, Escape closing with focus back on the opener, a Delete key
-//   inside a dialog NOT deleting a node, and Export > Code downloading the zip
-//   the server answers as a data URI.
+//   the Export menu as the user sees it (Compile > CSS… / DOM…, Subtree as
+//   Component…, Components…, Code (ZIP) > every language of
+//   get_codegen_languages, the non-DOM ones disabled with their reason), then
+//   Compile > CSS… (source, rule ticks, language, Copy, Download), Compile >
+//   DOM… (paste, language, function / app, its CSS, a parse error with its
+//   line and column), Subtree as Component… from the Document toolbar and from
+//   a row's context menu (mode, language, function name), Components… (and its
+//   library as JSON), the focus trap, Escape closing with focus back on the
+//   opener, a Delete key inside a dialog NOT deleting a node, and Code (ZIP)
+//   downloading the zip the server answers as a data URI.
 //
 // It checks what the page SENT and what it SHOWED. The server side is tested by
 //     cargo test -p azul-layout --features e2e-server --lib export_tests

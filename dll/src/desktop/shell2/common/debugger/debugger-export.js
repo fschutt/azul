@@ -1,38 +1,42 @@
 /**
- * AzBuilder quick exports — loaded after debugger.js and debugger-dnd.js.
+ * AzBuilder exports — loaded after debugger.js and debugger-dnd.js. They are
+ * the top of the Export menu (`exportMenu`):
  *
- * Three small transient dialogs (Escape closes, focus returns to what opened
- * them), text in / text out — no zip:
+ *   Compile >
+ *     CSS…                  pick a stylesheet (the selected node's style, the
+ *                           document's, a component's, or pasted text), keep
+ *                           some of its rules, pick one of the server's code
+ *                           generators; the code shows in a copyable,
+ *                           downloadable panel.
+ *     DOM…                  pasted HTML / XHTML (a fragment or a whole
+ *                           document, its <style> blocks and style=""
+ *                           attributes) as a render function or a runnable
+ *                           app, optionally with its CSS as named styles; a
+ *                           parse error shows its line and column.
+ *   Subtree as Component…   the selected document subtree as a render
+ *                           function (or a runnable app: a project, one file
+ *                           at a time).
+ *   Components…             a component as code: its render function (a
+ *                           converted component's texts are its parameters)
+ *                           and its registration; its library as JSON.
+ *   Code (ZIP) >            the whole app as a project, one entry per
+ *                           language.
  *
- *   - Compile CSS to…    pick a stylesheet (the selected node's style, the
- *                        document's, a component's, or pasted text), keep
- *                        some of its rules, pick one of the server's code
- *                        generators; the code shows in a copyable,
- *                        downloadable panel.
- *   - Subtree → code     the selected document subtree as a render function
- *                        (or a runnable app: a project, one file at a time)
- *                        in a language whose printer does DOM export.
+ * Every language list is the ONE list of azul_css::codegen's code generators
+ * (`get_codegen_languages`); the DOM exports disable the languages whose
+ * printer does not do DOM export yet, with the server's reason. There is no
+ * second list in the page.
  *
- * Both lists are the ONE list of azul_css::codegen's code generators
- * (`get_codegen_languages`); the DOM dialogs disable the languages whose
- * printer does not do DOM export yet.
- *   - HTML → DOM (code) pasted HTML / XHTML (a fragment or a whole
- *                        document, its <style> blocks and style=""
- *                        attributes) as a render function or a runnable app,
- *                        optionally with its CSS as named styles; a parse
- *                        error shows its line and column.
- *   - Component → code   a component as code: its render function (a
- *                        converted component's texts are its parameters),
- *                        and its registration.
- *
- * Opened from the Export menu, from a toolbar button in the Document tree
- * and from the tree's context menu. Also replaces Export > Code's handler:
- * the page expected a binary zip, the server answers a data URI (the zip
- * never downloaded).
+ * The dialogs are small and transient (Escape closes, focus returns to what
+ * opened them). Opened from the Export menu, from a toolbar button in the
+ * Document tree and from the tree's context menu. Also replaces the Code
+ * (ZIP) handler: the page expected a binary zip, the server answers a data
+ * URI (the zip never downloaded).
  *
  * Server messages: get_codegen_languages, get_css_rules, compile_css,
- * export_subtree_code, export_component_code, get_component_registry,
- * export_code_zip (layout/src/e2e/export.rs).
+ * html_to_code, export_subtree_code, export_component_code,
+ * export_component_library, get_component_registry, export_code_zip
+ * (layout/src/e2e/export.rs).
  *
  * The pure logic at the top has no DOM dependency and is unit-tested under
  * node:
@@ -45,42 +49,85 @@
     // Pure logic
     // =====================================================================
 
-    /** The languages whose printers do DOM export, if the server cannot be asked. */
-    var DOM_FALLBACK = [
-        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
-        { id: 'c', label: 'C', ext: 'h', dom: true },
-        { id: 'cpp', label: 'C++', ext: 'hpp', dom: true },
-        { id: 'python', label: 'Python', ext: 'py', dom: true },
-    ];
-
     /**
-     * A server language list, de-duplicated and well-formed; `fallback` if it
-     * is empty. `dom`: the language's printer does DOM export.
+     * A server language list, de-duplicated and well-formed. `dom`: the
+     * language's printer does DOM export. There is no second list here: the
+     * server's (azul_css::codegen::all_backends) is the only one.
      */
-    function languageOptions(list, fallback) {
+    function languageOptions(list) {
         var out = [];
         (Array.isArray(list) ? list : []).forEach(function (l) {
             if (!l || typeof l.id !== 'string' || !l.id) return;
             if (out.some(function (o) { return o.id === l.id; })) return;
             out.push({ id: l.id, label: l.label || l.id, ext: l.ext || 'txt', dom: l.dom === true });
         });
-        return out.length ? out : (fallback || []).slice();
+        return out;
     }
 
     /**
      * `get_codegen_languages` answers ONE list — the code generators of
-     * azul_css::codegen, `{languages: [{id, label, ext, dom}]}`. The CSS
-     * dialog offers all of them; the DOM dialogs offer the same list with the
-     * languages whose printer does not do DOM export yet disabled.
+     * azul_css::codegen, `{languages: [{id, label, ext, dom, no_dom_reason}]}`.
+     * The CSS dialog offers all of them; the DOM exports offer the same list
+     * with the languages whose printer does not do DOM export yet disabled,
+     * with the server's reason. No answer: nothing to offer.
      */
     function dialogLanguages(answer) {
-        var list = languageOptions(answer && answer.languages, []);
-        var dom = list.length
-            ? list.map(function (l) {
-                return l.dom ? l : { id: l.id, label: l.label + ' (no DOM export yet)', ext: l.ext, dom: false, disabled: true };
-            })
-            : DOM_FALLBACK.slice();
+        var raw = (answer && Array.isArray(answer.languages)) ? answer.languages : [];
+        var list = languageOptions(raw);
+        var dom = list.map(function (l) {
+            if (l.dom) return l;
+            var why = null;
+            raw.forEach(function (r) {
+                if (r && r.id === l.id && typeof r.no_dom_reason === 'string' && r.no_dom_reason) why = r.no_dom_reason;
+            });
+            return { id: l.id, label: l.label + ' (no DOM export yet)', ext: l.ext, dom: false, disabled: true,
+                reason: why || 'its printer does not export a DOM yet' };
+        });
         return { css: list, dom: dom };
+    }
+
+    /**
+     * The Export menu AzBuilder puts on top of the page's own items, as data:
+     * `{act, label, icon}` items and `{submenu, label, icon, items}` groups.
+     * The acts are the dialogs': css, html, subtree, component; a Code (ZIP)
+     * entry is `{act: 'zip', lang}`. `langs`: `dialogLanguages(..)` — Code
+     * (ZIP) offers its DOM list (a project is an app), the languages that
+     * cannot build a UI listed but disabled with their reason.
+     */
+    function exportMenu(langs) {
+        var zip = ((langs && langs.dom) || []).map(function (l) {
+            return { act: 'zip', lang: l.id, label: l.label, icon: 'code', disabled: !!l.disabled, reason: l.reason || null };
+        });
+        if (!zip.length) {
+            zip = [{ act: 'zip', lang: null, label: 'The server did not list its languages', icon: 'error_outline',
+                disabled: true, reason: 'get_codegen_languages did not answer' }];
+        }
+        return [
+            { submenu: 'compile', label: 'Compile', icon: 'build', items: [
+                { act: 'css', label: 'CSS…', icon: 'style', title: 'A stylesheet as code, in any language' },
+                { act: 'html', label: 'DOM…', icon: 'html', title: 'Pasted HTML as DOM code: a render function or an app' },
+            ] },
+            { act: 'subtree', label: 'Subtree as Component…', icon: 'account_tree',
+                title: 'The selected document subtree as a component: its render function, or an app' },
+            { act: 'component', label: 'Components…', icon: 'widgets',
+                title: 'A component as code, and its library as JSON' },
+            { submenu: 'zip', label: 'Code (ZIP)', icon: 'archive', items: zip },
+        ];
+    }
+
+    /**
+     * Whether `library` can be exported as a JSON file (`export_component_library`):
+     * the registry's `exportable`; a registry without the flag: any library but
+     * the builtin one.
+     */
+    function libraryExportable(registry, library) {
+        var libs = (registry && registry.libraries) || [];
+        for (var i = 0; i < libs.length; i++) {
+            if (!libs[i] || libs[i].name !== library) continue;
+            if (typeof libs[i].exportable === 'boolean') return libs[i].exportable;
+            return library !== 'builtin';
+        }
+        return false;
     }
 
     /** The remembered language if the server still has it (and it is not disabled), else the first usable one. */
@@ -188,7 +235,7 @@
     }
 
     /**
-     * What "Component → code" opens on: the selected document instance, else
+     * What "Components…" opens on: the selected document instance, else
      * the component open in the Components view, else the first user one.
      */
     function defaultComponentChoice(choices, docNode, viewLibrary, viewTag) {
@@ -257,9 +304,10 @@
     }
 
     var logic = {
-        DOM_FALLBACK: DOM_FALLBACK,
         languageOptions: languageOptions,
         dialogLanguages: dialogLanguages,
+        exportMenu: exportMenu,
+        libraryExportable: libraryExportable,
         pickLanguage: pickLanguage,
         projectFiles: projectFiles,
         cssSourceFields: cssSourceFields,
@@ -289,9 +337,10 @@
 
     var S = {
         languages: null,   // dialogLanguages(..) once the server answered
+        asking: null,      // the get_codegen_languages request in flight
         open: null,        // the dialog on screen
         seq: 0,
-        html: null,        // what "HTML → DOM (code)" had pasted last
+        html: null,        // what Compile > DOM… had pasted last
     };
 
     async function call(msg) {
@@ -306,15 +355,25 @@
         try { localStorage.setItem(LANG_KEY[kind], id); } catch (e) { /* private mode */ }
     }
 
-    async function languages() {
-        if (S.languages) return S.languages;
-        try {
-            S.languages = dialogLanguages(await call({ op: 'get_codegen_languages' }));
-            return S.languages;
-        } catch (e) {
-            app.log('Export: the server did not list its languages (' + e.message + ')', 'warning');
-            return { dom: DOM_FALLBACK.slice(), css: [] };
+    /**
+     * The server's language list (`dialogLanguages`), asked once; a failed
+     * answer is not kept, so the next dialog / menu asks again.
+     */
+    function languages() {
+        if (S.languages) return Promise.resolve(S.languages);
+        if (!S.asking) {
+            S.asking = call({ op: 'get_codegen_languages' }).then(function (v) {
+                S.languages = dialogLanguages(v);
+                return S.languages;
+            }, function (e) {
+                app.log('Export: the server did not list its languages (' + e.message + ')', 'warning');
+                return dialogLanguages(null);
+            }).then(function (l) {
+                S.asking = null;
+                return l;
+            });
         }
+        return S.asking;
     }
 
     /** The builder document's selected node (debugger-dnd.js), if any. */
@@ -632,10 +691,10 @@
         return id;
     }
 
-    // ── Compile CSS to… ──
+    // ── Compile > CSS… ──
 
     async function openCssDialog(opener, preset) {
-        var d = openDialog('Compile CSS to…', 'css', opener);
+        var d = openDialog('Compile CSS', 'css', opener);
         var langs = await languages();
         if (S.open !== d) return;
         var registry = null;
@@ -804,14 +863,14 @@
         await loadSource();
     }
 
-    // ── HTML → DOM (code) ──
+    // ── Compile > DOM… (HTML → DOM code) ──
 
     var HTML_SAMPLE = '<style>\n  .card { padding: 8px; border-radius: 4px; }\n</style>\n'
         + '<div class="card">\n  <h2>Hello</h2>\n  <p>Pasted HTML becomes DOM code.</p>\n'
         + '  <a href="https://azul.rs">Docs</a>\n</div>\n';
 
     async function openHtmlDialog(opener, preset) {
-        var d = openDialog('HTML → DOM (code)', 'html', opener);
+        var d = openDialog('Compile DOM (HTML → code)', 'html', opener);
         var langs = await languages();
         if (S.open !== d) return;
 
@@ -882,7 +941,7 @@
         await generate();
     }
 
-    // ── Subtree → code ──
+    // ── Subtree as Component… ──
 
     async function openSubtreeDialog(opener, uid) {
         if (uid == null) {
@@ -890,7 +949,7 @@
             uid = s ? s.uid : 0;
         }
         var node = docNode(uid);
-        var d = openDialog('Subtree → code', 'subtree', opener);
+        var d = openDialog('Subtree as Component', 'subtree', opener);
         var langs = await languages();
         if (S.open !== d) return;
 
@@ -937,15 +996,15 @@
         await generate();
     }
 
-    // ── Component → code ──
+    // ── Components… ──
 
     async function openComponentDialog(opener, preset) {
-        var d = openDialog('Component → code', 'component', opener);
+        var d = openDialog('Components', 'component', opener);
         var langs = await languages();
         if (S.open !== d) return;
         var registry = null;
         try { registry = await call({ op: 'get_component_registry' }); } catch (e) {
-            app.log('Component → code: ' + e.message, 'error');
+            app.log('Components: ' + e.message, 'error');
         }
         if (S.open !== d) return;
         var choices = componentChoices(registry);
@@ -962,15 +1021,35 @@
             return { id: c.library + '\u0000' + c.name, label: c.label };
         }), initial ? initial.library + '\u0000' + initial.name : null);
         var langSel = languageSelect(langs.dom, 'dom');
+        // The old Export > "Component Library (JSON)": the chosen component's
+        // library as the file Import > Component Library reads back.
+        var libJson = textButton('Library as JSON', 'extension');
+        libJson.dataset.azxLibJson = '';
+        libJson.addEventListener('click', function () {
+            var lib = compSel.value ? compSel.value.split('\u0000')[0] : null;
+            if (lib && libraryExportable(registry, lib)) app.handlers.exportComponentLibrary(lib);
+        });
         row.appendChild(field('Component', compSel));
         row.appendChild(field('Language', langSel));
+        row.appendChild(el('div', 'azx-spacer'));
+        row.appendChild(libJson);
         d.body.appendChild(row);
         d.body.appendChild(el('div', 'azx-hint',
             'Its render function (a converted component’s texts and attributes are its parameters) '
-            + 'and, where the language can spell it (Rust, C, C++), the registration of its library.'));
+            + 'and, where the language can spell it (Rust, C, C++), the registration of its library. '
+            + '“Library as JSON” saves the whole library as a file Import > Component Library reads.'));
         var out = outputPanel(d.body);
 
+        function updateLibJson() {
+            var lib = compSel.value ? compSel.value.split('\u0000')[0] : null;
+            var ok = !!lib && libraryExportable(registry, lib);
+            libJson.disabled = !ok;
+            libJson.title = ok ? 'Save the library “' + lib + '” as JSON'
+                : (lib ? 'The “' + lib + '” library cannot be exported (builtin libraries are part of azul)' : '');
+        }
+
         async function generate() {
+            updateLibJson();
             if (!compSel.value) {
                 setCode(out, '', '');
                 setStatus(out, 'There are no components.', '');
@@ -993,7 +1072,7 @@
         await generate();
     }
 
-    // ── Export > Code ──
+    // ── Export > Code (ZIP) ──
 
     /**
      * Replaces debugger.js's `exportCode`: `export_code_zip` answers JSON with
@@ -1015,40 +1094,77 @@
 
     // ── entry points: menu, toolbar, tree context menu ──
 
-    function menuItem(icon, label, act) {
+    /** One Export menu entry of `exportMenu`: an item, or a submenu with its items. */
+    function menuNode(m) {
         var item = el('div', 'menu-dropdown-item');
-        item.dataset.azx = act;
-        var i = el('span', 'material-icons mi', icon);
+        var i = el('span', 'material-icons mi', m.icon);
+        i.setAttribute('aria-hidden', 'true');
         item.appendChild(i);
-        item.appendChild(document.createTextNode(label));
+        item.appendChild(document.createTextNode(m.label));
+        if (m.submenu) {
+            item.classList.add('has-submenu');
+            item.dataset.azxSubmenu = m.submenu;
+            var chev = el('span', 'material-icons azx-chevron', 'chevron_right');
+            chev.setAttribute('aria-hidden', 'true');
+            item.appendChild(chev);
+            var sub = el('div', 'menu-submenu' + (m.submenu === 'zip' ? ' azx-lang-menu' : ''));
+            m.items.forEach(function (c) { sub.appendChild(menuNode(c)); });
+            item.appendChild(sub);
+            // Opening a submenu is a hover; a click on its own row keeps the
+            // menu open (a click on one of its items closes it, as any item).
+            item.addEventListener('click', function (e) { if (!sub.contains(e.target)) e.stopPropagation(); });
+            return item;
+        }
+        item.dataset.azx = m.act;
+        if (m.lang) item.dataset.lang = m.lang;
+        if (m.title) item.title = m.title;
+        if (m.disabled) {
+            item.classList.add('azx-disabled');
+            item.setAttribute('aria-disabled', 'true');
+            if (m.reason) item.title = m.reason;
+        }
+        item.addEventListener('click', function (e) {
+            // A disabled entry keeps the menu open; its tooltip says why.
+            if (m.disabled) { e.stopPropagation(); return; }
+            // Any other click goes on up: debugger.js closes the menubar.
+            openFromMenu(m.act, m.lang);
+        });
         return item;
     }
 
-    function openFromMenu(act) {
+    function openFromMenu(act, lang) {
         // A click on a menu item does not move focus: what had it gets it back.
         var opener = document.activeElement;
         if (act === 'css') return openCssDialog(opener);
         if (act === 'html') return openHtmlDialog(opener);
         if (act === 'subtree') return openSubtreeDialog(opener, null);
         if (act === 'component') return openComponentDialog(opener);
+        if (act === 'zip' && lang) return exportCode(lang);
+    }
+
+    /** (Re)fill Code (ZIP) from the server's list; asked again while it has not answered. */
+    function fillZipMenu(dd) {
+        return languages().then(function (langs) {
+            var sub = dd.querySelector('[data-azx-submenu="zip"] > .menu-submenu');
+            if (!sub) return;
+            var zip = exportMenu(langs)[3];
+            sub.innerHTML = '';
+            zip.items.forEach(function (c) { sub.appendChild(menuNode(c)); });
+        });
     }
 
     function injectMenu() {
         var dd = document.querySelector('.menu-item[data-menu="export"] > .menu-dropdown');
-        if (!dd || dd.querySelector('[data-azx]')) return;
-        var items = [
-            menuItem('style', 'Compile CSS to…', 'css'),
-            menuItem('html', 'HTML \u2192 DOM (code)…', 'html'),
-            menuItem('account_tree', 'Subtree → code…', 'subtree'),
-            menuItem('widgets', 'Component → code…', 'component'),
-        ];
-        var sep = el('div', 'menu-dropdown-separator');
+        if (!dd || dd.querySelector('[data-azx-submenu]')) return;
         var first = dd.firstChild;
-        items.forEach(function (it) {
-            it.addEventListener('click', function () { openFromMenu(it.dataset.azx); });
-            dd.insertBefore(it, first);
+        // Before the server answered: one disabled line.
+        exportMenu({ dom: [{ id: '', label: 'Asking the server…', disabled: true }] }).forEach(function (m) {
+            dd.insertBefore(menuNode(m), first);
         });
-        dd.insertBefore(sep, first);
+        dd.insertBefore(el('div', 'menu-dropdown-separator'), first);
+        fillZipMenu(dd);
+        var zipRow = dd.querySelector('[data-azx-submenu="zip"]');
+        zipRow.addEventListener('mouseenter', function () { if (!S.languages) fillZipMenu(dd); });
     }
 
     function injectToolbarButton() {
@@ -1057,8 +1173,8 @@
         var b = el('button', 'azb-icon');
         b.type = 'button';
         b.dataset.azxAct = 'export';
-        b.title = 'Export the selected subtree as code';
-        b.setAttribute('aria-label', 'Export the selected subtree as code');
+        b.title = 'Export the selected subtree as a component (Export > Subtree as Component…)';
+        b.setAttribute('aria-label', 'Export the selected subtree as a component');
         b.appendChild(el('span', 'material-icons', 'code'));
         b.addEventListener('click', function () { openSubtreeDialog(b, null); });
         var reset = bar.querySelector('button[data-act="reset"]');
@@ -1088,14 +1204,14 @@
                 pending = null;
                 var node = docNode(uid);
                 var extra = [{ separator: true },
-                    { icon: 'code', label: 'Export as code…', action: function () { openSubtreeDialog(null, uid); } }];
+                    { icon: 'account_tree', label: 'Subtree as Component…', action: function () { openSubtreeDialog(null, uid); } }];
                 if (node && node.kind === 'component') {
-                    extra.push({ icon: 'widgets', label: 'Component → code…', action: function () {
+                    extra.push({ icon: 'widgets', label: 'Export this component…', action: function () {
                         openComponentDialog(null, { library: node.library, name: node.tag });
                     } });
                 }
                 if (node && node.kind !== 'text') {
-                    extra.push({ icon: 'style', label: 'Compile its CSS to…', action: function () {
+                    extra.push({ icon: 'style', label: 'Compile its CSS…', action: function () {
                         openCssDialog(null, { source: 'node' });
                     } });
                 }
@@ -1161,6 +1277,11 @@
             '.azx-info{display:flex;align-items:center;gap:6px}',
             '.azx-muted,.azx-hint{color:var(--text-muted)}',
             '.azx-node{color:var(--tag-color)}',
+            // The Export menu: submenu chevrons, the long language list, disabled languages.
+            '.menu-dropdown-item .azx-chevron{font-size:14px;margin-left:auto}',
+            '.menu-submenu.azx-lang-menu{max-height:min(70vh,560px);overflow-y:auto}',
+            '.menu-dropdown-item.azx-disabled{opacity:.45;cursor:default}',
+            '.menu-dropdown-item.azx-disabled:hover{background:transparent;color:inherit}',
         ].join('\n');
         document.head.appendChild(s);
     }

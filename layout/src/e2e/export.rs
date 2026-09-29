@@ -38,6 +38,7 @@ use azul_core::{
     codegen::{
         backend,
         dom::{ComponentMarkup, Components},
+        dom_warning,
         project::{fragment_code, html_code, library_code, project_files, ProjectSpec},
         render_fn_name,
     },
@@ -55,8 +56,10 @@ use super::builder::{self, BuilderDocument, BuilderNode, BuilderNodeKind, ROOT_U
 // ===========================================================================
 
 /// `get_codegen_languages`: every code generator, in documentation order:
-/// `{languages: [{id, label, ext, dom}]}` (`dom`: its printer does DOM
-/// export; the CSS dialog offers them all).
+/// `{languages: [{id, label, ext, dom, no_dom_reason}]}` (`dom`: its printer
+/// does DOM export; the CSS dialog offers them all; the DOM exports and
+/// Export > Code (ZIP) list the others disabled with `no_dom_reason`, the
+/// warning such an export carries - `azul_core::codegen::dom_warning`).
 #[must_use]
 pub fn languages_json() -> serde_json::Value {
     serde_json::json!({
@@ -67,6 +70,7 @@ pub fn languages_json() -> serde_json::Value {
                 "label": b.display_name(),
                 "ext": b.extension(),
                 "dom": b.exports_dom(),
+                "no_dom_reason": dom_warning(&**b),
             }))
             .collect::<Vec<_>>(),
     })
