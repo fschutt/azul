@@ -910,7 +910,7 @@ pub fn structural_app_theme<S: AsRef<str>>(chain: &[S]) -> Option<&str> {
 ///   [`structural_app_theme`]: the first compiled-in theme is the floor, the
 ///   others are dead.
 /// - The rank is `name`'s position in the chain, each entry followed by the
-///   themes it extends ([`chain_names`]) - 0 is the most specific. Rank
+///   themes it extends (`xyz:pink`, then `xyz`) - 0 is the most specific. Rank
 ///   decides between two live blocks declaring the same property, before
 ///   selector specificity ([`cascade_rank`]).
 ///

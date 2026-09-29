@@ -9,14 +9,15 @@ Branch `wt/r2-theme-chain-rank`, cut from `0a326afe5`.
 - `aa9438649` impl: css matcher + rank + cascade key + inline helpers; core restyle / slow path /
   compact / inheritance sites; `UiTheme::current()` = structural theme.
 
+- Report `scripts/R2_THEME_CHAIN_RANK_2026_09_29.md` committed (with this checkpoint).
+
 ## IN PROGRESS
 - Waiting for the parent's no-context commit (hash not yet received).
 
 ## NEXT
 1. After the parent's no-context commit (`DynamicSelector::matches_without_context`) lands: merge it,
    make it call `app_theme_rank(&[app_theme], name)`, and give the no-context sites the same rank
-   (`cascade_rank(&[app_theme], conds)` instead of `UNTHEMED_RANK` when `ctx` is None).
-2. Report `scripts/R2_THEME_CHAIN_RANK_2026_09_29.md`.
+   (`cascade_rank(&[app_theme], conds)` instead of `UNTHEMED_RANK` when `ctx` is None) - report §5.
 
 ## Scope change (coordinator)
 - Item 4 (no context) is the PARENT's: `DynamicSelector::matches_without_context(&self, app_theme)`,
