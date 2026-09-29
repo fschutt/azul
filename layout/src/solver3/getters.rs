@@ -7001,6 +7001,42 @@ pub fn get_box_shadow_bottom(
         .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
+/// The shadows a node PAINTS: every distinct shadow of its four side slots,
+/// each once, in slot order (left, right, top, bottom - the last paints on
+/// top), `system:` colours resolved.
+///
+/// The engine keeps a shadow in four per-side slots, and the `box-shadow`
+/// shorthand writes the SAME shadow into all four: they hold one shadow, not
+/// four. Read as four, every `box-shadow` was painted four times on top of
+/// itself (a 50% black ring came out ~94% black). A node that declares
+/// different shadows in different slots (`-azul-box-shadow-top: ..;
+/// -azul-box-shadow-bottom: ..`) still paints each of them.
+#[must_use]
+pub fn get_box_shadows(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return Vec::new();
+    }
+    let mut shadows: Vec<azul_css::props::style::box_shadow::StyleBoxShadow> = Vec::new();
+    for shadow in [
+        get_box_shadow_left(styled_dom, node_id, node_state),
+        get_box_shadow_right(styled_dom, node_id, node_state),
+        get_box_shadow_top(styled_dom, node_id, node_state),
+        get_box_shadow_bottom(styled_dom, node_id, node_state),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !shadows.contains(&shadow) {
+            shadows.push(shadow);
+        }
+    }
+    shadows
+}
+
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned),
 /// its `system:` colour resolved.
 #[must_use]
