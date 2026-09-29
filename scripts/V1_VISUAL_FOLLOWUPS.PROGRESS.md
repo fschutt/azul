@@ -21,8 +21,10 @@ Branch `wt/v1-visual-followups`, cut from `0a326afe5`. Nothing compiled (house r
 
 - item 2: a9ad59994 RED / 46c9edf67 feat (spinner ring: frame > window(half-box clip, tail) > body(half-annulus, head) + 2 caps; 4 rotate tracks, 2 s loop)
 
+- item 5 engine: b618e6bae plumbing (`set_node_inline_style`), dc5751a52 RED / e22113da6 feat (`apply_node_style_change`); e68033b80 widget RED (`layout/tests/a_clicked_control_takes_the_new_mode_after_a_scheme_switch.rs`)
+
 ## IN PROGRESS
-- item 5
+- item 5 widgets: segmented, then pagination, stepper, date_picker (+ text_input's twin call)
 
 ## NEXT
 5. item 5: (a) plumbing `CallbackInfo::set_node_inline_style` / `CallbackChange::SetNodeInlineStyle` / `ContentChange::NodeStyle` (stub); (b) engine RED + impl; (c) integration RED (click -> scheme switch -> new mode's colours) for segmented / stepper / pagination / date_picker; (d) per-widget fixes, delete `window_is_dark` / `renders_dark` twins; text_input's invalid ring asks `get_resolved_color_scheme`
