@@ -2814,6 +2814,61 @@ fn escape_in_the_parent_closes_the_picker_and_shift_tab_moves_back_from_the_swat
     );
 }
 
+/// The user ruling (2026-09-28) along the path a device takes on macOS and
+/// Win32, where the picker is the KEY window: the parent RESIGNS the
+/// keyboard when the picker opens, Escape goes to the picker, the picker
+/// closes, and the parent becomes key again - its activation (WindowFocusIn)
+/// arriving BEFORE it reads the picker's dismissal. Through that whole round
+/// trip focus must come back to the swatch, ringed, and the next Tab must go
+/// to the stop AFTER it - on the device it restarted at the first stop.
+///
+/// This drives the engine's half of that path; if it holds and a device
+/// still restarts at 0, the backend's own activation handling is the
+/// suspect: run it with `AZ_FOCUS_TRACE=1` (every KeyDown's window, focus
+/// and default action, every popup focus decision).
+#[test]
+fn escape_in_the_key_window_picker_returns_focus_through_the_activation_round_trip() {
+    let (mut parent, mut popup, swatch) = open_picker_between_stops_from_the_keyboard();
+
+    // The picker becomes the key window: the parent resigns.
+    parent.snapshot_window_state_baseline("t.resign");
+    parent
+        .common
+        .update_unsynced_state(|ws| ws.window_focused = false);
+    let _ = parent.process_window_events(0);
+    assert_eq!(focused(&parent), Some(swatch), "premise: the swatch keeps its focus");
+
+    // Escape in the picker closes it.
+    key_down(&mut popup, VirtualKeyCode::Escape, &[], "t.escape");
+    assert!(close_requested(&popup), "premise: Escape closed the picker");
+
+    // The parent is key again BEFORE it reads the dismissal...
+    parent.snapshot_window_state_baseline("t.reactivate");
+    parent
+        .common
+        .update_unsynced_state(|ws| ws.window_focused = true);
+    let _ = parent.process_window_events(0);
+    // ...then reads it (the wake-up the picker asked for) and pays the focus
+    // it owes on its next pass.
+    parent.regenerate_layout().expect("the parent reads the dismissal");
+    let _ = parent.process_window_events(0);
+
+    assert_eq!(focused(&parent), Some(swatch), "focus is back on the swatch");
+    assert!(
+        parent.get_layout_window().unwrap().focus_manager.focus_is_visible,
+        "as KEYBOARD focus"
+    );
+    assert_eq!(focus_rings(&parent), 1, "and the swatch is ringed");
+
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    assert_eq!(
+        focused(&parent),
+        Some(node_with_class(&parent, "stop-after")),
+        "Tab continues from the swatch to the stop after it, not from the first stop"
+    );
+}
+
 /// P2-11: a popup autofocuses its first control ONCE. The autofocus re-armed
 /// on every pass while nothing was focused, so a click on a non-focusable
 /// spot of the picker (its padding) - which clears focus, as a click on
