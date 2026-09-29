@@ -119,11 +119,13 @@ fn styles(dom: &Dom) -> Vec<azul_css::css::Css> {
         .collect()
 }
 
-/// Every node's accessibility declaration, in tree order.
-fn a11y(dom: &Dom) -> Vec<Option<Box<azul_core::a11y::AccessibilityInfo>>> {
+/// The accessibility tree: every accessibility declaration, in tree order
+/// (a theme may draw a part with more or fewer presentational nodes - a
+/// spinner's spokes - without changing what a screen reader hears).
+fn a11y(dom: &Dom) -> Vec<Box<azul_core::a11y::AccessibilityInfo>> {
     nodes(dom)
         .into_iter()
-        .map(|(_, n)| n.root.accessibility.clone())
+        .filter_map(|(_, n)| n.root.accessibility.clone())
         .collect()
 }
 
