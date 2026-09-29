@@ -38,11 +38,14 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 
 ## 3. DONE (commits)
 
-- (audit) this file
+- `36456d402` audit (this file)
+- `3c5fcd9dd` RED: rejected post reports to its owner (not via routing); withdraw fits a full queue
+  (`layout/tests/native_notifications.rs`, `gaps::follow_ups` + the updated
+  `a_post_to_a_full_queue_without_a_callback_still_reports_failed`)
 
 ## 4. IN PROGRESS
 
-- 7/8 residual RED tests
+- 7/8 fix: `reject_notification` -> own callback or app handler directly; withdraw headroom
 
 ## 5. Open questions
 
