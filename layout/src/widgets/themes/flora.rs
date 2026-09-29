@@ -2861,3 +2861,140 @@ mod gradient_tests {
 //
 //
 //
+
+// ==== dialog ====
+//
+// Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`). The
+// panel is a LEAF laid on the page: `--fl-sur` with a `--fl-bd2` hairline, the
+// house's larger radius (`--fl-r2`: nothing is rounder than 5) and the shadow a
+// floating leaf casts (`--fl-shadow-3`, its first layer). The title is ruled off
+// from the content with a `--fl-sep` hairline, the way flora rules a heading.
+// The close glyph is a quiet action, so it is written in brass ink
+// (`.btn-quiet`: `--fl-qt`, darkening to `--fl-qt2` over the quiet wash on
+// hover). A modal dims its window with the drop panel's warm overlay
+// (`.nav-overlay`, rgba(20, 19, 16, 0.45)), the same by day and by night. Every
+// colour pairs with its night value, and the focus ring is the accent by day and
+// lifts to the stone's glow by night (`--focus-color`).
+
+/// `.nav-overlay`: the warm dim behind a modal dialog, in both modes.
+pub const DIALOG_BACKDROP: ColorU = ColorU::new(20, 19, 16, 115);
+/// `--fl-shadow-3`'s first layer by day: rgba(48, 45, 38, 0.18).
+const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 46);
+/// `--fl-shadow-3`'s first layer by night: rgba(0, 0, 0, 0.55).
+const DIALOG_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+/// `--fl-shadow-2`'s first layer by day: rgba(48, 45, 38, 0.16).
+const POPOVER_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
+/// `--fl-shadow-2`'s first layer by night: rgba(0, 0, 0, 0.5).
+const POPOVER_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+/// `.btn-quiet:hover`'s wash by day: rgba(180, 135, 44, 0.08).
+const DIALOG_QUIET_WASH_LIGHT: ColorU = ColorU::new(180, 135, 44, 20);
+/// The same wash by night, in the night brass: rgba(196, 181, 142, 0.10).
+const DIALOG_QUIET_WASH_DARK: ColorU = ColorU::new(196, 181, 142, 26);
+
+/// Flora's dialog skin (also the modal's; the popover swaps in its panel).
+#[must_use]
+pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
+    use super::style_kit as kit;
+    use crate::widgets::dialog as d;
+    type P = CssPropertyWithConditions;
+
+    // The leaf. Same box as flat's panel (280..520 px wide, 20px inset).
+    let mut panel = vec![
+        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(280))),
+        P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(520))),
+        P::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    panel.extend(kit::padding(20, 20, 20, 20));
+    panel.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    panel.extend(kit::radius(5));
+    panel.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    panel.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    panel.extend(kit::drop_shadow(6, 14, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
+
+    // The heading, ruled off.
+    let mut title = vec![
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        kit::font_size(17),
+        kit::weight(StyleFontWeight::W600),
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+        P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(12))),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    // The right inset keeps the heading clear of the absolutely-placed close.
+    title.extend(kit::padding(0, 28, 10, 0));
+    title.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    title.extend(kit::border(kit::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
+
+    // The quiet close.
+    let mut close = vec![
+        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        P::simple(CssProperty::const_top(LayoutTop::const_px(8))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(10))),
+        kit::font_size(20),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    close.extend(kit::padding(0, 5, 0, 5));
+    close.extend(kit::radius(3));
+    close.extend(kit::themed_ink(LIGHT_QT, DARK_QT));
+    close.extend(kit::ring_slot());
+    // States last: a resting dark twin matches in every state.
+    close.extend(kit::hover_ink(LIGHT_QT2, DARK_QT2));
+    close.extend(kit::hover_bg(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+    close.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    d::DialogSkin {
+        theme: super::UiTheme::Flora,
+        panel: CssPropertyWithConditionsVec::from_vec(panel),
+        title: CssPropertyWithConditionsVec::from_vec(title),
+        close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+        content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
+        backdrop: d::backdrop_style(DIALOG_BACKDROP),
+    }
+}
+
+/// Flora's popover panel: a small leaf - `--fl-sur`, `--fl-bd2`, the house
+/// radius (`--fl-r`, 3px) and the nearer shadow of `--fl-shadow-2`.
+#[must_use]
+pub fn popover_panel_style() -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+
+    let mut v = vec![
+        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(160))),
+    ];
+    v.extend(kit::padding(8, 8, 8, 8));
+    v.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    v.extend(kit::radius(3));
+    v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(kit::drop_shadow(2, 5, POPOVER_SHADOW_LIGHT, POPOVER_SHADOW_DARK));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::dialog::Dialog`] in the flora theme.
+#[must_use]
+pub fn dialog(d: crate::widgets::dialog::Dialog) -> Dom {
+    d.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::modal::Modal`] in the flora theme.
+#[must_use]
+pub fn modal(m: crate::widgets::modal::Modal) -> Dom {
+    m.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::popover::Popover`] in the flora theme.
+#[must_use]
+pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
+    let mut skin = dialog_skin();
+    skin.panel = popover_panel_style();
+    p.build(skin)
+}

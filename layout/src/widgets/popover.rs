@@ -53,9 +53,12 @@ use azul_css::{
 
 use crate::{
     callbacks::CallbackInfo,
-    widgets::dialog::{
-        build_dialog, DialogClasses, DialogClosedBy, DialogCompat, DialogParts,
-        OptionDialogOnCancel, OptionDialogOnClose,
+    widgets::{
+        dialog::{
+            build_dialog, DialogClasses, DialogClosedBy, DialogCompat, DialogParts, DialogSkin,
+            OptionDialogOnCancel, OptionDialogOnClose,
+        },
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -139,6 +142,10 @@ pub struct Popover {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub content_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the panel is built
+    /// from, so switching it rebuilds the popover.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -167,8 +174,8 @@ static POPOVER_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The floating panel: a small bordered, rounded surface in the window's own
-/// colours.
-fn build_panel_style() -> CssPropertyWithConditionsVec {
+/// colours. The flat theme's panel.
+pub(crate) fn build_panel_style() -> CssPropertyWithConditionsVec {
     let bg_vec = StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
         CONTENT_BG_COLOR
     )]);
@@ -279,7 +286,23 @@ impl Popover {
             content,
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
             content_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the popover renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The wrapper CSS this popover renders with.
@@ -295,14 +318,16 @@ impl Popover {
 
     /// The panel CSS this popover renders with.
     ///
-    /// `None` means no opinion, so the default panel applies. Open or closed
-    /// is not a style: the panel is a window of its own.
+    /// `None` means no opinion, so the theme's panel applies. Open or
+    /// closed is not a style: the panel is a window of its own.
     #[must_use]
     pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
-        self.content_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(build_panel_style)
+        self.content_style.clone().into_option().unwrap_or_else(|| {
+            match self.theme.into_option().unwrap_or_default() {
+                UiTheme::Flat => crate::widgets::themes::flat::popover_panel_style(),
+                UiTheme::Flora => crate::widgets::themes::flora::popover_panel_style(),
+            }
+        })
     }
 
     /// Declares the panel open (the HTML `open` state). A CHANGE of it
@@ -357,11 +382,31 @@ impl Popover {
     /// Renders the popover: the `__azul-native-popover` wrapper holding the
     /// clickable anchor (`__azul-native-popover-trigger`) and the panel's
     /// `<transient-window>` (the panel is `__azul-native-popover-content`).
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does):
+    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // Resolved before the fields are moved out below.
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::popover(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::popover(self),
+        }
+    }
+
+    /// Renders the popover with `skin` supplying every part it does not
+    /// style itself - what `themes::flat::popover` / `themes::flora::popover`
+    /// call.
+    #[must_use]
+    pub(crate) fn build(self, skin: DialogSkin) -> Dom {
+        // Resolved before the fields are moved out below. The panel is the
+        // skin's unless the caller brought one: the theme module that called
+        // this is the authority on its own panel.
         let wrapper_style = self.resolved_wrapper_style();
-        let content_style = self.resolved_content_style();
+        let content_style = self
+            .content_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin.panel.clone());
         build_dialog(DialogParts {
             declared_open: self.popover_state.inner.open,
             modal: false,
@@ -389,6 +434,7 @@ impl Popover {
                 content: &[],
                 close: &[],
             },
+            skin,
         })
     }
 }

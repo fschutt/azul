@@ -5,6 +5,7 @@ pub mod flora;
 pub mod system_palette;
 
 // ==== W3b: shared style builders + the theme marker, and their test helpers ====
+pub mod style_kit;
 #[cfg(test)]
 pub(crate) mod theme_checks;
 

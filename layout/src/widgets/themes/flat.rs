@@ -3417,3 +3417,63 @@ pub const fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions
 //
 //
 //
+
+// ==== dialog ====
+//
+// Dialog, Modal and Popover share one builder (`widgets::dialog::build_dialog`);
+// what a theme hands it is a skin, the style of every part. Flat is the
+// established look, unchanged: white paper with a #ccc hairline and an 8px
+// radius, the desktop's window surface and separator in the dark, a 50% black
+// `::backdrop`. What it adds is the focus ring the close glyph never had: a
+// transparent 1px ring slot at rest, `FIELD_RING` / `DARK_ACC` on focus, and
+// the ink hover every flat quiet control takes.
+
+/// Flat's dialog skin (also the modal's; the popover swaps in its panel).
+#[must_use]
+pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
+    use super::style_kit as kit;
+    use crate::widgets::dialog as d;
+
+    let mut close = d::DIALOG_CLOSE_STYLE.to_vec();
+    close.extend(kit::radius(3));
+    close.extend(kit::ring_slot());
+    // States last: a resting dark twin matches in every state.
+    close.extend(kit::hover_ink(LIGHT_INK, system_palette::TEXT));
+    close.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
+
+    d::DialogSkin {
+        theme: super::UiTheme::Flat,
+        panel: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_PANEL_STYLE),
+        title: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_TITLE_STYLE),
+        close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+        content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
+        backdrop: d::default_backdrop_style(),
+    }
+}
+
+/// Flat's popover panel: the established small bordered surface.
+#[must_use]
+pub fn popover_panel_style() -> CssPropertyWithConditionsVec {
+    crate::widgets::popover::build_panel_style()
+}
+
+/// Renders a [`crate::widgets::dialog::Dialog`] in the flat theme.
+#[must_use]
+pub fn dialog(d: crate::widgets::dialog::Dialog) -> Dom {
+    d.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::modal::Modal`] in the flat theme.
+#[must_use]
+pub fn modal(m: crate::widgets::modal::Modal) -> Dom {
+    m.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::popover::Popover`] in the flat theme.
+#[must_use]
+pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
+    let mut skin = dialog_skin();
+    skin.panel = popover_panel_style();
+    p.build(skin)
+}

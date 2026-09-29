@@ -36,9 +36,12 @@ use azul_css::{
 
 use crate::{
     callbacks::CallbackInfo,
-    widgets::dialog::{
-        build_dialog, default_backdrop_style, DialogClasses, DialogClosedBy, DialogCompat,
-        DialogParts, OptionDialogOnCancel, OptionDialogOnClose,
+    widgets::{
+        dialog::{
+            build_dialog, skin_for, DialogClasses, DialogClosedBy, DialogCompat, DialogParts,
+            DialogSkin, OptionDialogOnCancel, OptionDialogOnClose,
+        },
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -94,6 +97,10 @@ pub struct Modal {
     /// Style of the `::backdrop` - the modal window's root, which fills the
     /// window and centres the panel - or `None` for the default dim.
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the modal's parts are
+    /// built from, so switching it rebuilds the modal.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -124,19 +131,35 @@ impl Modal {
             content,
             show_close_button: true,
             backdrop_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
     }
 
     /// The `::backdrop` CSS this modal renders with.
     ///
-    /// `None` means no opinion, so the default dim applies. Open or closed is
+    /// `None` means no opinion, so the theme's dim applies - asked of the
+    /// same skin the render uses, so the two cannot drift. Open or closed is
     /// not a style: the backdrop is the root of the modal's own window.
     #[must_use]
     pub fn resolved_backdrop_style(&self) -> CssPropertyWithConditionsVec {
-        self.backdrop_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(default_backdrop_style)
+        self.backdrop_style.clone().into_option().unwrap_or_else(|| {
+            skin_for(self.theme.into_option().unwrap_or_default()).backdrop
+        })
+    }
+
+    /// Pick the widget theme. Unset (`None`), the modal renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the dialog title (empty = no title).
@@ -232,9 +255,21 @@ impl Modal {
     /// Renders the modal: a `__azul-native-modal` wrapper holding the modal's
     /// `<transient-window>`, whose root is the backdrop and whose child is
     /// the `__azul-native-modal-panel`.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does):
+    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let backdrop_style = self.resolved_backdrop_style();
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::modal(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::modal(self),
+        }
+    }
+
+    /// Renders the modal with `skin` supplying every part it does not style
+    /// itself - what `themes::flat::modal` / `themes::flora::modal` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: DialogSkin) -> Dom {
         build_dialog(DialogParts {
             declared_open: self.modal_state.inner.open,
             modal: true,
@@ -252,7 +287,7 @@ impl Modal {
             anchor: TransientAnchor::Viewport,
             wrapper_style: None,
             panel_style: None,
-            backdrop_style: Some(backdrop_style),
+            backdrop_style: self.backdrop_style.into_option(),
             classes: DialogClasses {
                 wrapper: MODAL_CLASS,
                 invoker: &[],
@@ -262,6 +297,7 @@ impl Modal {
                 content: MODAL_CONTENT_CLASS,
                 close: MODAL_CLOSE_CLASS,
             },
+            skin,
         })
     }
 }
@@ -306,7 +342,7 @@ mod tests {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
-        widgets::dialog::{on_dialog_dismissed, on_dialog_key},
+        widgets::dialog::{default_backdrop_style, on_dialog_dismissed, on_dialog_key},
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };

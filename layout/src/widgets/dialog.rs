@@ -102,7 +102,7 @@ use crate::{
     widgets::{
         modal::{ModalOnClose, ModalState, OptionModalOnClose},
         popover::{OptionPopoverOnToggle, PopoverOnToggle, PopoverState},
-        themes::system_palette,
+        themes::{style_kit, system_palette, OptionUiTheme, UiTheme},
     },
 };
 
@@ -336,6 +336,10 @@ pub struct Dialog {
     /// Style of a modal dialog's `::backdrop` (its window's root), or `None`
     /// for the default dim.
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the dialog's parts are
+    /// built from, so switching it rebuilds the dialog.
+    pub theme: OptionUiTheme,
 }
 
 impl Default for Dialog {
@@ -358,7 +362,23 @@ impl Dialog {
             anchor: TransientAnchor::Bottom,
             panel_style: OptionCssPropertyWithConditionsVec::None,
             backdrop_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the dialog renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the title (and accessible name).
@@ -590,8 +610,22 @@ impl Dialog {
 
     /// Renders the dialog: a wrapper holding the invoker (if any) and the
     /// dialog's `<transient-window>`.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does):
+    /// each hands [`Self::build`] its skin. `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::dialog(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::dialog(self),
+        }
+    }
+
+    /// Renders the dialog with `skin` supplying every part it does not
+    /// style itself - what `themes::flat::dialog` / `themes::flora::dialog`
+    /// call.
+    #[must_use]
+    pub(crate) fn build(self, skin: DialogSkin) -> Dom {
         let inner = self.dialog_state.inner;
         build_dialog(DialogParts {
             declared_open: inner.open,
@@ -610,6 +644,7 @@ impl Dialog {
             panel_style: self.panel_style.into_option(),
             backdrop_style: self.backdrop_style.into_option(),
             classes: DialogClasses::NONE,
+            skin,
         })
     }
 
@@ -741,6 +776,38 @@ impl DialogClasses {
     };
 }
 
+/// What a theme supplies for a dialog: the style of every part the
+/// front-end does not style itself, and the theme it belongs to (whose
+/// marker class goes on the wrapper). Built by `themes::flat::dialog_skin` /
+/// `themes::flora::dialog_skin`; the popover swaps in its smaller panel.
+pub(crate) struct DialogSkin {
+    pub theme: UiTheme,
+    /// The panel, unless the front-end brings a panel style.
+    pub panel: CssPropertyWithConditionsVec,
+    /// The title row.
+    pub title: CssPropertyWithConditionsVec,
+    /// The spacer row that keeps the close button clear of the content
+    /// when there is no title.
+    pub close_row: CssPropertyWithConditionsVec,
+    /// The "x" close button - focusable, so it owes a focus ring.
+    pub close: CssPropertyWithConditionsVec,
+    /// The content wrapper.
+    pub content: CssPropertyWithConditionsVec,
+    /// A modal dialog's `::backdrop`, unless the front-end brings one.
+    pub backdrop: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws dialogs with - what the front-ends' style
+/// resolvers (`Modal::resolved_backdrop_style`) answer from, so they give
+/// the same answer the render does.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> DialogSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::dialog_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::dialog_skin(),
+    }
+}
+
 /// Everything [`build_dialog`] needs; `Dialog`, `Popover` and `Modal` fill
 /// it in.
 pub(crate) struct DialogParts {
@@ -763,6 +830,8 @@ pub(crate) struct DialogParts {
     /// `None`: the default `::backdrop` (modal only).
     pub backdrop_style: Option<CssPropertyWithConditionsVec>,
     pub classes: DialogClasses,
+    /// The theme's styles for every part the fields above leave `None`.
+    pub skin: DialogSkin,
 }
 
 /// The dialog's own class plus a front-end's.
@@ -770,6 +839,19 @@ fn classes(own: &'static str, extra: &'static [IdOrClass]) -> IdOrClassVec {
     let mut v = Vec::with_capacity(1 + extra.len());
     v.push(Class(AzString::from_const_str(own)));
     v.extend(extra.iter().cloned());
+    IdOrClassVec::from_vec(v)
+}
+
+/// [`classes`] plus the marker of the theme that drew the dialog.
+fn classes_marked(
+    own: &'static str,
+    extra: &'static [IdOrClass],
+    theme: UiTheme,
+) -> IdOrClassVec {
+    let mut v = Vec::with_capacity(2 + extra.len());
+    v.push(Class(AzString::from_const_str(own)));
+    v.extend(extra.iter().cloned());
+    v.push(style_kit::marker(theme));
     IdOrClassVec::from_vec(v)
 }
 
@@ -806,7 +888,17 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         panel_style,
         backdrop_style,
         classes: extra,
+        skin,
     } = parts;
+    let DialogSkin {
+        theme,
+        panel: skin_panel,
+        title: skin_title,
+        close_row: skin_close_row,
+        close: skin_close,
+        content: skin_content,
+        backdrop: skin_backdrop,
+    } = skin;
 
     let data = RefAny::new(DialogData {
         modal,
@@ -829,22 +921,16 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         panel_children.push(
             crate::widgets::widget_p_with_text(title.clone())
                 .with_ids_and_classes(classes(DIALOG_TITLE_CLASS, extra.title))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    DIALOG_TITLE_STYLE,
-                )),
+                .with_css_props(skin_title),
         );
     } else if show_close_button {
         // No title row: keep the close button's corner clear of the content.
-        panel_children.push(Dom::create_div().with_css_props(
-            CssPropertyWithConditionsVec::from_const_slice(DIALOG_CLOSE_ROW_STYLE),
-        ));
+        panel_children.push(Dom::create_div().with_css_props(skin_close_row));
     }
     panel_children.push(
         Dom::create_div()
             .with_ids_and_classes(classes(DIALOG_CONTENT_CLASS, extra.content))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                DIALOG_CONTENT_STYLE,
-            ))
+            .with_css_props(skin_content)
             .with_children(DomVec::from_vec(alloc::vec![content])),
     );
     if show_close_button {
@@ -853,9 +939,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         panel_children.push(
             crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(classes(DIALOG_CLOSE_CLASS, extra.close))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    DIALOG_CLOSE_STYLE,
-                ))
+                .with_css_props(skin_close)
                 .with_tab_index(TabIndex::Auto)
                 // The label is a multiplication sign - a picture of an X, not
                 // a name.
@@ -873,9 +957,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     }
     let panel = Dom::create_div()
         .with_ids_and_classes(classes(DIALOG_PANEL_CLASS, extra.panel))
-        .with_css_props(panel_style.unwrap_or_else(|| {
-            CssPropertyWithConditionsVec::from_const_slice(DIALOG_PANEL_STYLE)
-        }))
+        .with_css_props(panel_style.unwrap_or(skin_panel))
         // `Dialog::close_from` finds the dialog's state here, from a control
         // inside it, in the dialog's own window.
         .with_dataset(OptionRefAny::Some(data.clone()))
@@ -940,7 +1022,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     let mut window =
         Dom::create_from_data(window).with_ids_and_classes(classes(DIALOG_WINDOW_CLASS, extra.window));
     if modal {
-        window = window.with_css_props(backdrop_style.unwrap_or_else(default_backdrop_style));
+        window = window.with_css_props(backdrop_style.unwrap_or(skin_backdrop));
     }
     let window = window.with_child(panel);
 
@@ -964,7 +1046,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     wrapper_children.push(window);
 
     Dom::create_div()
-        .with_ids_and_classes(classes(DIALOG_CLASS, extra.wrapper))
+        .with_ids_and_classes(classes_marked(DIALOG_CLASS, extra.wrapper, theme))
         .with_css_props(wrapper_style.unwrap_or_else(|| {
             CssPropertyWithConditionsVec::from_const_slice(DIALOG_WRAPPER_STYLE)
         }))
@@ -1216,11 +1298,16 @@ static DIALOG_INVOKER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The default `::backdrop`: the modal dialog's whole window, dimmed, with
-/// the panel centred on it.
+/// the panel centred on it. The flat theme's.
 pub(crate) fn default_backdrop_style() -> CssPropertyWithConditionsVec {
-    let bg_vec = StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
-        BACKDROP_COLOR
-    )]);
+    backdrop_style(BACKDROP_COLOR)
+}
+
+/// A `::backdrop` that covers the modal dialog's window in `color` and
+/// centres the panel on it - the shape every theme's backdrop takes.
+pub(crate) fn backdrop_style(color: ColorU) -> CssPropertyWithConditionsVec {
+    let bg_vec =
+        StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(color)]);
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
         CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
@@ -1244,7 +1331,7 @@ pub(crate) fn default_backdrop_style() -> CssPropertyWithConditionsVec {
 }
 
 /// The dialog panel: a bordered, rounded surface in the window's own colours.
-static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
@@ -1346,7 +1433,7 @@ static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
 
 /// The title row: larger, dark text; the right padding keeps it clear of
 /// the absolutely-positioned "×".
-static DIALOG_TITLE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DIALOG_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -1365,7 +1452,7 @@ static DIALOG_TITLE_STYLE: &[CssPropertyWithConditions] = &[
 
 /// With no title: an empty row as tall as the close button, so the button
 /// never covers the content.
-static DIALOG_CLOSE_ROW_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DIALOG_CLOSE_ROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         CLOSE_ROW_HEIGHT,
@@ -1374,7 +1461,7 @@ static DIALOG_CLOSE_ROW_STYLE: &[CssPropertyWithConditions] = &[
 
 /// The "×" close button: absolutely positioned in the panel's top-right
 /// corner.
-static DIALOG_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DIALOG_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_right(LayoutRight::const_px(12))),
@@ -1388,7 +1475,7 @@ static DIALOG_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The content wrapper: takes the remaining height.
-static DIALOG_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static DIALOG_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 ];

@@ -165,11 +165,19 @@ pub(crate) fn has_focus_ring(node: &Dom, dark: bool) -> bool {
     })
 }
 
-/// Every node of `dom` a user can Tab to (or that holds a roving stop).
+/// Every node of `dom` a user can Tab to. A roving group's other items
+/// (`NoKeyboardFocus`) are reached by arrow keys, so a widget's own tests
+/// check those by class; a `NoKeyboardFocus` window root is never ringed.
 pub(crate) fn focusable(dom: &Dom) -> Vec<(String, &Dom)> {
+    use azul_core::dom::TabIndex;
     nodes(dom)
         .into_iter()
-        .filter(|(_, n)| n.root.get_tab_index().is_some())
+        .filter(|(_, n)| {
+            matches!(
+                n.root.get_tab_index(),
+                Some(TabIndex::Auto | TabIndex::OverrideInParent(_))
+            )
+        })
         .collect()
 }
 
