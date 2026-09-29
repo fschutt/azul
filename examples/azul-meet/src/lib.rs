@@ -20,6 +20,7 @@
 //! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
 //!   machine, the public iroh relays otherwise).
 
+mod audio;
 mod rooms;
 
 use std::collections::{BTreeMap, BTreeSet};
