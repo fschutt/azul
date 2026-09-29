@@ -695,14 +695,17 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
         titlebar::Titlebar,
         tree_view::{TreeView, TreeViewNode},
     };
+    fn boxed(make: impl Fn() -> Dom + 'static) -> Box<dyn Fn() -> Dom> {
+        Box::new(make)
+    }
     let widgets: Vec<(&str, Box<dyn Fn() -> Dom>)> = vec![
         (
             "quick_access",
-            Box::new(|| QuickAccessBar::new(AzString::from("Document1")).dom()),
+            boxed(|| QuickAccessBar::new(AzString::from("Document1")).dom()),
         ),
         (
             "ribbon",
-            Box::new(|| {
+            boxed(|| {
                 Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new(AzString::from(
                     "HOME",
                 ))
@@ -719,7 +722,7 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
         ),
         (
             "statusbar",
-            Box::new(|| {
+            boxed(|| {
                 StatusBar::new(StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(
                     AzString::from("Page 1 of 3"),
                 )]))
@@ -728,7 +731,7 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
         ),
         (
             "tabs (header)",
-            Box::new(|| {
+            boxed(|| {
                 TabHeader::create(StringVec::from_vec(vec![
                     AzString::from("One"),
                     AzString::from("Two"),
@@ -738,15 +741,15 @@ fn single_look_widgets_render_the_same_under_every_app_theme() {
         ),
         (
             "tabs (content)",
-            Box::new(|| TabContent::new(Dom::create_p_with_text("Body")).dom()),
+            boxed(|| TabContent::new(Dom::create_p_with_text("Body")).dom()),
         ),
         (
             "titlebar",
-            Box::new(|| Titlebar::create(AzString::from("Window")).dom()),
+            boxed(|| Titlebar::create(AzString::from("Window")).dom()),
         ),
         (
             "tree_view",
-            Box::new(|| {
+            boxed(|| {
                 TreeView::new(
                     TreeViewNode::new("root")
                         .with_expanded(true)
