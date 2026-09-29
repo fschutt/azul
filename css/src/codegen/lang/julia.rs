@@ -4,8 +4,11 @@
 //! variant constructors `Azul.AzLayoutWidth_px(..)`), C-like enums are
 //! `@enum` values (`Azul.AzLayoutDisplay_Flex`), structs have positional
 //! isbits constructors that convert their arguments (`Azul.AzColorU(255, 0, 0, 255)`).
-//! Unions are opaque blobs: the generated `az_union` stores the variant
-//! struct (`Azul.AzLayoutWidthValueVariant_Exact(UInt8(6), ..)`) into one;
+//! Unions are opaque blobs: the generated `az_union` builds the variant
+//! struct BY FIELD NAME (`az_union(Azul.AzLayoutWidthValue,
+//! Azul.AzLayoutWidthValueVariant_Exact, UInt8(6), ..)`: a variant whose
+//! payload is less aligned than the union has a `_pad0` field between tag
+//! and payload, like azul.h) and stores it into one;
 //! `az_vec` copies the items into a Julia array and hands its pointer to
 //! `Azul.AzXxxVec_copyFromPtr`; strings use `Azul.az_string`.
 
@@ -69,18 +72,17 @@ impl ExprSyntax for Julia {
                 args,
                 broken,
             ),
+            // By field name (`az_union`): azul.jl's variant struct may have
+            // a `_pad0` field between tag and payload (azul.h's C layout).
             EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
                 let tag = union_tag(ty, variant).unwrap_or(0);
-                let mut fields = vec![Doc::text(format!("UInt8({tag})"))];
-                fields.extend(args);
-                Doc::call(
-                    "az_union",
-                    vec![
-                        Doc::text(format!("Azul.Az{ty}")),
-                        Doc::call(format!("Azul.Az{ty}Variant_{variant}"), fields, broken),
-                    ],
-                    broken,
-                )
+                let mut a = vec![
+                    Doc::text(format!("Azul.Az{ty}")),
+                    Doc::text(format!("Azul.Az{ty}Variant_{variant}")),
+                    Doc::text(format!("UInt8({tag})")),
+                ];
+                a.extend(args);
+                Doc::call("az_union", a, broken)
             }
         }
     }
@@ -116,10 +118,23 @@ function az_vec(copy, ::Type{T}, items...) where {T}
     GC.@preserve arr copy(pointer(arr), Csize_t(length(arr)))
 end
 
-# Unions are opaque blobs in azul.jl: store the variant struct into one.
-function az_union(::Type{U}, variant) where {U}
+# Unions are opaque blobs in azul.jl: build the variant struct V by field
+# name (its tag, its payload if it has one, zeroes for the `_pad0` bytes
+# azul.h puts between them when the payload is less aligned than the union)
+# and store it into one.
+function az_union(::Type{U}, ::Type{V}, tag, payload...) where {U,V}
+    fields = map(fieldnames(V)) do f
+        if f === :tag
+            tag
+        elseif f === :payload
+            payload[1]
+        else
+            ntuple(_ -> 0x00, fieldcount(fieldtype(V, f)))
+        end
+    end
+    variant = V(fields...)
     r = Ref{U}()
-    GC.@preserve r unsafe_store!(Ptr{typeof(variant)}(Base.unsafe_convert(Ptr{U}, r)), variant)
+    GC.@preserve r unsafe_store!(Ptr{V}(Base.unsafe_convert(Ptr{U}, r)), variant)
     r[]
 end
 ";
