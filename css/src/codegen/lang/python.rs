@@ -245,6 +245,10 @@ impl CodegenBackend for Python {
         "Python"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn extension(&self) -> &'static str {
         "py"
     }

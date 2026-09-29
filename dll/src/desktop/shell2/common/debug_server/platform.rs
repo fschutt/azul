@@ -391,7 +391,7 @@ fn handle_http_connection(
         return;
     }
 
-    // ── Route: POST /debug/compile?lang=<rust|cpp|python> → return generated project as ZIP ──
+    // ── Route: POST /debug/compile?lang=<any azul_css::codegen language> → generated project as ZIP ──
     if method == "POST" && path.starts_with("/debug/compile") {
         let lang = path
             .split_once('?')
@@ -487,13 +487,13 @@ fn handle_http_connection(
 fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source: &str) {
     use std::io::{Read, Write};
 
-    use azul_css::codegen::backend_for;
+    use azul_css::codegen::{backend_for, supported_languages};
     use azul_layout::zip::{ZipFileEntry, ZipWriteConfig};
 
     let backend = match backend_for(lang) {
         Some(b) => b,
         None => {
-            let body = format!("Unknown lang: {lang}. Supported: rust, cpp, python.");
+            let body = format!("Unknown lang: {lang}. Supported: {}.", supported_languages());
             let header = format!(
                 "HTTP/1.0 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: \
                  {}\r\nConnection: close\r\n\r\n",

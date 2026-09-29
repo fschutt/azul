@@ -6,11 +6,16 @@
  *
  *   - Compile CSS to…    pick a stylesheet (the selected node's style, the
  *                        document's, a component's, or pasted text), keep
- *                        some of its rules, pick one of the server's CSS code
+ *                        some of its rules, pick one of the server's code
  *                        generators; the code shows in a copyable,
  *                        downloadable panel.
  *   - Subtree → code     the selected document subtree as a render function
- *                        (or a runnable app) in Rust / C / C++ / Python.
+ *                        (or a runnable app: a project, one file at a time)
+ *                        in a language whose printer does DOM export.
+ *
+ * Both lists are the ONE list of azul_css::codegen's code generators
+ * (`get_codegen_languages`); the DOM dialogs disable the languages whose
+ * printer does not do DOM export yet.
  *   - Component → code   a component as code: its render function (a
  *                        converted component's texts are its parameters),
  *                        and its registration.
@@ -35,29 +40,64 @@
     // Pure logic
     // =====================================================================
 
-    /** The DOM languages, if the server cannot be asked. */
+    /** The languages whose printers do DOM export, if the server cannot be asked. */
     var DOM_FALLBACK = [
-        { id: 'rust', label: 'Rust', ext: 'rs' },
-        { id: 'c', label: 'C', ext: 'c' },
-        { id: 'cpp', label: 'C++', ext: 'cpp' },
-        { id: 'python', label: 'Python', ext: 'py' },
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+        { id: 'c', label: 'C', ext: 'h', dom: true },
+        { id: 'cpp', label: 'C++', ext: 'hpp', dom: true },
+        { id: 'python', label: 'Python', ext: 'py', dom: true },
     ];
 
-    /** A server language list, de-duplicated and well-formed; `fallback` if it is empty. */
+    /**
+     * A server language list, de-duplicated and well-formed; `fallback` if it
+     * is empty. `dom`: the language's printer does DOM export.
+     */
     function languageOptions(list, fallback) {
         var out = [];
         (Array.isArray(list) ? list : []).forEach(function (l) {
             if (!l || typeof l.id !== 'string' || !l.id) return;
             if (out.some(function (o) { return o.id === l.id; })) return;
-            out.push({ id: l.id, label: l.label || l.id, ext: l.ext || 'txt' });
+            out.push({ id: l.id, label: l.label || l.id, ext: l.ext || 'txt', dom: l.dom === true });
         });
         return out.length ? out : (fallback || []).slice();
     }
 
-    /** The remembered language if the server still has it, else the first. */
+    /**
+     * `get_codegen_languages` answers ONE list — the code generators of
+     * azul_css::codegen, `{languages: [{id, label, ext, dom}]}`. The CSS
+     * dialog offers all of them; the DOM dialogs offer the same list with the
+     * languages whose printer does not do DOM export yet disabled.
+     */
+    function dialogLanguages(answer) {
+        var list = languageOptions(answer && answer.languages, []);
+        var dom = list.length
+            ? list.map(function (l) {
+                return l.dom ? l : { id: l.id, label: l.label + ' (no DOM export yet)', ext: l.ext, dom: false, disabled: true };
+            })
+            : DOM_FALLBACK.slice();
+        return { css: list, dom: dom };
+    }
+
+    /** The remembered language if the server still has it (and it is not disabled), else the first usable one. */
     function pickLanguage(options, remembered) {
-        if (remembered && options.some(function (o) { return o.id === remembered; })) return remembered;
-        return options.length ? options[0].id : null;
+        var usable = options.filter(function (o) { return !o.disabled; });
+        if (remembered && usable.some(function (o) { return o.id === remembered; })) return remembered;
+        return usable.length ? usable[0].id : null;
+    }
+
+    /** An app answer's files as `{path, contents}`, the main file (the one in `file_name`) first. */
+    function projectFiles(v) {
+        var files = ((v && v.files) || []).filter(function (f) {
+            return f && typeof f.path === 'string' && typeof f.contents === 'string';
+        });
+        var main = v && v.file_name;
+        var at = -1;
+        for (var i = 0; i < files.length; i++) {
+            var base = files[i].path.split('/').pop();
+            if (base === main) { at = i; break; }
+        }
+        if (at > 0) files = [files[at]].concat(files.slice(0, at), files.slice(at + 1));
+        return files;
     }
 
     /** The get_css_rules / compile_css fields of a stylesheet source. */
@@ -190,7 +230,9 @@
     var logic = {
         DOM_FALLBACK: DOM_FALLBACK,
         languageOptions: languageOptions,
+        dialogLanguages: dialogLanguages,
         pickLanguage: pickLanguage,
+        projectFiles: projectFiles,
         cssSourceFields: cssSourceFields,
         rulesMessage: rulesMessage,
         compileCssMessage: compileCssMessage,
@@ -215,7 +257,7 @@
     var LANG_KEY = { dom: 'azul_builder_export_lang_dom', css: 'azul_builder_export_lang_css' };
 
     var S = {
-        languages: null,   // {dom: [...], css: [...]} once the server answered
+        languages: null,   // dialogLanguages(..) once the server answered
         open: null,        // the dialog on screen
         seq: 0,
     };
@@ -235,11 +277,7 @@
     async function languages() {
         if (S.languages) return S.languages;
         try {
-            var v = await call({ op: 'get_codegen_languages' });
-            S.languages = {
-                dom: languageOptions(v && v.dom, DOM_FALLBACK),
-                css: languageOptions(v && v.css, []),
-            };
+            S.languages = dialogLanguages(await call({ op: 'get_codegen_languages' }));
             return S.languages;
         } catch (e) {
             app.log('Export: the server did not list its languages (' + e.message + ')', 'warning');
@@ -447,10 +485,15 @@
         var wrap = el('div', 'azx-out');
         var bar = el('div', 'azx-out-bar');
         var name = el('span', 'azx-out-name');
+        // An app is a project: one entry per file (hidden for a single file).
+        var fileSel = el('select', 'azx-select azx-out-files');
+        fileSel.setAttribute('aria-label', 'File');
+        fileSel.style.display = 'none';
         var spacer = el('span', 'azx-spacer');
         var copy = textButton('Copy', 'content_copy', 'azx-copy');
         var dl = textButton('Download', 'download', 'azx-download');
         bar.appendChild(name);
+        bar.appendChild(fileSel);
         bar.appendChild(spacer);
         bar.appendChild(copy);
         bar.appendChild(dl);
@@ -464,7 +507,15 @@
         wrap.appendChild(pre);
         wrap.appendChild(status);
         parent.appendChild(wrap);
-        var out = { name: name, pre: pre, status: status, copy: copy, dl: dl, file: '', code: '' };
+        var out = { name: name, fileSel: fileSel, files: [], pre: pre, status: status, copy: copy, dl: dl, file: '', code: '' };
+        fileSel.addEventListener('change', function () {
+            var f = out.files[Number(fileSel.value)];
+            if (!f) return;
+            out.file = f.path.split('/').pop();
+            out.code = f.contents;
+            out.pre.textContent = f.contents;
+            out.pre.classList.toggle('azx-empty', !f.contents);
+        });
         copy.addEventListener('click', function () {
             if (!out.code) return;
             copyText(out.code).then(function (ok) {
@@ -478,7 +529,27 @@
         return out;
     }
 
+    /** Show an answer: its code, and a file picker when it is a project of several files. */
+    function setAnswer(out, v) {
+        setCode(out, v.file_name, v.code, v.warnings);
+        var files = projectFiles(v);
+        if (files.length < 2) return;
+        out.files = files;
+        out.fileSel.innerHTML = '';
+        files.forEach(function (f, i) {
+            var opt = el('option', null, f.path);
+            opt.value = String(i);
+            out.fileSel.appendChild(opt);
+        });
+        out.fileSel.value = '0';
+        out.fileSel.style.display = '';
+        out.name.textContent = '';
+    }
+
     function setCode(out, file, code, warnings) {
+        out.files = [];
+        out.fileSel.innerHTML = '';
+        out.fileSel.style.display = 'none';
         out.file = file || '';
         out.code = code || '';
         out.name.textContent = file || '';
@@ -740,9 +811,11 @@
             var msg = subtreeMessage(uid, langSel.value, mode.value, name.value);
             var v = await request(d, out, function () { return call(msg); });
             if (!v) return;
-            setCode(out, v.file_name, v.code, v.warnings);
+            setAnswer(out, v);
             if (!(v.warnings || []).length) {
-                setStatus(out, labelOf(langs.dom, v.language) + ': ' + v.file_name, 'ok');
+                var n = projectFiles(v).length;
+                setStatus(out, labelOf(langs.dom, v.language) + ': ' + v.file_name
+                    + (n > 1 ? ' (+' + (n - 1) + ' more file' + (n > 2 ? 's' : '') + ')' : ''), 'ok');
             }
         }
 
@@ -784,7 +857,7 @@
         d.body.appendChild(row);
         d.body.appendChild(el('div', 'azx-hint',
             'Its render function (a converted component’s texts and attributes are its parameters) '
-            + 'and, for Rust / C / C++, the registration of its library.'));
+            + 'and, where the language can spell it (Rust, C, C++), the registration of its library.'));
         var out = outputPanel(d.body);
 
         async function generate() {
@@ -963,6 +1036,7 @@
             '.azx-out{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:3px;min-height:0}',
             '.azx-out-bar{display:flex;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid var(--border)}',
             '.azx-out-name{font-family:monospace;color:var(--text-muted)}',
+            '.azx-out-files{font-family:monospace;padding:1px 4px}',
             '.azx-code{margin:0;padding:8px;font:12px/1.45 monospace;white-space:pre;overflow:auto;max-height:46vh;min-height:120px;background:var(--bg-panel);user-select:text}',
             '.azx-code.azx-empty{color:var(--text-muted)}',
             '.azx-code.azx-busy{opacity:.5}',

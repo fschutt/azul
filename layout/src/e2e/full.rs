@@ -4030,15 +4030,14 @@ fn build_app_code(
     language: &str,
     callback_info: &azul_layout::callbacks::CallbackInfo,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
-) -> Result<super::export::CodeFile, String> {
+) -> Result<Vec<super::export::CodeFile>, String> {
     let builder_active = scratch(callback_info).builder.is_active();
     if builder_active {
         with_export_document(callback_info, component_map, |doc, map| {
             super::export::document_app(doc, map, language)
         })
     } else {
-        let (path, contents) = build_live_page_code(language, callback_info)?;
-        Ok(super::export::CodeFile { path, contents })
+        build_live_page_code(language, callback_info)
     }
 }
 
@@ -12828,16 +12827,15 @@ fn parse_json_to_default_value(
 
 /// Generate a compilable app from the LIVE page (the current window's DOM+CSS).
 ///
-/// Serializes the live `StyledDom` back to HTML (`get_html_string`), reparses it,
-/// and runs the per-language HTML→app code generator. Returns `(filename, source)`
-/// for the app's main entry file. This is the "Export → Code" of the live UI.
+/// Serializes the live `StyledDom` back to HTML (`get_html_string`) and
+/// exports it as an app project (`export::live_page_app`: lowered to the
+/// codegen IR, printed by the language's code generator — the same path as
+/// the builder document). This is the "Export → Code" of the live UI.
 #[cfg(feature = "std")]
 fn build_live_page_code(
     language: &str,
     callback_info: &azul_layout::callbacks::CallbackInfo,
-) -> Result<(String, String), String> {
-    use azul_core::xml::{str_to_c_code, str_to_cpp_code, str_to_python_code, str_to_rust_code};
-
+) -> Result<Vec<super::export::CodeFile>, String> {
     let layout_window = callback_info.get_layout_window();
     let styled_dom = layout_window
         .layout_results
@@ -12845,22 +12843,10 @@ fn build_live_page_code(
         .map(|lr| &lr.styled_dom)
         .ok_or_else(|| "no layout result for DOM 0".to_string())?;
     // test_mode=false wraps the DOM tree in a full <html><head>..</head>..</html>
-    // document; the per-language code generators below require an <html> root
-    // (get_html_node) — the bare tree (test_mode=true) fails with NoHtmlNode.
+    // document (the <head><style> is the page's stylesheet); the bare tree
+    // (test_mode=true) has no <html> root and fails with NoHtmlNode.
     let html = styled_dom.get_html_string("", "", false);
-    let nodes = azul_layout::xml::parse_xml_string(&html)
-        .map_err(|e| format!("parse live HTML: {:?}", e))?;
-    let cmap = azul_core::xml::ComponentMap::with_builtin();
-
-    let (fname, src) = match language {
-        "rust" => ("src/main.rs", str_to_rust_code(nodes.as_ref(), "", &cmap)),
-        "c" => ("main.c", str_to_c_code(nodes.as_ref(), &cmap)),
-        "cpp" | "c++" => ("main.cpp", str_to_cpp_code(nodes.as_ref(), &cmap)),
-        "python" | "py" => ("main.py", str_to_python_code(nodes.as_ref(), &cmap)),
-        other => return Err(format!("unsupported language: {}", other)),
-    };
-    let src = src.map_err(|e| format!("codegen: {}", e))?;
-    Ok((fname.to_string(), src))
+    super::export::live_page_app(&html, language)
 }
 
 /// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat

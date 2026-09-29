@@ -62,6 +62,13 @@ pub trait CodegenBackend {
     /// File extension of [`CodegenBackend::emit_module`] output (no dot).
     fn extension(&self) -> &'static str;
 
+    /// `true` if this printer prints DOM construction (builder methods,
+    /// item parameters, apps - see the DOM section of [`ir`]); otherwise a
+    /// DOM item comes out as "not expressible" with the reason.
+    fn exports_dom(&self) -> bool {
+        false
+    }
+
     /// Print a lowered module (the snippet: imports + one function per item).
     fn emit_module(&self, module: &ir::Module) -> String;
 

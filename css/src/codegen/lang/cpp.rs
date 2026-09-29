@@ -253,6 +253,10 @@ impl CodegenBackend for Cpp {
         "C++"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn extension(&self) -> &'static str {
         "hpp"
     }
