@@ -70,8 +70,8 @@ fn shadows(dl: &DisplayList) -> Vec<(f32, f32, f32, f32)> {
         .collect()
 }
 
-/// The red channel of the pixel at `(x, y)` of the rendered page.
-fn red_at(lw: &LayoutWindow, dl: &DisplayList, x: usize, y: usize) -> u8 {
+/// The rendered page: its RGBA pixels and its width in pixels.
+fn rendered(lw: &LayoutWindow, dl: &DisplayList) -> (Vec<u8>, usize) {
     let mut gc = GlyphCache::new();
     let pm = cpurender::render_with_font_manager(
         dl,
@@ -86,7 +86,25 @@ fn red_at(lw: &LayoutWindow, dl: &DisplayList, x: usize, y: usize) -> u8 {
     )
     .expect("the page renders");
     let w = pm.width() as usize;
-    pm.data()[(y * w + x) * 4]
+    (pm.data().to_vec(), w)
+}
+
+/// The red channel of the pixel at `(x, y)` of the rendered page.
+fn red_at(lw: &LayoutWindow, dl: &DisplayList, x: usize, y: usize) -> u8 {
+    let (pixels, w) = rendered(lw, dl);
+    pixels[(y * w + x) * 4]
+}
+
+/// The red channel of the DARKEST pixel of the rendered page. On a white
+/// page with nothing but a black shadow on it, `1 - red / 255` is the alpha
+/// the shadow paints at where it is densest.
+fn darkest_red(lw: &LayoutWindow, dl: &DisplayList) -> u8 {
+    let (pixels, _) = rendered(lw, dl);
+    pixels
+        .chunks_exact(4)
+        .map(|rgba| rgba[0])
+        .min()
+        .expect("the page has pixels")
 }
 
 /// A 6px, unblurred, 50% black spread ring around the box.
@@ -135,5 +153,35 @@ fn two_different_shadows_on_one_box_both_paint() {
         2,
         "two different shadows, two items: {:?}",
         shadows(&dl)
+    );
+}
+
+/// A soft, see-through elevation shadow - the shape every card and popover
+/// declares: offset, blurred, 50% black.
+const SOFT: &str = "box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);";
+
+/// Painted once, a shadow is nowhere denser than its colour: no pixel of a
+/// `rgba(0, 0, 0, 0.5)` shadow is darker than 50% black over white. Four
+/// stacked copies came out ~94% black where the shadow is solid (under the
+/// box's edge), ~76% where the blur thins it to 30%.
+#[test]
+fn a_blurred_see_through_shadow_paints_no_denser_than_its_declared_alpha() {
+    let (lw, dl) = laid_out(SOFT);
+    assert_eq!(
+        shadows(&dl).len(),
+        1,
+        "one declared shadow, one item: {:?}",
+        shadows(&dl)
+    );
+    let darkest = darkest_red(&lw, &dl);
+    let alpha = 1.0 - f32::from(darkest) / 255.0;
+    assert!(
+        alpha <= 0.5 + 0.03,
+        "the shadow declares alpha 0.5 but paints at {alpha:.2} (darkest red={darkest}) - the \
+         same shadow painted several times on top of itself"
+    );
+    assert!(
+        alpha >= 0.15,
+        "premise: the shadow paints at all (darkest red={darkest}, alpha {alpha:.2})"
     );
 }
