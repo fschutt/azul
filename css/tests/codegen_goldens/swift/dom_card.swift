@@ -2,7 +2,12 @@
 import Azul
 
 // `user:card`: its texts and its link are parameters
-// not expressible with the Swift bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
-public func renderCard() -> Dom? {
-    return nil
+public func renderCard(title: String = "Hello", text: String = "Some text", href: String = "https://azul.rs", author: String = "me") -> Dom {
+    return Dom.div()
+        .withCss("padding: 8px")
+        .withClass("card")
+        .withChild(Dom.h2WithText(title))
+        .withChild(Dom.pWithText(text))
+        .withChild(Dom.a(href, text: "Read more", aria: SmallAriaInfo.label("Read more")))
+        .withChild(Dom.spanWithText("by \(author)"))
 }

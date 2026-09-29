@@ -512,5 +512,41 @@ fn exports_dom_is_true_exactly_for_the_printers_that_build_the_dom() {
             dom.push(backend.lang());
         }
     }
-    assert_eq!(dom, ["rust", "c", "cpp", "python"]);
+    assert_eq!(
+        dom,
+        [
+            "rust", "c", "cpp", "python", "csharp", "java", "kotlin", "go", "swift", "node",
+            "ruby", "php", "lua", "zig", "nim", "d", "ocaml", "haskell", "julia", "pascal",
+        ]
+    );
+}
+
+/// Every DOM export: a component's render function, the same as a component
+/// library, and an app project.
+fn dom_outputs() -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    for backend in all_backends() {
+        let lang = backend.lang().to_string();
+        out.push((
+            lang.clone(),
+            "dom_card".to_string(),
+            backend.emit_module(&codegen_cases::dom_card_module()),
+        ));
+        out.push((
+            lang.clone(),
+            "dom_library".to_string(),
+            backend.emit_module(&codegen_cases::dom_library_module()),
+        ));
+        for f in backend.emit_project_files(&codegen_cases::dom_app_module()) {
+            out.push((lang.clone(), format!("dom_app {}", f.path), f.contents));
+        }
+    }
+    out
+}
+
+#[test]
+fn every_dom_export_has_balanced_brackets() {
+    for (lang, what, src) in dom_outputs() {
+        check_balanced(&src, &lang, &what);
+    }
 }
