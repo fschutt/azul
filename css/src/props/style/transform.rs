@@ -1839,8 +1839,20 @@ mod autotest_generated {
     // =====================================================================
 
     #[test]
-    fn transform_origin_requires_exactly_two_components() {
-        for (input, got) in [("", 0), ("50%", 1), ("left", 1), ("50% 50% 50%", 3)] {
+    fn transform_origin_takes_one_or_two_components() {
+        // A `<position>`: one or two values (a missing one is `center`).
+        assert_eq!(
+            parse_style_transform_origin("50%").unwrap(),
+            StyleTransformOrigin::default()
+        );
+        assert_eq!(
+            parse_style_transform_origin("left").unwrap(),
+            StyleTransformOrigin {
+                x: PixelValue::percent(0.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
+        for (input, got) in [("", 0), ("50% 50% 50%", 3)] {
             let err = parse_style_transform_origin(input).unwrap_err();
             assert!(
                 matches!(
@@ -1862,7 +1874,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn transform_origin_keywords_are_position_sensitive() {
+    fn transform_origin_keywords_may_come_in_either_order() {
         assert_eq!(
             parse_style_transform_origin("left top").unwrap(),
             StyleTransformOrigin {
@@ -1881,12 +1893,16 @@ mod autotest_generated {
             parse_style_transform_origin("center center").unwrap(),
             StyleTransformOrigin::default()
         );
-        // BUG (spec deviation): CSS allows the keywords in either order
-        // ("top left" == "left top"). Here the horizontal slot rejects
-        // "top"/"bottom" and the vertical slot rejects "left"/"right", so the
-        // swapped form is an error. Pinned as current behaviour.
-        assert!(parse_style_transform_origin("top left").is_err());
-        assert!(parse_style_transform_origin("bottom right").is_err());
+        // CSS allows the keywords in either order ("top left" == "left top");
+        // two keywords of the same axis are an error.
+        assert_eq!(
+            parse_style_transform_origin("top left").unwrap(),
+            parse_style_transform_origin("left top").unwrap()
+        );
+        assert_eq!(
+            parse_style_transform_origin("bottom right").unwrap(),
+            parse_style_transform_origin("right bottom").unwrap()
+        );
         assert!(parse_style_transform_origin("left left").is_err());
         assert!(parse_style_transform_origin("top top").is_err());
     }
@@ -1976,8 +1992,15 @@ mod autotest_generated {
     // =====================================================================
 
     #[test]
-    fn perspective_origin_requires_exactly_two_components() {
-        for (input, got) in [("", 0), ("50%", 1), ("1px 2px 3px", 3)] {
+    fn perspective_origin_takes_one_or_two_components() {
+        assert_eq!(
+            parse_style_perspective_origin("50%").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
+        for (input, got) in [("", 0), ("1px 2px 3px", 3)] {
             let err = parse_style_perspective_origin(input).unwrap_err();
             assert!(
                 matches!(
@@ -1994,14 +2017,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn perspective_origin_does_not_accept_position_keywords() {
-        // BUG (spec deviation): CSS `perspective-origin` accepts the same
-        // left/center/right/top/bottom keywords as `transform-origin`, but this
-        // parser only takes pixel values. Pinned as current behaviour.
-        assert!(parse_style_perspective_origin("left top").is_err());
-        assert!(parse_style_perspective_origin("center center").is_err());
+    fn perspective_origin_accepts_position_keywords() {
+        // The same `<position>` keywords as `transform-origin`.
+        assert_eq!(
+            parse_style_perspective_origin("left top").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(0.0),
+                y: PixelValue::percent(0.0),
+            }
+        );
+        assert_eq!(
+            parse_style_perspective_origin("center center").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
         assert!(matches!(
-            parse_style_perspective_origin("center center").unwrap_err(),
+            parse_style_perspective_origin("sideways up").unwrap_err(),
             CssStylePerspectiveOriginParseError::PixelValueParseError(_)
         ));
     }
@@ -2464,7 +2497,7 @@ mod autotest_generated {
             assert!(!alloc::format!("{err}").is_empty());
         }
         // ...and one straight out of the parser.
-        let err = parse_style_transform_origin("top left").unwrap_err();
+        let err = parse_style_transform_origin("left left").unwrap_err();
         assert_eq!(err.to_contained().to_shared(), err);
     }
 
@@ -2490,7 +2523,7 @@ mod autotest_generated {
             assert_eq!(owned.to_shared(), err, "round-trip failed for {err}");
             assert!(!alloc::format!("{err}").is_empty());
         }
-        let err = parse_style_perspective_origin("center center").unwrap_err();
+        let err = parse_style_perspective_origin("sideways up").unwrap_err();
         assert_eq!(err.to_contained().to_shared(), err);
     }
 
