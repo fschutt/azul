@@ -2678,3 +2678,189 @@ fn every_wrapped_vec_field_has_a_python_accessor() {
         missing.join("\n  ")
     );
 }
+
+// ============================================================================
+// Union payload padding in the bindings
+// ============================================================================
+
+/// A binding that declares azul.h's per-variant union records itself
+/// (`{ tag; payload }` per variant, laid out by its host's C-alignment
+/// rules): where its output is, and how it spells (a) the start of the
+/// record of variant `v` of union `u` and (b) a padding member of `n` bytes
+/// right after the tag.
+struct VariantRecords {
+    lang: &'static str,
+    files: fn() -> Vec<(String, String)>,
+    record: fn(&str, &str) -> String,
+    padding: fn(usize) -> String,
+}
+
+/// Every binding with its own per-variant records. The ones not listed do
+/// not need the padding: Pascal (variant records), FreeBASIC, Ruby and Ada
+/// (tag + union of tag-less payloads) already put the payload at the
+/// largest alignment; C++, Swift, Lua, PHP and Haskell read azul.h's
+/// layout; Fortran, COBOL, Perl, Red, VB6, ALGOL 68 and Python never read a
+/// payload at an offset; OCaml's one payload read takes `payload_offset`
+/// itself (lang_ocaml/types.rs).
+fn variant_record_bindings() -> Vec<VariantRecords> {
+    fn one(rel: &str) -> Vec<(String, String)> {
+        vec![(rel.to_string(), generated(rel))]
+    }
+    vec![
+        VariantRecords {
+            lang: "go",
+            files: || generated_tree("go", &["go"]),
+            record: |u, v| format!("type Az{u}_Variant_{v} struct {{"),
+            padding: |n| format!("_ [{n}]byte"),
+        },
+        VariantRecords {
+            lang: "node",
+            files: || one("node/azul.js"),
+            record: |u, v| format!("azulFFI.struct('Az{u}Variant_{v}', {{"),
+            padding: |n| format!("_pad0_{}: 'uint8_t',", n - 1),
+        },
+        VariantRecords {
+            lang: "crystal",
+            files: || one("azul.cr"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("_pad0 : UInt8[{n}]"),
+        },
+        VariantRecords {
+            lang: "odin",
+            files: || one("azul.odin"),
+            record: |u, v| format!("Az{u}Variant_{v} :: struct {{"),
+            padding: |n| format!("_pad0: [{n}]u8,"),
+        },
+        VariantRecords {
+            lang: "v",
+            files: || one("azul.v"),
+            record: |u, v| format!("pub struct Az{u}Variant_{v} {{"),
+            padding: |n| format!("pad0 [{n}]u8"),
+        },
+        VariantRecords {
+            lang: "racket",
+            files: || one("azul.rkt"),
+            record: |u, v| format!("(define-cstruct _Az{u}_Variant_{v}\n"),
+            padding: |n| format!("[pad0 (_array _uint8 {n})]"),
+        },
+        VariantRecords {
+            lang: "java",
+            files: || generated_tree("java", &["java"]),
+            record: |u, v| format!("class Az{u}Variant_{v} extends Structure {{"),
+            padding: |n| format!("public byte[] _pad0 = new byte[{n}];"),
+        },
+        VariantRecords {
+            lang: "kotlin",
+            files: || one("kotlin/Azul.kt"),
+            record: |u, v| format!("open class Az{u}Variant_{v} : Structure() {{"),
+            padding: |n| format!("@JvmField var _pad0: ByteArray = ByteArray({n})"),
+        },
+        VariantRecords {
+            lang: "csharp",
+            files: || one("Azul.cs"),
+            record: |u, v| format!("public struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("public byte _pad0_{};", n - 1),
+        },
+        VariantRecords {
+            lang: "d",
+            files: || one("azul.d"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("ubyte[{n}] _pad0;"),
+        },
+        VariantRecords {
+            lang: "zig",
+            files: || one("azul.zig"),
+            record: |u, v| format!("pub const Az{u}Variant_{v} = extern struct {{"),
+            padding: |n| format!("_pad0: [{n}]u8"),
+        },
+        VariantRecords {
+            lang: "nim",
+            files: || one("azul.nim"),
+            record: |u, v| format!("Az{u}Variant_{v}* {{.bycopy.}} = object"),
+            padding: |n| format!("pad0*: array[{n}, uint8]"),
+        },
+        VariantRecords {
+            lang: "julia",
+            files: || one("azul.jl"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("_pad0::NTuple{{{n},UInt8}}"),
+        },
+        VariantRecords {
+            lang: "smalltalk",
+            files: || one("Azul.st"),
+            record: |u, v| format!("Az{u}Variant_{v} class >> fields ["),
+            padding: |n| format!("(uint8 _pad0[{n}])"),
+        },
+        VariantRecords {
+            lang: "lisp",
+            files: || one("azul.lisp"),
+            record: |u, v| {
+                format!(
+                    "(defcstruct {}-variant-{}\n",
+                    super::lang_lisp::to_kebab_case(u),
+                    super::lang_lisp::ident_to_kebab(v)
+                )
+            },
+            padding: |n| format!("(pad0 :uint8 :count {n})"),
+        },
+    ]
+}
+
+/// X3, the bindings half: every binding that declares azul.h's per-variant
+/// union records itself carries the padding azul.h has - from the same
+/// `c_layout::union_payload_layout` - so a payload sits where Rust puts it
+/// (`a_union_variant_payload_starts_where_rust_puts_it` pins azul.h). B2
+/// found Go's builders, koffi unions, Crystal variant classes and Odin/V
+/// raw unions reading the wrong bytes; every other binding of this shape
+/// had the same records. Checked for every padded variant of every union.
+#[test]
+fn every_binding_pads_a_union_variant_payload_like_azul_h() {
+    let mut padded: Vec<(String, String, usize)> = Vec::new();
+    for u in every_tagged_union() {
+        if let Some(l) = super::c_layout::union_payload_layout(&u.name, ir()) {
+            for (v, n) in l.padded_variants() {
+                padded.push((u.name.clone(), v.to_string(), n));
+            }
+        }
+    }
+    assert!(!padded.is_empty(), "no union variant needs padding: the rule or the IR changed");
+    let mut offenders = Vec::new();
+    for b in variant_record_bindings() {
+        let text: String = (b.files)()
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut declared = 0usize;
+        let mut missing = Vec::new();
+        for (u, v, n) in &padded {
+            let Some(start) = text.find(&(b.record)(u, v)) else {
+                continue; // this binding does not declare that union
+            };
+            declared += 1;
+            let rest = &text[start..];
+            // Everything between the record's start and its first payload
+            // member (`payload`, `Payload`) is the tag and its padding.
+            let head = &rest[..rest.find("ayload").unwrap_or(rest.len())];
+            if !head.contains(&(b.padding)(*n)) {
+                missing.push(format!("{u}::{v} ({n} bytes)"));
+            }
+        }
+        if declared == 0 {
+            offenders.push(format!(
+                "[{}] declares none of the {} padded variant records this test looks for: \
+                 update its spelling in variant_record_bindings",
+                b.lang,
+                padded.len()
+            ));
+        } else if !missing.is_empty() {
+            offenders.push(summarize(
+                b.lang,
+                "variant records without azul.h's payload padding",
+                &missing,
+                declared,
+            ));
+        }
+    }
+    assert_none("union variant records laid out unlike Rust", offenders);
+}
