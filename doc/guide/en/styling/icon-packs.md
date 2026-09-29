@@ -12,6 +12,7 @@ prerequisites: [styling]
 tracked_files:
   - core/src/icon.rs
   - layout/src/icon.rs
+  - layout/src/icon_remap.rs
   - core/src/dom.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
@@ -19,6 +20,8 @@ default-search-keys:
   - IconProviderHandle
   - IconResolverCallbackType
   - IconStyleOptions
+  - IconMeta
+  - IconRecolor
   - AppConfig
   - SystemStyle
   - Dom
@@ -29,12 +32,14 @@ default-search-keys:
 
 ## Introduction
 
-*WIP.* Image and font icons resolve through the default resolver on all platforms; SVG and animated icons run through the same callback path but are not yet covered by built-in helpers.
+*WIP.* Font, image and SVG icons resolve through the default resolver on
+all platforms. Animated icons run through the same callback path with a
+custom resolver.
 
 An icon pack is a named bag of icons that the framework looks up by name
 when it sees a `Dom::create_icon("home")` node (or an `<icon>` element).
 Registration happens once on `AppConfig.icon_provider`; the lookup runs
-before every layout pass and resolves the name to a `StyledDom` subtree
+before every layout pass and resolves the name to a DOM subtree
 (typically an `<img>` or a glyph in an icon font).
 
 ```rust,ignore
@@ -49,81 +54,159 @@ config.icon_provider.register_font_icon(
     material.clone(),
     "\u{e88a}".into(),
 );
-config.icon_provider.register_font_icon(
-    "material".into(),
-    "settings".into(),
-    material,
-    "\u{e8b8}".into(),
-);
 
-// 2. Register an image-icon pack for app-specific icons.
+// 2. Register an image icon for an app-specific logo.
 config.icon_provider.register_image_icon(
     "app".into(),
     "logo".into(),
     image_ref,
 );
 
-// 3. Use it in a Dom.
+// 3. Register an SVG icon. No custom resolver is needed.
+config.icon_provider.register_svg_icon(
+    "app".into(),
+    "brush".into(),
+    svg_bytes.into(),
+    IconMeta::create_for_svg(svg_bytes.into()),
+);
+
+// 4. Use them in a Dom.
 let dom = Dom::create_div().with_children(vec![
     Dom::create_icon("home".into()),
     Dom::create_icon("logo".into()),
+    Dom::create_icon("brush".into()),
 ].into());
 ```
 
 ## How lookup works
 
 Icons are stored on `IconProviderHandle` as a nested map of pack to
-icon-name to data. Lookup walks the packs in registration order and takes
-the first match. Pack names mostly exist for namespacing and bulk
-unregistration, not for selection.
+icon-name to data. Lookup walks the packs in **rank order, then
+registration order**, and takes the first match. A pack has no rank until
+you give it one, and packs without a rank are searched after every ranked
+pack:
+
+```rust,ignore
+// "user" was registered after "app", but must win.
+config.icon_provider.set_pack_rank("user".into(), 0);
+```
+
+An icon spec can be a fallback list (`ios:open_menu,kde:three-lines,menu`).
+Bare entries follow the lookup order above. A `pack:name` entry is looked
+up only in that pack.
 
 Methods on `IconProviderHandle`:
 
 - `register_icon(pack, name, data)`. Adds or overwrites an icon with arbitrary data.
 - `register_font_icon(pack, name, font, char)`. Adds a font-glyph icon.
-- `register_image_icon(pack, name, image)`. Adds an image icon.
+- `register_image_icon(pack, name, image)`. Adds a full-colour image icon.
+- `register_image_icon_with_meta(pack, name, image, meta)`. Adds an image icon with metadata.
+- `register_svg_icon(pack, name, svg_bytes, meta)`. Adds an SVG icon. Returns `false` for input
+  that is not an SVG document or is larger than 1 MiB.
+- `register_dom_icon(pack, name, dom)`. Adds a whole DOM as an icon.
 - `unregister_icon(pack, name)`. Removes a single icon.
-- `unregister_pack(pack)`. Removes every icon in a pack.
+- `unregister_pack(pack)`. Removes every icon in a pack. Registering into it again puts the pack
+  at the back of the registration order.
+- `set_pack_rank(pack, rank)`. Lower ranks are searched first.
+- `add_icon_remap_rule(name, apply_if, target)`. Adds a remap rule (see below).
 - `set_resolver(callback)`. Replaces the resolver for the whole provider.
 
 Icon names are case-insensitive: registering `"Home"` and looking up
 `"home"` resolve to the same entry.
 
+## Icon metadata: what the artwork can honour
+
+Every registered icon carries an `IconMeta`. The metadata describes what
+the artwork can do. It is separate from what the system asks for:
+
+- `designed_for`: `Light`, `Dark` or `Any`. The mode the artwork was drawn for.
+- `variants`: `light`, `dark` and `high_contrast`. Each is an icon spec to draw instead in that
+  mode. High contrast wins when the user asks for it.
+- `recolor`: how the icon may be recoloured.
+- `monochrome`: the artwork is one colour on alpha, so a colour can be flooded through its alpha.
+
+The defaults are `IconMeta::create_for_font()` (follows the text colour)
+and `IconMeta::create_for_image()` (never recoloured).
+`IconMeta::create_for_mask()` is for monochrome raster ink, such as a
+symbolic PNG. `IconMeta::create_for_svg(bytes)` reads the document: an
+SVG painted in `currentColor` follows the text colour.
+
+The resolver combines the system's request (`IconStyleOptions`) with the
+icon's `recolor`. It never guesses from the kind of icon:
+
+| `recolor`      | Font glyph                  | Raster or SVG                                          |
+|----------------|-----------------------------|--------------------------------------------------------|
+| `CurrentColor` | the cascaded `color`        | monochrome: flooded with the `<icon>`'s cascaded `color` |
+| `Mask`         | the cascaded `color`        | a tint is flooded through the artwork's alpha          |
+| `Palette(map)` | as drawn                    | the listed paints are swapped when the SVG is drawn    |
+| `Fixed(colors)`| that colour, per mode       | monochrome: flooded with that colour, per mode         |
+| `None`         | as drawn                    | only the variant for the mode                          |
+
+A tint is always `flood(tint) composite(in)`: the colour is kept only
+where the artwork has alpha. Full-colour artwork is never tinted. Give it
+`variants` for the other modes instead:
+
+```rust,ignore
+config.icon_provider.register_image_icon_with_meta(
+    "app".into(),
+    "logo".into(),
+    logo_light,
+    IconMeta::create_for_image().with_dark_variant("logo-dark".into()),
+);
+config.icon_provider.register_image_icon("app".into(), "logo-dark".into(), logo_dark);
+```
+
+The variant is picked from the window's mode, so an app pinned to dark on
+a light desktop gets the dark artwork. A light/dark switch swaps the
+artwork on the next frame.
+
+## SVG icons
+
+`register_svg_icon` is enough to use an SVG. `currentColor` in the
+document takes the `<icon>` node's cascaded `color`, like a font glyph
+does. A document whose only paint is `currentColor` follows the colour
+exactly, including a `color` it inherits from its container. A palette
+remap swaps literal paints as the document is drawn:
+
+```rust,ignore
+let meta = IconMeta::create_for_image().with_recolor(IconRecolor::Palette(vec![
+    IconColorMapping { from: ColorU::BLACK, to: /* system:text */ text_token },
+].into()));
+```
+
 ## The resolver callback
 
 The resolver turns a registered icon plus the original `<icon>` node into
-a `StyledDom`. The signature is `IconResolverCallbackType`:
+a `Dom`. The signature is `IconResolverCallbackType`:
 
 ```rust,ignore
 extern "C" fn(
     icon_data: OptionRefAny,         // the data you registered, or None
-    original_icon_dom: &StyledDom,   // the <icon> node with its inline styles
-    system_style: &SystemStyle,      // current theme, accent, accessibility flags
-) -> StyledDom;
+    original_icon_node: &NodeData,   // the <icon> node with its inline styles
+    system_style: &SystemStyle,      // the window's mode, accent, accessibility flags
+) -> Dom;
 ```
 
-The default resolver handles font icons (registered via
-`register_font_icon`) and image icons (via `register_image_icon`) out of
-the box. For anything else (SVG, animated, vector) write your own
-resolver and pass it to `IconProviderHandle::with_resolver(my_callback)`
-or `IconProviderHandle::set_resolver(my_callback)`. The callback sees
-`SystemStyle`, so you can produce a different DOM for dark mode, a
-high-contrast variant, or a reduced-motion fallback.
+The default resolver handles font, image, SVG and DOM icons. For anything
+else, write your own resolver and pass it to
+`IconProviderHandle::with_resolver(my_callback)` or
+`IconProviderHandle::set_resolver(my_callback)`. The `system_style` a
+resolver receives is in the window's mode, so a resolver that reads
+`system_style.theme` sees the mode the window shows.
 
 ## System-style integration
 
-The default resolver copies a curated subset of CSS properties from the
-original `<icon>` node onto the resolved DOM and filters based on
-`SystemStyle`. The `IconStyleOptions` type controls per-icon behaviour
-through three fields:
+The default resolver copies the inline CSS properties of the original
+`<icon>` node onto the resolved DOM. `IconStyleOptions` carries the
+system's request in three fields:
 
-- `inherit_text_color` makes the icon adopt the cascaded `color`.
-- `prefer_grayscale` drops explicit colour and adds a grayscale filter to
-  image icons.
-- `tint_color` overrides the icon's fill with a single colour.
+- `inherit_text_color`: `Mask` artwork follows the cascaded `color`.
+- `prefer_grayscale`: image and SVG icons get a grayscale filter.
+- `tint_color`: recolours icons whose `recolor` allows it (see the table above).
 
 The cascade still runs as normal. A `with_css("color: red;")` on the
-`<icon>` node beats the system style.
+`<icon>` node beats the system style, unless the icon has an explicit
+`Fixed` colour.
 
 ## Naming conventions
 
@@ -132,12 +215,62 @@ but the convention is:
 
 - `app`: your application's first-party icons.
 - `material`, `phosphor`, `lucide`, ...: third-party icon fonts.
-- `os`: anything you load from a platform icon theme (Windows shell
-  imageres.dll, macOS NSImage, GNOME `icon-theme.cache`).
+- `system`: icons loaded from a platform icon theme.
+- `user-icons`, `user-icons/<theme>`: files from the user's icon rules (see below).
 
-When two packs ship the same icon name, the *first registered* wins.
-Register your `app` pack last if you want app icons to override
-third-party ones.
+When two packs ship the same icon name, the pack with the lower rank wins,
+then the *first registered*. Give your `app` pack a rank if app icons
+should override third-party ones regardless of registration order.
+
+## User icon rules (`~/.azul/icons`)
+
+End users can replace icons without recompiling. At startup the app reads
+`~/.azul/icons/remap.json` and one `remap.json` per theme directory
+(`~/.azul/icons/<theme>/remap.json`). A spin-off theme lives in a
+subdirectory: `xyz/pink/` is the theme `xyz:pink`. Each table maps an
+icon name to rules. The rules for a name are tried in order and the first
+match wins:
+
+```json
+{
+  "material/home": [
+    { "file": "home-dark.svg", "apply-if": "theme=monokai,mode=dark", "recolor": "currentColor" },
+    { "file": "home.svg", "apply-if": "theme=monokai" }
+  ],
+  "kde:three-lines": [
+    { "file": "menu.svg", "apply-if": "os=linux:kde", "recolor": { "light": "system:text", "dark": "#e6e6e6" } }
+  ],
+  "app-icon": [
+    { "file": "app-mono.svg", "apply-if": "app=azwriter", "designed_for": "any" }
+  ]
+}
+```
+
+- `file` names an SVG or raster file next to the table. The path must stay inside that
+  directory. `..`, absolute paths and symlinks that lead out of it are refused. `icon` redirects
+  to a registered icon spec instead.
+- `apply-if` uses the dynamic-selector vocabulary of CSS conditions: `theme=<name>` (a theme in the
+  theme chain; `light` and `dark` mean the mode), `mode=light|dark`, `os=` (the same content as
+  `@os(...)`), `app=<executable name>` and `contrast=high|normal`. A comma means AND. An unknown
+  term never matches.
+- `recolor` is `"currentColor"` (take the CSS colour), `"mask"`, `"none"`, a colour
+  (`"#e6e6e6"`, `"system:text"`), `{ "light": ..., "dark": ... }`, or a palette keyed by colours
+  (`{ "#000000": "system:text" }`). An explicit colour beats the `<icon>`'s CSS `color`.
+- `designed_for` (`light`, `dark`, `any`) and `monochrome` complete the metadata.
+
+The conditions are evaluated at every lookup against the window's live
+context, so switching to dark mode swaps the artwork. A theme directory's
+rules apply only while that theme is in the theme chain, and a spin-off's
+rules beat its base theme's. The global table comes after every theme.
+The remap runs before the icon spec's own fallback list: a rule for any
+entry of `ios:open_menu,kde:three-lines,menu` beats the app's chain, and
+an entry without a rule still falls through it.
+
+Theme directories named `light` or `dark` are refused, because those
+names belong to the mode. Set `AZ_RICING=off` to start an app without the
+user's rules, for example to check whether a bug reproduces without them.
+The same variable turns off the user stylesheet described in
+[System Themes](themes.md#how-user-theming-layers-with-component-css).
 
 ## Recipes
 
@@ -167,19 +300,14 @@ let _ = Dom::create_button("Settings", SmallAriaInfo::label("Settings"))
     ");
 ```
 
-The `@theme dark` rule changes the cascaded `color`, which the default
-font-icon resolver picks up when `inherit_text_color` is set.
+The `@theme dark` rule changes the cascaded `color`, which a font icon
+and a `currentColor` SVG icon follow.
 
 ## Disabling and overriding
 
 A few escape hatches:
 
-- `IconProviderHandle::set_resolver(custom)` swaps the whole resolver
-  for one provider.
-- `IconProviderHandle::unregister_pack("material".into())` removes every
-  icon in a pack. Useful for "skin packs" you load and unload at runtime.
-
-End-user ricing of icons (replacing `material/home` with a user-chosen
-SVG without recompiling) is on the road map alongside the existing
-`AZ_RICING` CSS hook described in
-[System Themes](themes.md#how-user-theming-layers-with-component-css).
+- `IconProviderHandle::set_resolver(custom)` swaps the whole resolver for one provider.
+- `IconProviderHandle::unregister_pack("material".into())` removes every icon in a pack. Useful
+  for "skin packs" you load and unload at runtime.
+- `AZ_RICING=off` skips the user's icon rules.

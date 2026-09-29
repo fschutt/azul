@@ -175,6 +175,7 @@ const DEFAULT_SVG_ICON_SIZE: f32 = 24.0;
 
 /// How many device pixels per logical pixel an SVG icon is rasterised at,
 /// so it stays crisp on a 2x display.
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))] // only the rasteriser reads it
 const SVG_ICON_OVERSAMPLE: f32 = 2.0;
 
 /// The metadata an SVG document implies when its registration states none:

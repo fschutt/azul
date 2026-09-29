@@ -1382,7 +1382,7 @@ fn icon_rule_context(
     if let Some(live) = context {
         rules.os = live.os;
         rules.os_version = live.os_version;
-        rules.desktop_env = live.desktop_env.clone();
+        rules.desktop_env = live.desktop_env;
         rules.de_version = live.de_version;
         rules.theme = live.theme.clone();
         rules.theme_chain = live.theme_chain.clone();
