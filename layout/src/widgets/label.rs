@@ -1114,3 +1114,126 @@ mod autotest_generated {
         assert_eq!(inline_properties(&dom).len(), expected_table().len());
     }
 }
+
+/// The theme option: which look a label renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn label(theme: UiTheme) -> Dom {
+        Label::create(AzString::from_const_str("Name")).with_theme(theme).dom()
+    }
+
+    fn last_ink(props: &[CssProperty]) -> Option<ColorU> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        })
+    }
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                Class(s) => Some(s.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_label_without_a_theme_renders_flat() {
+        let plain = Label::create(AzString::from_const_str("Name"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(inline(&plain.clone().dom()), inline(&label(UiTheme::Flat)));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Label::create(AzString::from_const_str("Name"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Label::create(AzString::from_const_str("Name"))
+                .with_theme(UiTheme::Flora)
+                .theme,
+            set.theme
+        );
+    }
+
+    #[test]
+    fn a_flora_label_writes_in_flora_s_quiet_ink_and_its_night_twin() {
+        if Label::create(AzString::from_const_str("x"))
+            .resolved_label_style()
+            .as_ref()
+            .is_empty()
+        {
+            // A platform with no default label style has no ink to replace.
+            return;
+        }
+        let dom = label(UiTheme::Flora);
+        assert_eq!(
+            last_ink(&theme_probe::unconditional(&dom)),
+            Some(flora::LIGHT_INTRO),
+            "flora.css --color-text-light: --fl-intro"
+        );
+        assert_eq!(
+            last_ink(&theme_probe::dark(&dom)),
+            Some(flora::DARK_INTRO),
+            "the same ink at night"
+        );
+    }
+
+    #[test]
+    fn a_flora_label_keeps_the_platform_geometry() {
+        let not_ink = |props: Vec<CssProperty>| -> Vec<CssProperty> {
+            props
+                .into_iter()
+                .filter(|p| !matches!(p, CssProperty::TextColor(_)))
+                .collect()
+        };
+        assert_eq!(
+            not_ink(theme_probe::unconditional(&label(UiTheme::Flora))),
+            not_ink(theme_probe::unconditional(&label(UiTheme::Flat))),
+            "a theme recolours a label; it does not move it"
+        );
+    }
+
+    #[test]
+    fn a_flora_label_carries_the_flora_theme_marker() {
+        let names = classes(&label(UiTheme::Flora));
+        assert!(names.iter().any(|c| c == "__azul-native-label"), "{names:?}");
+        assert!(names.iter().any(|c| c == "__azul-theme-flora"), "{names:?}");
+    }
+
+    #[test]
+    fn a_callers_label_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_font_size(
+                StyleFontSize::const_px(40)
+            ))
+        ]);
+        let mut l = Label::create(AzString::from_const_str("x")).with_theme(UiTheme::Flora);
+        l.label_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&l.dom()), expected);
+    }
+}

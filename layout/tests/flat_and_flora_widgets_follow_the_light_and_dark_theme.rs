@@ -332,3 +332,18 @@ fn badges_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn labels_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::label::Label;
+    let widgets = LOOKS
+        .iter()
+        .map(|(look, theme)| {
+            (
+                format!("{look} label"),
+                Label::create(AzString::from("Name")).with_theme(*theme).dom(),
+            )
+        })
+        .collect();
+    assert_follow_the_theme(widgets);
+}
