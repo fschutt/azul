@@ -72,10 +72,11 @@ document instance), drag a component file onto the Document tree.
 |---|---|
 | `5e3ba363d` | docs(b4): audit |
 | `dd0ce93b0` | test(builder): project scenarios, RED (`layout/src/e2e/project_tests.rs`, 9 tests) |
+| `e06aea928` | feat(builder): project.rs + builder.rs stylesheet/load + full.rs arms + gene2e rows (+ 8 project.rs unit tests, 3 builder.rs unit tests; rustfmt applied to the two new files) |
 
 ## 4. IN PROGRESS
 
-- `layout/src/e2e/project.rs` + builder.rs stylesheet / load + full.rs arms + gene2e rows.
+- RED JS tests: `debugger-project.test.js` (node) + `scripts/debugger-ui/builder-project-smoke.mjs`.
 
 ## 5. NEXT
 
