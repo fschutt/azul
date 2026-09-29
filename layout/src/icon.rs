@@ -146,6 +146,122 @@ impl FontIconData {
     }
 }
 
+/// An SVG icon: the document itself, drawn when the icon is resolved.
+///
+/// Register with [`register_svg_icon`]; the default resolver needs nothing
+/// else - no custom resolver, no Rust - which is what makes an SVG file a
+/// usable user icon. `currentColor` in the document follows the `<icon>`
+/// node's cascaded `color` (a monochrome document exactly, through its alpha;
+/// see [`IconMeta::is_mask_artwork`]), and an [`IconRecolor::Palette`] swaps
+/// the paints it lists as the document is drawn.
+#[derive(Debug, Clone)]
+pub struct SvgIconData {
+    /// The document, UTF-8 XML.
+    pub svg: Vec<u8>,
+    /// The icon's natural size in logical px (the document's `width` /
+    /// `height`, else its viewBox).
+    pub width: f32,
+    pub height: f32,
+    pub meta: IconMeta,
+}
+
+/// The largest SVG document [`register_svg_icon`] accepts. Icons are small;
+/// a user theme is untrusted input (design 9.1 pitfall 8), so an oversized
+/// file is refused rather than parsed.
+pub const MAX_SVG_ICON_BYTES: usize = 1 << 20;
+
+/// The natural size an SVG that states none is drawn at.
+const DEFAULT_SVG_ICON_SIZE: f32 = 24.0;
+
+/// How many device pixels per logical pixel an SVG icon is rasterised at,
+/// so it stays crisp on a 2x display.
+const SVG_ICON_OVERSAMPLE: f32 = 2.0;
+
+/// The metadata an SVG document implies when its registration states none:
+/// a document that paints in `currentColor` follows the text colour
+/// ([`IconRecolor::CurrentColor`]), and is `monochrome` when EVERY paint is
+/// `currentColor` or `none`; anything else is full-colour artwork, never
+/// recoloured ([`IconMeta::for_image`]).
+///
+/// This reads the author's own statement (`currentColor`) - it does not
+/// guess from the kind of icon.
+#[must_use]
+pub fn default_svg_icon_meta(svg: &[u8]) -> IconMeta {
+    let mentions_current_color = svg
+        .windows(b"currentcolor".len())
+        .any(|w| w.eq_ignore_ascii_case(b"currentcolor"));
+    if !mentions_current_color {
+        return IconMeta::for_image();
+    }
+    #[cfg(feature = "cpurender")]
+    let monochrome = crate::cpurender::svg_uses_only_current_color(svg);
+    #[cfg(not(feature = "cpurender"))]
+    let monochrome = false;
+    IconMeta::for_image()
+        .with_recolor(IconRecolor::CurrentColor)
+        .with_monochrome(monochrome)
+}
+
+/// Register an SVG document as an icon, with its metadata (see
+/// [`default_svg_icon_meta`] for what a plain `currentColor` icon wants).
+///
+/// Returns `false`, registering nothing, when `svg` is larger than
+/// [`MAX_SVG_ICON_BYTES`] or is not an SVG document.
+pub fn register_svg_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    svg: &[u8],
+    meta: IconMeta,
+) -> bool {
+    let Some(data) = svg_icon_data(svg, meta) else {
+        return false;
+    };
+    provider.register_icon(pack_name, icon_name, RefAny::new(data));
+    true
+}
+
+/// The registered value for an SVG document, or `None` for input that is
+/// too large or not an SVG.
+fn svg_icon_data(svg: &[u8], meta: IconMeta) -> Option<SvgIconData> {
+    if svg.len() > MAX_SVG_ICON_BYTES || !is_svg_document(svg) {
+        return None;
+    }
+    #[cfg(feature = "cpurender")]
+    let size = crate::cpurender::svg_natural_size(svg);
+    #[cfg(not(feature = "cpurender"))]
+    let size: Option<(f32, f32)> = None;
+    let (width, height) = size.unwrap_or((DEFAULT_SVG_ICON_SIZE, DEFAULT_SVG_ICON_SIZE));
+    Some(SvgIconData {
+        svg: svg.to_vec(),
+        width,
+        height,
+        meta,
+    })
+}
+
+/// Does `svg` parse as XML with an `<svg>` root?
+fn is_svg_document(svg: &[u8]) -> bool {
+    #[cfg(feature = "xml")]
+    {
+        let Ok(text) = core::str::from_utf8(svg) else {
+            return false;
+        };
+        let Ok(nodes) = crate::xml::parse_xml_string(text) else {
+            return false;
+        };
+        nodes.iter().any(|n| {
+            matches!(n, azul_core::xml::XmlNodeChild::Element(e)
+                if e.node_type.as_str().eq_ignore_ascii_case("svg"))
+        })
+    }
+    #[cfg(not(feature = "xml"))]
+    {
+        let _ = svg;
+        false
+    }
+}
+
 /// An icon that IS a `Dom` - the general case, of which image and font icons
 /// are special cases.
 ///
@@ -217,6 +333,14 @@ pub extern "C" fn default_icon_resolver(
             return variant;
         }
         return create_font_icon_from_original(&font_icon, original_icon_node, system_style);
+    }
+
+    // Try SvgIconData
+    if let Some(svg) = data.downcast_ref::<SvgIconData>() {
+        if let Some(variant) = variant_redirect(&svg.meta, original_icon_node, system_style) {
+            return variant;
+        }
+        return create_svg_icon_from_original(&svg, original_icon_node, system_style);
     }
 
     // Unknown data type -> empty div
@@ -418,6 +542,105 @@ fn create_font_icon_from_original(
     }
 
     dom
+}
+
+/// Draw an SVG icon: the document is rasterised with the paints the metadata
+/// asks for, then placed exactly like an image icon (natural size, the call
+/// site's styles, the ink as `flood() composite(in)` where it applies).
+///
+/// `currentColor` in the document:
+/// - monochrome artwork with an ink ([`Ink::Color`] / [`Ink::CurrentColor`]) is drawn in opaque
+///   black - a pure alpha mask - and the ink is flooded through it by the image filters, so it
+///   follows the node's CASCADED `color` exactly (the resolver runs before the cascade, so only
+///   the display list knows that colour);
+/// - otherwise it is the explicit ink, else the `<icon>`'s own inline `color`, else the mode's
+///   `system:text`.
+///
+/// A [`IconRecolor::Palette`] swaps its paints as the document is drawn,
+/// `system:` targets resolved for the mode the icon is drawn in.
+#[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded icon pixel size
+fn create_svg_icon_from_original(
+    svg: &SvgIconData,
+    original: &NodeData,
+    system_style: &SystemStyle,
+) -> Dom {
+    use azul_css::props::basic::color::SystemColorRef;
+
+    let dark = is_dark(system_style);
+    let resolve = |c: ColorU| {
+        SystemColorRef::from_color_token(c)
+            .map_or(c, |r| r.resolve_for_theme(&system_style.colors, dark))
+    };
+    let ink = ink_for(&svg.meta, system_style);
+    let flooded = svg.meta.is_mask_artwork() && ink != Ink::Native;
+    let current_color = if flooded {
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    } else {
+        match ink {
+            Ink::Color(c) => resolve(c),
+            Ink::CurrentColor | Ink::Native => resolve(
+                inline_text_color(original).unwrap_or_else(|| SystemColorRef::Text.to_color_token()),
+            ),
+        }
+    };
+    let palette = match &svg.meta.recolor {
+        IconRecolor::Palette(map) => map
+            .as_ref()
+            .iter()
+            .map(|m| (m.from, resolve(m.to)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let paint = crate::cpurender::SvgPaintContext {
+        current_color: Some(current_color),
+        palette,
+    };
+    let device = |logical: f32| ((logical * SVG_ICON_OVERSAMPLE).ceil().max(1.0)) as u32;
+    let Ok(image) = crate::cpurender::render_svg_to_imageref_painted(
+        &svg.svg,
+        device(svg.width),
+        device(svg.height),
+        &paint,
+    ) else {
+        return Dom::create_div();
+    };
+    let as_image = ImageIconData::with_meta(image, svg.width, svg.height, svg.meta.clone());
+    create_image_icon_from_original(&as_image, original, system_style)
+}
+
+/// Without the rasteriser there is nothing to draw an SVG icon with.
+#[cfg(not(feature = "cpurender"))]
+fn create_svg_icon_from_original(
+    _svg: &SvgIconData,
+    _original: &NodeData,
+    _system_style: &SystemStyle,
+) -> Dom {
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] an SVG icon was resolved, but this build has no `cpurender` feature - \
+             SVG icons render as nothing"
+        );
+    });
+    Dom::create_div()
+}
+
+/// The last `color:` the call site set on the `<icon>` itself, if any.
+#[cfg(feature = "cpurender")]
+fn inline_text_color(original: &NodeData) -> Option<ColorU> {
+    copy_appropriate_styles_vec(original)
+        .iter()
+        .rev()
+        .find_map(|p| match &p.property {
+            CssProperty::TextColor(CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        })
 }
 
 /// Copy styles from original node
@@ -2142,7 +2365,7 @@ mod autotest_generated {
             b"not an svg",
             IconMeta::for_image()
         ));
-        let huge = [b' '; MAX_SVG_ICON_BYTES + 1];
+        let huge = vec![b' '; MAX_SVG_ICON_BYTES + 1];
         assert!(!register_svg_icon(
             &mut provider,
             "app",

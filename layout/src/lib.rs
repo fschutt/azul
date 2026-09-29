@@ -420,6 +420,7 @@ pub use icon::{
     create_default_icon_provider,
     // Resolver
     default_icon_resolver,
+    default_svg_icon_meta,
     register_embedded_material_icons,
     register_font_icon,
     register_icons_from_zip,
@@ -427,9 +428,11 @@ pub use icon::{
     register_image_icon,
     register_image_icon_with_meta,
     register_material_icons,
+    register_svg_icon,
     FontIconData,
     // Data types for RefAny
     ImageIconData,
+    SvgIconData,
 };
 
 /// Callback handling for layout events (invocation, result processing).
