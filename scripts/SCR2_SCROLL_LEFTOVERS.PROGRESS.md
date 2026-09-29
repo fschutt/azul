@@ -40,13 +40,16 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   FIX adcd74e7b (`headless::content_rect_to_screen` + private `rect_to_screen`;
   `LayoutWindow::css_transform_of` replaces 3 inline copies)
 
+- 3: RED 9a723541e (`layout/tests/a_layout_blit_repaints_what_is_painted_over_its_mover.rs`),
+  FIX b3bce7e64 (`painted_over_mover` in compositor.rs, generalising S1's scrollbar rule)
+
 ## IN PROGRESS
 
-- 3 RED (layout blit: a focus ring painted over a mover)
+- 4 (gpu_value_damage onto ScrollStack, behaviour-preserving refactor)
 
 ## NEXT
 
-- 3 fix, 4, (5), report
+- (5), report
 
 ## Open questions
 
