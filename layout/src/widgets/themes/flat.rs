@@ -3750,3 +3750,40 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
 pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
     p.build(time_picker_skin())
 }
+
+// ==== toast ====
+//
+// Flat is the established toast: the kind's alert palette on a 6px card by day,
+// its deep tint under light ink by night. What it adds is the focus ring the
+// "x" never had - a 2px halo just outside the glyph, `FIELD_RING` / `DARK_ACC`,
+// declared for `:focus` only so the resting button is unchanged.
+
+/// Flat's toast skin.
+#[must_use]
+pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
+    use crate::widgets::toast as t;
+
+    let mut close = t::TOAST_CLOSE_STYLE.to_vec();
+    close.extend(super::style_kit::focus_halo(FIELD_RING, DARK_ACC));
+
+    t::ToastSkin {
+        theme: super::UiTheme::Flat,
+        container: toast_container,
+        message: CssPropertyWithConditionsVec::from_const_slice(t::TOAST_MESSAGE_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+    }
+}
+
+/// The kind's card: its light face, then its dark twins.
+fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithConditionsVec {
+    use crate::widgets::toast as t;
+    let mut v = t::build_toast_style(kind).into_library_owned_vec();
+    v.extend(t::build_toast_dark_twins(kind));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::toast::Toast`] in the flat theme.
+#[must_use]
+pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
+    t.build(toast_skin())
+}

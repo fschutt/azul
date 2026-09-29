@@ -65,7 +65,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static TOAST_CONTAINER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast"))];
@@ -77,13 +80,14 @@ static TOAST_CLOSE_CLASS: &[IdOrClass] =
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
-const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
+pub(crate) const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-/// Distance (logical px) of the toast from the bottom / right edges of its parent.
-const TOAST_INSET: isize = 24;
-/// Maximum width (logical px) of the toast card.
-const TOAST_MAX_WIDTH: isize = 360;
+/// Distance (logical px) of the toast from the bottom / right edges of its
+/// parent - every theme's card sits there.
+pub(crate) const TOAST_INSET: isize = 24;
+/// Maximum width (logical px) of the toast card, in every theme.
+pub(crate) const TOAST_MAX_WIDTH: isize = 360;
 
 /// Callback function type invoked when a toast's "x" close button is clicked.
 pub type ToastOnDismissCallbackType = extern "C" fn(RefAny, CallbackInfo, ToastState) -> Update;
@@ -278,6 +282,10 @@ pub struct Toast {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the card, message and
+    /// close button are built from, so switching it rebuilds the toast.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -307,7 +315,7 @@ impl Default for ToastState {
 /// `alert::build_alert_style` but pins the box to the bottom-right corner of its
 /// positioned parent (`position: absolute`) and caps its width instead of
 /// stretching to fill a flex column.
-fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
     let (bg, border, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
@@ -422,7 +430,7 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
 /// `dom()` appends them AFTER the light style, and only to the widget's own
 /// style: inline declarations resolve last-match-wins, and a caller's
 /// `container_style` owns every property, dark ones included.
-fn build_toast_dark_twins(kind: ToastKind) -> [CssPropertyWithConditions; 6] {
+pub(crate) fn build_toast_dark_twins(kind: ToastKind) -> [CssPropertyWithConditions; 6] {
     use crate::widgets::themes::system_palette::{
         dark_background_color, dark_border_bottom, dark_border_left, dark_border_right,
         dark_border_top, dark_text,
@@ -440,13 +448,13 @@ fn build_toast_dark_twins(kind: ToastKind) -> [CssPropertyWithConditions; 6] {
 }
 
 /// Message-text style: takes the remaining horizontal space, left-aligned.
-static TOAST_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TOAST_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
 /// Close-button ("x") style: a small pointer-cursor box on the right.
-static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -455,6 +463,29 @@ static TOAST_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
         12,
     ))),
 ];
+
+/// What a theme supplies for a toast: the card for a kind (complete, dark
+/// twins included - used when the app brings no container style), the
+/// message and the close button. Built by `themes::flat::toast_skin` /
+/// `themes::flora::toast_skin`.
+pub(crate) struct ToastSkin {
+    pub theme: UiTheme,
+    /// The card for a kind.
+    pub container: fn(ToastKind) -> CssPropertyWithConditionsVec,
+    /// The message text.
+    pub message: CssPropertyWithConditionsVec,
+    /// The "x" - focusable, so it owes the focus ring.
+    pub close: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws toasts with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> ToastSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::toast_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::toast_skin(),
+    }
+}
 
 impl Toast {
     /// Creates a new informational (blue) toast with the given message (visible,
@@ -475,20 +506,39 @@ impl Toast {
             kind,
             dismissible: true,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
     }
 
-    /// The container CSS this toast renders its light face with.
+    /// Pick the widget theme. Unset (`None`), the toast renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// The container CSS this toast renders with.
     ///
-    /// `None` means no opinion, so the kind's default applies — the same answer
-    /// both themes give, asked in one place so they cannot drift. For that
-    /// case `dom()` appends the kind's dark twins (`build_toast_dark_twins`).
+    /// `None` means no opinion, so the kind's default in the toast's theme
+    /// applies. In the flat theme (the default) that is the kind's LIGHT face
+    /// alone - `dom()` appends its dark twins (`build_toast_dark_twins`);
+    /// the flora card comes complete.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
-        self.container_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(|| build_toast_style(self.kind))
+        self.container_style.clone().into_option().unwrap_or_else(|| {
+            match self.theme.into_option().unwrap_or_default() {
+                UiTheme::Flat => build_toast_style(self.kind),
+                UiTheme::Flora => (skin_for(UiTheme::Flora).container)(self.kind),
+            }
+        })
     }
 
     /// Sets the colour variant.
@@ -557,39 +607,47 @@ impl Toast {
     }
 
     /// Converts this toast into a DOM subtree with the `__azul-native-toast` class.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does): each
+    /// hands [`Self::build`] its skin. `UiTheme::default()` is flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::toast(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::toast(self),
+        }
+    }
+
+    /// Renders the toast with `skin` styling its card, message and close -
+    /// what `themes::flat::toast` / `themes::flora::toast` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: ToastSkin) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
             refany::OptionRefAny,
         };
 
-        // Resolved before `self.message` is moved out below.
-        let mut container_style = self.resolved_container_style();
-        // The kind's dark twins, after its light colours (last match wins):
-        // a pastel toast is a light island on a dark window. Only on the
-        // widget's own style - a caller's `container_style` owns every
-        // property, dark ones included.
-        if self.container_style.is_none() {
-            let mut style = container_style.into_library_owned_vec();
-            style.extend(build_toast_dark_twins(self.kind));
-            container_style = CssPropertyWithConditionsVec::from_vec(style);
-        }
+        // Resolved before `self.message` is moved out below. The theme's card
+        // comes complete (its dark twins after its light colours - a pastel
+        // toast is a light island on a dark window); a caller's
+        // `container_style` owns every property, dark ones included.
+        let container_style = match self.container_style.clone().into_option() {
+            Some(own) => own,
+            None => (skin.container)(self.kind),
+        };
 
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                TOAST_MESSAGE_STYLE,
-            ));
+            .with_css_props(skin.message);
 
         let mut children = alloc::vec![message];
 
         if self.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_CLOSE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TOAST_CLOSE_STYLE))
+                .with_css_props(skin.close)
                 .with_tab_index(TabIndex::Auto)
             // Role so the accessibility tree knows what this IS:
             // a transient announcement. The NAME comes from the widget's own text,
@@ -617,8 +675,10 @@ impl Toast {
             children.push(close);
         }
 
+        let mut classes: Vec<IdOrClass> = TOAST_CONTAINER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_CONTAINER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -1874,7 +1934,16 @@ mod autotest_generated {
             .collect();
 
         assert_eq!(inline_props(&children[0]), want_message);
-        assert_eq!(inline_props(&children[1]), want_close);
+        // The close button RESTS as its static style; the flat theme appends
+        // its focus ring, a `:focus`-only declaration, after it.
+        let close_resting: Vec<CssProperty> = children[1]
+            .root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .map(|(p, _)| p.clone())
+            .collect();
+        assert_eq!(close_resting, want_close);
 
         // the message takes the free space, the close button never does
         assert!(want_message.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))));

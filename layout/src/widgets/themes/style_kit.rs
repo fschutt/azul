@@ -384,6 +384,34 @@ pub fn focus_shadow_ring(light: ColorU, dark: ColorU) -> [P; 2] {
     ]
 }
 
+/// The focus ring of a bare glyph button (a "x" with no box of its own to
+/// ring, and no border to colour): a 2px halo just OUTSIDE its box on
+/// `:focus`, light then dark - declared for the state only, so the resting
+/// glyph is unchanged. On the LEFT shadow slot, like [`focus_shadow_ring`].
+#[must_use]
+pub fn focus_halo(light: ColorU, dark: ColorU) -> [P; 2] {
+    let halo = |color: ColorU| StyleBoxShadow {
+        offset_x: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        offset_y: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        blur_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        spread_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(2),
+        },
+        clip_mode: BoxShadowClipMode::Outset,
+        color,
+    };
+    [
+        P::on_focus(CssProperty::box_shadow_left(halo(light))),
+        P::dark_on_focus(CssProperty::box_shadow_left(halo(dark))),
+    ]
+}
+
 /// A hover fill, light then dark.
 #[must_use]
 pub fn hover_bg(light: ColorU, dark: ColorU) -> [P; 2] {

@@ -3732,3 +3732,113 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
 pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
     p.build(time_picker_skin())
 }
+
+// ==== toast ====
+//
+// Flora has no pastel alert fills: a notice is a LEAF laid over the page
+// (`--fl-sur` under a `--fl-bd2` hairline, the house radius, the nearer shadow of
+// `--fl-shadow-2`), in flora ink, and what KIND of notice it is runs as a thread
+// in its left margin - the way flora sets a quotation against a metal thread
+// (`blockquote`). The threads are the house hues flora.css lists as alternates to
+// its accent: the accent itself for information (by night its glow), leaf for
+// success, brass (`--color-gold`) for a warning, clay for danger - each with its
+// night value. The "x" is a quiet action in brass ink, ringed on focus in the
+// accent by day and the glow by night. The card keeps the widget's placement.
+
+/// The kind's thread in the margin: `(by day, by night)`.
+const fn toast_thread(kind: crate::widgets::toast::ToastKind) -> (ColorU, ColorU) {
+    use crate::widgets::toast::ToastKind;
+    match kind {
+        ToastKind::Info => (LIGHT_ACC, DARK_GLOW),
+        // leaf: #44684F / #7FA98C
+        ToastKind::Success => (ColorU::new(68, 104, 79, 255), ColorU::new(127, 169, 140, 255)),
+        // brass: --color-gold #9A8B5F / #C4B58E
+        ToastKind::Warning => (ColorU::new(154, 139, 95, 255), ColorU::new(196, 181, 142, 255)),
+        // clay: #7E4A42 / #B3837A
+        ToastKind::Danger => (ColorU::new(126, 74, 66, 255), ColorU::new(179, 131, 122, 255)),
+    }
+}
+
+/// Flora's toast skin.
+#[must_use]
+pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
+    use super::style_kit as kit;
+    use crate::widgets::toast as t;
+    type P = CssPropertyWithConditions;
+
+    let mut close = vec![
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        kit::font_size(18),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+        P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(12))),
+    ];
+    close.extend(kit::padding(0, 5, 0, 5));
+    close.extend(kit::radius(3));
+    close.extend(kit::themed_ink(LIGHT_QT, DARK_QT));
+    close.extend(kit::ring_slot());
+    // States last.
+    close.extend(kit::hover_ink(LIGHT_QT2, DARK_QT2));
+    close.extend(kit::hover_bg(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+    close.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    t::ToastSkin {
+        theme: super::UiTheme::Flora,
+        container: toast_container,
+        message: CssPropertyWithConditionsVec::from_const_slice(t::TOAST_MESSAGE_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+    }
+}
+
+/// The flora card for a kind: a leaf with the kind's thread in its margin.
+fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    use crate::widgets::toast as t;
+    type P = CssPropertyWithConditions;
+
+    let (thread, thread_dark) = toast_thread(kind);
+    let mut v = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        // Where every theme's toast floats: the positioned parent's corner.
+        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        P::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(t::TOAST_INSET))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(t::TOAST_INSET))),
+        P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(t::TOAST_MAX_WIDTH))),
+        kit::font_size(14),
+        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(kit::padding(12, 12, 12, 14));
+    let hairline = kit::Edges {
+        top: true,
+        right: true,
+        bottom: true,
+        left: false,
+    };
+    v.extend(kit::border(hairline, 1, LIGHT_BD2, DARK_BD2));
+    let margin = kit::Edges {
+        top: false,
+        right: false,
+        bottom: false,
+        left: true,
+    };
+    v.extend(kit::border(margin, 3, thread, thread_dark));
+    v.extend(kit::radius(3));
+    v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(kit::drop_shadow(
+        2,
+        5,
+        POPOVER_SHADOW_LIGHT,
+        POPOVER_SHADOW_DARK,
+    ));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::toast::Toast`] in the flora theme.
+#[must_use]
+pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
+    t.build(toast_skin())
+}
