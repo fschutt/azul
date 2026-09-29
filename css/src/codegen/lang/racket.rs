@@ -5,9 +5,11 @@
 //! (`(css-property-text-color x)`, variant constructors `(layout-width-px pv)`,
 //! `(layout-width-auto)`), C-like enum members are integer constants
 //! `AzLayoutDisplay_Flex`, structs are `define-cstruct`s built positionally
-//! (`(make-AzColorU 255 0 0 255)`), a union variant is its variant struct
-//! (`(make-AzLayoutWidthValue_Variant_Exact AzLayoutWidthValue_Tag_Exact ..)`)
-//! written into the union's memory (`css-union` below). A Vec is copied
+//! (`(make-AzColorU 255 0 0 255)`), a hand-built union variant is its
+//! variant struct's fields set BY NAME in the union's memory (`css-union`
+//! below: `set-AzLayoutWidthValue_Variant_Exact-variant-tag!` / `-payload!`),
+//! never the positional `make-..._Variant_..`, whose argument list also has
+//! the padding the binding puts between tag and payload. A Vec is copied
 //! from a `malloc`ed array (`css-vec`), a string is
 //! `(string->azul-string "..")`.
 
@@ -127,18 +129,20 @@ impl ExprSyntax for Racket {
         match shape {
             EnumShape::CLike => Doc::text(format!("Az{ty}_{variant}")),
             EnumShape::Tagged => form(wrapper(ty, &variant_ctor_method(variant)), args, broken),
+            // By field name: see `CSS_UNION`.
             EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
-                let mut fields = vec![Doc::text(format!("Az{ty}_Tag_{variant}"))];
-                fields.extend(args);
-                form(
-                    "css-union".to_string(),
-                    vec![
-                        Doc::text(format!("_Az{ty}")),
-                        Doc::text(format!("_Az{ty}_Variant_{variant}")),
-                        form(format!("make-Az{ty}_Variant_{variant}"), fields, broken),
-                    ],
-                    broken,
-                )
+                let vs = format!("Az{ty}_Variant_{variant}");
+                let mut parts = vec![
+                    Doc::text(format!("_Az{ty}")),
+                    Doc::text(format!("{vs}-tag")),
+                    Doc::text(format!("set-{vs}-variant-tag!")),
+                    Doc::text(format!("Az{ty}_Tag_{variant}")),
+                ];
+                if let Some(payload) = args.into_iter().next() {
+                    parts.push(Doc::text(format!("set-{vs}-payload!")));
+                    parts.push(payload);
+                }
+                form("css-union".to_string(), parts, broken)
             }
         }
     }
@@ -181,10 +185,18 @@ const CSS_VEC: &str = r";; Copies ITEMS into a malloc'ed array of TYPE; COPY clo
   (copy arr n))
 ";
 
-const CSS_UNION: &str = r";; A union value: VARIANT (a variant struct, tag first) written into its memory.
-(define (css-union type variant-type variant)
+/// The union helper. It sets the variant struct's fields by name (through
+/// the `define-cstruct` setters, on the union memory tagged as the variant
+/// struct), so the padding the binding puts between `variant-tag` and
+/// `payload` (where Rust puts the payload) needs no value here.
+const CSS_UNION: &str = r";; A union value of TYPE holding one variant. The variant struct's `variant-tag`
+;; and `payload` are set by name (VARIANT-TAG is the struct's pointer tag), so
+;; the padding the binding puts between them needs no value.
+(define (css-union type variant-tag set-tag! tag [set-payload! #f] [payload #f])
   (define p (malloc type))
-  (ptr-set! p variant-type variant)
+  (cpointer-push-tag! p variant-tag)
+  (set-tag! p tag)
+  (when set-payload! (set-payload! p payload))
   (ptr-ref p type))
 ";
 
