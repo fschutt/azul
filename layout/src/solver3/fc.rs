@@ -10867,6 +10867,40 @@ pub fn split_text_for_whitespace(
     text: &str,
     style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
+    let mut result = white_space_runs(styled_dom, dom_id, text, style);
+
+    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before
+    // Phase II trimming This means full-width only transforms spaces (U+0020) to U+3000
+    // IDEOGRAPHIC SPACE within preserved white space, because non-preserved spaces were already
+    // collapsed in Phase I above.
+    let text_transform = style.text_transform;
+    if text_transform != text3::cache::TextTransform::None {
+        for item in &mut result {
+            if let InlineContent::Text(run) = item {
+                run.text = Arc::from(apply_text_transform(&run.text, text_transform).as_str());
+            }
+        }
+    }
+
+    result
+}
+
+/// The white-space processing half of [`split_text_for_whitespace`] (CSS
+/// Text 3 Phase I - collapsing, forced breaks, tabs), without the
+/// `text-transform` it then applies: the text as the layout's carets count
+/// its bytes, in the characters the DOM holds.
+///
+/// What the edit model (`LayoutWindow::get_text_before_textinput`) reads a
+/// `white-space: normal` / `nowrap` text node as: the layout collapses "a   b"
+/// to "a b" before it shapes it, so a caret after the 'b' is byte 3 - of the
+/// collapsed text, not of the raw one. The case of the letters is
+/// presentation, and a stored value never takes it on.
+pub fn white_space_runs(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    text: &str,
+    style: &Arc<StyleProperties>,
+) -> Vec<InlineContent> {
     // (characters with the Bidi_Control property) as if they were not there"
     // Strip bidi control characters before white-space processing so they don't
     // interfere with collapsing (e.g. a bidi mark between two spaces).
@@ -11075,19 +11109,6 @@ pub fn split_text_for_whitespace(
                     }));
                     content_index += 1;
                 }
-            }
-        }
-    }
-
-    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before
-    // Phase II trimming This means full-width only transforms spaces (U+0020) to U+3000
-    // IDEOGRAPHIC SPACE within preserved white space, because non-preserved spaces were already
-    // collapsed in Phase I above.
-    let text_transform = style.text_transform;
-    if text_transform != text3::cache::TextTransform::None {
-        for item in &mut result {
-            if let InlineContent::Text(run) = item {
-                run.text = Arc::from(apply_text_transform(&run.text, text_transform).as_str());
             }
         }
     }

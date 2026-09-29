@@ -18927,9 +18927,18 @@ impl LayoutWindow {
                 //     every line below the break.
                 // Route through the SAME splitter the layout used, so run
                 // indices and per-run byte offsets agree with the shaped
-                // clusters. Normal/nowrap keep the raw single run: their
-                // collapse would rewrite the stored value, and a single-line
-                // host vetoes '\n' upstream anyway.
+                // clusters.
+                //
+                // Normal/nowrap COLLAPSE white space before shaping ("a   b"
+                // is shaped as "a b"), so the carets count the collapsed
+                // text's bytes: a caret after the 'b' is byte 3. The raw run
+                // put it at byte 3 of "a   b" - in the spaces - and every
+                // keystroke after a collapsed run of spaces went in earlier
+                // than the caret. The edit model is the layout's white-space
+                // processing (`fc::white_space_runs`) without its
+                // `text-transform`, which is presentation: an edit stores the
+                // text as shown, spaces collapsed, letters as the DOM had
+                // them.
                 let preserves_newlines = {
                     use crate::solver3::getters::{get_white_space_property, MultiValue};
                     use azul_css::props::style::StyleWhiteSpace;
@@ -18968,12 +18977,12 @@ impl LayoutWindow {
                     );
                 }
 
-                vec![InlineContent::Text(StyledRun {
-                    text: Arc::from(text.as_str()),
-                    style,
-                    logical_start_byte: 0,
-                    source_node_id: Some(node_id),
-                })]
+                solver3::fc::white_space_runs(
+                    &layout_result.styled_dom,
+                    node_id,
+                    text.as_str(),
+                    &style,
+                )
             }
             // Container nodes - recursively collect text from children.
             //
