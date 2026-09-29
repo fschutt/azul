@@ -519,3 +519,25 @@ fn an_unpinned_constrained_field_built_for_flora_is_marked_flora() {
     let flat = built_for(UiTheme::Flat, &|| TextInput::create_email().dom());
     assert!(marked(&flat, THEME_FLAT_CLASS) && !marked(&flat, THEME_FLORA_CLASS));
 }
+
+#[test]
+fn text_areas_follow_the_app_theme() {
+    use azul_layout::widgets::{text_area::TextArea, themes::OptionUiTheme};
+    assert_eq!(
+        TextArea::create().theme,
+        OptionUiTheme::None,
+        "a fresh text area has no theme opinion: it follows the app"
+    );
+    for text in ["", "line one\nline two"] {
+        assert_follows_the_app_theme(&format!("text area {text:?}"), |t| {
+            pinned(
+                TextArea::create()
+                    .with_text(AzString::from_const_str(text))
+                    .with_accessibility_name("Notes"),
+                t,
+                TextArea::with_theme,
+            )
+            .dom()
+        });
+    }
+}
