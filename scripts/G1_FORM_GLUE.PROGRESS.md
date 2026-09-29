@@ -10,12 +10,14 @@ display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
   unit tests `a_week_value_names_the_monday_of_that_iso_week`,
   `month_and_datetime_values_are_checked_for_their_html_shape`
 - 1c68d83b4 step 1: WAVE2-GLUE rows -> W1 widgets (all markers gone)
+- 9ac424f07 RED step 2: `mod forms` (mount() harness inserts a DomLayoutResult, no layout)
+- 5ca767bcb step 2: `<form>` row, form_for() trampolines, collect_form_data(), submit/reset
+  take the callback out of the state before invoking
 
 ## IN PROGRESS
-- step 2 RED: raw `<form>` -> `Form`
+- step 3 RED: form reset forgets the replaced controls' memory
 
 ## NEXT
-2. RED + impl: raw `<form>` -> `Form` (Submit/Reset event handlers -> on_submit/on_reset trampolines)
 3. RED + impl: form reset forgets the replaced controls' memory (+ RefreshDom)
 4. RED + impl: FormData collects replaced checkbox/radio/range/colour/number/date/time/select/...
 5. RED + impl: `<datalist>` display:none
