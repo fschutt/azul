@@ -22,13 +22,16 @@ Branch `wt/e1-e2e-tooling`, based on `0a326afe5`. Nothing compiled (house rule).
   `c562b79f8` scenario split + guide, `841921086` RED (`parse_summary` stub),
   `b89b1ecc5` fix (dispatcher sums the children's tallies; mobile reader uses `parse_summary`)
 
+- item 2 + 7: `352b4a7c7` RED (3 tests), `d3b67c318` feat (op, payload, OP_POLICY row DENIED,
+  guide section, demo payload + `examples/azul-widgets/e2e/notifications.json`),
+  `2593ccbb3` hotkey scenario's vacuous `find_node_by_text` now asserted
+
 ## IN PROGRESS
 
-- item 2 RED
+- item 5 RED
 
 ## NEXT
 
-2. item 2 + 7: RED, op + payload + OP_POLICY row + docs + demo scenario
 3. item 5: RED, `LayoutWindow::scroll_focused_container_by_keyboard` used by runner and dll
 4. item 6: RED, runner fires `Dismissed`
 5. item 3 residual (`get_cursor_state.position`) if consumers allow
@@ -36,4 +39,6 @@ Branch `wt/e1-e2e-tooling`, based on `0a326afe5`. Nothing compiled (house rule).
 
 ## Open questions
 
-- none yet
+- `notification_event` is DENIED for generated tests (the in-crate runner has no notification
+  service). `global_hotkey*` are ALLOWED although the in-crate runner has no hotkey pump either -
+  same class; the parent / user may want to deny those too.
