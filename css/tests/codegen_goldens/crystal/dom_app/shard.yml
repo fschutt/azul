@@ -1,4 +1,4 @@
-name: azul_styles
+name: azul_app
 version: 0.1.0
 
 dependencies:
@@ -6,5 +6,5 @@ dependencies:
     path: ./azul
 
 targets:
-  azul_styles:
+  azul_app:
     main: main.cr

@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addIncludePath(b.path("."));
     exe_mod.addLibraryPath(b.path("."));
     exe_mod.linkSystemLibrary("azul", .{});
-    const exe = b.addExecutable(.{ .name = "azul-styles", .root_module = exe_mod });
+    const exe = b.addExecutable(.{ .name = "azul-app", .root_module = exe_mod });
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the app").dependOn(&run.step);

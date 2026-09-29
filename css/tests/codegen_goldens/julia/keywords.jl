@@ -7,10 +7,23 @@ function az_vec(copy, ::Type{T}, items...) where {T}
     GC.@preserve arr copy(pointer(arr), Csize_t(length(arr)))
 end
 
-# Unions are opaque blobs in azul.jl: store the variant struct into one.
-function az_union(::Type{U}, variant) where {U}
+# Unions are opaque blobs in azul.jl: build the variant struct V by field
+# name (its tag, its payload if it has one, zeroes for the `_pad0` bytes
+# azul.h puts between them when the payload is less aligned than the union)
+# and store it into one.
+function az_union(::Type{U}, ::Type{V}, tag, payload...) where {U,V}
+    fields = map(fieldnames(V)) do f
+        if f === :tag
+            tag
+        elseif f === :payload
+            payload[1]
+        else
+            ntuple(_ -> 0x00, fieldcount(fieldtype(V, f)))
+        end
+    end
+    variant = V(fields...)
     r = Ref{U}()
-    GC.@preserve r unsafe_store!(Ptr{typeof(variant)}(Base.unsafe_convert(Ptr{U}, r)), variant)
+    GC.@preserve r unsafe_store!(Ptr{V}(Base.unsafe_convert(Ptr{U}, r)), variant)
     r[]
 end
 
@@ -19,8 +32,8 @@ function keywords()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(az_union(Azul.AzCssProperty, Azul.AzCssPropertyVariant_Width(UInt8(59), az_union(Azul.AzLayoutWidthValue, Azul.AzLayoutWidthValueVariant_Revert(UInt8(4)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretWidth(az_union(Azul.AzCaretWidthValue, Azul.AzCaretWidthValueVariant_Unset(UInt8(5))))),
+        Azul.AzCssPropertyWithConditions_simple(az_union(Azul.AzCssProperty, Azul.AzCssPropertyVariant_Width, UInt8(59), az_union(Azul.AzLayoutWidthValue, Azul.AzLayoutWidthValueVariant_Revert, UInt8(4)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretWidth(az_union(Azul.AzCaretWidthValue, Azul.AzCaretWidthValueVariant_Unset, UInt8(5)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_auto(Azul.AzCssPropertyType_Height)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_none(Azul.AzCssPropertyType_TextShadow))
     )

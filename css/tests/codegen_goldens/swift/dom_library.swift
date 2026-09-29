@@ -2,7 +2,18 @@
 import Azul
 
 // `user:card`: its texts and its link are parameters
-// not expressible with the Swift bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
-public func renderCard() -> Dom? {
-    return nil
+public func renderCard(title: String = "Hello", text: String = "Some text", href: String = "https://azul.rs", author: String = "me") -> Dom {
+    return Dom.div()
+        .withCss("padding: 8px")
+        .withClass("card")
+        .withChild(Dom.h2WithText(title))
+        .withChild(Dom.pWithText(text))
+        .withChild(Dom.a(href, text: "Read more", aria: SmallAriaInfo.label("Read more")))
+        .withChild(Dom.spanWithText("by \(author)"))
 }
+
+// The component library `user` is not registered here: AppConfig.add_component_library
+// needs a ComponentDef whose render_fn is a C function pointer, and
+// the Swift bindings cannot fill one: ComponentDef and ComponentLibrary have no public initializer, and no wrapper class hands out its raw value (`_take` is internal), so a render_fn cannot pass the Dom a render function builds to AzStyledDom_createFromDom.
+// Register the library from an export that can (Rust, C, C++, Zig, Pascal); the
+// functions above build its components.

@@ -2,10 +2,137 @@
 package main
 
 import azul "azul"
+import "base:runtime"
+import "core:strings"
 
 css_str :: proc(s: string) -> azul.AzString {
 	return azul.AzString_fromUtf8(raw_data(s), uint(len(s)))
 }
 
+// Joins PARTS into one AzString (the Odin string is freed again).
+css_concat :: proc(parts: ..string) -> azul.AzString {
+	joined := strings.concatenate(parts)
+	defer delete(joined)
+	return css_str(joined)
+}
+
 // `user:card`: its texts and its link are parameters
-// render_card: not expressible with the Odin bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+render_card :: proc(title: string = "Hello", text: string = "Some text", href: string = "https://azul.rs", author: string = "me") -> azul.AzDom {
+	return azul.AzDom_withChild(
+		azul.AzDom_withChild(
+			azul.AzDom_withChild(
+				azul.AzDom_withChild(
+					azul.AzDom_withClass(
+						azul.AzDom_withCss(azul.AzDom_createDiv(), css_str("padding: 8px")),
+						css_str("card"),
+					),
+					azul.AzDom_createH2WithText(css_str(title)),
+				),
+				azul.AzDom_createPWithText(css_str(text)),
+			),
+			azul.AzDom_createA(css_str(href), css_str("Read more"), azul.AzSmallAriaInfo_label(css_str("Read more"))),
+		),
+		azul.AzDom_createSpanWithText(css_concat("by ", author)),
+	)
+}
+
+// -- registration --
+
+// The String value of the data-model field `name` (borrowing the model's
+// bytes), or `fallback`.
+model_string :: proc(model: ^azul.AzComponentDataModel, name: string, fallback: string) -> string {
+	fields := ([^]azul.AzComponentDataField)(model.fields.ptr)
+	for i in 0 ..< int(model.fields.len) {
+		f := &fields[i]
+		if string(f.name.vec.ptr[:f.name.vec.len]) != name {
+			continue
+		}
+		if f.default_value.Some.tag == 1 && f.default_value.Some.payload.String.tag == 1 {
+			value := &f.default_value.Some.payload.String.payload
+			return string(value.vec.ptr[:value.vec.len])
+		}
+	}
+	return fallback
+}
+
+// A String field of a component's data model.
+string_field :: proc(name: string, value: string, description: string) -> azul.AzComponentDataField {
+	return azul.AzComponentDataField{
+		name = css_str(name),
+		field_type = azul.AzComponentFieldType_string(),
+		default_value = azul.AzOptionComponentDefaultValue_some(azul.AzComponentDefaultValue_string(css_str(value))),
+		required = false,
+		description = css_str(description),
+	}
+}
+
+// `user:card` with its default arguments.
+render_card_default :: proc() -> azul.AzDom {
+	return render_card("Hello", "Some text", "https://azul.rs", "me")
+}
+
+card_render_fn :: proc "c" (def: ^azul.AzComponentDef, model: ^azul.AzComponentDataModel, component_map: ^azul.AzComponentMap) -> azul.AzResultStyledDomRenderDomError {
+	context = runtime.default_context()
+	dom := render_card(model_string(model, "title", "Hello"), model_string(model, "text", "Some text"), model_string(model, "href", "https://azul.rs"), model_string(model, "author", "me"))
+	return azul.AzResultStyledDomRenderDomError_ok(azul.AzStyledDom_createFromDom(dom))
+}
+
+card_compile_fn :: proc "c" (def: ^azul.AzComponentDef, target: ^azul.AzCompileTarget, model: ^azul.AzComponentDataModel, indent: uint) -> azul.AzResultStringCompileError {
+	context = runtime.default_context()
+	return azul.AzResultStringCompileError_ok(css_str("render_card_default()"))
+}
+
+card_def :: proc() -> azul.AzComponentDef {
+	fields := [?]azul.AzComponentDataField{
+		string_field("title", "Hello", "Text of the <h2>"),
+		string_field("text", "Some text", "Text of the <p>"),
+		string_field("href", "https://azul.rs", "`href` of the <a>"),
+		string_field("author", "me", "Text of the <span>"),
+	}
+	field_vec := azul.AzComponentDataFieldVec_copyFromPtr(&fields[0], uint(len(fields)))
+	// copyFromPtr cloned them.
+	for i in 0 ..< len(fields) {
+		azul.AzComponentDataField_delete(&fields[i])
+	}
+	return azul.AzComponentDef{
+		id = azul.AzComponentId_create(css_str("user"), css_str("card")),
+		display_name = css_str("Card"),
+		description = css_str("Converted from a <div> subtree in AzBuilder"),
+		// The CSS is applied per node by render_card.
+		css = css_str(""),
+		source = azul.AzComponentSource.UserDefined,
+		data_model = azul.AzComponentDataModel{
+			name = css_str("CardData"),
+			description = css_str("Converted from a <div> subtree in AzBuilder"),
+			fields = field_vec,
+		},
+		render_fn = card_render_fn,
+		compile_fn = card_compile_fn,
+		render_fn_source = azul.AzOptionString_none(),
+		compile_fn_source = azul.AzOptionString_none(),
+	}
+}
+
+// The component library `user`:
+//     azul.AzAppConfig_addComponentLibrary(&config, css_str("user"), register_user_library)
+register_user_library :: proc "c" () -> azul.AzComponentLibrary {
+	context = runtime.default_context()
+	defs := [?]azul.AzComponentDef{
+		card_def(),
+	}
+	components := azul.AzComponentDefVec_copyFromPtr(&defs[0], uint(len(defs)))
+	// copyFromPtr cloned them.
+	for i in 0 ..< len(defs) {
+		azul.AzComponentDef_delete(&defs[i])
+	}
+	return azul.AzComponentLibrary{
+		name = css_str("user"),
+		version = css_str("0.1.0"),
+		description = css_str("Exported from AzBuilder"),
+		components = components,
+		exportable = true,
+		modifiable = false,
+		data_models = azul.AzComponentDataModelVec_create(),
+		enum_models = azul.AzComponentEnumModelVec_create(),
+	}
+}

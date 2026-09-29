@@ -1,4 +1,4 @@
-module azul-styles
+module azul-app
 
 go 1.21
 

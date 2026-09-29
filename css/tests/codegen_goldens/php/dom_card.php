@@ -3,49 +3,37 @@
 // Needs the FFI binding Azul.php (target/codegen) and `php -d ffi.enable=1`.
 require_once __DIR__ . '/Azul.php';
 
-function azul_struct(string $type, array $fields)
-{
-    $value = \Azul\Azul::lib()->new($type);
-    foreach ($fields as $name => $field) {
-        $value->$name = $field;
+// A PHP string as an AzString (a fresh copy at every use: the C calls take
+// their AzString by value).
+if (!function_exists("azul_str")) {
+    function azul_str(string $s)
+    {
+        $L = \Azul\Azul::lib();
+        $n = strlen($s);
+        $bytes = $L->new("uint8_t[" . max(1, $n) . "]");
+        \FFI::memcpy($bytes, $s, $n);
+        return $L->AzString_fromUtf8($bytes, $n);
     }
-    return $value;
-}
-
-function azul_union(string $type, string $variant, int $tag, $payload = null)
-{
-    $value = \Azul\Azul::lib()->new($type);
-    $value->$variant->tag = $tag;
-    if ($payload !== null) {
-        $value->$variant->payload = $payload;
-    }
-    return $value;
-}
-
-// Copies the items into a C array; the C API clones them into the Vec.
-function azul_vec(string $copy_fn, string $elem, array $items)
-{
-    $L = \Azul\Azul::lib();
-    $n = count($items);
-    $array = $L->new($elem . '[' . $n . ']');
-    foreach ($items as $i => $item) {
-        $array[$i] = $item;
-    }
-    return $L->$copy_fn($array, $n);
-}
-
-function azul_str(string $s)
-{
-    $L = \Azul\Azul::lib();
-    $n = strlen($s);
-    $bytes = $L->new('uint8_t[' . max(1, $n) . ']');
-    \FFI::memcpy($bytes, $s, $n);
-    return $L->AzString_fromUtf8($bytes, $n);
 }
 
 // `user:card`: its texts and its link are parameters
-// not expressible with the PHP bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
-function render_card()
+function render_card(string $title = "Hello", string $text = "Some text", string $href = "https://azul.rs", string $author = "me"): \FFI\CData
 {
-    return null;
+    $L = \Azul\Azul::lib();
+    return $L->AzDom_withChild(
+        $L->AzDom_withChild(
+            $L->AzDom_withChild(
+                $L->AzDom_withChild(
+                    $L->AzDom_withClass(
+                        $L->AzDom_withCss($L->AzDom_createDiv(), azul_str("padding: 8px")),
+                        azul_str("card")
+                    ),
+                    $L->AzDom_createH2WithText(azul_str($title))
+                ),
+                $L->AzDom_createPWithText(azul_str($text))
+            ),
+            $L->AzDom_createA(azul_str($href), azul_str("Read more"), $L->AzSmallAriaInfo_label(azul_str("Read more")))
+        ),
+        $L->AzDom_createSpanWithText(azul_str("by " . $author))
+    );
 }

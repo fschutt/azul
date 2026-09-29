@@ -13,4 +13,22 @@ function New-CssString([string]$S) {
 }
 
 # `user:card`: its texts and its link are parameters
-# Get-RenderCard: not expressible with the PowerShell bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+function Get-RenderCard {
+    param([string]$Title = 'Hello', [string]$Text = 'Some text', [string]$Href = 'https://azul.rs', [string]$Author = 'me')
+    return [Azul.NativeMethods]::AzDom_withChild(
+        [Azul.NativeMethods]::AzDom_withChild(
+            [Azul.NativeMethods]::AzDom_withChild(
+                [Azul.NativeMethods]::AzDom_withChild(
+                    [Azul.NativeMethods]::AzDom_withClass(
+                        [Azul.NativeMethods]::AzDom_withCss([Azul.NativeMethods]::AzDom_createDiv(), (New-CssString 'padding: 8px')),
+                        (New-CssString 'card')
+                    ),
+                    [Azul.NativeMethods]::AzDom_createH2WithText((New-CssString $Title))
+                ),
+                [Azul.NativeMethods]::AzDom_createPWithText((New-CssString $Text))
+            ),
+            [Azul.NativeMethods]::AzDom_createA((New-CssString $Href), (New-CssString 'Read more'), [Azul.NativeMethods]::AzSmallAriaInfo_label((New-CssString 'Read more')))
+        ),
+        [Azul.NativeMethods]::AzDom_createSpanWithText((New-CssString ('by ' + $Author)))
+    )
+}

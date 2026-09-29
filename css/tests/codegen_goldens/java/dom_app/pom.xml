@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Build: copy target/codegen/java/*.java into com/azul/, then
-     mvn -q package && java -Djna.library.path=<dir of libazul> -cp target/azul-styles-1.0.0.jar:<jna.jar> com.azul.StylesMain -->
+     mvn -q package && java -Djna.library.path=<dir of libazul> -cp target/azul-app-1.0.0.jar:<jna.jar> com.azul.AppMain -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.azul.generated</groupId>
-    <artifactId>azul-styles</artifactId>
+    <artifactId>azul-app</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
     <properties>

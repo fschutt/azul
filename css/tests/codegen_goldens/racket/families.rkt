@@ -11,10 +11,14 @@
     (ptr-set! arr type i item))
   (copy arr n))
 
-;; A union value: VARIANT (a variant struct, tag first) written into its memory.
-(define (css-union type variant-type variant)
+;; A union value of TYPE holding one variant. The variant struct's `variant-tag`
+;; and `payload` are set by name (VARIANT-TAG is the struct's pointer tag), so
+;; the padding the binding puts between them needs no value.
+(define (css-union type variant-tag set-tag! tag [set-payload! #f] [payload #f])
   (define p (malloc type))
-  (ptr-set! p variant-type variant)
+  (cpointer-push-tag! p variant-tag)
+  (set-tag! p tag)
+  (when set-payload! (set-payload! p payload))
   (ptr-ref p type))
 
 ;; CSS: .text
@@ -44,42 +48,42 @@
       (css-property-with-conditions-simple (css-property-vertical-align (style-vertical-align-middle)))
       (css-property-with-conditions-simple (css-property-letter-spacing (make-AzStyleLetterSpacing (pixel-value-px 0.5))))
       (css-property-with-conditions-simple (css-property-text-indent (make-AzStyleTextIndent (pixel-value-em 2.0) #f #f)))
-      (css-property-with-conditions-simple (css-property-initial-letter (css-union _AzStyleInitialLetterValue _AzStyleInitialLetterValue_Variant_Exact (make-AzStyleInitialLetterValue_Variant_Exact AzStyleInitialLetterValue_Tag_Exact (make-AzStyleInitialLetter 3 (option-u32-none))))))
-      (css-property-with-conditions-simple (css-property-line-clamp (css-union _AzStyleLineClampValue _AzStyleLineClampValue_Variant_Exact (make-AzStyleLineClampValue_Variant_Exact AzStyleLineClampValue_Tag_Exact (make-AzStyleLineClamp 3)))))
-      (css-property-with-conditions-simple (css-property-hanging-punctuation (css-union _AzStyleHangingPunctuationValue _AzStyleHangingPunctuationValue_Variant_Exact (make-AzStyleHangingPunctuationValue_Variant_Exact AzStyleHangingPunctuationValue_Tag_Exact (make-AzStyleHangingPunctuation #t #f #f #f)))))
-      (css-property-with-conditions-simple (css-property-text-combine-upright (css-union _AzStyleTextCombineUprightValue _AzStyleTextCombineUprightValue_Variant_Exact (make-AzStyleTextCombineUprightValue_Variant_Exact AzStyleTextCombineUprightValue_Tag_Exact (style-text-combine-upright-digits 2)))))
-      (css-property-with-conditions-simple (css-property-unicode-bidi (css-union _AzStyleUnicodeBidiValue _AzStyleUnicodeBidiValue_Variant_Exact (make-AzStyleUnicodeBidiValue_Variant_Exact AzStyleUnicodeBidiValue_Tag_Exact AzStyleUnicodeBidi_Isolate))))
-      (css-property-with-conditions-simple (css-property-text-box-trim (css-union _AzStyleTextBoxTrimValue _AzStyleTextBoxTrimValue_Variant_Exact (make-AzStyleTextBoxTrimValue_Variant_Exact AzStyleTextBoxTrimValue_Tag_Exact AzStyleTextBoxTrim_TrimBoth))))
-      (css-property-with-conditions-simple (css-property-text-box-edge (css-union _AzStyleTextBoxEdgeValue _AzStyleTextBoxEdgeValue_Variant_Exact (make-AzStyleTextBoxEdgeValue_Variant_Exact AzStyleTextBoxEdgeValue_Tag_Exact (make-AzStyleTextBoxEdge AzTextBoxEdgeOver_Cap AzTextBoxEdgeUnder_Alphabetic)))))
-      (css-property-with-conditions-simple (css-property-dominant-baseline (css-union _AzStyleDominantBaselineValue _AzStyleDominantBaselineValue_Variant_Exact (make-AzStyleDominantBaselineValue_Variant_Exact AzStyleDominantBaselineValue_Tag_Exact AzStyleDominantBaseline_Central))))
-      (css-property-with-conditions-simple (css-property-alignment-baseline (css-union _AzStyleAlignmentBaselineValue _AzStyleAlignmentBaselineValue_Variant_Exact (make-AzStyleAlignmentBaselineValue_Variant_Exact AzStyleAlignmentBaselineValue_Tag_Exact AzStyleAlignmentBaseline_Middle))))
-      (css-property-with-conditions-simple (css-property-baseline-source (css-union _AzStyleBaselineSourceValue _AzStyleBaselineSourceValue_Variant_Exact (make-AzStyleBaselineSourceValue_Variant_Exact AzStyleBaselineSourceValue_Tag_Exact AzStyleBaselineSource_Last))))
-      (css-property-with-conditions-simple (css-property-line-fit-edge (css-union _AzStyleLineFitEdgeValue _AzStyleLineFitEdgeValue_Variant_Exact (make-AzStyleLineFitEdgeValue_Variant_Exact AzStyleLineFitEdgeValue_Tag_Exact AzStyleLineFitEdge_Leading))))
-      (css-property-with-conditions-simple (css-property-initial-letter-align (css-union _AzStyleInitialLetterAlignValue _AzStyleInitialLetterAlignValue_Variant_Exact (make-AzStyleInitialLetterAlignValue_Variant_Exact AzStyleInitialLetterAlignValue_Tag_Exact AzStyleInitialLetterAlign_Alphabetic))))
-      (css-property-with-conditions-simple (css-property-initial-letter-wrap (css-union _AzStyleInitialLetterWrapValue _AzStyleInitialLetterWrapValue_Variant_Exact (make-AzStyleInitialLetterWrapValue_Variant_Exact AzStyleInitialLetterWrapValue_Tag_Exact AzStyleInitialLetterWrap_First))))
+      (css-property-with-conditions-simple (css-property-initial-letter (css-union _AzStyleInitialLetterValue AzStyleInitialLetterValue_Variant_Exact-tag set-AzStyleInitialLetterValue_Variant_Exact-variant-tag! AzStyleInitialLetterValue_Tag_Exact set-AzStyleInitialLetterValue_Variant_Exact-payload! (make-AzStyleInitialLetter 3 (option-u32-none)))))
+      (css-property-with-conditions-simple (css-property-line-clamp (css-union _AzStyleLineClampValue AzStyleLineClampValue_Variant_Exact-tag set-AzStyleLineClampValue_Variant_Exact-variant-tag! AzStyleLineClampValue_Tag_Exact set-AzStyleLineClampValue_Variant_Exact-payload! (make-AzStyleLineClamp 3))))
+      (css-property-with-conditions-simple (css-property-hanging-punctuation (css-union _AzStyleHangingPunctuationValue AzStyleHangingPunctuationValue_Variant_Exact-tag set-AzStyleHangingPunctuationValue_Variant_Exact-variant-tag! AzStyleHangingPunctuationValue_Tag_Exact set-AzStyleHangingPunctuationValue_Variant_Exact-payload! (make-AzStyleHangingPunctuation #t #f #f #f))))
+      (css-property-with-conditions-simple (css-property-text-combine-upright (css-union _AzStyleTextCombineUprightValue AzStyleTextCombineUprightValue_Variant_Exact-tag set-AzStyleTextCombineUprightValue_Variant_Exact-variant-tag! AzStyleTextCombineUprightValue_Tag_Exact set-AzStyleTextCombineUprightValue_Variant_Exact-payload! (style-text-combine-upright-digits 2))))
+      (css-property-with-conditions-simple (css-property-unicode-bidi (css-union _AzStyleUnicodeBidiValue AzStyleUnicodeBidiValue_Variant_Exact-tag set-AzStyleUnicodeBidiValue_Variant_Exact-variant-tag! AzStyleUnicodeBidiValue_Tag_Exact set-AzStyleUnicodeBidiValue_Variant_Exact-payload! AzStyleUnicodeBidi_Isolate)))
+      (css-property-with-conditions-simple (css-property-text-box-trim (css-union _AzStyleTextBoxTrimValue AzStyleTextBoxTrimValue_Variant_Exact-tag set-AzStyleTextBoxTrimValue_Variant_Exact-variant-tag! AzStyleTextBoxTrimValue_Tag_Exact set-AzStyleTextBoxTrimValue_Variant_Exact-payload! AzStyleTextBoxTrim_TrimBoth)))
+      (css-property-with-conditions-simple (css-property-text-box-edge (css-union _AzStyleTextBoxEdgeValue AzStyleTextBoxEdgeValue_Variant_Exact-tag set-AzStyleTextBoxEdgeValue_Variant_Exact-variant-tag! AzStyleTextBoxEdgeValue_Tag_Exact set-AzStyleTextBoxEdgeValue_Variant_Exact-payload! (make-AzStyleTextBoxEdge AzTextBoxEdgeOver_Cap AzTextBoxEdgeUnder_Alphabetic))))
+      (css-property-with-conditions-simple (css-property-dominant-baseline (css-union _AzStyleDominantBaselineValue AzStyleDominantBaselineValue_Variant_Exact-tag set-AzStyleDominantBaselineValue_Variant_Exact-variant-tag! AzStyleDominantBaselineValue_Tag_Exact set-AzStyleDominantBaselineValue_Variant_Exact-payload! AzStyleDominantBaseline_Central)))
+      (css-property-with-conditions-simple (css-property-alignment-baseline (css-union _AzStyleAlignmentBaselineValue AzStyleAlignmentBaselineValue_Variant_Exact-tag set-AzStyleAlignmentBaselineValue_Variant_Exact-variant-tag! AzStyleAlignmentBaselineValue_Tag_Exact set-AzStyleAlignmentBaselineValue_Variant_Exact-payload! AzStyleAlignmentBaseline_Middle)))
+      (css-property-with-conditions-simple (css-property-baseline-source (css-union _AzStyleBaselineSourceValue AzStyleBaselineSourceValue_Variant_Exact-tag set-AzStyleBaselineSourceValue_Variant_Exact-variant-tag! AzStyleBaselineSourceValue_Tag_Exact set-AzStyleBaselineSourceValue_Variant_Exact-payload! AzStyleBaselineSource_Last)))
+      (css-property-with-conditions-simple (css-property-line-fit-edge (css-union _AzStyleLineFitEdgeValue AzStyleLineFitEdgeValue_Variant_Exact-tag set-AzStyleLineFitEdgeValue_Variant_Exact-variant-tag! AzStyleLineFitEdgeValue_Tag_Exact set-AzStyleLineFitEdgeValue_Variant_Exact-payload! AzStyleLineFitEdge_Leading)))
+      (css-property-with-conditions-simple (css-property-initial-letter-align (css-union _AzStyleInitialLetterAlignValue AzStyleInitialLetterAlignValue_Variant_Exact-tag set-AzStyleInitialLetterAlignValue_Variant_Exact-variant-tag! AzStyleInitialLetterAlignValue_Tag_Exact set-AzStyleInitialLetterAlignValue_Variant_Exact-payload! AzStyleInitialLetterAlign_Alphabetic)))
+      (css-property-with-conditions-simple (css-property-initial-letter-wrap (css-union _AzStyleInitialLetterWrapValue AzStyleInitialLetterWrapValue_Variant_Exact-tag set-AzStyleInitialLetterWrapValue_Variant_Exact-variant-tag! AzStyleInitialLetterWrapValue_Tag_Exact set-AzStyleInitialLetterWrapValue_Variant_Exact-payload! AzStyleInitialLetterWrap_First)))
       (css-property-with-conditions-simple (css-property-line-height (make-AzStyleLineHeight (make-AzPercentageValue (float-value-create 150.0)))))
       (css-property-with-conditions-simple (css-property-word-spacing (make-AzStyleWordSpacing (pixel-value-px 4.0))))
       (css-property-with-conditions-simple (css-property-tab-size (make-AzStyleTabSize (pixel-value-em 4.0))))
-      (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue _AzStyleWhiteSpaceValue_Variant_Exact (make-AzStyleWhiteSpaceValue_Variant_Exact AzStyleWhiteSpaceValue_Tag_Exact AzStyleWhiteSpace_PreWrap))))
-      (css-property-with-conditions-simple (css-property-hyphens (css-union _AzStyleHyphensValue _AzStyleHyphensValue_Variant_Exact (make-AzStyleHyphensValue_Variant_Exact AzStyleHyphensValue_Tag_Exact AzStyleHyphens_Auto))))
-      (css-property-with-conditions-simple (css-property-word-break (css-union _AzStyleWordBreakValue _AzStyleWordBreakValue_Variant_Exact (make-AzStyleWordBreakValue_Variant_Exact AzStyleWordBreakValue_Tag_Exact AzStyleWordBreak_BreakAll))))
-      (css-property-with-conditions-simple (css-property-overflow-wrap (css-union _AzStyleOverflowWrapValue _AzStyleOverflowWrapValue_Variant_Exact (make-AzStyleOverflowWrapValue_Variant_Exact AzStyleOverflowWrapValue_Tag_Exact AzStyleOverflowWrap_Anywhere))))
-      (css-property-with-conditions-simple (css-property-line-break (css-union _AzStyleLineBreakValue _AzStyleLineBreakValue_Variant_Exact (make-AzStyleLineBreakValue_Variant_Exact AzStyleLineBreakValue_Tag_Exact AzStyleLineBreak_Strict))))
-      (css-property-with-conditions-simple (css-property-text-overflow (css-union _AzStyleTextOverflowValue _AzStyleTextOverflowValue_Variant_Exact (make-AzStyleTextOverflowValue_Variant_Exact AzStyleTextOverflowValue_Tag_Exact AzStyleTextOverflow_Ellipsis))))
-      (css-property-with-conditions-simple (css-property-text-orientation (css-union _AzStyleTextOrientationValue _AzStyleTextOrientationValue_Variant_Exact (make-AzStyleTextOrientationValue_Variant_Exact AzStyleTextOrientationValue_Tag_Exact AzStyleTextOrientation_Upright))))
-      (css-property-with-conditions-simple (css-property-text-align-last (css-union _AzStyleTextAlignLastValue _AzStyleTextAlignLastValue_Variant_Exact (make-AzStyleTextAlignLastValue_Variant_Exact AzStyleTextAlignLastValue_Tag_Exact AzStyleTextAlignLast_Justify))))
-      (css-property-with-conditions-simple (css-property-text-transform (css-union _AzStyleTextTransformValue _AzStyleTextTransformValue_Variant_Exact (make-AzStyleTextTransformValue_Variant_Exact AzStyleTextTransformValue_Tag_Exact AzStyleTextTransform_Uppercase))))
-      (css-property-with-conditions-simple (css-property-direction (css-union _AzStyleDirectionValue _AzStyleDirectionValue_Variant_Exact (make-AzStyleDirectionValue_Variant_Exact AzStyleDirectionValue_Tag_Exact AzStyleDirection_Rtl))))
+      (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue AzStyleWhiteSpaceValue_Variant_Exact-tag set-AzStyleWhiteSpaceValue_Variant_Exact-variant-tag! AzStyleWhiteSpaceValue_Tag_Exact set-AzStyleWhiteSpaceValue_Variant_Exact-payload! AzStyleWhiteSpace_PreWrap)))
+      (css-property-with-conditions-simple (css-property-hyphens (css-union _AzStyleHyphensValue AzStyleHyphensValue_Variant_Exact-tag set-AzStyleHyphensValue_Variant_Exact-variant-tag! AzStyleHyphensValue_Tag_Exact set-AzStyleHyphensValue_Variant_Exact-payload! AzStyleHyphens_Auto)))
+      (css-property-with-conditions-simple (css-property-word-break (css-union _AzStyleWordBreakValue AzStyleWordBreakValue_Variant_Exact-tag set-AzStyleWordBreakValue_Variant_Exact-variant-tag! AzStyleWordBreakValue_Tag_Exact set-AzStyleWordBreakValue_Variant_Exact-payload! AzStyleWordBreak_BreakAll)))
+      (css-property-with-conditions-simple (css-property-overflow-wrap (css-union _AzStyleOverflowWrapValue AzStyleOverflowWrapValue_Variant_Exact-tag set-AzStyleOverflowWrapValue_Variant_Exact-variant-tag! AzStyleOverflowWrapValue_Tag_Exact set-AzStyleOverflowWrapValue_Variant_Exact-payload! AzStyleOverflowWrap_Anywhere)))
+      (css-property-with-conditions-simple (css-property-line-break (css-union _AzStyleLineBreakValue AzStyleLineBreakValue_Variant_Exact-tag set-AzStyleLineBreakValue_Variant_Exact-variant-tag! AzStyleLineBreakValue_Tag_Exact set-AzStyleLineBreakValue_Variant_Exact-payload! AzStyleLineBreak_Strict)))
+      (css-property-with-conditions-simple (css-property-text-overflow (css-union _AzStyleTextOverflowValue AzStyleTextOverflowValue_Variant_Exact-tag set-AzStyleTextOverflowValue_Variant_Exact-variant-tag! AzStyleTextOverflowValue_Tag_Exact set-AzStyleTextOverflowValue_Variant_Exact-payload! AzStyleTextOverflow_Ellipsis)))
+      (css-property-with-conditions-simple (css-property-text-orientation (css-union _AzStyleTextOrientationValue AzStyleTextOrientationValue_Variant_Exact-tag set-AzStyleTextOrientationValue_Variant_Exact-variant-tag! AzStyleTextOrientationValue_Tag_Exact set-AzStyleTextOrientationValue_Variant_Exact-payload! AzStyleTextOrientation_Upright)))
+      (css-property-with-conditions-simple (css-property-text-align-last (css-union _AzStyleTextAlignLastValue AzStyleTextAlignLastValue_Variant_Exact-tag set-AzStyleTextAlignLastValue_Variant_Exact-variant-tag! AzStyleTextAlignLastValue_Tag_Exact set-AzStyleTextAlignLastValue_Variant_Exact-payload! AzStyleTextAlignLast_Justify)))
+      (css-property-with-conditions-simple (css-property-text-transform (css-union _AzStyleTextTransformValue AzStyleTextTransformValue_Variant_Exact-tag set-AzStyleTextTransformValue_Variant_Exact-variant-tag! AzStyleTextTransformValue_Tag_Exact set-AzStyleTextTransformValue_Variant_Exact-payload! AzStyleTextTransform_Uppercase)))
+      (css-property-with-conditions-simple (css-property-direction (css-union _AzStyleDirectionValue AzStyleDirectionValue_Variant_Exact-tag set-AzStyleDirectionValue_Variant_Exact-variant-tag! AzStyleDirectionValue_Tag_Exact set-AzStyleDirectionValue_Variant_Exact-payload! AzStyleDirection_Rtl)))
       (css-property-with-conditions-simple (css-property-user-select AzStyleUserSelect_None))
       (css-property-with-conditions-simple (css-property-text-decoration AzStyleTextDecoration_Underline))
-      (css-property-with-conditions-simple (css-property-hyphenation-language (css-union _AzStyleHyphenationLanguageValue _AzStyleHyphenationLanguageValue_Variant_Exact (make-AzStyleHyphenationLanguageValue_Variant_Exact AzStyleHyphenationLanguageValue_Tag_Exact (make-AzStyleHyphenationLanguage (string->azul-string "en-US"))))))
-      (css-property-with-conditions-simple (css-property-exclusion-margin (css-union _AzStyleExclusionMarginValue _AzStyleExclusionMarginValue_Variant_Exact (make-AzStyleExclusionMarginValue_Variant_Exact AzStyleExclusionMarginValue_Tag_Exact (make-AzStyleExclusionMargin (float-value-create 10.5))))))
+      (css-property-with-conditions-simple (css-property-hyphenation-language (css-union _AzStyleHyphenationLanguageValue AzStyleHyphenationLanguageValue_Variant_Exact-tag set-AzStyleHyphenationLanguageValue_Variant_Exact-variant-tag! AzStyleHyphenationLanguageValue_Tag_Exact set-AzStyleHyphenationLanguageValue_Variant_Exact-payload! (make-AzStyleHyphenationLanguage (string->azul-string "en-US")))))
+      (css-property-with-conditions-simple (css-property-exclusion-margin (css-union _AzStyleExclusionMarginValue AzStyleExclusionMarginValue_Variant_Exact-tag set-AzStyleExclusionMarginValue_Variant_Exact-variant-tag! AzStyleExclusionMarginValue_Tag_Exact set-AzStyleExclusionMarginValue_Variant_Exact-payload! (make-AzStyleExclusionMargin (float-value-create 10.5)))))
       (css-property-with-conditions-simple (css-property-caret-color (make-AzCaretColor (make-AzColorU 255 0 0 255))))
       (css-property-with-conditions-simple (css-property-caret-animation-duration (make-AzCaretAnimationDuration (make-AzCssDuration 500 AzCssDurationUnit_Milliseconds))))
-      (css-property-with-conditions-simple (css-property-caret-width (css-union _AzCaretWidthValue _AzCaretWidthValue_Variant_Exact (make-AzCaretWidthValue_Variant_Exact AzCaretWidthValue_Tag_Exact (make-AzCaretWidth (pixel-value-px 2.0))))))
+      (css-property-with-conditions-simple (css-property-caret-width (css-union _AzCaretWidthValue AzCaretWidthValue_Variant_Exact-tag set-AzCaretWidthValue_Variant_Exact-variant-tag! AzCaretWidthValue_Tag_Exact set-AzCaretWidthValue_Variant_Exact-payload! (make-AzCaretWidth (pixel-value-px 2.0)))))
       (css-property-with-conditions-simple (css-property-selection-background-color (make-AzSelectionBackgroundColor (make-AzColorU 51 153 255 255))))
       (css-property-with-conditions-simple (css-property-selection-color (make-AzSelectionColor (make-AzColorU 255 255 255 255))))
-      (css-property-with-conditions-simple (css-property-selection-radius (css-union _AzSelectionRadiusValue _AzSelectionRadiusValue_Variant_Exact (make-AzSelectionRadiusValue_Variant_Exact AzSelectionRadiusValue_Tag_Exact (make-AzSelectionRadius (pixel-value-px 3.0))))))
+      (css-property-with-conditions-simple (css-property-selection-radius (css-union _AzSelectionRadiusValue AzSelectionRadiusValue_Variant_Exact-tag set-AzSelectionRadiusValue_Variant_Exact-variant-tag! AzSelectionRadiusValue_Tag_Exact set-AzSelectionRadiusValue_Variant_Exact-payload! (make-AzSelectionRadius (pixel-value-px 3.0)))))
       (css-property-with-conditions-simple
         (css-property-font
           (css-vec
@@ -102,7 +106,7 @@
     _AzCssPropertyWithConditions
     (list
       (css-property-with-conditions-simple (css-property-display AzLayoutDisplay_Block))
-      (css-property-with-conditions-simple (css-property-float (css-union _AzLayoutFloatValue _AzLayoutFloatValue_Variant_Exact (make-AzLayoutFloatValue_Variant_Exact AzLayoutFloatValue_Tag_Exact AzLayoutFloat_Left))))
+      (css-property-with-conditions-simple (css-property-float (css-union _AzLayoutFloatValue AzLayoutFloatValue_Variant_Exact-tag set-AzLayoutFloatValue_Variant_Exact-variant-tag! AzLayoutFloatValue_Tag_Exact set-AzLayoutFloatValue_Variant_Exact-payload! AzLayoutFloat_Left)))
       (css-property-with-conditions-simple (css-property-box-sizing AzLayoutBoxSizing_BorderBox))
       (css-property-with-conditions-simple (css-property-width (layout-width-px (pixel-value-percent 50.0))))
       (css-property-with-conditions-simple (css-property-height (layout-height-px (pixel-value-px 200.0))))
@@ -120,27 +124,27 @@
       (css-property-with-conditions-simple (css-property-padding-right (make-AzLayoutPaddingRight (pixel-value-px 2.0))))
       (css-property-with-conditions-simple (css-property-padding-bottom (make-AzLayoutPaddingBottom (pixel-value-px 3.0))))
       (css-property-with-conditions-simple (css-property-padding-left (make-AzLayoutPaddingLeft (pixel-value-px 4.0))))
-      (css-property-with-conditions-simple (css-property-padding-inline-start (css-union _AzLayoutPaddingInlineStartValue _AzLayoutPaddingInlineStartValue_Variant_Exact (make-AzLayoutPaddingInlineStartValue_Variant_Exact AzLayoutPaddingInlineStartValue_Tag_Exact (make-AzLayoutPaddingInlineStart (pixel-value-px 5.0))))))
-      (css-property-with-conditions-simple (css-property-padding-inline-end (css-union _AzLayoutPaddingInlineEndValue _AzLayoutPaddingInlineEndValue_Variant_Exact (make-AzLayoutPaddingInlineEndValue_Variant_Exact AzLayoutPaddingInlineEndValue_Tag_Exact (make-AzLayoutPaddingInlineEnd (pixel-value-px 6.0))))))
+      (css-property-with-conditions-simple (css-property-padding-inline-start (css-union _AzLayoutPaddingInlineStartValue AzLayoutPaddingInlineStartValue_Variant_Exact-tag set-AzLayoutPaddingInlineStartValue_Variant_Exact-variant-tag! AzLayoutPaddingInlineStartValue_Tag_Exact set-AzLayoutPaddingInlineStartValue_Variant_Exact-payload! (make-AzLayoutPaddingInlineStart (pixel-value-px 5.0)))))
+      (css-property-with-conditions-simple (css-property-padding-inline-end (css-union _AzLayoutPaddingInlineEndValue AzLayoutPaddingInlineEndValue_Variant_Exact-tag set-AzLayoutPaddingInlineEndValue_Variant_Exact-variant-tag! AzLayoutPaddingInlineEndValue_Tag_Exact set-AzLayoutPaddingInlineEndValue_Variant_Exact-payload! (make-AzLayoutPaddingInlineEnd (pixel-value-px 6.0)))))
       (css-property-with-conditions-simple (css-property-margin-top (make-AzLayoutMarginTop (pixel-value-px 7.0))))
       (css-property-with-conditions-simple (css-property-margin-right (make-AzLayoutMarginRight (pixel-value-px 8.0))))
       (css-property-with-conditions-simple (css-property-margin-bottom (make-AzLayoutMarginBottom (pixel-value-px 9.0))))
       (css-property-with-conditions-simple (css-property-auto AzCssPropertyType_MarginLeft))
       (css-property-with-conditions-simple (css-property-overflow-x AzLayoutOverflow_Hidden))
       (css-property-with-conditions-simple (css-property-overflow-y AzLayoutOverflow_Scroll))
-      (css-property-with-conditions-simple (css-property-overflow-block (css-union _AzLayoutOverflowValue _AzLayoutOverflowValue_Variant_Exact (make-AzLayoutOverflowValue_Variant_Exact AzLayoutOverflowValue_Tag_Exact AzLayoutOverflow_Clip))))
-      (css-property-with-conditions-simple (css-property-overflow-inline (css-union _AzLayoutOverflowValue _AzLayoutOverflowValue_Variant_Exact (make-AzLayoutOverflowValue_Variant_Exact AzLayoutOverflowValue_Tag_Exact AzLayoutOverflow_Auto))))
-      (css-property-with-conditions-simple (css-property-scrollbar-gutter (css-union _AzStyleScrollbarGutterValue _AzStyleScrollbarGutterValue_Variant_Exact (make-AzStyleScrollbarGutterValue_Variant_Exact AzStyleScrollbarGutterValue_Tag_Exact AzStyleScrollbarGutter_StableBothEdges))))
-      (css-property-with-conditions-simple (css-property-overflow-clip-margin (css-union _AzStyleOverflowClipMarginValue _AzStyleOverflowClipMarginValue_Variant_Exact (make-AzStyleOverflowClipMarginValue_Variant_Exact AzStyleOverflowClipMarginValue_Tag_Exact (make-AzStyleOverflowClipMargin AzVisualBox_ContentBox (pixel-value-px 0.0))))))
-      (css-property-with-conditions-simple (css-property-clip (css-union _AzStyleClipRectValue _AzStyleClipRectValue_Variant_Exact (make-AzStyleClipRectValue_Variant_Exact AzStyleClipRectValue_Tag_Exact (make-AzStyleClipRect (option-f32-some 0.0) (option-f32-some 10.0) (option-f32-some 10.0) (option-f32-some 0.0))))))
-      (css-property-with-conditions-simple (css-property-writing-mode (css-union _AzLayoutWritingModeValue _AzLayoutWritingModeValue_Variant_Exact (make-AzLayoutWritingModeValue_Variant_Exact AzLayoutWritingModeValue_Tag_Exact AzLayoutWritingMode_VerticalRl))))
-      (css-property-with-conditions-simple (css-property-clear (css-union _AzLayoutClearValue _AzLayoutClearValue_Variant_Exact (make-AzLayoutClearValue_Variant_Exact AzLayoutClearValue_Tag_Exact AzLayoutClear_Both))))
+      (css-property-with-conditions-simple (css-property-overflow-block (css-union _AzLayoutOverflowValue AzLayoutOverflowValue_Variant_Exact-tag set-AzLayoutOverflowValue_Variant_Exact-variant-tag! AzLayoutOverflowValue_Tag_Exact set-AzLayoutOverflowValue_Variant_Exact-payload! AzLayoutOverflow_Clip)))
+      (css-property-with-conditions-simple (css-property-overflow-inline (css-union _AzLayoutOverflowValue AzLayoutOverflowValue_Variant_Exact-tag set-AzLayoutOverflowValue_Variant_Exact-variant-tag! AzLayoutOverflowValue_Tag_Exact set-AzLayoutOverflowValue_Variant_Exact-payload! AzLayoutOverflow_Auto)))
+      (css-property-with-conditions-simple (css-property-scrollbar-gutter (css-union _AzStyleScrollbarGutterValue AzStyleScrollbarGutterValue_Variant_Exact-tag set-AzStyleScrollbarGutterValue_Variant_Exact-variant-tag! AzStyleScrollbarGutterValue_Tag_Exact set-AzStyleScrollbarGutterValue_Variant_Exact-payload! AzStyleScrollbarGutter_StableBothEdges)))
+      (css-property-with-conditions-simple (css-property-overflow-clip-margin (css-union _AzStyleOverflowClipMarginValue AzStyleOverflowClipMarginValue_Variant_Exact-tag set-AzStyleOverflowClipMarginValue_Variant_Exact-variant-tag! AzStyleOverflowClipMarginValue_Tag_Exact set-AzStyleOverflowClipMarginValue_Variant_Exact-payload! (make-AzStyleOverflowClipMargin AzVisualBox_ContentBox (pixel-value-px 0.0)))))
+      (css-property-with-conditions-simple (css-property-clip (css-union _AzStyleClipRectValue AzStyleClipRectValue_Variant_Exact-tag set-AzStyleClipRectValue_Variant_Exact-variant-tag! AzStyleClipRectValue_Tag_Exact set-AzStyleClipRectValue_Variant_Exact-payload! (make-AzStyleClipRect (option-f32-some 0.0) (option-f32-some 10.0) (option-f32-some 10.0) (option-f32-some 0.0)))))
+      (css-property-with-conditions-simple (css-property-writing-mode (css-union _AzLayoutWritingModeValue AzLayoutWritingModeValue_Variant_Exact-tag set-AzLayoutWritingModeValue_Variant_Exact-variant-tag! AzLayoutWritingModeValue_Tag_Exact set-AzLayoutWritingModeValue_Variant_Exact-payload! AzLayoutWritingMode_VerticalRl)))
+      (css-property-with-conditions-simple (css-property-clear (css-union _AzLayoutClearValue AzLayoutClearValue_Variant_Exact-tag set-AzLayoutClearValue_Variant_Exact-variant-tag! AzLayoutClearValue_Tag_Exact set-AzLayoutClearValue_Variant_Exact-payload! AzLayoutClear_Both)))
       (css-property-with-conditions-simple (css-property-visibility AzStyleVisibility_Hidden))
       (css-property-with-conditions-simple (css-property-opacity (make-AzStyleOpacity (make-AzPercentageValue (float-value-create 50.0)))))
       (css-property-with-conditions-simple (css-property-cursor AzStyleCursor_Pointer))
-      (css-property-with-conditions-simple (css-property-object-fit (css-union _AzStyleObjectFitValue _AzStyleObjectFitValue_Variant_Exact (make-AzStyleObjectFitValue_Variant_Exact AzStyleObjectFitValue_Tag_Exact AzStyleObjectFit_Cover))))
-      (css-property-with-conditions-simple (css-property-object-position (css-union _AzStyleObjectPositionValue _AzStyleObjectPositionValue_Variant_Exact (make-AzStyleObjectPositionValue_Variant_Exact AzStyleObjectPositionValue_Tag_Exact (make-AzStyleObjectPosition (background-position-horizontal-center) (background-position-vertical-top))))))
-      (css-property-with-conditions-simple (css-property-aspect-ratio (css-union _AzStyleAspectRatioValue _AzStyleAspectRatioValue_Variant_Exact (make-AzStyleAspectRatioValue_Variant_Exact AzStyleAspectRatioValue_Tag_Exact (style-aspect-ratio-ratio (make-AzAspectRatioValue 16000 9000))))))
+      (css-property-with-conditions-simple (css-property-object-fit (css-union _AzStyleObjectFitValue AzStyleObjectFitValue_Variant_Exact-tag set-AzStyleObjectFitValue_Variant_Exact-variant-tag! AzStyleObjectFitValue_Tag_Exact set-AzStyleObjectFitValue_Variant_Exact-payload! AzStyleObjectFit_Cover)))
+      (css-property-with-conditions-simple (css-property-object-position (css-union _AzStyleObjectPositionValue AzStyleObjectPositionValue_Variant_Exact-tag set-AzStyleObjectPositionValue_Variant_Exact-variant-tag! AzStyleObjectPositionValue_Tag_Exact set-AzStyleObjectPositionValue_Variant_Exact-payload! (make-AzStyleObjectPosition (background-position-horizontal-center) (background-position-vertical-top)))))
+      (css-property-with-conditions-simple (css-property-aspect-ratio (css-union _AzStyleAspectRatioValue AzStyleAspectRatioValue_Variant_Exact-tag set-AzStyleAspectRatioValue_Variant_Exact-variant-tag! AzStyleAspectRatioValue_Tag_Exact set-AzStyleAspectRatioValue_Variant_Exact-payload! (style-aspect-ratio-ratio (make-AzAspectRatioValue 16000 9000)))))
     )
   ))
 
@@ -154,15 +158,15 @@
       (css-property-with-conditions-simple (css-property-flex-direction AzLayoutFlexDirection_Column))
       (css-property-with-conditions-simple (css-property-flex-grow (make-AzLayoutFlexGrow (float-value-create 2.0))))
       (css-property-with-conditions-simple (css-property-flex-shrink (make-AzLayoutFlexShrink (float-value-create 0.5))))
-      (css-property-with-conditions-simple (css-property-flex-basis (css-union _AzLayoutFlexBasisValue _AzLayoutFlexBasisValue_Variant_Exact (make-AzLayoutFlexBasisValue_Variant_Exact AzLayoutFlexBasisValue_Tag_Exact (layout-flex-basis-exact (pixel-value-percent 30.0))))))
+      (css-property-with-conditions-simple (css-property-flex-basis (css-union _AzLayoutFlexBasisValue AzLayoutFlexBasisValue_Variant_Exact-tag set-AzLayoutFlexBasisValue_Variant_Exact-variant-tag! AzLayoutFlexBasisValue_Tag_Exact set-AzLayoutFlexBasisValue_Variant_Exact-payload! (layout-flex-basis-exact (pixel-value-percent 30.0)))))
       (css-property-with-conditions-simple (css-property-justify-content AzLayoutJustifyContent_SpaceBetween))
       (css-property-with-conditions-simple (css-property-align-items AzLayoutAlignItems_Center))
       (css-property-with-conditions-simple (css-property-align-content AzLayoutAlignContent_Stretch))
       (css-property-with-conditions-simple (css-property-align-self AzLayoutAlignSelf_End))
-      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue _AzLayoutColumnGapValue_Variant_Exact (make-AzLayoutColumnGapValue_Variant_Exact AzLayoutColumnGapValue_Tag_Exact (make-AzLayoutColumnGap (pixel-value-px 8.0))))))
-      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue _AzLayoutRowGapValue_Variant_Exact (make-AzLayoutRowGapValue_Variant_Exact AzLayoutRowGapValue_Tag_Exact (make-AzLayoutRowGap (pixel-value-px 4.0))))))
-      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue _AzLayoutRowGapValue_Variant_Exact (make-AzLayoutRowGapValue_Variant_Exact AzLayoutRowGapValue_Tag_Exact (make-AzLayoutRowGap (pixel-value-px 6.0))))))
-      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue _AzLayoutColumnGapValue_Variant_Exact (make-AzLayoutColumnGapValue_Variant_Exact AzLayoutColumnGapValue_Tag_Exact (make-AzLayoutColumnGap (pixel-value-px 6.0))))))
+      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue AzLayoutColumnGapValue_Variant_Exact-tag set-AzLayoutColumnGapValue_Variant_Exact-variant-tag! AzLayoutColumnGapValue_Tag_Exact set-AzLayoutColumnGapValue_Variant_Exact-payload! (make-AzLayoutColumnGap (pixel-value-px 8.0)))))
+      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue AzLayoutRowGapValue_Variant_Exact-tag set-AzLayoutRowGapValue_Variant_Exact-variant-tag! AzLayoutRowGapValue_Tag_Exact set-AzLayoutRowGapValue_Variant_Exact-payload! (make-AzLayoutRowGap (pixel-value-px 4.0)))))
+      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue AzLayoutRowGapValue_Variant_Exact-tag set-AzLayoutRowGapValue_Variant_Exact-variant-tag! AzLayoutRowGapValue_Tag_Exact set-AzLayoutRowGapValue_Variant_Exact-payload! (make-AzLayoutRowGap (pixel-value-px 6.0)))))
+      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue AzLayoutColumnGapValue_Variant_Exact-tag set-AzLayoutColumnGapValue_Variant_Exact-variant-tag! AzLayoutColumnGapValue_Tag_Exact set-AzLayoutColumnGapValue_Variant_Exact-payload! (make-AzLayoutColumnGap (pixel-value-px 6.0)))))
     )
   ))
 
@@ -177,18 +181,18 @@
         (css-property-grid-template-columns
           (css-union
             _AzLayoutGridTemplateColumnsValue
-            _AzLayoutGridTemplateColumnsValue_Variant_Exact
-            (make-AzLayoutGridTemplateColumnsValue_Variant_Exact
-              AzLayoutGridTemplateColumnsValue_Tag_Exact
-              (make-AzGridTemplate
-                (css-vec
-                  grid-track-sizing-vec-copy-from-ptr
-                  _AzGridTrackSizing
-                  (list
-                    (grid-track-sizing-fr 100)
-                    (grid-track-sizing-fixed (pixel-value-px 200.0))
-                    (grid-track-sizing-auto)
-                  )
+            AzLayoutGridTemplateColumnsValue_Variant_Exact-tag
+            set-AzLayoutGridTemplateColumnsValue_Variant_Exact-variant-tag!
+            AzLayoutGridTemplateColumnsValue_Tag_Exact
+            set-AzLayoutGridTemplateColumnsValue_Variant_Exact-payload!
+            (make-AzGridTemplate
+              (css-vec
+                grid-track-sizing-vec-copy-from-ptr
+                _AzGridTrackSizing
+                (list
+                  (grid-track-sizing-fr 100)
+                  (grid-track-sizing-fixed (pixel-value-px 200.0))
+                  (grid-track-sizing-auto)
                 )
               )
             )
@@ -199,42 +203,42 @@
         (css-property-grid-template-rows
           (css-union
             _AzLayoutGridTemplateRowsValue
-            _AzLayoutGridTemplateRowsValue_Variant_Exact
-            (make-AzLayoutGridTemplateRowsValue_Variant_Exact
-              AzLayoutGridTemplateRowsValue_Tag_Exact
-              (make-AzGridTemplate
-                (css-vec
-                  grid-track-sizing-vec-copy-from-ptr
-                  _AzGridTrackSizing
-                  (list
-                    (grid-track-sizing-fixed (pixel-value-px 100.0))
-                    (grid-track-sizing-fr 100)
-                  )
+            AzLayoutGridTemplateRowsValue_Variant_Exact-tag
+            set-AzLayoutGridTemplateRowsValue_Variant_Exact-variant-tag!
+            AzLayoutGridTemplateRowsValue_Tag_Exact
+            set-AzLayoutGridTemplateRowsValue_Variant_Exact-payload!
+            (make-AzGridTemplate
+              (css-vec
+                grid-track-sizing-vec-copy-from-ptr
+                _AzGridTrackSizing
+                (list
+                  (grid-track-sizing-fixed (pixel-value-px 100.0))
+                  (grid-track-sizing-fr 100)
                 )
               )
             )
           )
         )
       )
-      (css-property-with-conditions-simple (css-property-grid-auto-columns (css-union _AzLayoutGridAutoColumnsValue _AzLayoutGridAutoColumnsValue_Variant_Exact (make-AzLayoutGridAutoColumnsValue_Variant_Exact AzLayoutGridAutoColumnsValue_Tag_Exact (make-AzGridAutoTracks (css-vec grid-track-sizing-vec-copy-from-ptr _AzGridTrackSizing (list (grid-track-sizing-fixed (pixel-value-px 50.0)))))))))
-      (css-property-with-conditions-simple (css-property-grid-column (css-union _AzLayoutGridColumnValue _AzLayoutGridColumnValue_Variant_Exact (make-AzLayoutGridColumnValue_Variant_Exact AzLayoutGridColumnValue_Tag_Exact (make-AzGridPlacement (grid-line-line 1) (grid-line-line 3))))))
-      (css-property-with-conditions-simple (css-property-grid-row (css-union _AzLayoutGridRowValue _AzLayoutGridRowValue_Variant_Exact (make-AzLayoutGridRowValue_Variant_Exact AzLayoutGridRowValue_Tag_Exact (make-AzGridPlacement (grid-line-span 2) (grid-line-auto))))))
+      (css-property-with-conditions-simple (css-property-grid-auto-columns (css-union _AzLayoutGridAutoColumnsValue AzLayoutGridAutoColumnsValue_Variant_Exact-tag set-AzLayoutGridAutoColumnsValue_Variant_Exact-variant-tag! AzLayoutGridAutoColumnsValue_Tag_Exact set-AzLayoutGridAutoColumnsValue_Variant_Exact-payload! (make-AzGridAutoTracks (css-vec grid-track-sizing-vec-copy-from-ptr _AzGridTrackSizing (list (grid-track-sizing-fixed (pixel-value-px 50.0))))))))
+      (css-property-with-conditions-simple (css-property-grid-column (css-union _AzLayoutGridColumnValue AzLayoutGridColumnValue_Variant_Exact-tag set-AzLayoutGridColumnValue_Variant_Exact-variant-tag! AzLayoutGridColumnValue_Tag_Exact set-AzLayoutGridColumnValue_Variant_Exact-payload! (make-AzGridPlacement (grid-line-line 1) (grid-line-line 3)))))
+      (css-property-with-conditions-simple (css-property-grid-row (css-union _AzLayoutGridRowValue AzLayoutGridRowValue_Variant_Exact-tag set-AzLayoutGridRowValue_Variant_Exact-variant-tag! AzLayoutGridRowValue_Tag_Exact set-AzLayoutGridRowValue_Variant_Exact-payload! (make-AzGridPlacement (grid-line-span 2) (grid-line-auto)))))
       (css-property-with-conditions-simple
         (css-property-grid-template-areas
           (css-union
             _AzLayoutGridTemplateAreasValue
-            _AzLayoutGridTemplateAreasValue_Variant_Exact
-            (make-AzLayoutGridTemplateAreasValue_Variant_Exact
-              AzLayoutGridTemplateAreasValue_Tag_Exact
-              (make-AzGridTemplateAreas
-                (css-vec
-                  grid-area-definition-vec-copy-from-ptr
-                  _AzGridAreaDefinition
-                  (list
-                    (make-AzGridAreaDefinition (string->azul-string "header") 1 2 1 3)
-                    (make-AzGridAreaDefinition (string->azul-string "main") 2 3 2 3)
-                    (make-AzGridAreaDefinition (string->azul-string "sidebar") 2 3 1 2)
-                  )
+            AzLayoutGridTemplateAreasValue_Variant_Exact-tag
+            set-AzLayoutGridTemplateAreasValue_Variant_Exact-variant-tag!
+            AzLayoutGridTemplateAreasValue_Tag_Exact
+            set-AzLayoutGridTemplateAreasValue_Variant_Exact-payload!
+            (make-AzGridTemplateAreas
+              (css-vec
+                grid-area-definition-vec-copy-from-ptr
+                _AzGridAreaDefinition
+                (list
+                  (make-AzGridAreaDefinition (string->azul-string "header") 1 2 1 3)
+                  (make-AzGridAreaDefinition (string->azul-string "main") 2 3 2 3)
+                  (make-AzGridAreaDefinition (string->azul-string "sidebar") 2 3 1 2)
                 )
               )
             )
@@ -244,8 +248,8 @@
       (css-property-with-conditions-simple (css-property-grid-auto-flow AzLayoutGridAutoFlow_Column))
       (css-property-with-conditions-simple (css-property-justify-self AzLayoutJustifySelf_Center))
       (css-property-with-conditions-simple (css-property-justify-items AzLayoutJustifyItems_Start))
-      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue _AzLayoutRowGapValue_Variant_Exact (make-AzLayoutRowGapValue_Variant_Exact AzLayoutRowGapValue_Tag_Exact (make-AzLayoutRowGap (pixel-value-px 10.0))))))
-      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue _AzLayoutColumnGapValue_Variant_Exact (make-AzLayoutColumnGapValue_Variant_Exact AzLayoutColumnGapValue_Tag_Exact (make-AzLayoutColumnGap (pixel-value-px 10.0))))))
+      (css-property-with-conditions-simple (css-property-row-gap (css-union _AzLayoutRowGapValue AzLayoutRowGapValue_Variant_Exact-tag set-AzLayoutRowGapValue_Variant_Exact-variant-tag! AzLayoutRowGapValue_Tag_Exact set-AzLayoutRowGapValue_Variant_Exact-payload! (make-AzLayoutRowGap (pixel-value-px 10.0)))))
+      (css-property-with-conditions-simple (css-property-column-gap (css-union _AzLayoutColumnGapValue AzLayoutColumnGapValue_Variant_Exact-tag set-AzLayoutColumnGapValue_Variant_Exact-variant-tag! AzLayoutColumnGapValue_Tag_Exact set-AzLayoutColumnGapValue_Variant_Exact-payload! (make-AzLayoutColumnGap (pixel-value-px 10.0)))))
     )
   ))
 
@@ -284,22 +288,22 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-scrollbar-track (css-union _AzStyleBackgroundContentValue _AzStyleBackgroundContentValue_Variant_Exact (make-AzStyleBackgroundContentValue_Variant_Exact AzStyleBackgroundContentValue_Tag_Exact (style-background-content-color (make-AzColorU 238 238 238 255))))))
-      (css-property-with-conditions-simple (css-property-scrollbar-thumb (css-union _AzStyleBackgroundContentValue _AzStyleBackgroundContentValue_Variant_Exact (make-AzStyleBackgroundContentValue_Variant_Exact AzStyleBackgroundContentValue_Tag_Exact (style-background-content-color (make-AzColorU 136 136 136 255))))))
-      (css-property-with-conditions-simple (css-property-scrollbar-button (css-union _AzStyleBackgroundContentValue _AzStyleBackgroundContentValue_Variant_Exact (make-AzStyleBackgroundContentValue_Variant_Exact AzStyleBackgroundContentValue_Tag_Exact (style-background-content-color (make-AzColorU 204 204 204 255))))))
-      (css-property-with-conditions-simple (css-property-scrollbar-corner (css-union _AzStyleBackgroundContentValue _AzStyleBackgroundContentValue_Variant_Exact (make-AzStyleBackgroundContentValue_Variant_Exact AzStyleBackgroundContentValue_Tag_Exact (style-background-content-color (make-AzColorU 221 221 221 255))))))
-      (css-property-with-conditions-simple (css-property-scrollbar-resizer (css-union _AzStyleBackgroundContentValue _AzStyleBackgroundContentValue_Variant_Exact (make-AzStyleBackgroundContentValue_Variant_Exact AzStyleBackgroundContentValue_Tag_Exact (style-background-content-color (make-AzColorU 187 187 187 255))))))
-      (css-property-with-conditions-simple (css-property-scrollbar-width (css-union _AzLayoutScrollbarWidthValue _AzLayoutScrollbarWidthValue_Variant_Exact (make-AzLayoutScrollbarWidthValue_Variant_Exact AzLayoutScrollbarWidthValue_Tag_Exact AzLayoutScrollbarWidth_Thin))))
-      (css-property-with-conditions-simple (css-property-scrollbar-color (css-union _AzStyleScrollbarColorValue _AzStyleScrollbarColorValue_Variant_Exact (make-AzStyleScrollbarColorValue_Variant_Exact AzStyleScrollbarColorValue_Tag_Exact (style-scrollbar-color-custom (make-AzScrollbarColorCustom (make-AzColorU 136 136 136 255) (make-AzColorU 238 238 238 255)))))))
-      (css-property-with-conditions-simple (css-property-overscroll-behavior-x (css-union _AzOverscrollBehaviorValue _AzOverscrollBehaviorValue_Variant_Exact (make-AzOverscrollBehaviorValue_Variant_Exact AzOverscrollBehaviorValue_Tag_Exact AzOverscrollBehavior_Contain))))
-      (css-property-with-conditions-simple (css-property-overscroll-behavior-y (css-union _AzOverscrollBehaviorValue _AzOverscrollBehaviorValue_Variant_Exact (make-AzOverscrollBehaviorValue_Variant_Exact AzOverscrollBehaviorValue_Tag_Exact AzOverscrollBehavior_None))))
-      (css-property-with-conditions-simple (css-property-scrollbar-visibility (css-union _AzScrollbarVisibilityModeValue _AzScrollbarVisibilityModeValue_Variant_Exact (make-AzScrollbarVisibilityModeValue_Variant_Exact AzScrollbarVisibilityModeValue_Tag_Exact AzScrollbarVisibilityMode_WhenScrolling))))
-      (css-property-with-conditions-simple (css-property-scrollbar-fade-delay (css-union _AzScrollbarFadeDelayValue _AzScrollbarFadeDelayValue_Variant_Exact (make-AzScrollbarFadeDelayValue_Variant_Exact AzScrollbarFadeDelayValue_Tag_Exact (make-AzScrollbarFadeDelay 500)))))
-      (css-property-with-conditions-simple (css-property-scrollbar-fade-duration (css-union _AzScrollbarFadeDurationValue _AzScrollbarFadeDurationValue_Variant_Exact (make-AzScrollbarFadeDurationValue_Variant_Exact AzScrollbarFadeDurationValue_Tag_Exact (make-AzScrollbarFadeDuration 200)))))
-      (css-property-with-conditions-simple (css-property-app-region (css-union _AzStyleAppRegionValue _AzStyleAppRegionValue_Variant_Exact (make-AzStyleAppRegionValue_Variant_Exact AzStyleAppRegionValue_Tag_Exact AzStyleAppRegion_Drag))))
-      (css-property-with-conditions-simple (css-property-spatial-navigation-action (css-union _AzStyleSpatialNavigationActionValue _AzStyleSpatialNavigationActionValue_Variant_Exact (make-AzStyleSpatialNavigationActionValue_Variant_Exact AzStyleSpatialNavigationActionValue_Tag_Exact AzStyleSpatialNavigationAction_Focus))))
-      (css-property-with-conditions-simple (css-property-spatial-navigation-contain (css-union _AzStyleSpatialNavigationContainValue _AzStyleSpatialNavigationContainValue_Variant_Exact (make-AzStyleSpatialNavigationContainValue_Variant_Exact AzStyleSpatialNavigationContainValue_Tag_Exact AzStyleSpatialNavigationContain_Contain))))
-      (css-property-with-conditions-simple (css-property-spatial-navigation-function (css-union _AzStyleSpatialNavigationFunctionValue _AzStyleSpatialNavigationFunctionValue_Variant_Exact (make-AzStyleSpatialNavigationFunctionValue_Variant_Exact AzStyleSpatialNavigationFunctionValue_Tag_Exact AzStyleSpatialNavigationFunction_Grid))))
+      (css-property-with-conditions-simple (css-property-scrollbar-track (css-union _AzStyleBackgroundContentValue AzStyleBackgroundContentValue_Variant_Exact-tag set-AzStyleBackgroundContentValue_Variant_Exact-variant-tag! AzStyleBackgroundContentValue_Tag_Exact set-AzStyleBackgroundContentValue_Variant_Exact-payload! (style-background-content-color (make-AzColorU 238 238 238 255)))))
+      (css-property-with-conditions-simple (css-property-scrollbar-thumb (css-union _AzStyleBackgroundContentValue AzStyleBackgroundContentValue_Variant_Exact-tag set-AzStyleBackgroundContentValue_Variant_Exact-variant-tag! AzStyleBackgroundContentValue_Tag_Exact set-AzStyleBackgroundContentValue_Variant_Exact-payload! (style-background-content-color (make-AzColorU 136 136 136 255)))))
+      (css-property-with-conditions-simple (css-property-scrollbar-button (css-union _AzStyleBackgroundContentValue AzStyleBackgroundContentValue_Variant_Exact-tag set-AzStyleBackgroundContentValue_Variant_Exact-variant-tag! AzStyleBackgroundContentValue_Tag_Exact set-AzStyleBackgroundContentValue_Variant_Exact-payload! (style-background-content-color (make-AzColorU 204 204 204 255)))))
+      (css-property-with-conditions-simple (css-property-scrollbar-corner (css-union _AzStyleBackgroundContentValue AzStyleBackgroundContentValue_Variant_Exact-tag set-AzStyleBackgroundContentValue_Variant_Exact-variant-tag! AzStyleBackgroundContentValue_Tag_Exact set-AzStyleBackgroundContentValue_Variant_Exact-payload! (style-background-content-color (make-AzColorU 221 221 221 255)))))
+      (css-property-with-conditions-simple (css-property-scrollbar-resizer (css-union _AzStyleBackgroundContentValue AzStyleBackgroundContentValue_Variant_Exact-tag set-AzStyleBackgroundContentValue_Variant_Exact-variant-tag! AzStyleBackgroundContentValue_Tag_Exact set-AzStyleBackgroundContentValue_Variant_Exact-payload! (style-background-content-color (make-AzColorU 187 187 187 255)))))
+      (css-property-with-conditions-simple (css-property-scrollbar-width (css-union _AzLayoutScrollbarWidthValue AzLayoutScrollbarWidthValue_Variant_Exact-tag set-AzLayoutScrollbarWidthValue_Variant_Exact-variant-tag! AzLayoutScrollbarWidthValue_Tag_Exact set-AzLayoutScrollbarWidthValue_Variant_Exact-payload! AzLayoutScrollbarWidth_Thin)))
+      (css-property-with-conditions-simple (css-property-scrollbar-color (css-union _AzStyleScrollbarColorValue AzStyleScrollbarColorValue_Variant_Exact-tag set-AzStyleScrollbarColorValue_Variant_Exact-variant-tag! AzStyleScrollbarColorValue_Tag_Exact set-AzStyleScrollbarColorValue_Variant_Exact-payload! (style-scrollbar-color-custom (make-AzScrollbarColorCustom (make-AzColorU 136 136 136 255) (make-AzColorU 238 238 238 255))))))
+      (css-property-with-conditions-simple (css-property-overscroll-behavior-x (css-union _AzOverscrollBehaviorValue AzOverscrollBehaviorValue_Variant_Exact-tag set-AzOverscrollBehaviorValue_Variant_Exact-variant-tag! AzOverscrollBehaviorValue_Tag_Exact set-AzOverscrollBehaviorValue_Variant_Exact-payload! AzOverscrollBehavior_Contain)))
+      (css-property-with-conditions-simple (css-property-overscroll-behavior-y (css-union _AzOverscrollBehaviorValue AzOverscrollBehaviorValue_Variant_Exact-tag set-AzOverscrollBehaviorValue_Variant_Exact-variant-tag! AzOverscrollBehaviorValue_Tag_Exact set-AzOverscrollBehaviorValue_Variant_Exact-payload! AzOverscrollBehavior_None)))
+      (css-property-with-conditions-simple (css-property-scrollbar-visibility (css-union _AzScrollbarVisibilityModeValue AzScrollbarVisibilityModeValue_Variant_Exact-tag set-AzScrollbarVisibilityModeValue_Variant_Exact-variant-tag! AzScrollbarVisibilityModeValue_Tag_Exact set-AzScrollbarVisibilityModeValue_Variant_Exact-payload! AzScrollbarVisibilityMode_WhenScrolling)))
+      (css-property-with-conditions-simple (css-property-scrollbar-fade-delay (css-union _AzScrollbarFadeDelayValue AzScrollbarFadeDelayValue_Variant_Exact-tag set-AzScrollbarFadeDelayValue_Variant_Exact-variant-tag! AzScrollbarFadeDelayValue_Tag_Exact set-AzScrollbarFadeDelayValue_Variant_Exact-payload! (make-AzScrollbarFadeDelay 500))))
+      (css-property-with-conditions-simple (css-property-scrollbar-fade-duration (css-union _AzScrollbarFadeDurationValue AzScrollbarFadeDurationValue_Variant_Exact-tag set-AzScrollbarFadeDurationValue_Variant_Exact-variant-tag! AzScrollbarFadeDurationValue_Tag_Exact set-AzScrollbarFadeDurationValue_Variant_Exact-payload! (make-AzScrollbarFadeDuration 200))))
+      (css-property-with-conditions-simple (css-property-app-region (css-union _AzStyleAppRegionValue AzStyleAppRegionValue_Variant_Exact-tag set-AzStyleAppRegionValue_Variant_Exact-variant-tag! AzStyleAppRegionValue_Tag_Exact set-AzStyleAppRegionValue_Variant_Exact-payload! AzStyleAppRegion_Drag)))
+      (css-property-with-conditions-simple (css-property-spatial-navigation-action (css-union _AzStyleSpatialNavigationActionValue AzStyleSpatialNavigationActionValue_Variant_Exact-tag set-AzStyleSpatialNavigationActionValue_Variant_Exact-variant-tag! AzStyleSpatialNavigationActionValue_Tag_Exact set-AzStyleSpatialNavigationActionValue_Variant_Exact-payload! AzStyleSpatialNavigationAction_Focus)))
+      (css-property-with-conditions-simple (css-property-spatial-navigation-contain (css-union _AzStyleSpatialNavigationContainValue AzStyleSpatialNavigationContainValue_Variant_Exact-tag set-AzStyleSpatialNavigationContainValue_Variant_Exact-variant-tag! AzStyleSpatialNavigationContainValue_Tag_Exact set-AzStyleSpatialNavigationContainValue_Variant_Exact-payload! AzStyleSpatialNavigationContain_Contain)))
+      (css-property-with-conditions-simple (css-property-spatial-navigation-function (css-union _AzStyleSpatialNavigationFunctionValue AzStyleSpatialNavigationFunctionValue_Variant_Exact-tag set-AzStyleSpatialNavigationFunctionValue_Variant_Exact-variant-tag! AzStyleSpatialNavigationFunctionValue_Tag_Exact set-AzStyleSpatialNavigationFunctionValue_Variant_Exact-payload! AzStyleSpatialNavigationFunction_Grid)))
     )
   ))
 
@@ -318,9 +322,9 @@
       (css-property-with-conditions-simple (css-property-transform-origin (make-AzStyleTransformOrigin (pixel-value-percent 50.0) (pixel-value-percent 50.0))))
       (css-property-with-conditions-simple (css-property-perspective-origin (make-AzStylePerspectiveOrigin (pixel-value-px 10.0) (pixel-value-px 20.0))))
       (css-property-with-conditions-simple (css-property-backface-visibility AzStyleBackfaceVisibility_Hidden))
-      (css-property-with-conditions-simple (css-property-filter (css-union _AzStyleFilterVecValue _AzStyleFilterVecValue_Variant_Exact (make-AzStyleFilterVecValue_Variant_Exact AzStyleFilterVecValue_Tag_Exact (css-vec style-filter-vec-copy-from-ptr _AzStyleFilter (list (style-filter-blur (make-AzStyleBlur (pixel-value-px 2.0) (pixel-value-px 2.0)))))))))
-      (css-property-with-conditions-simple (css-property-backdrop-filter (css-union _AzStyleFilterVecValue _AzStyleFilterVecValue_Variant_Exact (make-AzStyleFilterVecValue_Variant_Exact AzStyleFilterVecValue_Tag_Exact (css-vec style-filter-vec-copy-from-ptr _AzStyleFilter (list (style-filter-grayscale (make-AzPercentageValue (float-value-create 50.0)))))))))
-      (css-property-with-conditions-simple (css-property-mix-blend-mode (css-union _AzStyleMixBlendModeValue _AzStyleMixBlendModeValue_Variant_Exact (make-AzStyleMixBlendModeValue_Variant_Exact AzStyleMixBlendModeValue_Tag_Exact AzStyleMixBlendMode_Multiply))))
+      (css-property-with-conditions-simple (css-property-filter (css-union _AzStyleFilterVecValue AzStyleFilterVecValue_Variant_Exact-tag set-AzStyleFilterVecValue_Variant_Exact-variant-tag! AzStyleFilterVecValue_Tag_Exact set-AzStyleFilterVecValue_Variant_Exact-payload! (css-vec style-filter-vec-copy-from-ptr _AzStyleFilter (list (style-filter-blur (make-AzStyleBlur (pixel-value-px 2.0) (pixel-value-px 2.0))))))))
+      (css-property-with-conditions-simple (css-property-backdrop-filter (css-union _AzStyleFilterVecValue AzStyleFilterVecValue_Variant_Exact-tag set-AzStyleFilterVecValue_Variant_Exact-variant-tag! AzStyleFilterVecValue_Tag_Exact set-AzStyleFilterVecValue_Variant_Exact-payload! (css-vec style-filter-vec-copy-from-ptr _AzStyleFilter (list (style-filter-grayscale (make-AzPercentageValue (float-value-create 50.0))))))))
+      (css-property-with-conditions-simple (css-property-mix-blend-mode (css-union _AzStyleMixBlendModeValue AzStyleMixBlendModeValue_Variant_Exact-tag set-AzStyleMixBlendModeValue_Variant_Exact-variant-tag! AzStyleMixBlendModeValue_Tag_Exact set-AzStyleMixBlendModeValue_Variant_Exact-payload! AzStyleMixBlendMode_Multiply)))
     )
   ))
 
@@ -397,8 +401,8 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-animation (css-union _AzStyleAnimationVecValue _AzStyleAnimationVecValue_Variant_Exact (make-AzStyleAnimationVecValue_Variant_Exact AzStyleAnimationVecValue_Tag_Exact (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "fadeIn") (make-AzCssDuration 300 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-ease-in-out) #t)))))))
-      (css-property-with-conditions-simple (css-property-animation-in (css-union _AzStyleAnimationVecValue _AzStyleAnimationVecValue_Variant_Exact (make-AzStyleAnimationVecValue_Variant_Exact AzStyleAnimationVecValue_Tag_Exact (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "flyInLeft") (make-AzCssDuration 500 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-spring) #t)))))))
-      (css-property-with-conditions-simple (css-property-animation-out (css-union _AzStyleAnimationVecValue _AzStyleAnimationVecValue_Variant_Exact (make-AzStyleAnimationVecValue_Variant_Exact AzStyleAnimationVecValue_Tag_Exact (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "fadeOut") (make-AzCssDuration 200 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-linear) #t)))))))
+      (css-property-with-conditions-simple (css-property-animation (css-union _AzStyleAnimationVecValue AzStyleAnimationVecValue_Variant_Exact-tag set-AzStyleAnimationVecValue_Variant_Exact-variant-tag! AzStyleAnimationVecValue_Tag_Exact set-AzStyleAnimationVecValue_Variant_Exact-payload! (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "fadeIn") (make-AzCssDuration 300 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-ease-in-out) #t))))))
+      (css-property-with-conditions-simple (css-property-animation-in (css-union _AzStyleAnimationVecValue AzStyleAnimationVecValue_Variant_Exact-tag set-AzStyleAnimationVecValue_Variant_Exact-variant-tag! AzStyleAnimationVecValue_Tag_Exact set-AzStyleAnimationVecValue_Variant_Exact-payload! (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "flyInLeft") (make-AzCssDuration 500 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-spring) #t))))))
+      (css-property-with-conditions-simple (css-property-animation-out (css-union _AzStyleAnimationVecValue AzStyleAnimationVecValue_Variant_Exact-tag set-AzStyleAnimationVecValue_Variant_Exact-variant-tag! AzStyleAnimationVecValue_Tag_Exact set-AzStyleAnimationVecValue_Variant_Exact-payload! (css-vec style-animation-vec-copy-from-ptr _AzStyleAnimation (list (make-AzStyleAnimation (string->azul-string "fadeOut") (make-AzCssDuration 200 AzCssDurationUnit_Milliseconds) (make-AzCssDuration 0 AzCssDurationUnit_Milliseconds) (animation-iteration-count-count 1) (animation-timing-linear) #t))))))
     )
   ))

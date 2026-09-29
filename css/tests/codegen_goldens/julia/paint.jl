@@ -7,10 +7,23 @@ function az_vec(copy, ::Type{T}, items...) where {T}
     GC.@preserve arr copy(pointer(arr), Csize_t(length(arr)))
 end
 
-# Unions are opaque blobs in azul.jl: store the variant struct into one.
-function az_union(::Type{U}, variant) where {U}
+# Unions are opaque blobs in azul.jl: build the variant struct V by field
+# name (its tag, its payload if it has one, zeroes for the `_pad0` bytes
+# azul.h puts between them when the payload is less aligned than the union)
+# and store it into one.
+function az_union(::Type{U}, ::Type{V}, tag, payload...) where {U,V}
+    fields = map(fieldnames(V)) do f
+        if f === :tag
+            tag
+        elseif f === :payload
+            payload[1]
+        else
+            ntuple(_ -> 0x00, fieldcount(fieldtype(V, f)))
+        end
+    end
+    variant = V(fields...)
     r = Ref{U}()
-    GC.@preserve r unsafe_store!(Ptr{typeof(variant)}(Base.unsafe_convert(Ptr{U}, r)), variant)
+    GC.@preserve r unsafe_store!(Ptr{V}(Base.unsafe_convert(Ptr{U}, r)), variant)
     r[]
 end
 
@@ -60,15 +73,14 @@ function style_hero()
             Azul.AzCssProperty_filter(
                 az_union(
                     Azul.AzStyleFilterVecValue,
-                    Azul.AzStyleFilterVecValueVariant_Exact(
-                        UInt8(6),
-                        az_vec(
-                            Azul.AzStyleFilterVec_copyFromPtr,
-                            Azul.AzStyleFilter,
-                            Azul.AzStyleFilter_blur(Azul.AzStyleBlur(Azul.AzPixelValue_px(4.0f0), Azul.AzPixelValue_px(4.0f0))),
-                            Azul.AzStyleFilter_grayscale(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0))),
-                            Azul.AzStyleFilter_dropShadow(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 255)))
-                        )
+                    Azul.AzStyleFilterVecValueVariant_Exact,
+                    UInt8(6),
+                    az_vec(
+                        Azul.AzStyleFilterVec_copyFromPtr,
+                        Azul.AzStyleFilter,
+                        Azul.AzStyleFilter_blur(Azul.AzStyleBlur(Azul.AzPixelValue_px(4.0f0), Azul.AzPixelValue_px(4.0f0))),
+                        Azul.AzStyleFilter_grayscale(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0))),
+                        Azul.AzStyleFilter_dropShadow(Azul.AzStyleBoxShadow(Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(2.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(4.0f0)), Azul.AzPixelValueNoPercent(Azul.AzPixelValue_px(0.0f0)), Azul.AzBoxShadowClipMode_Outset, Azul.AzColorU(0, 0, 0, 255)))
                     )
                 )
             )
@@ -77,14 +89,13 @@ function style_hero()
             Azul.AzCssProperty_backdropFilter(
                 az_union(
                     Azul.AzStyleFilterVecValue,
-                    Azul.AzStyleFilterVecValueVariant_Exact(
-                        UInt8(6),
-                        az_vec(
-                            Azul.AzStyleFilterVec_copyFromPtr,
-                            Azul.AzStyleFilter,
-                            Azul.AzStyleFilter_brightness(Azul.AzPercentageValue(Azul.AzFloatValue_create(120.0f0))),
-                            Azul.AzStyleFilter_contrast(Azul.AzPercentageValue(Azul.AzFloatValue_create(80.0f0)))
-                        )
+                    Azul.AzStyleFilterVecValueVariant_Exact,
+                    UInt8(6),
+                    az_vec(
+                        Azul.AzStyleFilterVec_copyFromPtr,
+                        Azul.AzStyleFilter,
+                        Azul.AzStyleFilter_brightness(Azul.AzPercentageValue(Azul.AzFloatValue_create(120.0f0))),
+                        Azul.AzStyleFilter_contrast(Azul.AzPercentageValue(Azul.AzFloatValue_create(80.0f0)))
                     )
                 )
             )

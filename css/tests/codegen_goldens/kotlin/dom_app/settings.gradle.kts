@@ -1,1 +1,1 @@
-rootProject.name = "azul-styles"
+rootProject.name = "azul-app"

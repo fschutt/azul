@@ -3,4 +3,13 @@ module main
 
 import azul
 
-// render_card: not expressible with the V bindings: DOM export (builder methods and parameters) is not implemented for the statement-oriented printers yet
+// `user:card`: its texts and its link are parameters
+fn render_card(title string, text string, href string, author string) azul.AzDom {
+	mut t1 := C.AzDom_withCss(C.AzDom_createDiv(), azul.az_str('padding: 8px'))
+	t1 = C.AzDom_withClass(t1, azul.az_str('card'))
+	t1 = C.AzDom_withChild(t1, C.AzDom_createH2WithText(azul.az_str(title)))
+	t1 = C.AzDom_withChild(t1, C.AzDom_createPWithText(azul.az_str(text)))
+	t1 = C.AzDom_withChild(t1, C.AzDom_createA(azul.az_str(href), azul.az_str('Read more'), C.AzSmallAriaInfo_label(azul.az_str('Read more'))))
+	t1 = C.AzDom_withChild(t1, C.AzDom_createSpanWithText(azul.az_str('by ${author}')))
+	return t1
+}

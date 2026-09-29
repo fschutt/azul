@@ -1,4 +1,4 @@
 -- Copy target/codegen/haskell/ to ./azul-haskell (azul.h into its cbits/),
--- then: cabal run azul-styles --extra-lib-dirs=<dir of libazul>
+-- then: cabal run azul-app --extra-lib-dirs=<dir of libazul>
 packages: .
 optional-packages: ./azul-haskell

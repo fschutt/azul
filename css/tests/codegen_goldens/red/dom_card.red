@@ -2,4 +2,4 @@
 ;; Include after azul.reds: #include %styles.reds
 
 ;; `user:card`: its texts and its link are parameters
-;; render-card: not expressible with the Red/System bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+;; render-card: not expressible with the Red/System bindings: Red/System builds 32-bit executables only, which cannot load the 64-bit libazul whose LP64 layouts the binding mirrors (usize and u64 as pointer-width slots), so no Dom can cross the FFI by value

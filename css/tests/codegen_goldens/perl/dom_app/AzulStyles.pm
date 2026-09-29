@@ -12,6 +12,6 @@ sub css_str {
     return Azul::FFI::AzString_fromUtf8($ptr, $len);
 }
 
-# render_ui: not expressible with the Perl bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+# render_ui: not expressible with the Perl bindings: the Perl binding lays every tagged union out as a fake record (`sint32` tag + `uint8[256]` payload, not its C layout), so a Dom - whose NodeData holds the NodeType union - has the wrong size when it crosses the FFI by value
 
 1;

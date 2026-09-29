@@ -7,10 +7,23 @@ function az_vec(copy, ::Type{T}, items...) where {T}
     GC.@preserve arr copy(pointer(arr), Csize_t(length(arr)))
 end
 
-# Unions are opaque blobs in azul.jl: store the variant struct into one.
-function az_union(::Type{U}, variant) where {U}
+# Unions are opaque blobs in azul.jl: build the variant struct V by field
+# name (its tag, its payload if it has one, zeroes for the `_pad0` bytes
+# azul.h puts between them when the payload is less aligned than the union)
+# and store it into one.
+function az_union(::Type{U}, ::Type{V}, tag, payload...) where {U,V}
+    fields = map(fieldnames(V)) do f
+        if f === :tag
+            tag
+        elseif f === :payload
+            payload[1]
+        else
+            ntuple(_ -> 0x00, fieldcount(fieldtype(V, f)))
+        end
+    end
+    variant = V(fields...)
     r = Ref{U}()
-    GC.@preserve r unsafe_store!(Ptr{typeof(variant)}(Base.unsafe_convert(Ptr{U}, r)), variant)
+    GC.@preserve r unsafe_store!(Ptr{V}(Base.unsafe_convert(Ptr{U}, r)), variant)
     r[]
 end
 
@@ -38,42 +51,42 @@ function style_text()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_verticalAlign(Azul.AzStyleVerticalAlign_middle())),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_letterSpacing(Azul.AzStyleLetterSpacing(Azul.AzPixelValue_px(0.5f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textIndent(Azul.AzStyleTextIndent(Azul.AzPixelValue_em(2.0f0), false, false))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetter(az_union(Azul.AzStyleInitialLetterValue, Azul.AzStyleInitialLetterValueVariant_Exact(UInt8(6), Azul.AzStyleInitialLetter(3, Azul.AzOptionU32_none()))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineClamp(az_union(Azul.AzStyleLineClampValue, Azul.AzStyleLineClampValueVariant_Exact(UInt8(6), Azul.AzStyleLineClamp(3))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hangingPunctuation(az_union(Azul.AzStyleHangingPunctuationValue, Azul.AzStyleHangingPunctuationValueVariant_Exact(UInt8(6), Azul.AzStyleHangingPunctuation(true, false, false, false))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textCombineUpright(az_union(Azul.AzStyleTextCombineUprightValue, Azul.AzStyleTextCombineUprightValueVariant_Exact(UInt8(6), Azul.AzStyleTextCombineUpright_digits(2))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_unicodeBidi(az_union(Azul.AzStyleUnicodeBidiValue, Azul.AzStyleUnicodeBidiValueVariant_Exact(UInt8(6), Azul.AzStyleUnicodeBidi_Isolate)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textBoxTrim(az_union(Azul.AzStyleTextBoxTrimValue, Azul.AzStyleTextBoxTrimValueVariant_Exact(UInt8(6), Azul.AzStyleTextBoxTrim_TrimBoth)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textBoxEdge(az_union(Azul.AzStyleTextBoxEdgeValue, Azul.AzStyleTextBoxEdgeValueVariant_Exact(UInt8(6), Azul.AzStyleTextBoxEdge(Azul.AzTextBoxEdgeOver_Cap, Azul.AzTextBoxEdgeUnder_Alphabetic))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_dominantBaseline(az_union(Azul.AzStyleDominantBaselineValue, Azul.AzStyleDominantBaselineValueVariant_Exact(UInt8(6), Azul.AzStyleDominantBaseline_Central)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_alignmentBaseline(az_union(Azul.AzStyleAlignmentBaselineValue, Azul.AzStyleAlignmentBaselineValueVariant_Exact(UInt8(6), Azul.AzStyleAlignmentBaseline_Middle)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_baselineSource(az_union(Azul.AzStyleBaselineSourceValue, Azul.AzStyleBaselineSourceValueVariant_Exact(UInt8(6), Azul.AzStyleBaselineSource_Last)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineFitEdge(az_union(Azul.AzStyleLineFitEdgeValue, Azul.AzStyleLineFitEdgeValueVariant_Exact(UInt8(6), Azul.AzStyleLineFitEdge_Leading)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterAlign(az_union(Azul.AzStyleInitialLetterAlignValue, Azul.AzStyleInitialLetterAlignValueVariant_Exact(UInt8(6), Azul.AzStyleInitialLetterAlign_Alphabetic)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterWrap(az_union(Azul.AzStyleInitialLetterWrapValue, Azul.AzStyleInitialLetterWrapValueVariant_Exact(UInt8(6), Azul.AzStyleInitialLetterWrap_First)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetter(az_union(Azul.AzStyleInitialLetterValue, Azul.AzStyleInitialLetterValueVariant_Exact, UInt8(6), Azul.AzStyleInitialLetter(3, Azul.AzOptionU32_none())))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineClamp(az_union(Azul.AzStyleLineClampValue, Azul.AzStyleLineClampValueVariant_Exact, UInt8(6), Azul.AzStyleLineClamp(3)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hangingPunctuation(az_union(Azul.AzStyleHangingPunctuationValue, Azul.AzStyleHangingPunctuationValueVariant_Exact, UInt8(6), Azul.AzStyleHangingPunctuation(true, false, false, false)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textCombineUpright(az_union(Azul.AzStyleTextCombineUprightValue, Azul.AzStyleTextCombineUprightValueVariant_Exact, UInt8(6), Azul.AzStyleTextCombineUpright_digits(2)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_unicodeBidi(az_union(Azul.AzStyleUnicodeBidiValue, Azul.AzStyleUnicodeBidiValueVariant_Exact, UInt8(6), Azul.AzStyleUnicodeBidi_Isolate))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textBoxTrim(az_union(Azul.AzStyleTextBoxTrimValue, Azul.AzStyleTextBoxTrimValueVariant_Exact, UInt8(6), Azul.AzStyleTextBoxTrim_TrimBoth))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textBoxEdge(az_union(Azul.AzStyleTextBoxEdgeValue, Azul.AzStyleTextBoxEdgeValueVariant_Exact, UInt8(6), Azul.AzStyleTextBoxEdge(Azul.AzTextBoxEdgeOver_Cap, Azul.AzTextBoxEdgeUnder_Alphabetic)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_dominantBaseline(az_union(Azul.AzStyleDominantBaselineValue, Azul.AzStyleDominantBaselineValueVariant_Exact, UInt8(6), Azul.AzStyleDominantBaseline_Central))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_alignmentBaseline(az_union(Azul.AzStyleAlignmentBaselineValue, Azul.AzStyleAlignmentBaselineValueVariant_Exact, UInt8(6), Azul.AzStyleAlignmentBaseline_Middle))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_baselineSource(az_union(Azul.AzStyleBaselineSourceValue, Azul.AzStyleBaselineSourceValueVariant_Exact, UInt8(6), Azul.AzStyleBaselineSource_Last))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineFitEdge(az_union(Azul.AzStyleLineFitEdgeValue, Azul.AzStyleLineFitEdgeValueVariant_Exact, UInt8(6), Azul.AzStyleLineFitEdge_Leading))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterAlign(az_union(Azul.AzStyleInitialLetterAlignValue, Azul.AzStyleInitialLetterAlignValueVariant_Exact, UInt8(6), Azul.AzStyleInitialLetterAlign_Alphabetic))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterWrap(az_union(Azul.AzStyleInitialLetterWrapValue, Azul.AzStyleInitialLetterWrapValueVariant_Exact, UInt8(6), Azul.AzStyleInitialLetterWrap_First))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineHeight(Azul.AzStyleLineHeight(Azul.AzPercentageValue(Azul.AzFloatValue_create(150.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wordSpacing(Azul.AzStyleWordSpacing(Azul.AzPixelValue_px(4.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_tabSize(Azul.AzStyleTabSize(Azul.AzPixelValue_em(4.0f0)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_whiteSpace(az_union(Azul.AzStyleWhiteSpaceValue, Azul.AzStyleWhiteSpaceValueVariant_Exact(UInt8(6), Azul.AzStyleWhiteSpace_PreWrap)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hyphens(az_union(Azul.AzStyleHyphensValue, Azul.AzStyleHyphensValueVariant_Exact(UInt8(6), Azul.AzStyleHyphens_Auto)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wordBreak(az_union(Azul.AzStyleWordBreakValue, Azul.AzStyleWordBreakValueVariant_Exact(UInt8(6), Azul.AzStyleWordBreak_BreakAll)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowWrap(az_union(Azul.AzStyleOverflowWrapValue, Azul.AzStyleOverflowWrapValueVariant_Exact(UInt8(6), Azul.AzStyleOverflowWrap_Anywhere)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineBreak(az_union(Azul.AzStyleLineBreakValue, Azul.AzStyleLineBreakValueVariant_Exact(UInt8(6), Azul.AzStyleLineBreak_Strict)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textOverflow(az_union(Azul.AzStyleTextOverflowValue, Azul.AzStyleTextOverflowValueVariant_Exact(UInt8(6), Azul.AzStyleTextOverflow_Ellipsis)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textOrientation(az_union(Azul.AzStyleTextOrientationValue, Azul.AzStyleTextOrientationValueVariant_Exact(UInt8(6), Azul.AzStyleTextOrientation_Upright)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textAlignLast(az_union(Azul.AzStyleTextAlignLastValue, Azul.AzStyleTextAlignLastValueVariant_Exact(UInt8(6), Azul.AzStyleTextAlignLast_Justify)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textTransform(az_union(Azul.AzStyleTextTransformValue, Azul.AzStyleTextTransformValueVariant_Exact(UInt8(6), Azul.AzStyleTextTransform_Uppercase)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_direction(az_union(Azul.AzStyleDirectionValue, Azul.AzStyleDirectionValueVariant_Exact(UInt8(6), Azul.AzStyleDirection_Rtl)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_whiteSpace(az_union(Azul.AzStyleWhiteSpaceValue, Azul.AzStyleWhiteSpaceValueVariant_Exact, UInt8(6), Azul.AzStyleWhiteSpace_PreWrap))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hyphens(az_union(Azul.AzStyleHyphensValue, Azul.AzStyleHyphensValueVariant_Exact, UInt8(6), Azul.AzStyleHyphens_Auto))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wordBreak(az_union(Azul.AzStyleWordBreakValue, Azul.AzStyleWordBreakValueVariant_Exact, UInt8(6), Azul.AzStyleWordBreak_BreakAll))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowWrap(az_union(Azul.AzStyleOverflowWrapValue, Azul.AzStyleOverflowWrapValueVariant_Exact, UInt8(6), Azul.AzStyleOverflowWrap_Anywhere))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineBreak(az_union(Azul.AzStyleLineBreakValue, Azul.AzStyleLineBreakValueVariant_Exact, UInt8(6), Azul.AzStyleLineBreak_Strict))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textOverflow(az_union(Azul.AzStyleTextOverflowValue, Azul.AzStyleTextOverflowValueVariant_Exact, UInt8(6), Azul.AzStyleTextOverflow_Ellipsis))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textOrientation(az_union(Azul.AzStyleTextOrientationValue, Azul.AzStyleTextOrientationValueVariant_Exact, UInt8(6), Azul.AzStyleTextOrientation_Upright))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textAlignLast(az_union(Azul.AzStyleTextAlignLastValue, Azul.AzStyleTextAlignLastValueVariant_Exact, UInt8(6), Azul.AzStyleTextAlignLast_Justify))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textTransform(az_union(Azul.AzStyleTextTransformValue, Azul.AzStyleTextTransformValueVariant_Exact, UInt8(6), Azul.AzStyleTextTransform_Uppercase))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_direction(az_union(Azul.AzStyleDirectionValue, Azul.AzStyleDirectionValueVariant_Exact, UInt8(6), Azul.AzStyleDirection_Rtl))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_userSelect(Azul.AzStyleUserSelect_None)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textDecoration(Azul.AzStyleTextDecoration_Underline)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hyphenationLanguage(az_union(Azul.AzStyleHyphenationLanguageValue, Azul.AzStyleHyphenationLanguageValueVariant_Exact(UInt8(6), Azul.AzStyleHyphenationLanguage(Azul.az_string("en-US")))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_exclusionMargin(az_union(Azul.AzStyleExclusionMarginValue, Azul.AzStyleExclusionMarginValueVariant_Exact(UInt8(6), Azul.AzStyleExclusionMargin(Azul.AzFloatValue_create(10.5f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_hyphenationLanguage(az_union(Azul.AzStyleHyphenationLanguageValue, Azul.AzStyleHyphenationLanguageValueVariant_Exact, UInt8(6), Azul.AzStyleHyphenationLanguage(Azul.az_string("en-US"))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_exclusionMargin(az_union(Azul.AzStyleExclusionMarginValue, Azul.AzStyleExclusionMarginValueVariant_Exact, UInt8(6), Azul.AzStyleExclusionMargin(Azul.AzFloatValue_create(10.5f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretColor(Azul.AzCaretColor(Azul.AzColorU(255, 0, 0, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretAnimationDuration(Azul.AzCaretAnimationDuration(Azul.AzCssDuration(500, Azul.AzCssDurationUnit_Milliseconds)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretWidth(az_union(Azul.AzCaretWidthValue, Azul.AzCaretWidthValueVariant_Exact(UInt8(6), Azul.AzCaretWidth(Azul.AzPixelValue_px(2.0f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_caretWidth(az_union(Azul.AzCaretWidthValue, Azul.AzCaretWidthValueVariant_Exact, UInt8(6), Azul.AzCaretWidth(Azul.AzPixelValue_px(2.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionBackgroundColor(Azul.AzSelectionBackgroundColor(Azul.AzColorU(51, 153, 255, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionColor(Azul.AzSelectionColor(Azul.AzColorU(255, 255, 255, 255)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionRadius(az_union(Azul.AzSelectionRadiusValue, Azul.AzSelectionRadiusValueVariant_Exact(UInt8(6), Azul.AzSelectionRadius(Azul.AzPixelValue_px(3.0f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionRadius(az_union(Azul.AzSelectionRadiusValue, Azul.AzSelectionRadiusValueVariant_Exact, UInt8(6), Azul.AzSelectionRadius(Azul.AzPixelValue_px(3.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(
             Azul.AzCssProperty_font(
                 az_vec(
@@ -93,7 +106,7 @@ function style_box()
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_display(Azul.AzLayoutDisplay_Block)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_float(az_union(Azul.AzLayoutFloatValue, Azul.AzLayoutFloatValueVariant_Exact(UInt8(6), Azul.AzLayoutFloat_Left)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_float(az_union(Azul.AzLayoutFloatValue, Azul.AzLayoutFloatValueVariant_Exact, UInt8(6), Azul.AzLayoutFloat_Left))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_boxSizing(Azul.AzLayoutBoxSizing_BorderBox)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_width(Azul.AzLayoutWidth_px(Azul.AzPixelValue_percent(50.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_height(Azul.AzLayoutHeight_px(Azul.AzPixelValue_px(200.0f0)))),
@@ -111,27 +124,27 @@ function style_box()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingRight(Azul.AzLayoutPaddingRight(Azul.AzPixelValue_px(2.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingBottom(Azul.AzLayoutPaddingBottom(Azul.AzPixelValue_px(3.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingLeft(Azul.AzLayoutPaddingLeft(Azul.AzPixelValue_px(4.0f0)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingInlineStart(az_union(Azul.AzLayoutPaddingInlineStartValue, Azul.AzLayoutPaddingInlineStartValueVariant_Exact(UInt8(6), Azul.AzLayoutPaddingInlineStart(Azul.AzPixelValue_px(5.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingInlineEnd(az_union(Azul.AzLayoutPaddingInlineEndValue, Azul.AzLayoutPaddingInlineEndValueVariant_Exact(UInt8(6), Azul.AzLayoutPaddingInlineEnd(Azul.AzPixelValue_px(6.0f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingInlineStart(az_union(Azul.AzLayoutPaddingInlineStartValue, Azul.AzLayoutPaddingInlineStartValueVariant_Exact, UInt8(6), Azul.AzLayoutPaddingInlineStart(Azul.AzPixelValue_px(5.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_paddingInlineEnd(az_union(Azul.AzLayoutPaddingInlineEndValue, Azul.AzLayoutPaddingInlineEndValueVariant_Exact, UInt8(6), Azul.AzLayoutPaddingInlineEnd(Azul.AzPixelValue_px(6.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_marginTop(Azul.AzLayoutMarginTop(Azul.AzPixelValue_px(7.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_marginRight(Azul.AzLayoutMarginRight(Azul.AzPixelValue_px(8.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_marginBottom(Azul.AzLayoutMarginBottom(Azul.AzPixelValue_px(9.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_auto(Azul.AzCssPropertyType_MarginLeft)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowX(Azul.AzLayoutOverflow_Hidden)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowY(Azul.AzLayoutOverflow_Scroll)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowBlock(az_union(Azul.AzLayoutOverflowValue, Azul.AzLayoutOverflowValueVariant_Exact(UInt8(6), Azul.AzLayoutOverflow_Clip)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowInline(az_union(Azul.AzLayoutOverflowValue, Azul.AzLayoutOverflowValueVariant_Exact(UInt8(6), Azul.AzLayoutOverflow_Auto)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarGutter(az_union(Azul.AzStyleScrollbarGutterValue, Azul.AzStyleScrollbarGutterValueVariant_Exact(UInt8(6), Azul.AzStyleScrollbarGutter_StableBothEdges)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowClipMargin(az_union(Azul.AzStyleOverflowClipMarginValue, Azul.AzStyleOverflowClipMarginValueVariant_Exact(UInt8(6), Azul.AzStyleOverflowClipMargin(Azul.AzVisualBox_ContentBox, Azul.AzPixelValue_px(0.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_clip(az_union(Azul.AzStyleClipRectValue, Azul.AzStyleClipRectValueVariant_Exact(UInt8(6), Azul.AzStyleClipRect(Azul.AzOptionF32_some(0.0f0), Azul.AzOptionF32_some(10.0f0), Azul.AzOptionF32_some(10.0f0), Azul.AzOptionF32_some(0.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_writingMode(az_union(Azul.AzLayoutWritingModeValue, Azul.AzLayoutWritingModeValueVariant_Exact(UInt8(6), Azul.AzLayoutWritingMode_VerticalRl)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_clear(az_union(Azul.AzLayoutClearValue, Azul.AzLayoutClearValueVariant_Exact(UInt8(6), Azul.AzLayoutClear_Both)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowBlock(az_union(Azul.AzLayoutOverflowValue, Azul.AzLayoutOverflowValueVariant_Exact, UInt8(6), Azul.AzLayoutOverflow_Clip))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowInline(az_union(Azul.AzLayoutOverflowValue, Azul.AzLayoutOverflowValueVariant_Exact, UInt8(6), Azul.AzLayoutOverflow_Auto))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarGutter(az_union(Azul.AzStyleScrollbarGutterValue, Azul.AzStyleScrollbarGutterValueVariant_Exact, UInt8(6), Azul.AzStyleScrollbarGutter_StableBothEdges))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overflowClipMargin(az_union(Azul.AzStyleOverflowClipMarginValue, Azul.AzStyleOverflowClipMarginValueVariant_Exact, UInt8(6), Azul.AzStyleOverflowClipMargin(Azul.AzVisualBox_ContentBox, Azul.AzPixelValue_px(0.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_clip(az_union(Azul.AzStyleClipRectValue, Azul.AzStyleClipRectValueVariant_Exact, UInt8(6), Azul.AzStyleClipRect(Azul.AzOptionF32_some(0.0f0), Azul.AzOptionF32_some(10.0f0), Azul.AzOptionF32_some(10.0f0), Azul.AzOptionF32_some(0.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_writingMode(az_union(Azul.AzLayoutWritingModeValue, Azul.AzLayoutWritingModeValueVariant_Exact, UInt8(6), Azul.AzLayoutWritingMode_VerticalRl))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_clear(az_union(Azul.AzLayoutClearValue, Azul.AzLayoutClearValueVariant_Exact, UInt8(6), Azul.AzLayoutClear_Both))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_visibility(Azul.AzStyleVisibility_Hidden)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_opacity(Azul.AzStyleOpacity(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_cursor(Azul.AzStyleCursor_Pointer)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_objectFit(az_union(Azul.AzStyleObjectFitValue, Azul.AzStyleObjectFitValueVariant_Exact(UInt8(6), Azul.AzStyleObjectFit_Cover)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_objectPosition(az_union(Azul.AzStyleObjectPositionValue, Azul.AzStyleObjectPositionValueVariant_Exact(UInt8(6), Azul.AzStyleObjectPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_top()))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_aspectRatio(az_union(Azul.AzStyleAspectRatioValue, Azul.AzStyleAspectRatioValueVariant_Exact(UInt8(6), Azul.AzStyleAspectRatio_ratio(Azul.AzAspectRatioValue(16000, 9000))))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_objectFit(az_union(Azul.AzStyleObjectFitValue, Azul.AzStyleObjectFitValueVariant_Exact, UInt8(6), Azul.AzStyleObjectFit_Cover))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_objectPosition(az_union(Azul.AzStyleObjectPositionValue, Azul.AzStyleObjectPositionValueVariant_Exact, UInt8(6), Azul.AzStyleObjectPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_top())))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_aspectRatio(az_union(Azul.AzStyleAspectRatioValue, Azul.AzStyleAspectRatioValueVariant_Exact, UInt8(6), Azul.AzStyleAspectRatio_ratio(Azul.AzAspectRatioValue(16000, 9000)))))
     )
 end
 
@@ -144,15 +157,15 @@ function style_flex()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexDirection(Azul.AzLayoutFlexDirection_Column)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexGrow(Azul.AzLayoutFlexGrow(Azul.AzFloatValue_create(2.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexShrink(Azul.AzLayoutFlexShrink(Azul.AzFloatValue_create(0.5f0)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexBasis(az_union(Azul.AzLayoutFlexBasisValue, Azul.AzLayoutFlexBasisValueVariant_Exact(UInt8(6), Azul.AzLayoutFlexBasis_exact(Azul.AzPixelValue_percent(30.0f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexBasis(az_union(Azul.AzLayoutFlexBasisValue, Azul.AzLayoutFlexBasisValueVariant_Exact, UInt8(6), Azul.AzLayoutFlexBasis_exact(Azul.AzPixelValue_percent(30.0f0))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_justifyContent(Azul.AzLayoutJustifyContent_SpaceBetween)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_alignItems(Azul.AzLayoutAlignItems_Center)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_alignContent(Azul.AzLayoutAlignContent_Stretch)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_alignSelf(Azul.AzLayoutAlignSelf_End)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact(UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(8.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact(UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(4.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact(UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(6.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact(UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(6.0f0))))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact, UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(8.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact, UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(4.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact, UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(6.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact, UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(6.0f0)))))
     )
 end
 
@@ -166,16 +179,15 @@ function style_grid()
             Azul.AzCssProperty_gridTemplateColumns(
                 az_union(
                     Azul.AzLayoutGridTemplateColumnsValue,
-                    Azul.AzLayoutGridTemplateColumnsValueVariant_Exact(
-                        UInt8(6),
-                        Azul.AzGridTemplate(
-                            az_vec(
-                                Azul.AzGridTrackSizingVec_copyFromPtr,
-                                Azul.AzGridTrackSizing,
-                                Azul.AzGridTrackSizing_fr(100),
-                                Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(200.0f0)),
-                                Azul.AzGridTrackSizing_auto()
-                            )
+                    Azul.AzLayoutGridTemplateColumnsValueVariant_Exact,
+                    UInt8(6),
+                    Azul.AzGridTemplate(
+                        az_vec(
+                            Azul.AzGridTrackSizingVec_copyFromPtr,
+                            Azul.AzGridTrackSizing,
+                            Azul.AzGridTrackSizing_fr(100),
+                            Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(200.0f0)),
+                            Azul.AzGridTrackSizing_auto()
                         )
                     )
                 )
@@ -185,37 +197,35 @@ function style_grid()
             Azul.AzCssProperty_gridTemplateRows(
                 az_union(
                     Azul.AzLayoutGridTemplateRowsValue,
-                    Azul.AzLayoutGridTemplateRowsValueVariant_Exact(
-                        UInt8(6),
-                        Azul.AzGridTemplate(
-                            az_vec(
-                                Azul.AzGridTrackSizingVec_copyFromPtr,
-                                Azul.AzGridTrackSizing,
-                                Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(100.0f0)),
-                                Azul.AzGridTrackSizing_fr(100)
-                            )
+                    Azul.AzLayoutGridTemplateRowsValueVariant_Exact,
+                    UInt8(6),
+                    Azul.AzGridTemplate(
+                        az_vec(
+                            Azul.AzGridTrackSizingVec_copyFromPtr,
+                            Azul.AzGridTrackSizing,
+                            Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(100.0f0)),
+                            Azul.AzGridTrackSizing_fr(100)
                         )
                     )
                 )
             )
         ),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridAutoColumns(az_union(Azul.AzLayoutGridAutoColumnsValue, Azul.AzLayoutGridAutoColumnsValueVariant_Exact(UInt8(6), Azul.AzGridAutoTracks(az_vec(Azul.AzGridTrackSizingVec_copyFromPtr, Azul.AzGridTrackSizing, Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(50.0f0)))))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridColumn(az_union(Azul.AzLayoutGridColumnValue, Azul.AzLayoutGridColumnValueVariant_Exact(UInt8(6), Azul.AzGridPlacement(Azul.AzGridLine_line(1), Azul.AzGridLine_line(3)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridRow(az_union(Azul.AzLayoutGridRowValue, Azul.AzLayoutGridRowValueVariant_Exact(UInt8(6), Azul.AzGridPlacement(Azul.AzGridLine_span(2), Azul.AzGridLine_auto()))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridAutoColumns(az_union(Azul.AzLayoutGridAutoColumnsValue, Azul.AzLayoutGridAutoColumnsValueVariant_Exact, UInt8(6), Azul.AzGridAutoTracks(az_vec(Azul.AzGridTrackSizingVec_copyFromPtr, Azul.AzGridTrackSizing, Azul.AzGridTrackSizing_fixed(Azul.AzPixelValue_px(50.0f0))))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridColumn(az_union(Azul.AzLayoutGridColumnValue, Azul.AzLayoutGridColumnValueVariant_Exact, UInt8(6), Azul.AzGridPlacement(Azul.AzGridLine_line(1), Azul.AzGridLine_line(3))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridRow(az_union(Azul.AzLayoutGridRowValue, Azul.AzLayoutGridRowValueVariant_Exact, UInt8(6), Azul.AzGridPlacement(Azul.AzGridLine_span(2), Azul.AzGridLine_auto())))),
         Azul.AzCssPropertyWithConditions_simple(
             Azul.AzCssProperty_gridTemplateAreas(
                 az_union(
                     Azul.AzLayoutGridTemplateAreasValue,
-                    Azul.AzLayoutGridTemplateAreasValueVariant_Exact(
-                        UInt8(6),
-                        Azul.AzGridTemplateAreas(
-                            az_vec(
-                                Azul.AzGridAreaDefinitionVec_copyFromPtr,
-                                Azul.AzGridAreaDefinition,
-                                Azul.AzGridAreaDefinition(Azul.az_string("header"), 1, 2, 1, 3),
-                                Azul.AzGridAreaDefinition(Azul.az_string("main"), 2, 3, 2, 3),
-                                Azul.AzGridAreaDefinition(Azul.az_string("sidebar"), 2, 3, 1, 2)
-                            )
+                    Azul.AzLayoutGridTemplateAreasValueVariant_Exact,
+                    UInt8(6),
+                    Azul.AzGridTemplateAreas(
+                        az_vec(
+                            Azul.AzGridAreaDefinitionVec_copyFromPtr,
+                            Azul.AzGridAreaDefinition,
+                            Azul.AzGridAreaDefinition(Azul.az_string("header"), 1, 2, 1, 3),
+                            Azul.AzGridAreaDefinition(Azul.az_string("main"), 2, 3, 2, 3),
+                            Azul.AzGridAreaDefinition(Azul.az_string("sidebar"), 2, 3, 1, 2)
                         )
                     )
                 )
@@ -224,8 +234,8 @@ function style_grid()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_gridAutoFlow(Azul.AzLayoutGridAutoFlow_Column)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_justifySelf(Azul.AzLayoutJustifySelf_Center)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_justifyItems(Azul.AzLayoutJustifyItems_Start)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact(UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(10.0f0)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact(UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(10.0f0))))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_rowGap(az_union(Azul.AzLayoutRowGapValue, Azul.AzLayoutRowGapValueVariant_Exact, UInt8(6), Azul.AzLayoutRowGap(Azul.AzPixelValue_px(10.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_columnGap(az_union(Azul.AzLayoutColumnGapValue, Azul.AzLayoutColumnGapValueVariant_Exact, UInt8(6), Azul.AzLayoutColumnGap(Azul.AzPixelValue_px(10.0f0)))))
     )
 end
 
@@ -262,22 +272,22 @@ function style_scroll()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarTrack(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact(UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(238, 238, 238, 255)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarThumb(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact(UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(136, 136, 136, 255)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarButton(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact(UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(204, 204, 204, 255)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarCorner(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact(UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(221, 221, 221, 255)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarResizer(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact(UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(187, 187, 187, 255)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarWidth(az_union(Azul.AzLayoutScrollbarWidthValue, Azul.AzLayoutScrollbarWidthValueVariant_Exact(UInt8(6), Azul.AzLayoutScrollbarWidth_Thin)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarColor(az_union(Azul.AzStyleScrollbarColorValue, Azul.AzStyleScrollbarColorValueVariant_Exact(UInt8(6), Azul.AzStyleScrollbarColor_custom(Azul.AzScrollbarColorCustom(Azul.AzColorU(136, 136, 136, 255), Azul.AzColorU(238, 238, 238, 255))))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overscrollBehaviorX(az_union(Azul.AzOverscrollBehaviorValue, Azul.AzOverscrollBehaviorValueVariant_Exact(UInt8(6), Azul.AzOverscrollBehavior_Contain)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overscrollBehaviorY(az_union(Azul.AzOverscrollBehaviorValue, Azul.AzOverscrollBehaviorValueVariant_Exact(UInt8(6), Azul.AzOverscrollBehavior_None)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarVisibility(az_union(Azul.AzScrollbarVisibilityModeValue, Azul.AzScrollbarVisibilityModeValueVariant_Exact(UInt8(6), Azul.AzScrollbarVisibilityMode_WhenScrolling)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarFadeDelay(az_union(Azul.AzScrollbarFadeDelayValue, Azul.AzScrollbarFadeDelayValueVariant_Exact(UInt8(6), Azul.AzScrollbarFadeDelay(500))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarFadeDuration(az_union(Azul.AzScrollbarFadeDurationValue, Azul.AzScrollbarFadeDurationValueVariant_Exact(UInt8(6), Azul.AzScrollbarFadeDuration(200))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_appRegion(az_union(Azul.AzStyleAppRegionValue, Azul.AzStyleAppRegionValueVariant_Exact(UInt8(6), Azul.AzStyleAppRegion_Drag)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationAction(az_union(Azul.AzStyleSpatialNavigationActionValue, Azul.AzStyleSpatialNavigationActionValueVariant_Exact(UInt8(6), Azul.AzStyleSpatialNavigationAction_Focus)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationContain(az_union(Azul.AzStyleSpatialNavigationContainValue, Azul.AzStyleSpatialNavigationContainValueVariant_Exact(UInt8(6), Azul.AzStyleSpatialNavigationContain_Contain)))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationFunction(az_union(Azul.AzStyleSpatialNavigationFunctionValue, Azul.AzStyleSpatialNavigationFunctionValueVariant_Exact(UInt8(6), Azul.AzStyleSpatialNavigationFunction_Grid))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarTrack(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact, UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(238, 238, 238, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarThumb(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact, UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(136, 136, 136, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarButton(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact, UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(204, 204, 204, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarCorner(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact, UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(221, 221, 221, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarResizer(az_union(Azul.AzStyleBackgroundContentValue, Azul.AzStyleBackgroundContentValueVariant_Exact, UInt8(6), Azul.AzStyleBackgroundContent_color(Azul.AzColorU(187, 187, 187, 255))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarWidth(az_union(Azul.AzLayoutScrollbarWidthValue, Azul.AzLayoutScrollbarWidthValueVariant_Exact, UInt8(6), Azul.AzLayoutScrollbarWidth_Thin))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarColor(az_union(Azul.AzStyleScrollbarColorValue, Azul.AzStyleScrollbarColorValueVariant_Exact, UInt8(6), Azul.AzStyleScrollbarColor_custom(Azul.AzScrollbarColorCustom(Azul.AzColorU(136, 136, 136, 255), Azul.AzColorU(238, 238, 238, 255)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overscrollBehaviorX(az_union(Azul.AzOverscrollBehaviorValue, Azul.AzOverscrollBehaviorValueVariant_Exact, UInt8(6), Azul.AzOverscrollBehavior_Contain))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_overscrollBehaviorY(az_union(Azul.AzOverscrollBehaviorValue, Azul.AzOverscrollBehaviorValueVariant_Exact, UInt8(6), Azul.AzOverscrollBehavior_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarVisibility(az_union(Azul.AzScrollbarVisibilityModeValue, Azul.AzScrollbarVisibilityModeValueVariant_Exact, UInt8(6), Azul.AzScrollbarVisibilityMode_WhenScrolling))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarFadeDelay(az_union(Azul.AzScrollbarFadeDelayValue, Azul.AzScrollbarFadeDelayValueVariant_Exact, UInt8(6), Azul.AzScrollbarFadeDelay(500)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_scrollbarFadeDuration(az_union(Azul.AzScrollbarFadeDurationValue, Azul.AzScrollbarFadeDurationValueVariant_Exact, UInt8(6), Azul.AzScrollbarFadeDuration(200)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_appRegion(az_union(Azul.AzStyleAppRegionValue, Azul.AzStyleAppRegionValueVariant_Exact, UInt8(6), Azul.AzStyleAppRegion_Drag))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationAction(az_union(Azul.AzStyleSpatialNavigationActionValue, Azul.AzStyleSpatialNavigationActionValueVariant_Exact, UInt8(6), Azul.AzStyleSpatialNavigationAction_Focus))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationContain(az_union(Azul.AzStyleSpatialNavigationContainValue, Azul.AzStyleSpatialNavigationContainValueVariant_Exact, UInt8(6), Azul.AzStyleSpatialNavigationContain_Contain))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_spatialNavigationFunction(az_union(Azul.AzStyleSpatialNavigationFunctionValue, Azul.AzStyleSpatialNavigationFunctionValueVariant_Exact, UInt8(6), Azul.AzStyleSpatialNavigationFunction_Grid)))
     )
 end
 
@@ -295,9 +305,9 @@ function style_effects()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_transformOrigin(Azul.AzStyleTransformOrigin(Azul.AzPixelValue_percent(50.0f0), Azul.AzPixelValue_percent(50.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_perspectiveOrigin(Azul.AzStylePerspectiveOrigin(Azul.AzPixelValue_px(10.0f0), Azul.AzPixelValue_px(20.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backfaceVisibility(Azul.AzStyleBackfaceVisibility_Hidden)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_filter(az_union(Azul.AzStyleFilterVecValue, Azul.AzStyleFilterVecValueVariant_Exact(UInt8(6), az_vec(Azul.AzStyleFilterVec_copyFromPtr, Azul.AzStyleFilter, Azul.AzStyleFilter_blur(Azul.AzStyleBlur(Azul.AzPixelValue_px(2.0f0), Azul.AzPixelValue_px(2.0f0)))))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backdropFilter(az_union(Azul.AzStyleFilterVecValue, Azul.AzStyleFilterVecValueVariant_Exact(UInt8(6), az_vec(Azul.AzStyleFilterVec_copyFromPtr, Azul.AzStyleFilter, Azul.AzStyleFilter_grayscale(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0)))))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_mixBlendMode(az_union(Azul.AzStyleMixBlendModeValue, Azul.AzStyleMixBlendModeValueVariant_Exact(UInt8(6), Azul.AzStyleMixBlendMode_Multiply))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_filter(az_union(Azul.AzStyleFilterVecValue, Azul.AzStyleFilterVecValueVariant_Exact, UInt8(6), az_vec(Azul.AzStyleFilterVec_copyFromPtr, Azul.AzStyleFilter, Azul.AzStyleFilter_blur(Azul.AzStyleBlur(Azul.AzPixelValue_px(2.0f0), Azul.AzPixelValue_px(2.0f0))))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backdropFilter(az_union(Azul.AzStyleFilterVecValue, Azul.AzStyleFilterVecValueVariant_Exact, UInt8(6), az_vec(Azul.AzStyleFilterVec_copyFromPtr, Azul.AzStyleFilter, Azul.AzStyleFilter_grayscale(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0))))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_mixBlendMode(az_union(Azul.AzStyleMixBlendModeValue, Azul.AzStyleMixBlendModeValueVariant_Exact, UInt8(6), Azul.AzStyleMixBlendMode_Multiply)))
     )
 end
 
@@ -369,8 +379,8 @@ function style_anim()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animation(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact(UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("fadeIn"), Azul.AzCssDuration(300, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_easeInOut(), true)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animationIn(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact(UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("flyInLeft"), Azul.AzCssDuration(500, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_spring(), true)))))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animationOut(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact(UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("fadeOut"), Azul.AzCssDuration(200, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_linear(), true))))))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animation(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact, UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("fadeIn"), Azul.AzCssDuration(300, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_easeInOut(), true))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animationIn(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact, UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("flyInLeft"), Azul.AzCssDuration(500, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_spring(), true))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_animationOut(az_union(Azul.AzStyleAnimationVecValue, Azul.AzStyleAnimationVecValueVariant_Exact, UInt8(6), az_vec(Azul.AzStyleAnimationVec_copyFromPtr, Azul.AzStyleAnimation, Azul.AzStyleAnimation(Azul.az_string("fadeOut"), Azul.AzCssDuration(200, Azul.AzCssDurationUnit_Milliseconds), Azul.AzCssDuration(0, Azul.AzCssDurationUnit_Milliseconds), Azul.AzAnimationIterationCount_count(1), Azul.AzAnimationTiming_linear(), true)))))
     )
 end

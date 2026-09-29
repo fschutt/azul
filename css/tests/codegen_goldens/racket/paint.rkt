@@ -11,10 +11,14 @@
     (ptr-set! arr type i item))
   (copy arr n))
 
-;; A union value: VARIANT (a variant struct, tag first) written into its memory.
-(define (css-union type variant-type variant)
+;; A union value of TYPE holding one variant. The variant struct's `variant-tag`
+;; and `payload` are set by name (VARIANT-TAG is the struct's pointer tag), so
+;; the padding the binding puts between them needs no value.
+(define (css-union type variant-tag set-tag! tag [set-payload! #f] [payload #f])
   (define p (malloc type))
-  (ptr-set! p variant-type variant)
+  (cpointer-push-tag! p variant-tag)
+  (set-tag! p tag)
+  (when set-payload! (set-payload! p payload))
   (ptr-ref p type))
 
 ;; CSS: .hero
@@ -70,17 +74,17 @@
         (css-property-filter
           (css-union
             _AzStyleFilterVecValue
-            _AzStyleFilterVecValue_Variant_Exact
-            (make-AzStyleFilterVecValue_Variant_Exact
-              AzStyleFilterVecValue_Tag_Exact
-              (css-vec
-                style-filter-vec-copy-from-ptr
-                _AzStyleFilter
-                (list
-                  (style-filter-blur (make-AzStyleBlur (pixel-value-px 4.0) (pixel-value-px 4.0)))
-                  (style-filter-grayscale (make-AzPercentageValue (float-value-create 50.0)))
-                  (style-filter-drop-shadow (make-AzStyleBoxShadow (make-AzPixelValueNoPercent (pixel-value-px 2.0)) (make-AzPixelValueNoPercent (pixel-value-px 2.0)) (make-AzPixelValueNoPercent (pixel-value-px 4.0)) (make-AzPixelValueNoPercent (pixel-value-px 0.0)) AzBoxShadowClipMode_Outset (make-AzColorU 0 0 0 255)))
-                )
+            AzStyleFilterVecValue_Variant_Exact-tag
+            set-AzStyleFilterVecValue_Variant_Exact-variant-tag!
+            AzStyleFilterVecValue_Tag_Exact
+            set-AzStyleFilterVecValue_Variant_Exact-payload!
+            (css-vec
+              style-filter-vec-copy-from-ptr
+              _AzStyleFilter
+              (list
+                (style-filter-blur (make-AzStyleBlur (pixel-value-px 4.0) (pixel-value-px 4.0)))
+                (style-filter-grayscale (make-AzPercentageValue (float-value-create 50.0)))
+                (style-filter-drop-shadow (make-AzStyleBoxShadow (make-AzPixelValueNoPercent (pixel-value-px 2.0)) (make-AzPixelValueNoPercent (pixel-value-px 2.0)) (make-AzPixelValueNoPercent (pixel-value-px 4.0)) (make-AzPixelValueNoPercent (pixel-value-px 0.0)) AzBoxShadowClipMode_Outset (make-AzColorU 0 0 0 255)))
               )
             )
           )
@@ -90,16 +94,16 @@
         (css-property-backdrop-filter
           (css-union
             _AzStyleFilterVecValue
-            _AzStyleFilterVecValue_Variant_Exact
-            (make-AzStyleFilterVecValue_Variant_Exact
-              AzStyleFilterVecValue_Tag_Exact
-              (css-vec
-                style-filter-vec-copy-from-ptr
-                _AzStyleFilter
-                (list
-                  (style-filter-brightness (make-AzPercentageValue (float-value-create 120.0)))
-                  (style-filter-contrast (make-AzPercentageValue (float-value-create 80.0)))
-                )
+            AzStyleFilterVecValue_Variant_Exact-tag
+            set-AzStyleFilterVecValue_Variant_Exact-variant-tag!
+            AzStyleFilterVecValue_Tag_Exact
+            set-AzStyleFilterVecValue_Variant_Exact-payload!
+            (css-vec
+              style-filter-vec-copy-from-ptr
+              _AzStyleFilter
+              (list
+                (style-filter-brightness (make-AzPercentageValue (float-value-create 120.0)))
+                (style-filter-contrast (make-AzPercentageValue (float-value-create 80.0)))
               )
             )
           )

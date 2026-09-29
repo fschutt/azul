@@ -3,4 +3,4 @@ Attribute VB_Name = "AzulStyles"
 Option Explicit
 
 ' `user:card`: its texts and its link are parameters
-' RenderCard: not expressible with the VB6 bindings: DOM export (builder methods and parameters) is not implemented for this language's printer yet
+' RenderCard: not expressible with the VB6 bindings: a VB6 `Declare` is stdcall while libazul exports cdecl functions (and VB6 needs a 32-bit libazul), so VB6 cannot call libazul at all - the `..Byref` twins the binding declares for the Dom functions included
