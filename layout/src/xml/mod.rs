@@ -238,10 +238,10 @@ pub fn style_detached_dom(
 
 /// Raw `<input>` / `<select>` / `<textarea>` / `<form>` nodes → their widgets,
 /// with a form-control memory nothing else reads (no window owns the DOM).
-fn resolve_form_controls_detached(_dom: &mut Dom) {
+fn resolve_form_controls_detached(dom: &mut Dom) {
     #[cfg(feature = "widgets")]
     let _ = crate::form_controls::resolve_form_controls_in_dom(
-        _dom,
+        dom,
         &crate::form_controls::FormControlMemory::default(),
         crate::form_controls::FORM_SCOPE_ROOT,
     );
