@@ -61,7 +61,7 @@ fn fresh_app() -> MutexGuard<'static, ()> {
 
 /// `AZ_THEME` pins light / dark over the app's mode; under it there is nothing to test.
 fn env_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 #[derive(Clone)]

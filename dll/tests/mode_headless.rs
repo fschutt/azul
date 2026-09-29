@@ -454,7 +454,7 @@ fn a_dark_pin_clears_the_window_dark_on_a_light_desktop() {
         "premise: a light desktop clears light"
     );
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
     let clear = paint_and_read_clear_color(&mut window);
     assert!(is_dark_rgba(clear), "the dark pin clears dark, got {clear:?}");
@@ -468,7 +468,7 @@ fn a_window_opened_under_a_dark_pin_starts_on_a_dark_canvas() {
     if env_pinned() {
         return;
     }
-    azul_layout::window::set_app_color_scheme(PIN_DARK);
+    azul_layout::window::set_app_mode(PIN_DARK);
     let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
     window.regenerate_layout().expect("first layout");
     let clear = paint_and_read_clear_color(&mut window);
@@ -491,7 +491,7 @@ fn an_unseeded_canvas_takes_the_system_background_of_the_mode_the_window_shows()
         "premise: a light desktop clears light"
     );
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
     let clear = paint_and_read_clear_color(&mut window);
     assert!(is_dark_rgba(clear), "the dark pin clears dark, got {clear:?}");
@@ -516,7 +516,7 @@ fn a_per_mode_background_follows_the_pin() {
         "premise: the light mode has no background of the app's, the desktop's is light"
     );
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
     assert_eq!(
         paint_and_read_clear_color(&mut window),
@@ -541,7 +541,7 @@ fn a_background_the_app_set_survives_a_mode_change() {
     window.regenerate_layout().expect("first layout");
     assert_eq!(paint_and_read_clear_color(&mut window), rgba(brand), "premise");
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
     assert_eq!(
         paint_and_read_clear_color(&mut window),
@@ -549,7 +549,7 @@ fn a_background_the_app_set_survives_a_mode_change() {
         "the dark pin keeps the app's own background"
     );
 
-    let result = set_color_scheme(&mut window, FOLLOW);
+    let result = set_mode(&mut window, FOLLOW);
     honor(&mut window, result);
     assert_eq!(
         paint_and_read_clear_color(&mut window),
@@ -570,9 +570,9 @@ fn switching_back_to_system_returns_the_desktop_background() {
     window.regenerate_layout().expect("first layout");
     let desktop = paint_and_read_clear_color(&mut window);
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
-    let result = set_color_scheme(&mut window, FOLLOW);
+    let result = set_mode(&mut window, FOLLOW);
     honor(&mut window, result);
     assert_eq!(paint_and_read_clear_color(&mut window), desktop);
 }
@@ -620,7 +620,7 @@ fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
         "following the desktop, the chrome inherits it"
     );
 
-    let result = set_color_scheme(&mut window, PIN_DARK);
+    let result = set_mode(&mut window, PIN_DARK);
     honor(&mut window, result);
     assert_eq!(
         window.common.native_chrome_mode(),
@@ -628,7 +628,7 @@ fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
         "a dark pin on a light desktop forces a dark titlebar"
     );
 
-    let result = set_color_scheme(&mut window, FOLLOW);
+    let result = set_mode(&mut window, FOLLOW);
     honor(&mut window, result);
     assert_eq!(
         window.common.native_chrome_mode(),
@@ -648,7 +648,7 @@ fn a_pin_that_matches_the_desktop_still_holds_the_chrome_when_the_desktop_flips(
     let mut window = make_window(Model::new(), scheme_blind_layout);
     window.regenerate_layout().expect("first layout");
 
-    let _ = set_color_scheme(&mut window, PIN_LIGHT);
+    let _ = set_mode(&mut window, PIN_LIGHT);
     assert_eq!(
         window.common.native_chrome_mode(),
         Some(WindowTheme::LightMode),

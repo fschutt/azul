@@ -1469,7 +1469,7 @@ pub struct LayoutWindow {
     /// was last built under - the `AZ_RICING=watch` counterpart of
     /// [`Self::app_theme`]: brought up to the loader's by the shells'
     /// `regenerate_layout`, and a window whose value lags owes a rebuild
-    /// (`RelayoutReason::AppThemeChange`), because a rice reload goes through
+    /// (`RelayoutReason::ThemeChange`), because a rice reload goes through
     /// the app-theme rebuild path.
     pub rice_generation: u64,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:

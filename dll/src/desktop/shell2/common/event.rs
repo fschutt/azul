@@ -3476,11 +3476,11 @@ impl CommonWindowState {
     pub fn native_chrome_mode(&self) -> Option<azul_core::window::WindowTheme> {
         use azul_core::window::WindowTheme;
 
-        let app = self.app_color_scheme();
-        // THE decision (`resolve_window_theme`), asked for both desktops: an
+        let app = self.app_mode();
+        // THE decision (`resolve_window_mode`), asked for both desktops: an
         // answer that does not depend on the desktop is a pin.
-        let pinned = azul_layout::window::resolve_window_theme(app, WindowTheme::LightMode)
-            == azul_layout::window::resolve_window_theme(app, WindowTheme::DarkMode);
+        let pinned = azul_layout::window::resolve_window_mode(app, WindowTheme::LightMode)
+            == azul_layout::window::resolve_window_mode(app, WindowTheme::DarkMode);
         let shown = self.current_window_state.theme;
         (pinned || shown != self.desktop_theme).then_some(shown)
     }
@@ -4894,7 +4894,7 @@ pub trait PlatformWindow {
     fn request_regeneration_all_windows(&mut self) {}
 
     /// Rebuild EVERY window of the app for the app theme - and the end
-    /// user's rice - as they stand now: this one at once (`AppThemeChange`,
+    /// user's rice - as they stand now: this one at once (`ThemeChange`,
     /// its incremental caches dropped: they hold a tree and a display list
     /// built for the old look), the others through the registry walk
     /// ([`Self::request_regeneration_all_windows`]), each of which adopts in
@@ -4906,7 +4906,7 @@ pub trait PlatformWindow {
         if let Some(lw) = self.get_layout_window_mut() {
             lw.layout_cache.reset_incremental();
         }
-        self.request_regeneration(azul_core::callbacks::RelayoutReason::AppThemeChange);
+        self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
         ProcessEventResult::ShouldRegenerateDomCurrentWindow
     }
 

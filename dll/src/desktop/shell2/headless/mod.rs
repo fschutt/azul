@@ -593,7 +593,7 @@ impl CpuBackend {
         // the window's `background_color` (the app's, or the one its MODE
         // derived), else - for a real window on a desktop - the system window
         // background of the mode the window SHOWS. The mode is asked of the
-        // layout window (`window_theme_for`, the one decision) rather than
+        // layout window (`window_mode_for`, the one decision) rather than
         // read raw: the desktop's palette under a dark app pin painted a light
         // sheet around dark widgets, on every backend this path serves (macOS,
         // X11, Wayland, Windows, iOS, Android and headless).
@@ -601,7 +601,7 @@ impl CpuBackend {
             let ws = &layout_window.current_window_state;
             let c = crate::desktop::shell2::common::window_clear_color(
                 ws.background_color,
-                layout_window.window_theme_for(ws.theme),
+                layout_window.window_mode_for(ws.theme),
                 layout_window.system_style.as_deref(),
                 self.follow_system_background,
                 self.transparent,
