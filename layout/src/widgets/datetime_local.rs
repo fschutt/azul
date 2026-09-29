@@ -544,6 +544,25 @@ mod tests {
         assert_eq!(seen(&log).len(), 1);
     }
 
+    /// The row's theme is its parts' theme: a flora datetime-local renders its
+    /// date AND its time picker in flora (both carry the flora marker class),
+    /// not a flora row around two flat parts.
+    #[test]
+    fn a_flora_row_renders_its_date_and_time_parts_in_flora() {
+        fn has_flora_marker(dom: &Dom) -> bool {
+            dom.root.has_class("__azul-theme-flora")
+                || dom.children.as_ref().iter().any(has_flora_marker)
+        }
+        let row = DateTimeLocalPicker::create(2026, 9, 29, 14, 5)
+            .with_theme(UiTheme::Flora)
+            .dom();
+        let parts: Vec<&Dom> = row.children.as_ref().iter().collect();
+        assert!(parts.len() >= 2, "a date part and a time part");
+        for (i, part) in parts.iter().take(2).enumerate() {
+            assert!(has_flora_marker(part), "part {i} is not flora");
+        }
+    }
+
     #[test]
     fn both_themes_style_the_control_in_light_and_dark() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
