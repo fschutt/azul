@@ -1,9 +1,13 @@
 //! The E2E tooling follow-ups (task E1), pinned through the REAL dispatcher
 //! on a headless window: the per-platform gate (`only_on`) and the SKIP
-//! verdict it produces.
+//! verdict it produces, the `notification_event` op and
+//! `assert_notification`'s payload, `ScrollFocusedContainer` in the runner,
+//! the transient `Dismissed` event on Escape, and `get_cursor_state`'s
+//! caret reading.
 //!
 //! A child of `runner`, so the tests that need the finished window (the
-//! managers a scenario left behind) can use `run_e2e_test_keeping_runner`.
+//! managers a scenario left behind) can use `run_e2e_test_keeping_runner`
+//! and the runner test module's `tap_key` / `node_with_class`.
 
 use crate::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
 
