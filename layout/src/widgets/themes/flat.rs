@@ -4317,6 +4317,7 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
         BREADCRUMB_SEPARATOR_STYLE, SEPARATOR_GLYPH,
     };
 
+    // The skins: `breadcrumb::build` lays each over the crumb's base.
     let mut item = BREADCRUMB_ITEM_STYLE.to_vec();
     item.extend(decl::radius(3));
     item.extend(decl::hover_underline());

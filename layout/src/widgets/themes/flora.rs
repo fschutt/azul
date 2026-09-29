@@ -4762,30 +4762,18 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
     use super::decl;
     use crate::widgets::breadcrumb::BreadcrumbLook;
 
-    let quiet = |ink_light: ColorU, ink_dark: ColorU| {
-        let mut s = vec![
-            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
-                LayoutFlexGrow::const_new(0),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-        ];
-        s.extend(decl::themed_ink(ink_light, ink_dark));
-        s
-    };
-
-    let mut item = quiet(LIGHT_QT, DARK_QT);
-    item.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
-        StyleCursor::Pointer,
-    )));
+    // The skins: `breadcrumb::build` lays each over the crumb's base (its
+    // hug, its unselectable text, the link's pointer).
+    let mut item = decl::themed_ink(LIGHT_QT, DARK_QT).to_vec();
     item.extend(decl::radius(3));
     item.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
     item.extend(decl::hover_underline());
     item.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
 
-    let mut current = quiet(LIGHT_INK, DARK_INK);
+    let mut current = decl::themed_ink(LIGHT_INK, DARK_INK).to_vec();
     current.push(decl::semibold());
 
-    let mut separator = quiet(LIGHT_SOFT2, DARK_SOFT2);
+    let mut separator = decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2).to_vec();
     separator.extend(decl::margin(0, 7, 0, 7));
 
     crate::widgets::breadcrumb::build(

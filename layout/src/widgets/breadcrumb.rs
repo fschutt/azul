@@ -106,9 +106,11 @@ pub struct Breadcrumb {
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
-/// What a theme decides about a breadcrumb; [`build`] turns it and the
-/// widget's state into the DOM. Built by `themes::flat::breadcrumb` and
-/// `themes::flora::breadcrumb`.
+/// What a theme decides about a breadcrumb: each crumb's SKIN (its paint and
+/// metrics); [`build`] lays it over the crumb's base (the structure, the same
+/// in every theme: `BREADCRUMB_ITEM_BASE`, `BREADCRUMB_LABEL_BASE`) and turns
+/// it and the widget's state into the DOM. Built by
+/// `themes::flat::breadcrumb` and `themes::flora::breadcrumb`.
 pub(crate) struct BreadcrumbLook {
     /// A clickable crumb (a link that takes the keyboard): its focus ring
     /// included.
@@ -173,13 +175,34 @@ static BREADCRUMB_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
 ];
 
-/// Clickable crumb-link style (blue, pointer cursor). A hover underline is
-/// omitted to keep the style a const slice (`TextDecoration::Underline.into()`
-/// is not const); the link colour + pointer already read clearly as a link.
-pub(crate) static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the base: a crumb's structure, in every theme ----
+//
+// What lays a crumb out is the same whichever theme paints it, so it is the
+// widget's own: [`build`] declares a crumb's base FIRST, then the theme's skin
+// (`BreadcrumbLook`). No structure declaration then sits inside a `@theme`
+// block, and it holds under a theme no widget knows (R5).
+
+/// A clickable crumb: it hugs its label, takes the pointer, and a drag across
+/// the trail never selects its text.
+pub(crate) static BREADCRUMB_ITEM_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The current page and a separator: they hug their text, which a drag
+/// never selects - and, not clickable, they advertise no pointer.
+pub(crate) static BREADCRUMB_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+// ---- the flat skin ----
+
+/// The flat crumb link's skin (blue; the pointer is the base's). A hover
+/// underline is omitted to keep the skin a const slice
+/// (`TextDecoration::Underline.into()` is not const); `themes::flat` adds it.
+pub(crate) static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LINK_COLOR,
     })),
@@ -188,10 +211,8 @@ pub(crate) static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_LINK,
 ];
 
-/// Current (last) crumb style: muted dark, bold, not clickable.
+/// The flat current (last) crumb's skin: muted dark, bold.
 pub(crate) static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: CURRENT_COLOR,
@@ -200,10 +221,9 @@ pub(crate) static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_TEXT,
 ];
 
-/// Separator-glyph style: grey, with a small horizontal gap on each side.
+/// The flat separator glyph's skin: grey, with a small horizontal gap on each
+/// side.
 pub(crate) static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         8,
     ))),
@@ -319,6 +339,12 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
         refany::OptionRefAny,
     };
 
+    // A crumb's declarations: its base first, then the theme's skin.
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        let mut style = base.to_vec();
+        style.extend(skin.iter().cloned());
+        CssPropertyWithConditionsVec::from_vec(style)
+    };
     {
         let count = bc.labels.as_ref().len();
         // Resolved before `bc.breadcrumb_state` is moved out below.
@@ -339,16 +365,14 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_CURRENT_CLASS,
                         ))
-                        .with_css_props(CssPropertyWithConditionsVec::from_vec(
-                            look.current.clone(),
-                        )),
+                        .with_css_props(part(BREADCRUMB_LABEL_BASE, look.current.as_slice())),
                 );
             } else {
                 // A clickable crumb link.
                 children.push(
                     crate::widgets::widget_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_ITEM_CLASS))
-                        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.item.clone()))
+                        .with_css_props(part(BREADCRUMB_ITEM_BASE, look.item.as_slice()))
                         .with_callbacks(
                             vec![CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -375,9 +399,7 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_SEPARATOR_CLASS,
                         ))
-                        .with_css_props(CssPropertyWithConditionsVec::from_vec(
-                            look.separator.clone(),
-                        )),
+                        .with_css_props(part(BREADCRUMB_LABEL_BASE, look.separator.as_slice())),
                 );
             }
         }
@@ -1139,17 +1161,28 @@ mod autotest_generated {
     #[test]
     fn only_the_clickable_crumb_style_declares_a_pointer_cursor() {
         assert!(has_property(
-            BREADCRUMB_ITEM_STYLE,
+            &flat_crumb(BREADCRUMB_ITEM_BASE, BREADCRUMB_ITEM_STYLE),
             &CssProperty::const_cursor(StyleCursor::Pointer)
         ));
         assert!(
-            !has_cursor(BREADCRUMB_CURRENT_STYLE),
+            !has_cursor(&flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_CURRENT_STYLE)),
             "the current page is not clickable, so it must not advertise a pointer"
         );
         assert!(
-            !has_cursor(BREADCRUMB_SEPARATOR_STYLE),
+            !has_cursor(&flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_SEPARATOR_STYLE)),
             "separators are not clickable"
         );
+    }
+
+    /// A flat crumb's declarations as `build` lays them: its base (the
+    /// structure, the same in every theme), then the flat skin.
+    fn flat_crumb(
+        base: &[CssPropertyWithConditions],
+        skin: &[CssPropertyWithConditions],
+    ) -> Vec<CssPropertyWithConditions> {
+        let mut style = base.to_vec();
+        style.extend_from_slice(skin);
+        style
     }
 
     #[test]
@@ -1167,17 +1200,17 @@ mod autotest_generated {
     #[test]
     fn every_crumb_style_disables_text_selection_and_flex_growth() {
         for (name, style) in [
-            ("item", BREADCRUMB_ITEM_STYLE),
-            ("current", BREADCRUMB_CURRENT_STYLE),
-            ("separator", BREADCRUMB_SEPARATOR_STYLE),
+            ("item", flat_crumb(BREADCRUMB_ITEM_BASE, BREADCRUMB_ITEM_STYLE)),
+            ("current", flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_CURRENT_STYLE)),
+            ("separator", flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_SEPARATOR_STYLE)),
         ] {
             assert!(
-                has_property(style, &CssProperty::user_select(StyleUserSelect::None)),
+                has_property(&style, &CssProperty::user_select(StyleUserSelect::None)),
                 "{name}: dragging across a breadcrumb must not select its text"
             );
             assert!(
                 has_property(
-                    style,
+                    &style,
                     &CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))
                 ),
                 "{name}: crumbs must hug their content"
