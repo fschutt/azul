@@ -34,7 +34,8 @@ use azul_core::{
         CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, SelectionRange, TextBlock,
         TextCursor,
     },
-    spaces::ScrolledContentPoint,
+    geom::{LogicalPosition, LogicalRect},
+    spaces::{ScrolledContentPoint, TextLayoutRect, WindowPoint, WindowRect},
     styled_dom::{NodeHierarchyItem, NodeHierarchyItemId},
 };
 
@@ -233,8 +234,9 @@ impl TextTarget {
 
     /// The scroll box this block's text scrolls in: its IFC root itself when
     /// that scrolls (a TextInput's value `<p>`), else the nearest scrolling
-    /// box above it (a TextArea's container, a page) - walked on the LAYOUT
-    /// tree from the block's own box ([`LayoutWindow::scroll_box_of_layout_node`]).
+    /// box above it (a TextArea's container, a page) - along the block box's
+    /// `ScrollChain`, by containing block
+    /// ([`LayoutWindow::scroll_box_of_layout_node`]).
     ///
     /// THE answer to "which box does a text gesture scroll", shared by the
     /// caret reveal (`LayoutWindow::scroll_selection_into_view`) and the
@@ -243,6 +245,63 @@ impl TextTarget {
     #[must_use]
     pub fn scroll_box(&self, window: &LayoutWindow) -> Option<DomNodeId> {
         window.scroll_box_of_layout_node(self.block.dom(), self.layout_index)
+    }
+
+    /// Where `rect` - a rect of this block's inline layout - is painted on
+    /// screen: plus the block's static content-box origin, minus its own and
+    /// its ancestors' scroll, through the transforms above it, lifted out of
+    /// a nested dom (`LayoutWindow::cursor_rect_viewport_for`).
+    ///
+    /// THE cursor -> screen direction of the text path (the IME's candidate
+    /// window, `firstRectForCharacterRange:`): typed at both ends, so a
+    /// static layout rect cannot be handed on as window coordinates - the
+    /// class of bug that put the candidate window a field's scroll away from
+    /// its caret.
+    #[must_use]
+    pub fn rect_to_window(&self, window: &LayoutWindow, rect: TextLayoutRect) -> Option<WindowRect> {
+        let layout_result = window.layout_results.get(&self.block.dom())?;
+        let origin = LayoutWindow::content_box_origin_of(layout_result, self.layout_index)?;
+        let rect = rect.get();
+        let static_rect = LogicalRect::new(
+            LogicalPosition::new(rect.origin.x + origin.x, rect.origin.y + origin.y),
+            rect.size,
+        );
+        window
+            .cursor_rect_viewport_for(self.block, static_rect)
+            .map(WindowRect::new)
+    }
+
+    /// The caret rect of `cursor` in this block, where it is painted: its
+    /// inline-layout rect through [`Self::rect_to_window`].
+    #[must_use]
+    pub fn caret_rect_on_screen(
+        &self,
+        window: &LayoutWindow,
+        cursor: &TextCursor,
+    ) -> Option<WindowRect> {
+        let rect = self.layout.get_cursor_rect(cursor)?;
+        self.rect_to_window(window, TextLayoutRect::new(rect))
+    }
+
+    /// The point of this block's scrolled content under window point
+    /// `point` - what [`Self::hittest`] takes: out of the window into the
+    /// block's dom (a nested dom is laid out 0-relative under its host), then
+    /// plus the ancestors' scroll, minus the block's static border origin and
+    /// content inset, plus its own scroll (`window_point_to_ifc_local`).
+    ///
+    /// THE screen -> text direction for a raw window point, the inverse of
+    /// [`Self::rect_to_window`] (a pointer HIT goes through the hit item
+    /// instead, `LayoutWindow::ifc_local_point`).
+    #[must_use]
+    pub fn point_from_window(
+        &self,
+        window: &LayoutWindow,
+        point: WindowPoint,
+    ) -> Option<ScrolledContentPoint> {
+        let dom = self.block.dom();
+        let host = window.window_space_offset_of_dom(dom);
+        let in_dom = LogicalPosition::new(point.x() - host.x, point.y() - host.y);
+        window.window_point_to_ifc_local(dom, self.layout_index.index(), in_dom)
     }
 }
 

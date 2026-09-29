@@ -13918,13 +13918,7 @@ impl LayoutWindow {
         // the PAINTED one. That skew fed the caret reveal and the IME
         // candidate-window placement, and was invisible only because the
         // TextInput's value <p> has neither padding nor border.
-        let border_box_origin =
-            solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
-        let inset = layout_result.layout_tree.content_inset(layout_idx);
-        let origin = LogicalPosition::new(
-            border_box_origin.x + inset.left,
-            border_box_origin.y + inset.top,
-        );
+        let origin = Self::content_box_origin_of(layout_result, layout_idx)?;
         Some((inline_layout, origin))
     }
 
@@ -13981,15 +13975,17 @@ impl LayoutWindow {
         let cursor = self
             .block_content(target.block)
             .caret_at(crate::block_content::FlatByte(byte_offset))?;
-        let rect = self.cursor_rect_for(target.block, &cursor)?;
         // WHERE IT IS ON SCREEN. `cursor_rect_for` is STATIC layout space -
         // the space the caret reveal works in - and the IME places its
         // candidate window in window space: in a field scrolled by S the
-        // window opened S px beside the text it was composing. The same walk
-        // `get_focused_cursor_rect_viewport` (the shells' fallback) applies:
-        // the box's own and its ancestors' scroll, transforms, the nested
-        // dom's host.
-        self.cursor_rect_viewport_for(target.block, rect)
+        // window opened S px beside the text it was composing. The typed
+        // text -> screen conversion (`TextTarget::rect_to_window`) applies
+        // the walk `get_focused_cursor_rect_viewport` (the shells' fallback)
+        // does: the box's own and its ancestors' scroll, transforms, the
+        // nested dom's host.
+        target
+            .caret_rect_on_screen(self, &cursor)
+            .map(azul_core::spaces::WindowRect::get)
     }
 
     /// The rect covering a byte RANGE in the focused editable, in absolute
@@ -14040,34 +14036,20 @@ impl LayoutWindow {
     #[must_use]
     pub fn focused_cursor_for_point(&self, point: LogicalPosition) -> Option<TextCursor> {
         let target = self.session_text_target()?;
-        let dom = target.block.dom();
         // The hit test works in the block's own SCROLLED-CONTENT space; the
-        // shells hand in window coordinates. Through the one typed funnel
-        // (`window_point_to_ifc_local`: window -> + the ancestors' scroll ->
-        // - the border origin -> - the content inset -> + the box's OWN
-        // scroll), after leaving the window for the block's dom (a nested
-        // dom is laid out 0-relative under its host - the inverse of the last
-        // step of `cursor_rect_viewport_for`). Subtracting only the static
-        // content origin, as this did, resolved a point in a field scrolled
-        // by S to the character S px to its left.
-        let host = self.window_space_offset_of_dom(dom);
-        let in_dom = LogicalPosition::new(point.x - host.x, point.y - host.y);
-        let local = self.window_point_to_ifc_local(dom, target.layout_index.index(), in_dom)?;
+        // shells hand in window coordinates. Through the typed screen -> text
+        // conversion (`TextTarget::point_from_window`: out of the window into
+        // the block's dom, + the ancestors' scroll, - the border origin, -
+        // the content inset, + the box's OWN scroll). Subtracting only the
+        // static content origin, as this did, resolved a point in a field
+        // scrolled by S to the character S px to its left.
+        let local = target.point_from_window(self, azul_core::spaces::WindowPoint::new(point))?;
         target.hittest(local)
     }
 
-    /// A cursor's caret rect in the focused editable, in absolute window
-    /// coordinates.
-    #[must_use]
-    fn focused_rect_for_cursor(&self, cursor: &TextCursor) -> Option<LogicalRect> {
-        let session_block = self.text_edit_manager.multi_cursor.as_ref()?.block;
-        self.rect_for_cursor_in(session_block, cursor)
-    }
-
-    /// A cursor's caret rect in ANY laid-out text block, in absolute window
-    /// coordinates - the block-agnostic half of
-    /// [`Self::focused_rect_for_cursor`], which a cross-block selection's far
-    /// end needs (U2-a-i).
+    /// A cursor's caret rect in ANY laid-out text block - documented as
+    /// "absolute window coordinates", but STATIC layout space: the same body
+    /// as [`Self::cursor_rect_for`].
     #[must_use]
     fn rect_for_cursor_in(&self, block: TextBlock, cursor: &TextCursor) -> Option<LogicalRect> {
         let (inline_layout, origin) = self.block_inline_geometry(block)?;
@@ -21011,7 +20993,7 @@ impl LayoutWindow {
     /// (the `POSITION_UNSET` sentinel — inline text nodes keep it, which is
     /// why they can never be hit).
     #[must_use]
-    fn content_box_origin_of(
+    pub(crate) fn content_box_origin_of(
         layout_result: &DomLayoutResult,
         layout_idx: LayoutNodeId,
     ) -> Option<LogicalPosition> {
@@ -21093,7 +21075,7 @@ impl LayoutWindow {
     /// `window → +ancestor scroll → −node origin → −content inset → +own
     /// scroll`. Returns `None` when the node is not in this DOM's layout tree.
     #[must_use]
-    fn window_point_to_ifc_local(
+    pub(crate) fn window_point_to_ifc_local(
         &self,
         dom_id: DomId,
         layout_idx: usize,
