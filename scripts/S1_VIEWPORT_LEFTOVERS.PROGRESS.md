@@ -17,15 +17,18 @@ Nothing is compiled here (house rule). The parent compiles once.
 
 ## DONE (commits)
 
-(none yet)
+- item 1: RED bda38913d (`layout/tests/a_scroll_box_keeps_its_blit_on_a_scrolled_page.rs`, 2 tests:
+  pixel-equal to a full repaint + repainted area <= half the clip), FIX 162bfd260 (`ScrollStack` in
+  compositor.rs; `scroll_fast_path_eligible_in`, `overlay_rects_after_frame_in`, `execute_scroll_shift`
+  gained `scroll_offsets`; dll headless + e2e cpu_backend + scroll_shift_ghost.rs call sites).
 
 ## IN PROGRESS
 
-- item 1
+- item 5 (move-blit)
 
 ## NEXT
 
-1, 5, 2, 4, 6, 3 (guard), 8 (implement small or plan), report.
+5, 2, 4, 6, 3 (guard), 8 (implement small or plan), report.
 
 ## Open questions
 
