@@ -585,13 +585,21 @@ impl Segmented {
                         .into(),
                     )
                     .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
-            // Role so the accessibility tree knows what this IS:
-            // a row of mutually exclusive choices. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::PageTabList,
-                ..Default::default()
-            }),
+                    // A segmented control is a radio group (WAI-ARIA APG, the
+                    // model its keys follow): each segment is a RADIO that says
+                    // whether it is the selected one. The NAME comes from the
+                    // segment's own text.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::RadioButton,
+                        states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                            if i == selected {
+                                azul_core::a11y::AccessibilityState::CheckedTrue
+                            } else {
+                                azul_core::a11y::AccessibilityState::CheckedFalse
+                            },
+                        ]),
+                        ..Default::default()
+                    }),
             );
         }
 
@@ -638,9 +646,28 @@ extern "C" fn on_segment_click(data: RefAny, mut info: CallbackInfo) -> Update {
     let items = roving::items_of(&info, parent, SEGMENT_ITEM_CLASS_NAME);
     if let Some(stop) = items.iter().position(|n| *n == clicked) {
         roving::set_stop(&mut info, &items, stop);
+        announce_selection(&mut info, &items, stop);
     }
 
     result
+}
+
+/// Every segment says, live, whether it is the selected one - a segment is
+/// a radio (see `roving::announce_chosen`).
+fn announce_selection(
+    info: &mut CallbackInfo,
+    segments: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) {
+    use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+    crate::widgets::roving::announce_chosen(
+        info,
+        segments,
+        selected,
+        CheckedTrue,
+        Some(CheckedFalse),
+    );
 }
 
 /// Arrow keys on the focused segment - a segmented control is a radio group
@@ -678,6 +705,7 @@ extern "C" fn on_segment_key(mut data: RefAny, mut info: CallbackInfo) -> Update
     info.prevent_default();
     // Moved BEFORE the user callback runs, so a focus it asks for wins.
     roving::move_stop(&mut info, &segments, target);
+    announce_selection(&mut info, &segments, target);
     select_segment(data, &mut info, &segments, target).unwrap_or(Update::DoNothing)
 }
 

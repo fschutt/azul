@@ -1211,6 +1211,11 @@ impl TabHeader {
                     ]),
                 }
             })
+            // The header is the tab list its tabs belong to.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PageTabList,
+                ..Default::default()
+            })
             .with_children({
                 let mut tab_items = vec![Dom::create_div()
                     .with_css_props(look.before.clone())
@@ -1281,7 +1286,20 @@ impl TabHeader {
                         })
                         .with_dataset(Some(dataset).into())
                         .with_css_props(css_props)
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes));
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes))
+                        // A tab, and whether it is the active one. The NAME
+                        // comes from the tab's own text.
+                        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                            role: azul_core::a11y::AccessibilityRole::PageTab,
+                            states: if tab_is_active {
+                                azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                                    azul_core::a11y::AccessibilityState::Selected,
+                                ])
+                            } else {
+                                azul_core::a11y::AccessibilityStateVec::from_const_slice(&[])
+                            },
+                            ..Default::default()
+                        });
                     if on_click_is_some {
                         tab_dom = tab_dom.with_tab_index(crate::widgets::roving::item_tab_index(
                             tab_idx, tab_stop,
@@ -1577,6 +1595,15 @@ extern "C" fn on_tab_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     info.prevent_default();
     // Moved BEFORE the app hears the activation, so a focus it asks for wins.
     roving::move_stop(&mut info, &tabs, target);
+    // The activated tab is the selected one from now on - announced live,
+    // before the app's rebuild (if it rebuilds at all) publishes it.
+    roving::announce_chosen(
+        &mut info,
+        &tabs,
+        target,
+        azul_core::a11y::AccessibilityState::Selected,
+        None,
+    );
 
     let Some(mut dataset) = refany.downcast_mut::<TabLocalDataset>() else {
         return Update::DoNothing;

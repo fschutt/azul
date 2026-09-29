@@ -26,6 +26,7 @@
 use alloc::vec::Vec;
 
 use azul_core::{
+    a11y::AccessibilityState,
     callbacks::FocusTarget,
     dom::{DomNodeId, TabIndex},
     window::{KeyboardState, VirtualKeyCode},
@@ -174,6 +175,32 @@ pub(crate) fn move_stop(info: &mut CallbackInfo, items: &[DomNodeId], stop: usiz
     };
     set_stop(info, items, stop);
     info.set_focus(FocusTarget::Id(target));
+}
+
+/// Announces LIVE which item of the group is the chosen one: `items[chosen]`
+/// gets the state `on` (checked, selected), every other item `off` (or no
+/// state at all). A click or an arrow key changes the choice without a
+/// rebuild, so the states the widget published when it was built would keep
+/// telling a screen reader about the item the user just left.
+///
+/// Each item's states are replaced wholesale
+/// (`CallbackInfo::set_accessibility_state`): the chosen-or-not state is the
+/// only one these group items carry.
+pub(crate) fn announce_chosen(
+    info: &mut CallbackInfo,
+    items: &[DomNodeId],
+    chosen: usize,
+    on: AccessibilityState,
+    off: Option<AccessibilityState>,
+) {
+    if chosen >= items.len() {
+        return;
+    }
+    for (i, item) in items.iter().enumerate() {
+        let state = if i == chosen { Some(on) } else { off };
+        let states: Vec<AccessibilityState> = state.into_iter().collect();
+        info.set_accessibility_state(*item, states.into());
+    }
 }
 
 #[cfg(test)]

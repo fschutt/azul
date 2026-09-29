@@ -515,6 +515,11 @@ impl TreeView {
         Dom::create_div()
             .with_css_props(container)
             .with_ids_and_classes(classes)
+            // The tree itself; its rows are the items (`render_rows`).
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Outline,
+                ..Default::default()
+            })
             .with_children(DomVec::from_vec(children))
     }
 }
@@ -679,13 +684,15 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
             current_index,
             rows.stop,
         ))
-            // Role so the accessibility tree knows what this IS:
-            // a hierarchy, so level and expansion can be reported. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Outline,
-                ..Default::default()
-            })
+        // An ITEM of the tree, saying whether it is open (a parent only) and
+        // whether it is selected. The tree's shape lives in the app, which
+        // rebuilds on every open, close and pick, so every build publishes it
+        // afresh. The NAME comes from the row's own text.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::OutlineItem,
+            states: row_states(has_children, node.is_expanded, node.is_selected),
+            ..Default::default()
+        })
         .with_children(DomVec::from_vec(vec![icon_or_spacer, label]));
 
     let mut callbacks: Vec<CoreCallbackData> = Vec::with_capacity(2);
@@ -741,6 +748,25 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         // Still count collapsed children for correct depth-first indexing
         count_descendants(node.children.as_slice(), index);
     }
+}
+
+/// What a tree row announces: open or closed when it is a parent, then
+/// whether it is selected.
+fn row_states(
+    has_children: bool,
+    is_expanded: bool,
+    is_selected: bool,
+) -> azul_core::a11y::AccessibilityStateVec {
+    use azul_core::a11y::AccessibilityState::{Collapsed, Expanded, Selected};
+
+    let mut states = Vec::with_capacity(2);
+    if has_children {
+        states.push(if is_expanded { Expanded } else { Collapsed });
+    }
+    if is_selected {
+        states.push(Selected);
+    }
+    states.into()
 }
 
 /// Advance the index counter past all descendants without rendering them.

@@ -688,14 +688,24 @@ extern "C" fn on_radio_row_click(data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
 
-    // Only real option rows take part in the Tab order; an inner node that
-    // reached this handler has no rows among its siblings to rewrite.
+    // Only real option rows take part in the Tab order and announce their
+    // check; an inner node that reached this handler has no rows among its
+    // siblings to rewrite.
     let items = roving::items_of(&info, parent, RADIO_GROUP_ROW_CLASS_NAME);
     if let Some(stop) = items.iter().position(|n| *n == clicked) {
         roving::set_stop(&mut info, &items, stop);
+        announce_check(&mut info, &items, stop);
     }
 
     result
+}
+
+/// Every option row says, live, whether it is the checked one (see
+/// `roving::announce_chosen`).
+fn announce_check(info: &mut CallbackInfo, rows: &[azul_core::dom::DomNodeId], checked: usize) {
+    use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+    crate::widgets::roving::announce_chosen(info, rows, checked, CheckedTrue, Some(CheckedFalse));
 }
 
 /// Arrow keys on the focused radio (WAI-ARIA APG radio group): Down and Right
@@ -734,6 +744,7 @@ extern "C" fn on_radio_row_key(mut data: RefAny, mut info: CallbackInfo) -> Upda
     info.prevent_default();
     // Moved BEFORE the user callback runs, so a focus it asks for wins.
     roving::move_stop(&mut info, &rows, target);
+    announce_check(&mut info, &rows, target);
     check_row(data, &mut info, &rows, target).unwrap_or(Update::DoNothing)
 }
 

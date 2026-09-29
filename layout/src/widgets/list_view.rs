@@ -1048,6 +1048,8 @@ impl ListView {
             self.selected_row.into_option(),
             self.rows.as_ref().len(),
         );
+        // The row the list announces as selected.
+        let selected_row = self.selected_row.into_option();
 
         Dom::create_div()
             .with_css_props(CSS_MATCH_17553577885456905601)
@@ -1110,13 +1112,24 @@ impl ListView {
                                     .with_tab_index(crate::widgets::roving::item_tab_index(
                                         row_index, row_stop,
                                     ))
-            // Role so the accessibility tree knows what this IS:
-            // a list, so a reader can say "3 of 12". The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::List,
-                ..Default::default()
-            })
+                                    // An ITEM of the list, so a reader can say
+                                    // "3 of 12", and whether it is the selected
+                                    // one. The NAME comes from the row's own text.
+                                    .with_accessibility_info(
+                                        azul_core::a11y::AccessibilityInfo {
+                                            role: azul_core::a11y::AccessibilityRole::ListItem,
+                                            states: if selected_row == Some(row_index) {
+                                                azul_core::a11y::AccessibilityStateVec::from_vec(
+                                                    vec![
+                                                        azul_core::a11y::AccessibilityState::Selected,
+                                                    ],
+                                                )
+                                            } else {
+                                                azul_core::a11y::AccessibilityStateVec::from_const_slice(&[])
+                                            },
+                                            ..Default::default()
+                                        },
+                                    )
                                     .with_children(
                                         row.cells
                                             .as_ref()
@@ -1250,6 +1263,16 @@ extern "C" fn on_list_view_row_key(mut refany: RefAny, mut info: CallbackInfo) -
     }
     // Moved BEFORE the app hears the selection, so a focus it asks for wins.
     roving::move_stop(&mut info, &rows, target);
+    // Selection follows focus: the target row is the selected one from now
+    // on, announced live - the app's rebuild (if it rebuilds) publishes it
+    // again from `selected_row`.
+    roving::announce_chosen(
+        &mut info,
+        &rows,
+        target,
+        azul_core::a11y::AccessibilityState::Selected,
+        None,
+    );
     // The rows are the row container's children in order, so the target's
     // position IS its row index.
     match on_row_click.as_ref() {
