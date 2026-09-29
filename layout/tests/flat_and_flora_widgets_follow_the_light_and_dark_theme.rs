@@ -740,3 +740,34 @@ fn titlebars_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+/// The backstage in both looks and both modes (W5c): the nav column - its
+/// back button, a selected, a plain and a gapped item - and, in the flora
+/// look, a pane of the caller's holding text, which reads on flora's page by
+/// day and by night. (The flat pane is the Office palette's white in both
+/// modes - `BackstageTheme` has no night value - so text in it is the
+/// palette's business, not walked here.)
+#[test]
+fn backstages_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::backstage::Backstage;
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for active in [2usize, 9] {
+            widgets.push((
+                format!("{look} backstage, item {active} active"),
+                Backstage::office_2013()
+                    .with_active_item(active)
+                    .with_theme(theme)
+                    .dom(),
+            ));
+        }
+    }
+    widgets.push((
+        "flora backstage + pane text".to_string(),
+        Backstage::office_2013()
+            .with_content(Dom::create_p_with_text("Recent documents"))
+            .with_theme(UiTheme::Flora)
+            .dom(),
+    ));
+    assert_follow_the_theme(widgets);
+}

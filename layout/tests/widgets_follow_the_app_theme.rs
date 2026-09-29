@@ -989,3 +989,68 @@ fn titlebars_follow_the_app_theme_in_every_shape() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The backstage (W5c)
+// ---------------------------------------------------------------------------
+
+extern "C" fn backstage_nav_noop(
+    _: azul_core::refany::RefAny,
+    _: azul_layout::callbacks::CallbackInfo,
+    _: usize,
+) -> azul_core::callbacks::Update {
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// The Office backstage with every part a look paints - the back button,
+/// the selected item, a plain one and the one after the gap - wired the way
+/// an app wires it (back and nav handlers), with a title strip and a pane of
+/// the caller's.
+fn chrome_backstage(active: usize) -> azul_layout::widgets::backstage::Backstage {
+    use azul_layout::widgets::{
+        backstage::{Backstage, BackstageOnNavSelectCallbackType},
+        button::ButtonOnClickCallbackType,
+    };
+    Backstage::office_2013()
+        .with_active_item(active)
+        .with_on_back(
+            azul_core::refany::RefAny::new(0u8),
+            chrome_noop as ButtonOnClickCallbackType,
+        )
+        .with_on_nav_select(
+            azul_core::refany::RefAny::new(0u8),
+            backstage_nav_noop as BackstageOnNavSelectCallbackType,
+        )
+        .with_title_strip(Dom::create_div())
+        .with_content(Dom::create_p_with_text("Recent documents"))
+}
+
+/// An unpinned backstage follows the app theme (W5c): its column, its back
+/// button, every nav item - the selected one plain ("Open") and after the
+/// gap ("Account") - and the host of the caller's pane resolve like the
+/// backstage pinned to the app theme.
+#[test]
+fn backstages_follow_the_app_theme() {
+    use azul_layout::widgets::backstage::Backstage;
+    for active in [2usize, 9] {
+        assert_follows_the_app_theme(&format!("backstage, item {active} active"), |t| {
+            pinned(chrome_backstage(active), t, Backstage::with_theme).dom()
+        });
+    }
+}
+
+/// The follow check above holds trivially for a widget whose two looks are
+/// one: the backstage must not be that widget.
+#[test]
+fn the_backstage_has_a_flora_look_of_its_own() {
+    let flat = built_for(UiTheme::Flat, &|| {
+        chrome_backstage(2).with_theme(UiTheme::Flat).dom()
+    });
+    let flora = built_for(UiTheme::Flat, &|| {
+        chrome_backstage(2).with_theme(UiTheme::Flora).dom()
+    });
+    assert!(
+        styles(&flat) != styles(&flora),
+        "the backstage has no flora look of its own"
+    );
+}

@@ -16,16 +16,17 @@ caller's title strip / pane content is never cloned).
   Button takes the backstage's `theme` (the SINGLE_LOOK pin is gone).
 
 ## DONE
-- (plumbing) theme option, follow_style, marker, back button theme,
-  flora stub, backstage test removed from the single-look guard
+- a62f1c0cb plumbing: theme option, follow_style, marker, back button
+  theme, flora stub, backstage test removed from the single-look guard
+- (RED) backstage.rs `flora_tests`; `backstages_follow_the_app_theme` +
+  `the_backstage_has_a_flora_look_of_its_own` (widgets_follow_the_app_theme.rs,
+  which also got the missing `}` of W5a's own-look test - the base did not
+  compile); `backstages_read_in_both_themes_in_both_looks`
 
 ## IN PROGRESS
-- RED tests
+- flora look in flora.rs `// ==== backstage ====`
 
 ## NEXT
-- RED: backstage.rs `flora_tests`, follow test + own-look guard in
-  layout/tests/widgets_follow_the_app_theme.rs, light/dark entry
-- flora look in flora.rs `// ==== backstage ====`
 - report scripts/W5C_FLORA_BACKSTAGE_2026_09_29.md
 
 ## Open questions
