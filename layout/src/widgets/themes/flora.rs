@@ -2258,8 +2258,10 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
 ///
 /// One const per edge — a border colour is four properties, and a ring that sets
 /// only some of them leaves the rest at their resting colour. Each has a dark
-/// twin using [`DARK_ACC`]: the accent is the one state colour with a genuine
-/// per-mode value in both palettes, which is why the plan names it.
+/// twin in [`DARK_GLOW`], flora.css's night `--focus-color`: the accent stone
+/// itself (#2F4A85) stands only 1.8:1 off the night leaf, so at night the ring
+/// lifts to the stone's highlight, which clears 3:1 on every night surface
+/// (`night_focus_ring_tests`).
 pub const FOCUS_BORDER_TOP: CssPropertyWithConditions =
     CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: LIGHT_ACC,
@@ -2283,25 +2285,25 @@ pub const FOCUS_BORDER_RIGHT: CssPropertyWithConditions = CssPropertyWithConditi
 /// The dark twin of [`FOCUS_BORDER_TOP`].
 pub const FOCUS_BORDER_TOP_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_top_color(
-        StyleBorderTopColor { inner: DARK_ACC },
+        StyleBorderTopColor { inner: DARK_GLOW },
     ));
 
 /// The dark twin of [`FOCUS_BORDER_BOTTOM`].
 pub const FOCUS_BORDER_BOTTOM_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: DARK_ACC },
+        StyleBorderBottomColor { inner: DARK_GLOW },
     ));
 
 /// The dark twin of [`FOCUS_BORDER_LEFT`].
 pub const FOCUS_BORDER_LEFT_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_left_color(
-        StyleBorderLeftColor { inner: DARK_ACC },
+        StyleBorderLeftColor { inner: DARK_GLOW },
     ));
 
 /// The dark twin of [`FOCUS_BORDER_RIGHT`].
 pub const FOCUS_BORDER_RIGHT_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_on_focus(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: DARK_ACC },
+        StyleBorderRightColor { inner: DARK_GLOW },
     ));
 
 // ---------------------------------------------------------------------------
