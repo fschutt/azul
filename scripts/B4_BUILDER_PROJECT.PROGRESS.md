@@ -5,6 +5,8 @@ cut from `fix/input-bugs-2026-09-19` at `1843e1edf` (contains B1's builder docum
 model). Nothing is compiled here; the parent builds. Node / headless-Chrome tests
 are run here.
 
+**STATUS: DONE** — final report `scripts/B4_BUILDER_PROJECT_2026_09_29.md`.
+
 ## 1. Audit (before) — project save/load, import/export, snapshots, E2E panel, file-ish UI
 
 Legend: WORKS / BROKEN / WIP (partial, lossy) / PLACEHOLDER / MISSING.
@@ -21,13 +23,13 @@ Legend: WORKS / BROKEN / WIP (partial, lossy) / PLACEHOLDER / MISSING.
 | Import / Export > Component Library | debugger.js:1537-1592, full.rs:18991 / 19092 | WIP (lossy) | Works for data-model components. A template component (B1 "convert to component") exports WITHOUT its template: `ExportedComponentDef` (full.rs:771) has no body, the export (full.rs:19148-19156) writes name / fields / css only, the import (full.rs:19016-19031) installs `user_defined_render_fn`. (B3's area.) |
 | Export > Code > Rust / C / C++ / Python | debugger.js:1594-1671, full.rs:18903-18986 | BROKEN | The UI posts `export_code_zip` and only handles a binary `application/zip` body or `data.files`; the server answers JSON `{download_url: "data:application/zip;base64,…", filename, …}`. Result: "No files generated for rust" and no download. (B3 owns the export dialogs.) |
 | `POST /debug/compile?lang=` (CSS → project ZIP) | platform.rs:377-398 | WORKS (curl only) | Not reachable from the UI. |
-| App State "Save Snapshot" (camera icon) | debugger.html:106, debugger.js:1395 | BROKEN | The icon calls `app.handlers._saveSnapshot()`, which does not exist (`_saveSnapshot` lives on `app`, and returns at once without an alias): a TypeError on every click. Snapshots can only come from a project import. |
-| Snapshot list: restore / rename / delete | debugger.js:1008-1080, 1403-1440 | WORKS | Browser-only (`localStorage`), never on disk. |
+| App State "Save Snapshot" (camera icon) | debugger.html:106, debugger.js:1395 | BROKEN → FIXED (`245e936b1`) | The icon calls `app.handlers._saveSnapshot()`, which does not exist (`_saveSnapshot` lives on `app`, and returns at once without an alias): a TypeError on every click. Snapshots could only come from a project import. |
+| Snapshot list: restore / rename / delete | debugger.js:1008-1080, 1403-1440 | WORKS | Browser-only (`localStorage`), never on disk (now also saved into the project). |
 | `restore_snapshot` step, `run_e2e_tests {snapshots}` | debugger.js:4605-4612, 510 | WORKS | |
-| E2E test list persistence | debugger.js:201-210, 3121 | WIP | `localStorage` only: tests die with the browser profile / a different port or browser. |
+| E2E test list persistence | debugger.js:201-210, 3121 | WIP | `localStorage` only (now also `tests/*.json` in the project). |
 | "Open source file" (backtrace links) | debugger.js:1910-1920, full.rs `OpenFile` | WORKS | Best effort, absolute paths, the user's editor. |
 | Components view: render_fn / compile_fn source popups | debugger.js:4399-4540 | PLACEHOLDER for builtins, WORKS for templates (B1) | `update_component_compile_fn` stores text that nothing compiles. |
-| A file tree / editor in the UI | — | MISSING | |
+| A file tree / editor in the UI | — | MISSING → BUILT | |
 
 ### One save, traced (before)
 Build something in the Document view → Export > Project as JSON → the file has the
@@ -35,36 +37,7 @@ tests, the snapshots and a *dump* of the live node hierarchy → restart AzBuild
 Import > Project → the tests come back, the window stays empty: the document, the
 converted components and their CSS are gone. There is nowhere to put them.
 
-## 2. Design (to build)
-
-**A project is a folder on disk**, opened through the server (a path the user
-types; the server suggests `<cwd>/AzBuilderProject`):
-
-```
-<root>/
-  azul-project.json            manifest {format, version, name}
-  document.json                the builder document (lossless JSON tree, no uids)
-  components/<library>/<name>.json   one file per user component (fields, css, template)
-  styles/*.css                 project stylesheets, applied to the document in path order
-  tests/<name>.json            E2E tests, one per file (AZ_E2E=<root>/tests runs them)
-  snapshots/<alias>.json       app-state snapshots
-  export/<language>/…          exported code
-```
-
-Server (`layout/src/e2e/project.rs`, arms in `full.rs`, `E2eScratch.project`):
-`project_info`, `project_open {path, create}`, `project_close`, `project_list`,
-`project_read_file`, `project_write_file`, `project_create`, `project_rename`,
-`project_delete`, `project_save`, `project_load`, `project_export_zip`,
-`project_import_zip`. Every path is RELATIVE to the root; `..`, absolute paths,
-NUL and symlinks leading out are refused (checked against the canonical root).
-Writing a live file applies it: `styles/**/*.css` → the builder's stylesheet
-(remount), `components/**.json` → re-register the component (remount),
-`document.json` → load the document (remount).
-
-Browser (`debugger-project.js`, served at `/debugger-project.js`): a Project
-activity (tree + editor tabs), a compact Project section in the Inspector
-sidebar, a Project menu, selection sync (component file ↔ palette card ↔
-document instance), drag a component file onto the Document tree.
+## 2. Design — see the report §2
 
 ## 3. DONE
 
@@ -76,22 +49,24 @@ document instance), drag a component file onto the Document tree.
 | `0d53eea05` | test(debugger-ui): node logic test + headless smoke, RED |
 | `245e936b1` | feat(debugger): debugger-project.js + dnd hook + html/build.rs/platform.rs route — node 13/13, smoke 42/42, B1 smoke 25/25 |
 | `f69bce04a` | docs(site): /ui hero link + AzBuilder section; release Demos block + AzBuilder in DEMO_APPS (desktop only) |
+| `d790aae09` | docs(guide): gui-builder.md rewritten (+ images/builder-project.png, image links fixed) |
+| `0155f96a5` | fix(builder): from_root borrow-safe `<body>` wrap |
+| (this commit) | docs(b4): final report + progress |
 
 ## 4. IN PROGRESS
 
-- Guide refresh `doc/guide/en/architecture/gui-builder.md`.
+— nothing.
 
-## 5. NEXT
+## 5. NEXT (for the parent)
 
-1. RED server tests → commit.
-2. `project.rs` + builder.rs (stylesheet, load) + full.rs arms + gene2e rows → commit.
-3. RED JS tests (node logic + headless smoke) → commit.
-4. `debugger-project.js` + html/build.rs/platform.rs wiring → commit.
-5. Site: /ui landing section + release "Demos" AzBuilder entry → commit.
-6. Guide refresh → commit.
-7. Report `scripts/B4_BUILDER_PROJECT_2026_09_29.md` → commit.
+1. Build, run `cargo test -p azul-layout --features e2e-server --lib project` and
+   `builder`, `cargo test -p azul-doc` (gene2e gate, stylesheet inventory, guide links).
+2. RED pass: `git apply -R` of `e06aea928` / `245e936b1`.
+3. Replace `doc/guide/en/images/builder-project.png` with a screenshot of the real server.
 
 ## 6. Open questions
 
-- B3 adds `debugger-export.js` + export dialogs; this branch leaves Export > Code
-  alone (BROKEN above, reported) and only adds project-level zip export / import.
+- Should deleting a component file also unregister the component? (Not done: the
+  file is the user's; the component stays registered until restart.)
+- B3's export dialogs may want to write into `<project>/export/<language>/` —
+  `project_write_file` is there for it.
