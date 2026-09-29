@@ -4423,6 +4423,227 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
 }
 
 // ==== follow the app theme (T3) ====
+//
+// A widget nobody pinned (`theme: None`, no `with_theme`) follows the APP
+// theme (`AppConfig::with_theme`, `CallbackInfo::set_theme`): it is built in
+// the STRUCTURE of the theme the DOM is being built for
+// (`UiTheme::current()`, whose marker class its root carries) and carries the
+// declarations of EVERY theme, each theme's block conditioned
+// `@theme(<name>)`, so the cascade keeps the live theme's block and throws
+// the others out. Nothing has to write `with_theme` on every widget, and no
+// widget can be forgotten and look out of place
+// (scripts/T1_APP_THEME_2026_09_29.md §4).
+//
+// The merge decides per PROPERTY, never per declaration:
+//
+// * a property both themes declare ALIKE - the same declarations, conditions
+//   included, in the same order - stays unconditional, once (display, flex
+//   direction, sizes the themes share: the widget's structure survives an app
+//   theme no widget knows);
+// * any other property is written per theme: flat's declarations of it in
+//   flat's block, then flora's in flora's, each block in its own order (state
+//   rules stay after the resting ones they override).
+//
+// Inline declarations resolve last-match-wins PER PROPERTY, and each
+// property's declarations keep their order inside their block, so under
+// either app theme a followed node resolves exactly as that theme's own
+// build of it does. The theme name goes FIRST in each condition list (the
+// compact cache flags a node dynamic from its first non-pseudo condition).
+
+/// For every property `flat` or `flora` declares: whether both declare it
+/// ALIKE (the same declarations in the same order).
+fn follow_alike<T: PartialEq>(
+    flat: &[T],
+    flora: &[T],
+    ty: impl Fn(&T) -> CssPropertyType,
+) -> Vec<(CssPropertyType, bool)> {
+    let mut decided: Vec<(CssPropertyType, bool)> = Vec::new();
+    for item in flat.iter().chain(flora.iter()) {
+        let t = ty(item);
+        if decided.iter().any(|(seen, _)| *seen == t) {
+            continue;
+        }
+        let alike = flat
+            .iter()
+            .filter(|x| ty(*x) == t)
+            .eq(flora.iter().filter(|x| ty(*x) == t));
+        decided.push((t, alike));
+    }
+    decided
+}
+
+/// Whether [`follow_alike`] found `t` declared alike in both themes.
+fn follow_is_shared(decided: &[(CssPropertyType, bool)], t: CssPropertyType) -> bool {
+    decided.iter().any(|(seen, alike)| *seen == t && *alike)
+}
+
+/// One widget part's declarations in BOTH themes, as the list a widget that
+/// follows the app theme puts on the part: the properties both themes
+/// declare alike unconditionally, then flat's block (`@theme(flat)`), then
+/// flora's (`@theme(flora)`). What a skin-built widget (a dialog, a tooltip,
+/// a split pane) builds its follow skin with, part by part.
+#[must_use]
+pub(crate) fn follow_props(
+    flat: &[CssPropertyWithConditions],
+    flora: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    let ty = |p: &CssPropertyWithConditions| p.property.get_type();
+    let decided = follow_alike(flat, flora, ty);
+    let shared = |p: &CssPropertyWithConditions| follow_is_shared(&decided, ty(p));
+    let mut out = Vec::with_capacity(flat.len() + flora.len());
+    out.extend(flat.iter().filter(|p| shared(*p)).cloned());
+    out.extend(
+        flat.iter()
+            .filter(|p| !shared(*p))
+            .map(|p| p.clone().in_theme(super::UiTheme::Flat.name())),
+    );
+    out.extend(
+        flora
+            .iter()
+            .filter(|p| !shared(*p))
+            .map(|p| p.clone().in_theme(super::UiTheme::Flora.name())),
+    );
+    CssPropertyWithConditionsVec::from_vec(out)
+}
+
+/// The property a single-declaration rule declares.
+fn follow_rule_type(rule: &azul_css::css::CssRuleBlock) -> CssPropertyType {
+    use azul_css::css::CssDeclaration;
+    match rule.declarations.as_slice() {
+        [CssDeclaration::Static(p), ..] => p.get_type(),
+        [CssDeclaration::Dynamic(d), ..] => d.default_value.get_type(),
+        // never: `follow_single_rules` drops a rule without declarations
+        [] => CssPropertyType::Display,
+    }
+}
+
+/// `rules` with every multi-declaration rule split into one rule per
+/// declaration (same path, conditions and priority, in order - the cascade
+/// sorts stably, so the split resolves as the original), so the merge can
+/// decide per property. A rule without declarations declares nothing and
+/// is dropped.
+fn follow_single_rules(rules: &[azul_css::css::CssRuleBlock]) -> Vec<azul_css::css::CssRuleBlock> {
+    use azul_css::css::{CssDeclarationVec, CssRuleBlock};
+    let mut out = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let declarations = rule.declarations.as_slice();
+        if declarations.len() == 1 {
+            out.push(rule.clone());
+            continue;
+        }
+        for declaration in declarations {
+            out.push(CssRuleBlock {
+                path: rule.path.clone(),
+                declarations: CssDeclarationVec::from_vec(alloc::vec![declaration.clone()]),
+                conditions: rule.conditions.clone(),
+                priority: rule.priority,
+            });
+        }
+    }
+    out
+}
+
+/// `rule` inside `theme`'s block: the theme name prepended to its
+/// conditions, which it keeps (colour scheme, states).
+fn follow_rule_in_theme(
+    mut rule: azul_css::css::CssRuleBlock,
+    theme: super::UiTheme,
+) -> azul_css::css::CssRuleBlock {
+    use azul_css::dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition};
+    let mut conditions = Vec::with_capacity(rule.conditions.as_slice().len() + 1);
+    conditions.push(DynamicSelector::Theme(ThemeCondition::Custom(
+        AzString::from_const_str(theme.name()),
+    )));
+    conditions.extend(rule.conditions.as_slice().iter().cloned());
+    rule.conditions = DynamicSelectorVec::from_vec(conditions);
+    rule
+}
+
+/// [`follow_props`] for a node's inline rules.
+fn follow_rules(
+    flat: &[azul_css::css::CssRuleBlock],
+    flora: &[azul_css::css::CssRuleBlock],
+) -> Vec<azul_css::css::CssRuleBlock> {
+    let flat = follow_single_rules(flat);
+    let flora = follow_single_rules(flora);
+    let decided = follow_alike(&flat, &flora, follow_rule_type);
+    let shared = |r: &azul_css::css::CssRuleBlock| follow_is_shared(&decided, follow_rule_type(r));
+    let mut out = Vec::with_capacity(flat.len() + flora.len());
+    out.extend(flat.iter().filter(|r| shared(*r)).cloned());
+    out.extend(
+        flat.iter()
+            .filter(|r| !shared(*r))
+            .map(|r| follow_rule_in_theme(r.clone(), super::UiTheme::Flat)),
+    );
+    out.extend(
+        flora
+            .iter()
+            .filter(|r| !shared(*r))
+            .map(|r| follow_rule_in_theme(r.clone(), super::UiTheme::Flora)),
+    );
+    out
+}
+
+/// Gives `built` (a node of the `structure` theme's DOM) the styles of both
+/// themes, `other` being the same node as the other theme built it, and
+/// recurses into the children the two trees share.
+fn follow_node(built: &mut Dom, other: &Dom, structure: super::UiTheme) {
+    if built.root.style.rules.as_slice() != other.root.style.rules.as_slice() {
+        let merged = match structure {
+            super::UiTheme::Flat => follow_rules(
+                built.root.style.rules.as_slice(),
+                other.root.style.rules.as_slice(),
+            ),
+            super::UiTheme::Flora => follow_rules(
+                other.root.style.rules.as_slice(),
+                built.root.style.rules.as_slice(),
+            ),
+        };
+        built.root.style.rules = azul_css::css::CssRuleBlockVec::from_vec(merged);
+    }
+    // Children are paired by position only where both trees have the same
+    // number. Otherwise the subtree is one only the structure theme builds,
+    // and keeps that theme's styles as they are: the DOM is rebuilt whenever
+    // the app theme changes, so they never have to answer for another one.
+    let others = other.children.as_ref();
+    let mine: &mut [Dom] = built.children.as_mut();
+    if mine.len() == others.len() {
+        for (child, twin) in mine.iter_mut().zip(others.iter()) {
+            follow_node(child, twin, structure);
+        }
+    }
+}
+
+/// A widget built by BOTH themes, as the DOM a widget that follows the app
+/// theme returns: `structure`'s tree - its nodes, classes (the theme
+/// marker), callbacks and accessibility - with every node carrying both
+/// themes' styles ([`follow_props`]'s shape). What a widget whose flat and
+/// flora looks are two builders (`flat::slider`, `flora::slider`) follows
+/// with; the other theme's DOM is built only for its styles.
+#[must_use]
+pub(crate) fn follow_dom(structure: super::UiTheme, flat: Dom, flora: Dom) -> Dom {
+    let (mut built, other) = match structure {
+        super::UiTheme::Flat => (flat, flora),
+        super::UiTheme::Flora => (flora, flat),
+    };
+    follow_node(&mut built, &other, structure);
+    built
+}
+
+/// Builds `widget` with `flat` and with `flora` and merges the two
+/// ([`follow_dom`]) in the structure of the theme the DOM is being built for
+/// - the `None` arm of a two-builder widget's `dom()`.
+#[must_use]
+pub(crate) fn follow_app_theme<W: Clone>(
+    widget: W,
+    flat: fn(W) -> Dom,
+    flora: fn(W) -> Dom,
+) -> Dom {
+    let structure = super::UiTheme::current();
+    let flat_dom = flat(widget.clone());
+    let flora_dom = flora(widget);
+    follow_dom(structure, flat_dom, flora_dom)
+}
 
 #[cfg(test)]
 mod follow_tests {
