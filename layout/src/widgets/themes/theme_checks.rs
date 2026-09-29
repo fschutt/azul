@@ -237,9 +237,18 @@ pub(crate) fn half_pairs(dom: &Dom) -> Vec<String> {
     out
 }
 
-/// A resting dark twin pushed AFTER a state rule of the same property
-/// shadows it in the dark theme (a resting twin matches in every state).
+/// An interactive state (`:hover`, `:active`, `:focus`) the node declares
+/// for a property but that a later RESTING declaration of the same property
+/// beats in that state - typically a resting dark twin pushed after the state
+/// rules (it matches in every state, so it wins). One message per property,
+/// mode and state where that happens.
 pub(crate) fn shadowed_states(dom: &Dom) -> Vec<String> {
+    use PseudoStateType::{Active, Focus, Hover};
+    fn has_state(c: &DynamicSelectorVec, state: PseudoStateType) -> bool {
+        c.as_ref()
+            .iter()
+            .any(|s| matches!(s, DynamicSelector::PseudoState(x) if *x == state))
+    }
     let mut out = Vec::new();
     for (path, node) in nodes(dom) {
         let props: Vec<(CssProperty, DynamicSelectorVec)> = node
@@ -248,26 +257,26 @@ pub(crate) fn shadowed_states(dom: &Dom) -> Vec<String> {
             .iter_inline_properties()
             .map(|(p, c)| (p.clone(), c.clone()))
             .collect();
-        for (i, (p, c)) in props.iter().enumerate() {
-            let is_state = c
-                .as_ref()
-                .iter()
-                .any(|s| matches!(s, DynamicSelector::PseudoState(_)));
-            if !is_state {
-                continue;
-            }
-            let later_resting = props[i + 1..].iter().any(|(q, d)| {
-                q.get_type() == p.get_type()
-                    && !d
-                        .as_ref()
-                        .iter()
-                        .any(|s| matches!(s, DynamicSelector::PseudoState(_)))
-            });
-            if later_resting {
-                out.push(format!(
-                    "{path}: a resting {:?} comes after a state rule and shadows it",
-                    p.get_type()
-                ));
+        let mut types: Vec<CssPropertyType> = props.iter().map(|(p, _)| p.get_type()).collect();
+        types.sort_unstable();
+        types.dedup();
+        for ty in types {
+            for dark in [false, true] {
+                for state in [Hover, Active, Focus] {
+                    let matching = || {
+                        props
+                            .iter()
+                            .filter(|(p, c)| p.get_type() == ty && applies(c, dark, Some(state)))
+                    };
+                    let declared = matching().any(|(_, c)| has_state(c, state));
+                    let winner_is_state = matching().last().is_some_and(|(_, c)| has_state(c, state));
+                    if declared && !winner_is_state {
+                        out.push(format!(
+                            "{path}: {ty:?} {state:?} (dark: {dark}) is shadowed by a later \
+                             resting declaration"
+                        ));
+                    }
+                }
             }
         }
     }
