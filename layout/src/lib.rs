@@ -473,6 +473,11 @@ pub mod font;
 /// `regex-lite` declares `compile_error!` without its own `std` feature.
 #[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod form;
+/// Raw `<input>` / `<select>` / `<textarea>` nodes become the matching widget
+/// (`<input type="range">` -> `Slider`), before the cascade - the way `<icon>`
+/// nodes are resolved. Run by `LayoutWindow::style_user_dom*`.
+#[cfg(feature = "widgets")]
+pub mod form_controls;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
 pub mod glyph_cache;

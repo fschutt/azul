@@ -210,7 +210,18 @@ pub fn parse_xml_to_styled_dom_resolving_icons(
     system_style: &azul_css::system::SystemStyle,
 ) -> Result<StyledDom, XmlError> {
     let parsed = parse_xml(xml)?;
-    let dom = dom_from_parsed_xml(parsed);
+    #[allow(unused_mut)]
+    let mut dom = dom_from_parsed_xml(parsed);
+    // `<input>` / `<select>` / `<textarea>` become widgets first, like every
+    // other app DOM (`crate::form_controls`), and before the icons: the
+    // widgets contain icons. Stateless memory: a mounted document is kept,
+    // not rebuilt, until its source changes.
+    #[cfg(feature = "widgets")]
+    let _ = crate::form_controls::resolve_form_controls_in_dom(
+        &mut dom,
+        &crate::form_controls::FormControlMemory::default(),
+        crate::form_controls::FORM_SCOPE_ROOT,
+    );
     Ok(azul_core::icon::styled_dom_resolving_icons(
         dom,
         provider,

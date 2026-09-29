@@ -1036,6 +1036,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // shares. Its bytes belong to the app's report, once, not to each
         // window that can reach it.
         icon_provider: _,
+        // NOT WALKED: bounded (`form_controls::MAX_REMEMBERED` entries of
+        // one small value each) and shared with the recorders it hands out.
+        #[cfg(feature = "widgets")]
+        form_control_memory: _,
             #[cfg(feature = "fluent")]
             fluent_localizer: _,
         last_laid_out_frame: _,
@@ -1751,6 +1755,15 @@ pub struct LayoutWindow {
     /// `None` in a window whose app registered no icons at all, and in the
     /// headless windows the tests build directly; both then cascade unchanged.
     pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
+    /// The values users gave this window's REPLACED form controls (a raw
+    /// `<input type="checkbox">` became a `CheckBox`, see
+    /// `crate::form_controls`): written by the recorders the replacement
+    /// installs as each widget's change hook, read back by the next build so
+    /// a raw-input app - which stores none of it - keeps the user's check,
+    /// pick or text across its own rebuilds. Shared (`Arc` inside) with those
+    /// recorders.
+    #[cfg(feature = "widgets")]
+    pub form_control_memory: crate::form_controls::FormControlMemory,
     #[cfg(feature = "fluent")]
     pub fluent_localizer: Option<FluentLocalizerHandle>,
     /// The window frame the last layout pass ran under.
@@ -2243,6 +2256,8 @@ impl LayoutWindow {
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             icon_provider: None,
+            #[cfg(feature = "widgets")]
+            form_control_memory: crate::form_controls::FormControlMemory::default(),
             #[cfg(feature = "fluent")]
             fluent_localizer: None,
             last_laid_out_frame: azul_core::window::WindowFrame::Normal,
@@ -4812,8 +4827,11 @@ impl LayoutWindow {
         // `style_user_dom`, not a bare cascade: a measured DOM is a user DOM
         // like any other, and an `<icon>` left unresolved measures as an empty
         // node — so the item this sizes would be laid out at the icon's real
-        // size and measured without it.
-        let styled_dom = self.style_user_dom(dom);
+        // size and measured without it. Its form controls are replaced in a
+        // scope of their own: a throwaway DOM must neither read nor evict
+        // what the user gave the window's real controls.
+        let styled_dom =
+            self.style_user_dom_in_scope(dom, &self.current_window_state, FORM_SCOPE_MEASURE);
         self.measure_styled_dom(&styled_dom, available)
     }
 
@@ -4834,7 +4852,8 @@ impl LayoutWindow {
     /// its materialized rect. A failed layout measures as zero.
     #[cfg(feature = "std")]
     pub fn measure_dom_shrink_to_fit(&self, dom: Dom, bound: LogicalSize) -> LogicalSize {
-        let styled_dom = self.style_user_dom(dom);
+        let styled_dom =
+            self.style_user_dom_in_scope(dom, &self.current_window_state, FORM_SCOPE_MEASURE);
         self.measure_styled_dom_shrink_to_fit(&styled_dom, bound)
             .unwrap_or_else(LogicalSize::zero)
     }
@@ -8581,7 +8600,15 @@ impl LayoutWindow {
                 // directly here is what made an icon inside a VirtualView
                 // impossible: it cascaded the icon node as-is, and nothing
                 // downstream resolves one after the cascade.
-                self.style_user_dom(dom)
+                //
+                // In the VIEW's form-control scope: its raw `<input>`s become
+                // widgets too, and remember their values apart from the
+                // layout callback's controls at the same tree path.
+                self.style_user_dom_in_scope(
+                    dom,
+                    &self.current_window_state,
+                    form_scope_of_virtual_view(parent_dom_id, node_id),
+                )
             }
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
@@ -16140,8 +16167,27 @@ impl LayoutWindow {
         self.icon_provider = Some(provider);
     }
 
-    /// THE path from a user `Dom` to a `StyledDom`: resolve `<icon>` nodes,
-    /// then cascade.
+    /// Replace the raw form controls of the layout callback's DOM by widgets
+    /// (`crate::form_controls`), in place, with this window's memory of what
+    /// the user gave them. Returns how many were replaced.
+    ///
+    /// [`Self::style_user_dom`] does this too; the shell calls it EARLIER,
+    /// before it fingerprints the fresh DOM for the pre-cascade fast path,
+    /// so the fingerprint and its by-index callback transfers describe the
+    /// same nodes as the retained `StyledDom` (a raw `<input>` is one node,
+    /// its widget several). The later call then finds nothing to replace.
+    #[cfg(feature = "widgets")]
+    pub fn resolve_form_controls(&self, dom: &mut Dom) -> usize {
+        crate::form_controls::resolve_form_controls_in_dom(
+            dom,
+            &self.form_control_memory,
+            FORM_SCOPE_ROOT,
+        )
+    }
+
+    /// THE path from a user `Dom` to a `StyledDom`: replace raw form controls
+    /// by widgets, resolve `<icon>` nodes, then cascade (the full order is on
+    /// [`Self::style_user_dom_in_scope`]).
     ///
     /// Every DOM the application produces goes through here - the one its
     /// `layout()` callback returns AND the one a `VirtualView` callback returns.
@@ -16173,7 +16219,38 @@ impl LayoutWindow {
     /// its FIRST cascade — a DOM born in a dark window is dark, not light and
     /// re-cascaded a moment later (theme-chain analysis 2026-09-12, R2).
     #[must_use]
-    pub fn style_user_dom_for(&self, mut dom: Dom, window_state: &FullWindowState) -> StyledDom {
+    pub fn style_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        self.style_user_dom_in_scope(dom, window_state, FORM_SCOPE_ROOT)
+    }
+
+    /// [`Self::style_user_dom_for`] for a DOM whose form controls live in
+    /// their own `form_scope` - a VirtualView's DOM, whose control at tree
+    /// path `[0, 1]` is not the layout callback's control at `[0, 1]`
+    /// ([`form_scope_of_virtual_view`]).
+    ///
+    /// The steps, in the only order that works:
+    ///
+    /// 1. raw `<input>` / `<select>` / `<textarea>` nodes become widgets
+    ///    (`crate::form_controls`) - the widgets are ordinary app DOM from
+    ///    here on, so they are localized and icon-resolved like the rest;
+    /// 2. Fluent translation;
+    /// 3. `<icon>` resolution (the widgets contain icons);
+    /// 4. the cascade.
+    #[must_use]
+    pub fn style_user_dom_in_scope(
+        &self,
+        mut dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+    ) -> StyledDom {
+        #[cfg(feature = "widgets")]
+        let _ = crate::form_controls::resolve_form_controls_in_dom(
+            &mut dom,
+            &self.form_control_memory,
+            form_scope,
+        );
+        #[cfg(not(feature = "widgets"))]
+        let _ = form_scope;
         #[cfg(feature = "fluent")]
         if let Some(localizer) = self.fluent_localizer.as_ref() {
             // The app's `set_locale` choice, else the system language.
@@ -16203,6 +16280,24 @@ impl LayoutWindow {
             context,
         )
     }
+}
+
+/// The form-control scope of the layout callback's DOM: the memory of what
+/// users gave replaced form controls (`crate::form_controls`) keys each
+/// control by its scope, so one DOM's control never inherits another's value.
+pub const FORM_SCOPE_ROOT: u64 = 0;
+
+/// The form-control scope of a DOM laid out only to be MEASURED
+/// ([`LayoutWindow::measure_dom`]). Nobody interacts with it, so it never
+/// writes the memory; its own scope keeps it from reading - or, through the
+/// "the app changed the default" rule, evicting - a real control's value.
+pub const FORM_SCOPE_MEASURE: u64 = u64::MAX;
+
+/// The form-control scope of the DOM the VirtualView at `(dom, node)`
+/// renders - distinct from [`FORM_SCOPE_ROOT`] and from every other view's.
+#[must_use]
+pub const fn form_scope_of_virtual_view(dom: DomId, node: NodeId) -> u64 {
+    (((dom.inner as u64) << 32) | (node.index() as u64 & 0xFFFF_FFFF)).wrapping_add(1)
 }
 
 /// What a [`LayoutWindow::set_locale`] moved - the two locale inputs a
@@ -22504,6 +22599,10 @@ impl LayoutWindow {
             system_style: _,
             // App-level icon storage keyed by NAME, not by node id.
             icon_provider: _,
+            // Keyed by control identity (key / id / tree path hash), not by
+            // node id: a rebuild that moves NodeIds leaves it valid.
+            #[cfg(feature = "widgets")]
+            form_control_memory: _,
             #[cfg(feature = "fluent")]
             fluent_localizer: _,
             last_laid_out_frame: _,

@@ -583,6 +583,17 @@ pub fn regenerate_layout(
         user_dom
     };
 
+    // 1.35. RAW FORM CONTROLS -> WIDGETS (`azul_layout::form_controls`), and
+    // BEFORE the fingerprint below. A raw `<input>` is one node and its widget
+    // several: fingerprinting the raw DOM and then styling the resolved one
+    // would make the pre-cascade transfers (callbacks and datasets, BY INDEX)
+    // land on the wrong nodes of the retained StyledDom. Resolved here, the
+    // fresh DOM IS the retained DOM's shape, exactly as if the app had built
+    // the widgets itself; `style_user_dom_for` below then finds nothing left
+    // to replace.
+    let mut user_dom = user_dom;
+    let _ = layout_window.resolve_form_controls(&mut user_dom);
+
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is
     // iterating over a minimal array, in no world should this ever take 93ms").
