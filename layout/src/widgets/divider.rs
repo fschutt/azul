@@ -1345,3 +1345,139 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look a divider renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn divider(orientation: DividerOrientation, theme: UiTheme) -> Dom {
+        Divider::create_with_orientation(orientation)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn last_bg(props: &[CssProperty]) -> Option<Vec<StyleBackgroundContent>> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        })
+    }
+
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_divider_without_a_theme_renders_flat() {
+        let plain = Divider::create();
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            inline(&plain.dom()),
+            inline(&divider(DividerOrientation::Horizontal, UiTheme::Flat))
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Divider::create();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Divider::create().with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_divider_takes_the_system_separator_at_night() {
+        let dom = divider(DividerOrientation::Horizontal, UiTheme::Flat);
+        assert_eq!(
+            last_bg(&theme_probe::dark(&dom)),
+            Some(vec![StyleBackgroundContent::SystemColor(
+                SystemColorRef::Separator
+            )])
+        );
+    }
+
+    #[test]
+    fn a_flora_divider_is_a_hairline_in_flora_s_rule_colour() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            let dom = divider(orientation, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            assert_eq!(
+                last_bg(&rest),
+                Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SEP)]),
+                "{orientation:?}: flora.css `hr`: 1px of --fl-sep"
+            );
+            let one_px = Some(PixelValue::const_px(1));
+            let thickness = rest.iter().rev().find_map(|p| match (orientation, p) {
+                (DividerOrientation::Horizontal, CssProperty::Height(h)) => {
+                    h.get_property().and_then(|h| match h {
+                        LayoutHeight::Px(px) => Some(*px),
+                        _ => None,
+                    })
+                }
+                (DividerOrientation::Vertical, CssProperty::Width(w)) => {
+                    w.get_property().and_then(|w| match w {
+                        LayoutWidth::Px(px) => Some(*px),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            });
+            assert_eq!(thickness, one_px, "{orientation:?}: a hairline");
+        }
+    }
+
+    #[test]
+    fn a_flora_divider_at_night_takes_flora_s_night_rule() {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            let dark = theme_probe::dark(&divider(orientation, UiTheme::Flora));
+            assert_eq!(
+                last_bg(&dark),
+                Some(vec![StyleBackgroundContent::Color(flora::DARK_SEP)]),
+                "{orientation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_divider_carries_the_flora_theme_marker() {
+        let dom = divider(DividerOrientation::Horizontal, UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-divider"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_divider_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                7
+            )))
+        ]);
+        let mut d = Divider::create().with_theme(UiTheme::Flora);
+        d.divider_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&d.dom()), expected);
+    }
+}

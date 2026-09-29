@@ -347,3 +347,20 @@ fn labels_read_in_both_themes_in_both_looks() {
         .collect();
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn dividers_pair_their_night_rule_in_both_looks() {
+    use azul_layout::widgets::divider::{Divider, DividerOrientation};
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for orientation in [DividerOrientation::Horizontal, DividerOrientation::Vertical] {
+            widgets.push((
+                format!("{look} divider {orientation:?}"),
+                Divider::create_with_orientation(orientation)
+                    .with_theme(theme)
+                    .dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}
