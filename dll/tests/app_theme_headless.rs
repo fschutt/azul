@@ -140,6 +140,18 @@ extern "C" fn theme_structured_layout(mut data: RefAny, info: LayoutCallbackInfo
     Dom::create_body().with_child(widget)
 }
 
+/// A `layout()` whose DOM is IDENTICAL in every theme - the common case for a migrated widget:
+/// it carries every theme's block, and only the matcher tells them apart.
+extern "C" fn theme_blind_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    if let Some(model) = data.downcast_ref::<Model>() {
+        model.layout_calls.fetch_add(1, Ordering::SeqCst);
+    }
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(BOX_STYLE)),
+    )
+}
+
 fn make_window(model: Model, layout: LayoutCallbackType) -> HeadlessWindow {
     let mut config = AppConfig::default();
     // Hermetic: a light desktop whatever the host is in.
@@ -343,4 +355,32 @@ fn every_window_rebuilds_under_the_apps_new_theme() {
         RelayoutReason::AppThemeChange,
         "its first layout is no switch"
     );
+}
+
+/// The rebuild's shortcuts - the pre-cascade skip (equal fingerprints) and the layout-equivalence
+/// check - keep the retained StyledDom WITHOUT offering it a new context. A theme switch whose
+/// DOM did not change is exactly their case, so it must take the full path or it keeps painting
+/// the old theme.
+#[test]
+fn a_dom_identical_in_every_theme_still_repaints_in_the_new_theme() {
+    let _app = fresh_app();
+    let model = Model::new();
+    let mut window = make_window(model.clone(), theme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(box_fill(&window), Some(FLAT), "premise: flat");
+    let calls = model.calls();
+
+    let result = set_theme(&mut window, "flora");
+    assert_eq!(result, ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+    honor(&mut window, result);
+    assert!(model.calls() > calls, "layout() ran again");
+    assert_eq!(
+        box_fill(&window),
+        Some(FLORA),
+        "the same DOM, rebuilt for flora, paints flora's block"
+    );
+
+    let result = set_theme(&mut window, "flat");
+    honor(&mut window, result);
+    assert_eq!(box_fill(&window), Some(FLAT), "and back");
 }
