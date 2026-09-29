@@ -73,10 +73,12 @@ document instance), drag a component file onto the Document tree.
 | `5e3ba363d` | docs(b4): audit |
 | `dd0ce93b0` | test(builder): project scenarios, RED (`layout/src/e2e/project_tests.rs`, 9 tests) |
 | `e06aea928` | feat(builder): project.rs + builder.rs stylesheet/load + full.rs arms + gene2e rows (+ 8 project.rs unit tests, 3 builder.rs unit tests; rustfmt applied to the two new files) |
+| `0d53eea05` | test(debugger-ui): node logic test + headless smoke, RED |
+| `245e936b1` | feat(debugger): debugger-project.js + dnd hook + html/build.rs/platform.rs route — node 13/13, smoke 42/42, B1 smoke 25/25 |
 
 ## 4. IN PROGRESS
 
-- RED JS tests: `debugger-project.test.js` (node) + `scripts/debugger-ui/builder-project-smoke.mjs`.
+- Site: /ui landing section + release page "Demos" AzBuilder entry.
 
 ## 5. NEXT
 
