@@ -864,7 +864,7 @@ static BLANK_CELL_STYLE: &[CssPropertyWithConditions] = &[
 /// Builds the per-day-cell style. Only the background + text colour depend on
 /// the selected flag (the rest is shared), so the style is built at runtime
 /// (mirrors `segmented::build_segment_style`).
-fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if selected {
         (DAY_SELECTED_BG_VEC, WHITE)
     } else {

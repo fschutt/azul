@@ -5094,9 +5094,106 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
 }
 
 // ==== date_picker ====
+//
+// A flora date picker is a paper field over a paper calendar. The field is
+// flora's field face (--fl-fld, "input fields") in a --fl-bd2 hairline at the
+// house radius; it darkens its rule under the pointer and rings in the accent
+// on focus. The calendar is a leaf (--fl-sur in --fl-bd, 5px, the card's
+// shadow): the month (or, picking a month, the year) in semibold ink between
+// brass buttons (--fl-qt, flora's quiet-action ink), the weekday names in
+// --fl-soft2, the cells in --fl-ink lifting to the hover face under the
+// pointer, and the pick - the day, every day of the week, the month - cut as
+// the accent stone, which, being a stone, is its own colour at night. Every
+// stop rings in the accent; every other surface and ink has its night value,
+// and a click repaints the grid with the same stone and inks.
 
-/// The flora date picker.
+/// One grid cell's geometry - the widget's own box, without its colours.
+fn flora_day_geometry(selected: bool) -> Vec<CssPropertyWithConditions> {
+    crate::widgets::date_picker::build_day_cell_style(selected)
+        .into_library_owned_vec()
+        .into_iter()
+        .filter(|p| {
+            !matches!(
+                p.property,
+                CssProperty::BackgroundContent(_) | CssProperty::TextColor(_)
+            )
+        })
+        .collect()
+}
+
+/// The flora date picker: a paper field over a paper calendar, in every
+/// mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
-    super::flat::date_picker(d)
+    use super::decl;
+    use crate::widgets::date_picker::{DatePickerLook, DayPalette};
+
+    let mut look = DatePickerLook::established();
+
+    // The field: flora's field face, appended after the established one so
+    // its pair is the one that wins in both modes.
+    look.field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    look.field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    look.field.extend(decl::radius(3));
+    look.field.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    look.field.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    look.field.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    // The calendar: a leaf.
+    look.panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    look.panel.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    look.panel.extend(decl::radius(5));
+    look.panel.extend(decl::themed_shadow(
+        2,
+        5,
+        CARD_LEAF_SHADOW_LIGHT,
+        CARD_LEAF_SHADOW_DARK,
+    ));
+
+    look.header_label.push(decl::semibold());
+    look.header_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    look.nav.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    look.nav.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    look.nav.extend(decl::radius(3));
+    look.nav.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    look.weekday.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    // The cells are built from the widget's geometry alone: the picked one
+    // is a stone in both modes, so it must carry no dark twin at all. The
+    // month grid takes these faces too (three cells wide).
+    let stone = || stone_face(LIGHT_ACC, STONE_STREAK);
+    let mut chosen = flora_day_geometry(true);
+    chosen.extend(decl::radius(3));
+    chosen.push(CssPropertyWithConditions::simple(decl::layers(stone())));
+    chosen.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+    chosen.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    look.day_selected = chosen;
+
+    let mut other = flora_day_geometry(false);
+    other.extend(decl::radius(3));
+    other.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    other.extend(decl::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    other.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    look.day_other = other;
+
+    let clear = || {
+        StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
+            ColorU::TRANSPARENT,
+        )])
+    };
+    look.day_palette = DayPalette {
+        selected: [
+            (StyleBackgroundContentVec::from_vec(stone()), LIGHT_ON_ACC),
+            (StyleBackgroundContentVec::from_vec(stone()), LIGHT_ON_ACC),
+        ],
+        other: [(clear(), LIGHT_INK), (clear(), DARK_INK)],
+    };
+    look.marker = Some("__azul-theme-flora");
+
+    crate::widgets::date_picker::build(d, &look)
 }

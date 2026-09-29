@@ -4394,10 +4394,30 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
 }
 
 // ==== date_picker ====
+//
+// The flat date picker is the widget's established field and calendar: a
+// white field in a #CED4DA rule, a white calendar, the Bootstrap-blue
+// picked cell; the desktop's field, separator, accent and label colours at
+// night. Its keyboard stops - the field, the two header buttons (month or
+// year) and the grid (one roving stop over the days, the whole-week days or
+// the twelve months) - showed no focus. The field (it has a border) takes
+// the fields' ring on it; the buttons and the cells, which have none, take
+// flat's focus halo. The month grid's cells are the day faces, so they ring
+// too.
 
-/// The flat date picker.
+/// The flat date picker: the established field and calendar, with a focus
+/// ring on every keyboard stop in every mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    use super::decl;
     use crate::widgets::date_picker::DatePickerLook;
-    crate::widgets::date_picker::build(d, &DatePickerLook::established())
+
+    let mut look = DatePickerLook::established();
+    look.field.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+    look.nav.extend(decl::radius(3));
+    look.nav.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    look.day_selected
+        .extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    look.day_other.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    crate::widgets::date_picker::build(d, &look)
 }
