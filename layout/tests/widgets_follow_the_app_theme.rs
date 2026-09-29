@@ -677,3 +677,92 @@ fn file_inputs_follow_the_app_theme() {
         });
     }
 }
+
+/// Six widgets have ONE look today - no `UiTheme` option, no flora look (the
+/// ribbon, quick-access bar and status bar carry their own palette structs):
+/// nothing to condition, so they render the same under every app theme and
+/// carry no theme blocks. A guard, not the goal: under a flora app theme they
+/// still look flat. Giving each a flora look (and a theme option) moves it
+/// into the `assert_follows_the_app_theme` checks above.
+#[test]
+fn single_look_widgets_render_the_same_under_every_app_theme() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::{
+        quick_access::QuickAccessBar,
+        ribbon::{Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec},
+        statusbar::{StatusBar, StatusBarSegment, StatusBarSegmentVec},
+        tabs::{TabContent, TabHeader},
+        titlebar::Titlebar,
+        tree_view::{TreeView, TreeViewNode},
+    };
+    let widgets: Vec<(&str, Box<dyn Fn() -> Dom>)> = vec![
+        (
+            "quick_access",
+            Box::new(|| QuickAccessBar::new(AzString::from("Document1")).dom()),
+        ),
+        (
+            "ribbon",
+            Box::new(|| {
+                Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new(AzString::from(
+                    "HOME",
+                ))
+                .with_group(
+                    RibbonGroup::new(AzString::from("Clipboard")).with_item(
+                        RibbonItem::LargeButton(RibbonButton::new(
+                            AzString::from("content_paste"),
+                            AzString::from("Paste"),
+                        )),
+                    ),
+                )]))
+                .dom()
+            }),
+        ),
+        (
+            "statusbar",
+            Box::new(|| {
+                StatusBar::new(StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(
+                    AzString::from("Page 1 of 3"),
+                )]))
+                .dom()
+            }),
+        ),
+        (
+            "tabs (header)",
+            Box::new(|| {
+                TabHeader::create(StringVec::from_vec(vec![
+                    AzString::from("One"),
+                    AzString::from("Two"),
+                ]))
+                .dom()
+            }),
+        ),
+        (
+            "tabs (content)",
+            Box::new(|| TabContent::new(Dom::create_p_with_text("Body")).dom()),
+        ),
+        (
+            "titlebar",
+            Box::new(|| Titlebar::create(AzString::from("Window")).dom()),
+        ),
+        (
+            "tree_view",
+            Box::new(|| {
+                TreeView::new(
+                    TreeViewNode::new("root")
+                        .with_expanded(true)
+                        .with_child(TreeViewNode::new("child")),
+                )
+                .dom()
+            }),
+        ),
+    ];
+    for (name, make) in &widgets {
+        let flat = built_for(UiTheme::Flat, &**make);
+        let flora = built_for(UiTheme::Flora, &**make);
+        assert!(theme_names(&flat).is_empty(), "{name} grew theme blocks");
+        assert!(
+            styles(&flat) == styles(&flora),
+            "{name} changes with the app theme"
+        );
+    }
+}

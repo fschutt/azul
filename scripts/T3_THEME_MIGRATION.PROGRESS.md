@@ -102,9 +102,13 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   to that theme; unpinned = DOM merge of the two pinned Buttons (so it follows even before T2
   migrates Button); the resolvers ask a Button in the input's theme)
 
+- ribbon / quick_access / statusbar / tabs / titlebar / tree_view: NO UiTheme and no flora look -
+  nothing to condition. Guard test (see git log): they render the same under every app theme and
+  carry no theme blocks. Left for a follow-up: a flora look + theme option each.
+
 ## IN PROGRESS
 
-- the six single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view)
+- review pass over every commit, then the report
 
 ## NEXT
 
