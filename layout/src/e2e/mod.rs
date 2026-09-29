@@ -50,6 +50,11 @@ mod builder_tests;
 #[cfg(test)]
 mod project_tests;
 
+// The builder's quick exports and Export > Code, driven through the real
+// dispatcher on a headless window.
+#[cfg(test)]
+mod export_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
