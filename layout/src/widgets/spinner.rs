@@ -854,7 +854,7 @@ mod makeover_tests {
             basic::animation::{AnimationIterationCount, AnimationTiming, StyleAnimation},
             basic::color::SystemColorRef,
             property::CssProperty,
-            style::{StyleBackgroundContent, StyleTransform},
+            style::StyleBackgroundContent,
         },
     };
 
@@ -1001,23 +1001,18 @@ mod makeover_tests {
             .collect()
     }
 
-    /// `(permille, degrees)` of every stop that rotates.
-    fn rotation_stops(kf: &azul_css::css::Keyframes) -> Vec<(u16, f32)> {
-        kf.stops
-            .as_ref()
-            .iter()
-            .filter_map(|s| {
-                s.props.as_ref().iter().find_map(|p| match p {
-                    CssProperty::Transform(v) => v.get_property().and_then(|list| {
-                        list.as_ref().iter().find_map(|t| match t {
-                            StyleTransform::Rotate(a) => Some((s.permille, a.to_degrees())),
-                            _ => None,
-                        })
-                    }),
-                    _ => None,
-                })
-            })
-            .collect()
+    /// `(t, degrees)` of the rotate channel the ENGINE compiles from a
+    /// keyframes block (`compile_keyframes_track`, what
+    /// `resolve_named_track` runs) - the angle the node is actually turned
+    /// by, so an angle the compiler folds (360deg onto 0) shows up here.
+    fn rotation_track(kf: &azul_css::css::Keyframes) -> Vec<(f32, f32)> {
+        crate::window::compile_keyframes_track(
+            kf,
+            azul_core::geom::LogicalRect::zero(),
+            0.8,
+            AnimationTiming::Linear,
+        )
+        .rotate_deg
     }
 
     /// The point `r` px from the centre of a `size` box, `deg` degrees
@@ -1229,9 +1224,9 @@ mod makeover_tests {
         assert_eq!(anim.duration.millis(), 800);
         assert_eq!(anim.iterations, AnimationIterationCount::Infinite);
         assert_eq!(anim.timing, AnimationTiming::Linear);
-        let turns = rotation_stops(keyframes(&dom, anim.name.as_str()).expect("@keyframes"));
-        assert_eq!(turns.first().map(|t| t.0), Some(0));
-        assert_eq!(turns.last().map(|t| t.0), Some(1000));
+        let turns = rotation_track(keyframes(&dom, anim.name.as_str()).expect("@keyframes"));
+        assert_eq!(turns.first().map(|t| t.0), Some(0.0));
+        assert_eq!(turns.last().map(|t| t.0), Some(1.0));
         let sweep = turns.last().map_or(0.0, |t| t.1) - turns.first().map_or(0.0, |t| t.1);
         assert!(close(sweep, 360.0), "a full clockwise turn per cycle, got {sweep}");
     }

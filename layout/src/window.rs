@@ -26808,7 +26808,12 @@ pub fn compile_keyframes_track(
                                 has_scale = true;
                             }
                             StyleTransform::Rotate(a) => {
-                                rot += a.to_degrees();
+                                // The angle AS WRITTEN: keyframes interpolate
+                                // it, so `rotate(0)` -> `rotate(360deg)` is one
+                                // full turn (every CSS spinner). `to_degrees()`
+                                // folds into [0, 360) and made that 0 -> 0: a
+                                // track that never turned.
+                                rot += a.to_degrees_raw();
                                 has_rotate = true;
                             }
                             // Skew / 3D / matrix stops: outside the track
