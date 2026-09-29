@@ -15,14 +15,15 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 ## DONE
 
 - 1 RED `bb244292b` (node test + smoke + lib/smoke.mjs)
+- 1 GREEN `68b3a492b` properties panel (node 7/7, smoke 17/17, other smokes unchanged)
 
 ## IN PROGRESS
 
-1. Properties panel: implementation commit (this one).
+2. Document stylesheet: RED tests committed (this commit), implementation next.
 
 ## NEXT
 
-2 → 5, then the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
+2 (implementation) → 5, then the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
 
 ## Open questions
 

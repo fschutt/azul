@@ -137,5 +137,25 @@ test('only the argument types one attribute can carry are editable in the panel'
         assert.ok(!L.editableType(t), t));
 });
 
+// ── 2. the document's stylesheet ────────────────────────────────────────
+
+test('applying the stylesheet sends builder_set_stylesheet, unless the text is what the document has', () => {
+    const doc = { root: el(0, 'body'), stylesheet: '.a { color: red; }' };
+    assert.deepStrictEqual(L.stylesheetMessage(doc, '.a { color: blue; }'),
+        { op: 'builder_set_stylesheet', css: '.a { color: blue; }' });
+    assert.strictEqual(L.stylesheetMessage(doc, '.a { color: red; }'), null);
+    assert.deepStrictEqual(L.stylesheetMessage(doc, ''), { op: 'builder_set_stylesheet', css: '' },
+        'emptying it is an edit too');
+    assert.strictEqual(L.stylesheetMessage({ root: el(0, 'body') }, ''), null,
+        'an old server answers no stylesheet: empty');
+    assert.strictEqual(L.stylesheetMessage(null, 'x'), null);
+});
+
+test('the editor follows the document (undo, load) but never overwrites text not applied yet', () => {
+    assert.strictEqual(L.sheetText('.a{}', '.b{}', false), '.b{}', 'clean: the document wins');
+    assert.strictEqual(L.sheetText('.a{} /* typing */', '.b{}', true), '.a{} /* typing */', 'dirty: kept');
+    assert.strictEqual(L.sheetText('x', undefined, false), '', 'no stylesheet in the answer: empty');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

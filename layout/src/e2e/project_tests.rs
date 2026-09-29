@@ -767,3 +767,38 @@ fn a_project_exports_as_a_zip_and_a_zip_imports_back_without_leaving_the_root() 
     assert!(paths.contains(&"azul-project.json"), "{paths:?}");
     assert!(paths.contains(&"styles/x.css"), "{paths:?}");
 }
+
+// ── B5: the document's own stylesheet travels with the document ──
+
+#[test]
+fn the_documents_stylesheet_is_saved_in_document_json_and_loads_back_into_the_window() {
+    let root = TempDir::new("doc-stylesheet");
+    let [wf, w] = settle();
+    let result = run(
+        "project_document_stylesheet",
+        false,
+        vec![
+            serde_json::json!({ "op": "project_open", "path": root.str(), "create": true }),
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "id": "box", "text": "x" } }),
+            serde_json::json!({ "op": "builder_set_stylesheet", "css": "#box { width: 123px; }" }),
+            serde_json::json!({ "op": "project_save" }),
+            // Give the window back: the document and its sheet are gone...
+            serde_json::json!({ "op": "builder_reset" }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_not_exists", "selector": "#box" }),
+            // ...and come back from document.json, sheet and all.
+            serde_json::json!({ "op": "project_load" }),
+            wf,
+            w,
+            serde_json::json!({ "op": "assert_layout", "selector": "#box", "property": "width",
+                                "expected": 123, "tolerance": 1 }),
+            serde_json::json!({ "op": "builder_get_stylesheet" }),
+            serde_json::json!({ "op": "assert_response", "contains": "#box { width: 123px; }" }),
+        ],
+    );
+    assert_passes(&result);
+    let doc = read_json(&root.path().join("document.json"));
+    assert_eq!(doc["stylesheet"], "#box { width: 123px; }", "{doc}");
+}

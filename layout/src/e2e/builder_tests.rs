@@ -413,3 +413,65 @@ fn builder_reset_gives_the_window_back_to_the_app() {
     );
     assert_passes(&result);
 }
+
+// ── B5: the document's own stylesheet ──
+
+#[test]
+fn the_documents_own_stylesheet_styles_the_window_beats_component_css_survives_a_remount_and_undoes()
+{
+    let [wf, w] = settle();
+    let result = run(
+        "builder_document_stylesheet",
+        false,
+        steps(vec![
+            serde_json::json!({ "op": "create_library", "name": "lib8" }),
+            serde_json::json!({ "op": "create_component", "library": "lib8", "name": "box",
+                                "render_tree": { "tag": "div", "classes": ["box"] } }),
+            serde_json::json!({ "op": "update_component", "library": "lib8", "name": "box",
+                                "css": ".box { width: 50px; height: 10px; }" }),
+            // uid 1: an instance; its `id` goes on the component's root.
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "library": "lib8",
+                                "component": "box", "attrs": { "id": "b" } }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 50, "tolerance": 1 }),
+            // Nothing set yet: the document's stylesheet is empty.
+            serde_json::json!({ "op": "builder_get_stylesheet" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"stylesheet\":\"\"" }),
+            // The same selector as the component's: the document's sheet comes
+            // later in the cascade and wins, as an app stylesheet does.
+            serde_json::json!({ "op": "builder_set_stylesheet", "css": ".box { width: 123px; }" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"can_undo\":true" }),
+            serde_json::json!({ "op": "assert_response", "contains": "width: 123px" }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 123, "tolerance": 1 }),
+            // Another edit re-mounts the document: the sheet is part of it.
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "text": "after" } }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_dom", "contains": "after" }),
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 123, "tolerance": 1 }),
+            serde_json::json!({ "op": "builder_get_stylesheet" }),
+            serde_json::json!({ "op": "assert_response", "contains": ".box { width: 123px; }" }),
+            // Undo the paragraph, then the stylesheet: one step each.
+            serde_json::json!({ "op": "builder_undo" }),
+            serde_json::json!({ "op": "builder_undo" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"stylesheet\":\"\"" }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 50, "tolerance": 1 }),
+            serde_json::json!({ "op": "builder_redo" }),
+            wf,
+            w,
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 123, "tolerance": 1 }),
+        ]),
+    );
+    assert_passes(&result);
+}

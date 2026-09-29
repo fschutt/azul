@@ -85,6 +85,14 @@ window.__t = {
     document.body.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, mods || {})));
   },
   visible(id) { const e = document.getElementById(id); return !!e && e.offsetParent !== null; },
+  typeSheet(text) {
+    const t = document.getElementById('azb-sheet-text');
+    if (!t) return false;
+    t.focus();
+    t.value = text;
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  },
 };
 true`;
 
@@ -165,6 +173,41 @@ async function main() {
         await cdp.eval(`__t.row(1).click(); true`);
         await waitFor(cdp, `__t.props()[0] === 'text' && !__t.prop('href')`);
         check('selecting another row shows that node', await cdp.eval(`!!__t.prop('style') && !__t.prop('href')`));
+
+        // ── 2. the document's stylesheet ──
+        check('a Stylesheet editor sits in the side panel, empty for a new document',
+            await cdp.eval(`__t.visible('azb-sheet-text') && document.getElementById('azb-sheet-text').value === ''`));
+        await cdp.eval(`__t.typeSheet('.lead { color: red; }')`);
+        check('typing marks it as not applied yet (nothing is sent)',
+            await cdp.eval(`document.getElementById('azb-sheet').classList.contains('azb-dirty')`)
+            && countSent('builder_set_stylesheet') === 0);
+        await cdp.eval(`document.getElementById('azb-sheet-apply').click(); true`);
+        await waitFor(cdp, `azDnd.state.doc.stylesheet === '.lead { color: red; }'`);
+        check('Apply sends builder_set_stylesheet with the text',
+            same(lastSent('builder_set_stylesheet'), { op: 'builder_set_stylesheet', css: '.lead { color: red; }' })
+            && await cdp.eval(`!document.getElementById('azb-sheet').classList.contains('azb-dirty')`),
+            lastSent('builder_set_stylesheet'));
+        await cdp.eval(`__t.typeSheet('.lead { color: blue; }');
+            document.getElementById('azb-sheet-text').dispatchEvent(new KeyboardEvent('keydown',
+                { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); true`);
+        await waitFor(cdp, `azDnd.state.doc.stylesheet === '.lead { color: blue; }'`);
+        check('Ctrl+Enter in the editor applies too',
+            countSent('builder_set_stylesheet') === 2 && lastSent('builder_set_stylesheet').css === '.lead { color: blue; }');
+        const undos = countSent('builder_undo');
+        await cdp.eval(`document.activeElement && document.activeElement.blur(); __t.key('z', { ctrlKey: true }); true`);
+        await waitFor(cdp, `document.getElementById('azb-sheet-text').value === '.lead { color: red; }'`);
+        check('Ctrl+Z undoes the stylesheet like any edit, and the editor shows the earlier text',
+            countSent('builder_undo') === undos + 1
+            && await cdp.eval(`document.getElementById('azb-sheet-text').value === '.lead { color: red; }'`));
+        await cdp.eval(`__t.typeSheet('.draft { }'); azDnd.send({ op: 'builder_insert', parent: 0, component: 'span' }); true`);
+        await waitFor(cdp, `!!__t.row(3)`);
+        check('text not applied yet survives other edits',
+            await cdp.eval(`document.getElementById('azb-sheet-text').value === '.draft { }'`));
+        await cdp.eval(`__t.typeSheet('.x {'); document.getElementById('azb-sheet-apply').click(); true`);
+        await waitFor(cdp, `document.getElementById('azb-sheet-status').textContent.includes('unclosed block')`);
+        check("the parser's warnings show under the editor",
+            await cdp.eval(`document.getElementById('azb-sheet-status').textContent.includes('unclosed block')`),
+            await cdp.eval(`document.getElementById('azb-sheet-status').textContent`));
 
         // ── Live DOM hides the builder panels ──
         await cdp.eval(`document.querySelector('.azb-seg button[data-mode=live]').click(); true`);

@@ -698,3 +698,36 @@ fn a_component_instance_in_pasted_html_is_a_call_of_the_apps_component() {
     has(&rust, "render_my_card(\"Hi\", \"/x\", \"Go\")");
     has(&rust, "pub fn render_my_card(text: &str, href: &str, text_2: &str) -> Dom {");
 }
+
+// ── B5: the document's own stylesheet in the exports ──
+
+#[test]
+fn the_documents_own_stylesheet_is_the_exported_apps_stylesheet_and_the_documents_css() {
+    let result = run(
+        "export_document_stylesheet",
+        vec![
+            /* 0 */
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "class": "note", "text": "Hi" } }),
+            /* 1 */
+            serde_json::json!({ "op": "builder_set_stylesheet",
+                                "css": ".note { margin-top: 7px; }" }),
+            /* 2 */ serde_json::json!({ "op": "export_code", "language": "rust" }),
+            /* 3 */ serde_json::json!({ "op": "get_css_rules", "source": "document" }),
+            /* 4 */ serde_json::json!({ "op": "get_css_rules", "source": "node", "node": 1 }),
+        ],
+    );
+    let files = value(&result, 2)["files"].clone();
+    // Export > Code: the app's stylesheet as named styles (B6's project API)...
+    let styles = files["src/styles.rs"]
+        .as_str()
+        .unwrap_or_else(|| panic!("an app with a stylesheet has src/styles.rs: {files}"));
+    has(styles, "\"note\"");
+    has(styles, "PixelValue::px(7.0)");
+    has(files["src/main.rs"].as_str().expect("src/main.rs"), "mod styles;");
+    // ...and the rule reaches the node it matches.
+    has(files["src/ui.rs"].as_str().expect("src/ui.rs"), "margin-top: 7px;");
+    // "Compile CSS to…" on the document, and the selected node's style.
+    has(value(&result, 3)["css"].as_str().expect("css"), ".note { margin-top: 7px; }");
+    has(value(&result, 4)["css"].as_str().expect("css"), "margin-top");
+}

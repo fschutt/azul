@@ -155,12 +155,13 @@ const isContainer = (n) => n && n.kind === 'element' && !['br', 'hr', 'img', 'in
 export function builderMock(registry) {
     const m = { doc: null, registry };
     const newDoc = () => ({ root: { uid: 0, kind: 'element', tag: 'body', attrs: {}, children: [] },
-        next: 1, undo: [], redo: [] });
+        stylesheet: '', next: 1, undo: [], redo: [] });
     const docJson = (d, active) => ({ active, can_undo: d.undo.length > 0, can_redo: d.redo.length > 0,
-        root: clone(d.root) });
+        root: clone(d.root), stylesheet: d.stylesheet });
     m.ops = function (msg) {
         const d = m.doc || newDoc();
-        const snap = () => clone(d.root);
+        // An undo step is the tree AND the stylesheet (builder.rs `Snapshot`).
+        const snap = () => ({ root: clone(d.root), stylesheet: d.stylesheet });
         const checkpoint = () => { d.undo.push(snap()); d.redo = []; };
         const commit = (extra) => { m.doc = d; return Object.assign(docJson(d, true), extra || {}); };
         switch (msg.op) {
@@ -227,8 +228,16 @@ export function builderMock(registry) {
                 const [from, to] = msg.op === 'builder_undo' ? [d.undo, d.redo] : [d.redo, d.undo];
                 if (!from.length) throw new Error(msg.op === 'builder_undo' ? 'nothing to undo' : 'nothing to redo');
                 to.push(snap());
-                d.root = from.pop();
+                const s = from.pop();
+                d.root = s.root;
+                d.stylesheet = s.stylesheet;
                 return commit();
+            }
+            case 'builder_get_stylesheet':
+                return { active: !!m.doc, stylesheet: d.stylesheet, css: d.stylesheet, rules: [], warnings: [] };
+            case 'builder_set_stylesheet': {
+                if (msg.css !== d.stylesheet) { checkpoint(); d.stylesheet = msg.css; }
+                return commit({ warnings: /\{[^}]*$/.test(msg.css) ? ['unclosed block'] : [] });
             }
             case 'builder_reset': m.doc = null; return { active: false };
             default: return undefined;
