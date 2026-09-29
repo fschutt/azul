@@ -562,16 +562,14 @@ pub(super) mod toast {
     /// through the live toast object only.
     const MAX_TAG: usize = 64;
 
-    /// `(AUMID, display name)`: derived from the executable until the app
-    /// can name itself (an `AppConfig::app_id` is still open). The display
-    /// name is what the toast and Settings > Notifications show.
+    /// `(AUMID, display name)`, both from the app's one identity
+    /// (`desktop::app_identity`): an unpackaged exe declares nothing, so the
+    /// AUMID is the id derived from its name (`com.azul.azwidgets`, the
+    /// bundle id the same app gets on macOS). The display name is what the
+    /// toast and Settings > Notifications show.
     pub(super) fn app_identity() -> (String, String) {
-        let stem = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Azul".to_string());
-        (wire::windows_aumid(&format!("azul.{stem}")), stem)
+        let app = crate::desktop::app_identity::current();
+        (app.windows_aumid(), app.display_name())
     }
 
     type RegCreateKeyExW = unsafe extern "system" fn(

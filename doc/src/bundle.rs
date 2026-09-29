@@ -132,24 +132,15 @@ pub fn bundle_version(cargo_version: &str) -> String {
     }
 }
 
-/// The default `CFBundleIdentifier` of a crate: `com.azul.<name>`, using
+/// The default `CFBundleIdentifier` of a binary: `com.azul.<name>`, using
 /// only what Apple allows in one (letters, digits, `-`, `.`).
-pub fn bundle_id_for(crate_name: &str) -> String {
-    let mut tail = String::with_capacity(crate_name.len());
-    for c in crate_name.chars() {
-        if c.is_ascii_alphanumeric() {
-            tail.push(c.to_ascii_lowercase());
-        } else if !tail.is_empty() && !tail.ends_with('-') {
-            tail.push('-');
-        }
-    }
-    while tail.ends_with('-') {
-        tail.pop();
-    }
-    if tail.is_empty() {
-        tail.push_str("app");
-    }
-    format!("com.azul.{tail}")
+///
+/// The app's ONE identity (`wire::AppIdentity`), not a derivation of its own:
+/// the same binary running unbundled, or on Windows (its toast AUMID), names
+/// itself exactly this.
+pub fn bundle_id_for(binary_name: &str) -> String {
+    azul_layout::managers::notification::wire::AppIdentity::from_executable(binary_name)
+        .apple_bundle_id()
 }
 
 /// `version = "..."` of the `[package]` table; `None` when the table has
@@ -270,7 +261,8 @@ fn print_usage() {
     println!("  --profile <name>     a custom cargo profile's build");
     println!("  --bin <name>         the binary, if it is not named like the package");
     println!("  --exe <path>         bundle this binary instead of looking in target/");
-    println!("  --bundle-id <id>     CFBundleIdentifier (default com.azul.<crate>)");
+    println!("  --bundle-id <id>     CFBundleIdentifier (default com.azul.<binary>, the id the");
+    println!("                       app gives itself unbundled and on Windows)");
     println!("  --name <name>        the app's name (default: the binary's)");
     println!("  --out <dir>          where the .app goes (default ~/Applications)");
     println!("  --no-register        skip the LaunchServices registration");
@@ -440,11 +432,13 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
         .to_string();
     let spec = MacBundleSpec {
         app_name: a.name.clone().unwrap_or_else(|| executable.clone()),
-        executable,
+        // From the BINARY's name, like the running app derives its identity
+        // (desktop::app_identity) - not from the package name.
         bundle_id: a
             .bundle_id
             .clone()
-            .unwrap_or_else(|| bundle_id_for(&target.crate_name)),
+            .unwrap_or_else(|| bundle_id_for(&executable)),
+        executable,
         version,
     };
     let out_dir = match &a.out {

@@ -124,6 +124,10 @@ pub mod file {
 }
 /// Application / dock / taskbar icon, set at runtime from an icon-registry spec
 pub mod app_icon;
+/// The app's identity, read once: the id every shell projects its own name
+/// from (the toast AUMID, the `desktop-entry` hint, the Wayland `app_id`, the
+/// X11 `WM_CLASS`)
+pub mod app_identity;
 /// OpenGL texture cache for external image support
 pub mod gl_texture_cache;
 /// Integration layer for OpenGL texture management

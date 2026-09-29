@@ -428,12 +428,12 @@ mod window_title_tests {
 /// The executable's own name, which is what every other toolkit derives a
 /// window class from when the application does not supply one (GTK reads
 /// `g_get_prgname()`, Qt `QCoreApplication::applicationName()`; both fall
-/// back to `argv[0]`).
+/// back to `argv[0]`). Read from the app's one identity
+/// (`desktop::app_identity`), so it is the same string as the Wayland
+/// `app_id` and the notifications' `desktop-entry` hint - `FLATPAK_ID` in a
+/// sandbox, whose `.desktop` file is named after it.
 fn current_exe_name() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_default()
+    crate::desktop::app_identity::current().desktop_entry()
 }
 
 /// The bytes of a `WM_CLASS` property: `instance\0class\0`.

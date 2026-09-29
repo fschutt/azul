@@ -138,6 +138,15 @@ pub fn app_became_active() {
     apple::app_became_active();
 }
 
+/// The bundle's `CFBundleIdentifier` when this process runs from a `.app`,
+/// else `None` - what `desktop::app_identity` declares on macOS and iOS.
+/// Touches only `NSBundle`, never UN.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[must_use]
+pub fn apple_bundle_id() -> Option<String> {
+    apple::bundle_status().ok()
+}
+
 /// The notification permission as last read from `UNUserNotificationCenter`
 /// (`NotDetermined` before the first reading). What the Apple permission
 /// backends answer for `Capability::Notifications`.

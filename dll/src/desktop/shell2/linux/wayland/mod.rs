@@ -2566,7 +2566,9 @@ impl WaylandWindow {
         // geometry, window rules and taskbar/.desktop matching off it. Without
         // one, every azul window falls into the compositor's anonymous bucket
         // and inherits whatever size/placement rule accumulated there.
-        // Fallback mirrors the documented X11 WM_CLASS default: the binary name.
+        // Fallback: the app's one identity (`desktop::app_identity`) - the
+        // same string as the notifications' `desktop-entry` hint and the X11
+        // WM_CLASS default: the binary name, or `FLATPAK_ID` in a sandbox.
         let app_id: String = options
             .window_state
             .platform_specific_options
@@ -2574,12 +2576,7 @@ impl WaylandWindow {
             .wayland_app_id
             .as_ref()
             .map(|s| s.as_str().to_string())
-            .unwrap_or_else(|| {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-                    .unwrap_or_else(|| "azul".to_string())
-            });
+            .unwrap_or_else(|| crate::desktop::app_identity::current().desktop_entry());
         if let Ok(app_id) = CString::new(app_id) {
             unsafe {
                 (window.wayland.xdg_toplevel_set_app_id)(window.xdg_toplevel, app_id.as_ptr())

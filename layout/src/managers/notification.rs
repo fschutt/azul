@@ -1134,50 +1134,108 @@ pub mod wire {
         pub source: AppIdSource,
     }
 
+    /// The executable's file name: no directory (`/` or `\`), no `.exe`.
+    fn exe_file_name(exe_path: &str) -> String {
+        let name = exe_path
+            .rsplit(|c: char| c == '/' || c == '\\')
+            .next()
+            .unwrap_or("");
+        let cut = name.len().saturating_sub(4);
+        match name.get(cut..) {
+            Some(ext) if cut > 0 && ext.eq_ignore_ascii_case(".exe") => name[..cut].to_string(),
+            _ => name.to_string(),
+        }
+    }
+
     impl AppIdentity {
-        /// Nobody named the app: `com.azul.<executable name>`.
+        /// Nobody named the app: `com.azul.<executable name>`, lowercased,
+        /// every other run of characters one `-` - valid as a
+        /// `CFBundleIdentifier`, an AUMID and a D-Bus name element alike.
         #[must_use]
         pub fn from_executable(exe_path: &str) -> Self {
-            let _ = exe_path;
+            let exe_name = exe_file_name(exe_path);
+            let mut tail = String::with_capacity(exe_name.len());
+            for c in exe_name.chars() {
+                if c.is_ascii_alphanumeric() {
+                    tail.push(c.to_ascii_lowercase());
+                } else if !tail.is_empty() && !tail.ends_with('-') {
+                    tail.push('-');
+                }
+            }
+            while tail.ends_with('-') {
+                tail.pop();
+            }
+            if tail.is_empty() {
+                tail.push_str("app");
+            }
             Self {
-                id: String::new(),
-                exe_name: String::new(),
+                id: format!("com.azul.{tail}"),
+                exe_name,
                 source: AppIdSource::Executable,
             }
         }
 
-        /// The platform (or, one day, the app) named it.
+        /// The platform (or, one day, the app) named it. An empty (or blank)
+        /// declaration is none: the id is then derived as
+        /// [`AppIdentity::from_executable`] does.
         #[must_use]
         pub fn declared(id: &str, exe_path: &str) -> Self {
-            let _ = (id, exe_path);
-            Self::from_executable("")
+            let id = id.trim();
+            if id.is_empty() {
+                return Self::from_executable(exe_path);
+            }
+            Self {
+                id: id.to_string(),
+                exe_name: exe_file_name(exe_path),
+                source: AppIdSource::Declared,
+            }
         }
 
-        /// `CFBundleIdentifier`: letters, digits, `-` and `.` only.
+        /// `CFBundleIdentifier`: letters, digits, `-` and `.` only - anything
+        /// else (an underscore of a Flatpak or Android id) becomes `-`.
         #[must_use]
         pub fn apple_bundle_id(&self) -> String {
-            String::new()
+            self.id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect()
         }
 
-        /// The Windows AppUserModelID.
+        /// The Windows AppUserModelID ([`windows_aumid`]'s rules).
         #[must_use]
         pub fn windows_aumid(&self) -> String {
-            String::new()
+            windows_aumid(&self.id)
         }
 
         /// The freedesktop `desktop-entry` hint, and the default Wayland
         /// `app_id` and X11 `WM_CLASS` instance - one string, because a
-        /// server and a compositor must find the same `.desktop` file.
+        /// server and a compositor must find the same `.desktop` file. A
+        /// declared id names that file (`<id>.desktop`, the Flatpak rule);
+        /// an unnamed app's is its executable's name, the convention every
+        /// toolkit's `WM_CLASS` default follows.
         #[must_use]
         pub fn desktop_entry(&self) -> String {
-            String::new()
+            match self.source {
+                AppIdSource::Declared => self.id.clone(),
+                AppIdSource::Executable => desktop_entry(&self.exe_name),
+            }
         }
 
         /// What a person reads: the Windows toast's `DisplayName`, the
         /// freedesktop `app_name`.
         #[must_use]
         pub fn display_name(&self) -> String {
-            String::new()
+            if self.exe_name.is_empty() {
+                String::from("Azul")
+            } else {
+                self.exe_name.clone()
+            }
         }
     }
 

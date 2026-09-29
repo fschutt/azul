@@ -9,14 +9,14 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   `notifications::refresh_permission` renamed `app_became_active` (macOS + iOS delegates call it).
   Tests: `layout/tests/native_notifications.rs` `mod platforms` (appended at the END).
 
+- B. One app identity (item 4): RED `217ca3977`, fix = the commit after it. `wire::AppIdentity`
+  + `dll/src/desktop/app_identity.rs::current()`; readers: Windows toast AUMID/DisplayName,
+  Linux `app_name` + `desktop-entry`, Wayland `app_id` default, X11 `WM_CLASS` default,
+  `azul-doc bundle` default bundle id (now from the BINARY name). AUMID default changed
+  `azul.AzWidgets` -> `com.azul.azwidgets` (report it). Twin left alone: mobile
+  `Target::resolve` bundle id (`com.azul.<crate _>`), report it.
+
 ## IN PROGRESS
-
-- B. One app identity (item 4): `wire::AppIdentity` (pure) + `dll/src/desktop/app_identity.rs`
-  (`current()`, the one function every shell calls); Windows AUMID, Linux desktop-entry +
-  app_name, Wayland app_id default, the bundle step's default bundle id all read it. The ABI
-  field `AppConfig::app_id` is a PROPOSAL in the report only.
-
-## NEXT (in this order, each a RED commit then a fix commit)
 
 - C. Windows COM activator (item 3): `wire::toast_activator_clsid`, `wire::guid_string`,
   `wire::toast_activator_registry`, `wire::launched_by_toast_activation`; windows.rs

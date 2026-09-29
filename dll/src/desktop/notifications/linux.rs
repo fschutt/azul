@@ -498,15 +498,6 @@ fn probe_uncached() -> Probe {
     }
 }
 
-/// A best-effort application name for `Notify`'s `app_name`: the executable's
-/// file name. Servers group and label notifications by it.
-fn app_name() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Azul".to_string())
-}
 
 pub(super) struct PlatformNotifier {
     dbus: Arc<DBusLib>,
@@ -562,15 +553,14 @@ impl PlatformNotifier {
             // in the run loops' wait set (the tray's, when both exist - it is
             // the same shared connection).
             crate::desktop::loop_waker::watch_dbus_connection(&dbus, conn);
-            let exe = std::env::current_exe()
-                .ok()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            // The app's one identity: `app_name` is what servers group and
+            // label by; the hint is the same string as the Wayland `app_id`.
+            let app = crate::desktop::app_identity::current();
             Ok(Self {
                 dbus,
                 conn,
-                app_name: app_name(),
-                desktop_entry: wire::desktop_entry(&exe),
+                app_name: app.display_name(),
+                desktop_entry: app.desktop_entry(),
             })
         }
     }
