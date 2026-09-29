@@ -923,7 +923,13 @@ impl TransientWindowManager {
             return;
         };
         for dom in &diff.opened {
-            let Some(node) = self.get(*dom).map(|w| w.source_node) else {
+            // A torn-off toplevel is no popup of its invoker: nothing is
+            // owed back when it closes (see `recreate`).
+            let Some(node) = self
+                .get(*dom)
+                .filter(|w| w.torn.is_none())
+                .map(|w| w.source_node)
+            else {
                 continue;
             };
             if self.focus_before_open.iter().any(|(n, _, _)| *n == node) {
@@ -1060,6 +1066,11 @@ impl TransientWindowManager {
             };
             let torn = (p.torn && p.tearoff != TransientTearoff::None)
                 .then(|| p.resolve(content_size, None));
+            if torn.is_some() {
+                // Opened as a toplevel of its own: it owes nobody focus (see
+                // `recreate`), whatever the callback seam recorded.
+                let _ = self.take_focus_before_open(p.node);
+            }
             self.open.push(OpenTransientWindow {
                 source_node: p.node,
                 content_dom,
@@ -1090,7 +1101,14 @@ impl TransientWindowManager {
         self.next_index += 1;
         w.content_dom = new;
         let surface = core::mem::replace(&mut w.surface, OptionRefAny::None);
+        let (node, torn) = (w.source_node, w.torn.is_some());
         self.closed_surfaces.push(surface);
+        // Torn off, it is a window of its own the user clicks into (open
+        // question 4 of the focus report): no longer its invoker's popup, so
+        // closing it must not pull focus back from wherever the user went.
+        if torn {
+            let _ = self.take_focus_before_open(node);
+        }
         (old, new)
     }
 
