@@ -6717,3 +6717,11 @@ mod tests {
         );
     }
 }
+
+// ==== E2E tooling follow-ups (E1): tests ====
+// The platform gate, the notification op, `ScrollFocusedContainer` and the
+// transient `Dismissed` event. A child of this module, so a test can keep the
+// finished `Runner` (`run_e2e_test_keeping_runner`).
+#[cfg(test)]
+#[path = "tooling_tests.rs"]
+mod tooling_tests;
