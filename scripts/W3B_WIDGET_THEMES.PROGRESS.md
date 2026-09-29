@@ -16,20 +16,23 @@ microphone, screencap, map, node_graph.
   (`flora::LIGHT_*` + `flora::DARK_*` twins), raised-paper faces, sunken accent stone
   for the selected item, 3px house radius, accent focus ring (DARK: glow).
 - Root carries `__azul-theme-flat` / `__azul-theme-flora` (as Button does); click
-  handlers that live-restyle read it back (`themes::theme_marker`) to pick colours.
-- Shared test helpers: `themes/theme_checks.rs` (`#[cfg(test)]`).
+  handlers that live-restyle read it back (`style_kit::theme_of_classes`) to pick colours.
+- Shared: `themes/style_kit.rs` (pair builders, marker), test helpers
+  `themes/theme_checks.rs` (`#[cfg(test)]`). Theme field always APPENDED LAST.
 
 ## DONE
 - dialog + modal + popover (shared builder): RED 113b016c4, impl 898b93cf6.
   API: Dialog.theme / Modal.theme / Popover.theme (OptionUiTheme, appended LAST),
   set_theme / with_theme on all three.
+- number_input: RED 92e74f261, impl 9a8a33c0c. API: NumberInput.theme (last),
+  set_theme / with_theme.
 
 ## IN PROGRESS
-- number_input
+- pagination
 
 ## NEXT
-number_input -> pagination -> radio_group -> segmented ->
-split_pane -> stepper -> time_picker -> toast -> tooltip -> video -> decisions -> report
+pagination -> radio_group -> segmented -> split_pane -> stepper -> time_picker ->
+toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
 (none yet)
