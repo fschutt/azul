@@ -390,3 +390,28 @@ fn spinners_pair_their_night_ink_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn chips_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::chip::{Chip, ChipKind};
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for kind in [
+            ChipKind::Default,
+            ChipKind::Primary,
+            ChipKind::Success,
+            ChipKind::Danger,
+            ChipKind::Warning,
+            ChipKind::Info,
+        ] {
+            widgets.push((
+                format!("{look} chip {kind:?}"),
+                Chip::with_kind(AzString::from("Rust"), kind)
+                    .with_removable(true)
+                    .with_theme(theme)
+                    .dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}

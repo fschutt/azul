@@ -3069,3 +3069,266 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look a chip renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::basic::pixel::PixelValue,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo, _: ChipState) -> Update {
+        Update::DoNothing
+    }
+
+    fn chip(kind: ChipKind, theme: UiTheme) -> Dom {
+        Chip::with_kind(AzString::from_const_str("tag"), kind)
+            .with_removable(true)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn clickable(theme: UiTheme) -> Dom {
+        Chip::create(AzString::from_const_str("tag"))
+            .with_on_click(RefAny::new(0u8), noop as ChipOnClickCallbackType)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The focus ring's colour, light and dark: the colour of a shadow or a
+    /// top border declared for `:focus`.
+    fn focus_ring(node: &Dom) -> (Option<ColorU>, Option<ColorU>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [PseudoStateType::Focus] {
+                continue;
+            }
+            let colour = shadow_colour(&d.property).or(match &d.property {
+                CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            });
+            if colour.is_none() {
+                continue;
+            }
+            if d.is_dark_twin() {
+                dark = colour;
+            } else {
+                light = colour;
+            }
+        }
+        (light, dark)
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn remove(dom: &Dom) -> &Dom {
+        dom.children
+            .as_ref()
+            .iter()
+            .find(|c| c.root.has_class("__azul-native-chip-remove"))
+            .expect("a removable chip has a remove button")
+    }
+
+    fn label(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    #[test]
+    fn a_chip_without_a_theme_renders_flat() {
+        let plain = Chip::create(AzString::from_const_str("tag"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Chip::create(AzString::from_const_str("tag"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Chip::create(AzString::from_const_str("tag")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_chips_remove_button_shows_a_focus_ring_by_day_and_night() {
+        let dom = chip(ChipKind::Default, UiTheme::Flat);
+        let (light, dark) = focus_ring(remove(&dom));
+        assert!(light.is_some(), "the x takes the keyboard and shows no ring");
+        assert!(dark.is_some(), "the ring has no dark twin");
+        assert_ne!(light, dark, "the night ring is the night accent");
+    }
+
+    #[test]
+    fn a_flat_clickable_chip_label_shows_a_focus_ring_by_day_and_night() {
+        let (light, dark) = focus_ring(label(&clickable(UiTheme::Flat)));
+        assert!(light.is_some() && dark.is_some(), "{light:?} {dark:?}");
+        let inert = Chip::create(AzString::from_const_str("tag")).dom();
+        assert_eq!(
+            focus_ring(label(&inert)),
+            (None, None),
+            "an inert label takes no focus and draws no ring"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_is_raised_paper_with_a_hairline() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(last(&rest, bg), Some(vec![flora::RAISED_FACE_LIGHT]));
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD2));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK2), "a tag is content ink");
+        assert!(
+            rest.iter().any(|p| matches!(
+                p,
+                CssProperty::BorderTopLeftRadius(r)
+                    if r.get_property().map(|r| r.inner) == Some(PixelValue::const_px(3))
+            )),
+            "the house radius, not a 12px pill"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_at_night_uses_the_dark_face() {
+        let dark = theme_probe::dark(&chip(ChipKind::Default, UiTheme::Flora));
+        assert_eq!(last(&dark, bg), Some(vec![flora::RAISED_FACE_DARK]));
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD2));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK2));
+    }
+
+    #[test]
+    fn a_flora_coloured_chip_is_a_stone_that_keeps_its_colour_at_night() {
+        let stones = [
+            (ChipKind::Primary, flora::LIGHT_ACC),
+            (ChipKind::Success, ColorU::rgb(0x44, 0x68, 0x4F)),
+            (ChipKind::Danger, ColorU::rgb(0x7E, 0x4A, 0x42)),
+            (ChipKind::Warning, ColorU::rgb(0x8A, 0x5A, 0x1E)),
+            (ChipKind::Info, ColorU::rgb(0x4A, 0x5C, 0x6B)),
+        ];
+        for (kind, stone) in stones {
+            let dom = chip(kind, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            let face = last(&rest, bg).expect("a stone has a face");
+            assert_eq!(face.first(), Some(&StyleBackgroundContent::Color(stone)), "{kind:?}");
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_ON_ACC), "{kind:?}");
+            let dark = theme_probe::dark(&dom);
+            assert!(
+                last(&dark, bg).is_none() && last(&dark, ink).is_none(),
+                "{kind:?}: a stone is its own colour in both modes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_chips_focus_ring_is_the_accent_lifted_to_its_glow_at_night() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        assert_eq!(
+            focus_ring(remove(&dom)),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "flora.css --focus-color: --fl-acc, --fl-glow at night"
+        );
+        assert_eq!(
+            focus_ring(label(&clickable(UiTheme::Flora))),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW))
+        );
+    }
+
+    #[test]
+    fn a_flora_chips_remove_button_lights_up_under_the_pointer_in_both_modes() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let hover: Vec<CssPropertyWithConditions> = declarations(remove(&dom))
+            .into_iter()
+            .filter(|d| d.pseudo_state_conditions() == [PseudoStateType::Hover])
+            .filter(|d| matches!(d.property, CssProperty::BackgroundContent(_)))
+            .collect();
+        assert!(hover.iter().any(|d| !d.is_dark_twin()), "no hover face");
+        assert!(hover.iter().any(|d| d.is_dark_twin()), "no night hover face");
+    }
+
+    #[test]
+    fn a_flora_chip_keeps_the_remove_buttons_behaviour() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let x = remove(&dom);
+        assert!(x.root.get_tab_index().is_some(), "keyboard-reachable");
+        assert_eq!(x.root.get_callbacks().as_ref().len(), 1, "one remove handler");
+        assert!(
+            x.root
+                .get_accessibility_info()
+                .and_then(|a| a.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+                .is_some_and(|n| n == "Remove tag"),
+            "named after the chip it removes"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_carries_the_flora_theme_marker() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        assert!(dom.root.has_class("__azul-native-chip"));
+        assert!(dom.root.has_class("__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_container_style_wins_over_the_flora_look() {
+        let mut c = Chip::create(AzString::from_const_str("tag")).with_theme(UiTheme::Flora);
+        c.container_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+        );
+        assert_eq!(c.dom().root.style.iter_inline_properties().count(), 0);
+    }
+}
