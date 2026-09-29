@@ -12,9 +12,11 @@ Final report: `scripts/T1_APP_THEME_2026_09_29.md`. Nothing compiled (house rule
 - `fe6356f51` css impl: from_block_name, theme_chain + matcher, DEFAULT_APP_THEME, app_theme_chain, theme_conditions!, helpers
 - `7bf0475d3` core impl: AppConfig.theme + builders, `azul_core::app_theme` (global + ThemeScope), get_theme_name, AppThemeChange
 - `a7ff5599d` layout impl: LayoutWindow::app_theme -> context chain, form-controls ThemeScope, SetTheme + CallbackInfo set/get_theme, E2E arm
+- `30ed7e1ca` layout: early `resolve_form_controls` pass scoped too
+- `3e64b9490` dll impl: App::create publishes, SetTheme handler, regenerate_layout adopts + scopes + full path
 
 ## IN PROGRESS
-- implementation: dll next (SetTheme handler + fan-out, regenerate_layout sync/scope/reason, App::create publish)
+- self-review of the whole diff, docs (themes.md), then the report
 
 ## NEXT
 1. css: `@theme(name)` -> `ThemeCondition::Custom(name)` (both parsers); `DynamicSelectorContext.theme_chain`
