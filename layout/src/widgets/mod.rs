@@ -196,6 +196,9 @@ pub mod combobox;
 /// number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid
 /// in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
+/// `<input type=datetime-local>`: a `DatePicker` and a `TimePicker` composed
+/// into one control with one combined state; see `datetime_local.rs`.
+pub mod datetime_local;
 /// Dialog widget: HTML `<dialog>` semantics (`show` / `show_modal` / `close`,
 /// `returnValue`, a cancelable `cancel`, `closedby`, focus in and back, a
 /// modal `::backdrop` in the top layer) on a `<transient-window>`. Popover

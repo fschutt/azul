@@ -4184,4 +4184,284 @@ mod autotest_generated {
         assert_eq!(a11y_name(&kids[0]).as_deref(), Some("Previous month"));
         assert_eq!(a11y_name(&kids[2]).as_deref(), Some("Next month"));
     }
+
+    // ==================================================================
+    // <input type=month> / <input type=week>: modes of the same calendar
+    // ==================================================================
+
+    mod month_and_week {
+        use super::*;
+
+        /// The text the FIELD shows (its first child, the value `<p>`).
+        fn field_text(dom: &Dom) -> String {
+            text_of(&dom.children.as_ref()[0]).expect("the field shows its value")
+        }
+
+        /// `(flattened node id, payload)` of the month cell for `month`.
+        fn month_cell(sd: &StyledDom, month: u32) -> (DomNodeId, RefAny) {
+            for (i, nd) in sd.node_data.as_ref().iter().enumerate() {
+                for cb in nd.callbacks.as_ref() {
+                    let matches = {
+                        let mut r = cb.refany.clone();
+                        r.downcast_ref::<MonthCellData>()
+                            .is_some_and(|c| c.month == month)
+                    };
+                    if matches {
+                        return (node(i), cb.refany.clone());
+                    }
+                }
+            }
+            panic!("the month grid has no cell for month {month}");
+        }
+
+        fn seen(log: &RefAny) -> Vec<DatePickerState> {
+            let mut log = log.clone();
+            log.downcast_ref::<ChangeLog>()
+                .expect("the log changed type")
+                .seen
+                .clone()
+        }
+
+        fn texts_written(changes: &[CallbackChange]) -> Vec<String> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::ChangeNodeText { text, .. } => {
+                        Some(text.as_str().to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn iso_weeks_follow_iso_8601() {
+            // 2026-01-01 is a Thursday: week 1 of 2026.
+            assert_eq!(iso_week_of(2026, 1, 1), (2026, 1));
+            // 2026-09-29 is the Tuesday of week 40.
+            assert_eq!(iso_week_of(2026, 9, 29), (2026, 40));
+            // 2021-01-01 is a Friday: still week 53 of 2020 (a leap year that
+            // began on a Wednesday).
+            assert_eq!(iso_week_of(2021, 1, 1), (2020, 53));
+            // 2024-12-30 is a Monday: already week 1 of 2025.
+            assert_eq!(iso_week_of(2024, 12, 30), (2025, 1));
+            assert_eq!(iso_weeks_in_year(2020), 53);
+            assert_eq!(iso_weeks_in_year(2026), 53);
+            assert_eq!(iso_weeks_in_year(2025), 52);
+        }
+
+        #[test]
+        fn the_monday_of_an_iso_week_is_found_across_year_boundaries() {
+            assert_eq!(iso_week_monday(2026, 1), (2025, 12, 29));
+            assert_eq!(iso_week_monday(2026, 40), (2026, 9, 28));
+            assert_eq!(iso_week_monday(2020, 53), (2020, 12, 28));
+            assert_eq!(iso_week_monday(2025, 1), (2024, 12, 30));
+            for year in 2018..=2030 {
+                for week in 1..=iso_weeks_in_year(year) {
+                    let (y, m, d) = iso_week_monday(year, week);
+                    assert_eq!(weekday(y, m, d), 1, "{year}-W{week} does not start on a Monday");
+                    assert_eq!(iso_week_of(y, m, d), (year, week), "{year}-W{week} round trip");
+                }
+            }
+        }
+
+        #[test]
+        fn each_mode_formats_its_value_the_html_way() {
+            let s = |year, month, day| DatePickerState { year, month, day };
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Date), "2026-09-29");
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Month), "2026-09");
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Week), "2026-W40");
+            // The ISO year, not the calendar year, names a week.
+            assert_eq!(format_value(&s(2021, 1, 1), DatePickerMode::Week), "2020-W53");
+        }
+
+        #[test]
+        fn a_date_state_knows_its_iso_week() {
+            let s = DatePickerState {
+                year: 2024,
+                month: 12,
+                day: 30,
+            };
+            assert_eq!(s.iso_week(), (2025, 1));
+        }
+
+        #[test]
+        fn a_month_picker_shows_year_and_month() {
+            let dom = DatePicker::create_month(2026, 9).dom();
+            assert_eq!(field_text(&dom), "2026-09");
+        }
+
+        #[test]
+        fn a_month_pickers_calendar_is_the_twelve_months_of_its_year() {
+            let dom = DatePicker::create_month(2026, 9).dom();
+            let panel = panel_of(&dom);
+            let [header, grid] = panel.children.as_ref() else {
+                panic!("a month calendar is header + month grid");
+            };
+            assert_eq!(
+                text_of(&header.children.as_ref()[1]).as_deref(),
+                Some("2026"),
+                "the header names the YEAR the months belong to"
+            );
+            let labels: Vec<String> = grid_cells(grid).iter().filter_map(|c| text_of(c)).collect();
+            assert_eq!(
+                labels,
+                [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                    "Dec"
+                ]
+            );
+            // The selected month is highlighted and is the grid's ONE Tab stop.
+            let cells = grid_cells(grid);
+            let highlighted: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| rendered_background(c) == Some(ACCENT_BG))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(highlighted, vec![8]);
+            let stops: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.root.get_tab_index() == Some(TabIndex::Auto))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(stops, vec![8]);
+        }
+
+        #[test]
+        fn clicking_a_month_selects_it_reports_it_and_closes_the_calendar() {
+            let log = log_refany();
+            let (sd, shared) = laid_out(
+                DatePicker::create_month(2026, 9)
+                    .with_on_change(log.clone(), record_change as DatePickerOnChangeCallbackType),
+            );
+            let (cell, payload) = month_cell(&sd, 3);
+            let (update, changes) =
+                with_info(sd, cell, |info| on_month_click(payload.clone(), *info));
+
+            assert_eq!(update, Update::RefreshDom, "the change callback's verdict");
+            let s = read_state(&shared);
+            assert_eq!((s.year, s.month), (2026, 3));
+            assert_eq!(seen(&log).last().map(|s| s.month), Some(3));
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2026-03"),
+                "the field must show the picked month: {changes:?}"
+            );
+            assert!(
+                transient_writes(&changes).iter().any(|(_, open)| !open),
+                "the calendar must close on a pick"
+            );
+        }
+
+        #[test]
+        fn the_year_arrows_of_a_month_picker_turn_the_year_and_retitle_the_header() {
+            let (sd, shared) = laid_out(DatePicker::create_month(2026, 9));
+            let (btn, payload) = nav_button(&sd, on_next_year as usize);
+            let (_, changes) = with_info(sd, btn, |info| on_next_year(payload.clone(), *info));
+            assert_eq!(read_state(&shared).year, 2027);
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2027"),
+                "the header must name the new year: {changes:?}"
+            );
+
+            let (sd, shared) = laid_out(DatePicker::create_month(2026, 1));
+            let (btn, payload) = nav_button(&sd, on_prev_year as usize);
+            let _ = with_info(sd, btn, |info| on_prev_year(payload.clone(), *info));
+            assert_eq!(read_state(&shared).year, 2025);
+        }
+
+        #[test]
+        fn a_week_picker_shows_the_iso_week() {
+            let dom = DatePicker::create_week(2026, 40).dom();
+            assert_eq!(field_text(&dom), "2026-W40");
+            let (y, m, d) = (
+                read_dom_state(&dom).year,
+                read_dom_state(&dom).month,
+                read_dom_state(&dom).day,
+            );
+            assert_eq!((y, m, d), (2026, 9, 28), "a week is held as its Monday");
+        }
+
+        #[test]
+        fn a_week_pickers_weeks_start_on_monday() {
+            let dom = DatePicker::create_week(2026, 40).dom();
+            let (_, weekdays, grid) = sections(&dom);
+            assert_eq!(text_of(&weekdays.children.as_ref()[0]).as_deref(), Some("Mo"));
+            assert_eq!(text_of(&weekdays.children.as_ref()[6]).as_deref(), Some("Su"));
+            // September 2026 begins on a Tuesday: ONE blank before the 1st
+            // in a Monday-first grid (two in the Sunday-first date grid).
+            let days = day_numbers(grid);
+            assert_eq!(days[0], None);
+            assert_eq!(days[1], Some(1));
+
+            // The plain date picker keeps its Sunday-first grid.
+            let dom = DatePicker::create(2026, 9, 29).dom();
+            let (_, weekdays, _) = sections(&dom);
+            assert_eq!(text_of(&weekdays.children.as_ref()[0]).as_deref(), Some("Su"));
+        }
+
+        #[test]
+        fn a_week_picker_highlights_the_whole_selected_week() {
+            // Week 40 of 2026 is Mon 28 Sep .. Sun 4 Oct; the September grid
+            // holds its first three days.
+            let dom = DatePicker::create_week(2026, 40).dom();
+            let (_, _, grid) = sections(&dom);
+            let highlighted: Vec<u32> = grid_cells(grid)
+                .iter()
+                .filter(|c| rendered_background(c) == Some(ACCENT_BG))
+                .filter_map(|c| text_of(c)?.parse().ok())
+                .collect();
+            assert_eq!(highlighted, vec![28, 29, 30]);
+        }
+
+        #[test]
+        fn clicking_a_day_in_a_week_picker_selects_its_week() {
+            let log = log_refany();
+            let (sd, shared) = laid_out(
+                DatePicker::create_week(2026, 40)
+                    .with_on_change(log.clone(), record_change as DatePickerOnChangeCallbackType),
+            );
+            let (cell, payload) = day_cell(&sd, 16);
+            let (_, changes) = with_info(sd, cell, |info| on_day_click(payload.clone(), *info));
+            assert_eq!(read_state(&shared).iso_week(), (2026, 38));
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2026-W38"),
+                "the field must show the picked WEEK: {changes:?}"
+            );
+            // The whole row of the 16th (Mon 14 .. Sun 20) is accented.
+            let accented = pushed_backgrounds(&changes)
+                .into_iter()
+                .filter(|(_, c)| *c == ACCENT_BG)
+                .count();
+            assert_eq!(accented, 7, "a week pick must light up all seven days");
+        }
+
+        #[test]
+        fn a_picker_carries_its_state_for_a_form() {
+            let dom = DatePicker::create_month(2026, 9)
+                .with_name("period".into())
+                .dom();
+            assert!(dom.root.get_dataset().is_some(), "a form reads the picker's state");
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, azul_core::dom::AttributeType::Name(n) if n.as_str() == "period")
+            ));
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, azul_core::dom::AttributeType::InputType(t) if t.as_str() == "month")
+            ));
+        }
+
+        /// The state the rendered widget holds, read through its dataset.
+        fn read_dom_state(dom: &Dom) -> DatePickerState {
+            let mut data = dom
+                .root
+                .get_dataset()
+                .cloned()
+                .expect("the picker carries its state as the field's dataset");
+            let d = data
+                .downcast_ref::<DatePickerData>()
+                .expect("the dataset is the picker's shared state");
+            d.state.inner
+        }
+    }
 }
