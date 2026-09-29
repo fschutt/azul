@@ -9,25 +9,25 @@ file_input, form, frame, label, menubar.
 - ace6a34ed RED: `a_<widget>_declares_its_structure_once_for_every_theme` in all
   11 widgets. Expected to fail: combobox (option rows: cursor, user-select),
   menubar (flat's sheet vs flora's inline). The rest pass already.
+- 759b7f551 checkpoint.
+- 1f2fc5e8f GREEN combobox + menubar (bases in the widget files).
+- c105c964e GREEN refactor: divider, drop_down, dialog, form, datetime_local
+  (one base each; both looks put their skin after it).
+- Report `scripts/R5B_BASE_AND_SKINS_2026_09_29.md` (committed with this file).
+- Resumed after the power loss: the 7 uncommitted files were complete; they are
+  c105c964e.
 
 ## Audit (done)
-- Structure already authored ONCE in the widget file, both looks extend it:
-  date_picker (`DatePickerLook::established`), frame (`FRAME_*_STYLE`),
-  label (`resolved_label_style`), file_input (it IS a Button:
-  `build_button_container_style`). Nothing to move.
-- Structure written in BOTH looks (alike, so the merge shares it, but
-  twice): divider, drop_down, dialog (panel/title/close), form,
-  datetime_local, combobox (field/list/option). Move to a base.
-- menubar: flat's structure in its `with_css` sheet, flora's inline. Move to
-  an inline base both use.
+- Already one source, unchanged: date_picker, frame, label, file_input (Button).
 
 ## IN PROGRESS
-- GREEN: combobox, menubar.
+- (none)
 
 ## NEXT
-- GREEN: divider, drop_down, dialog, form, datetime_local.
-- Report `scripts/R5B_BASE_AND_SKINS_2026_09_29.md`.
+- Parent: compile, run the commands in the report.
+- Parent: `ComboBox::list_style_on` should use `theme_blocks::stack_parts`
+  (pre-existing stacking of caller extras onto the merged panel; see report).
 
 ## Open questions
-- dialog_skin is shared with modal and popover (other agents' widgets?):
-  touching only the dialog parts' structure (panel/title/close).
+- dialog_skin is shared with modal and popover: only the dialog parts'
+  structure (panel/title/close) was touched.
