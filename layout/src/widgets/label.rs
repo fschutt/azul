@@ -1,6 +1,8 @@
 //! Label widget for displaying static text with platform-specific default styling.
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::Dom;
+#[cfg(test)]
+use azul_core::dom::{IdOrClass, IdOrClass::Class};
 use azul_css::dynamic_selector::{
     CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
 };
@@ -28,6 +30,9 @@ pub struct Label {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub label_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 const SANS_SERIF_STR: &str = "system:ui";
@@ -98,6 +103,7 @@ impl Label {
         Self {
             string,
             label_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -130,24 +136,38 @@ impl Label {
         s
     }
 
+    /// Pick the widget theme. Unset (`None`), the label renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     /// Converts this label into a `<p>` block carrying the
     /// `__azul-native-label` class and wrapping a bare text node.
     ///
     /// The `<p>` is the styled box: a `NodeType::Text` node is always
     /// inline-level and owns no rect, so every box-model property here would
     /// be inert on a raw text node.
+    ///
+    /// The look comes from the theme module (`themes::flat::label` /
+    /// `themes::flora::label`); `None` renders flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static LABEL_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-label"))];
-
-        // Resolved before `self.string` is moved out below.
-        let label_style = self.resolved_label_style();
-
-        crate::widgets::widget_p_with_text(self.string)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-            .with_css_props(label_style)
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::label(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::label(self),
+        }
     }
 }
 
@@ -852,6 +872,7 @@ mod autotest_generated {
         let mut label = Label {
             string: AzString::from_const_str("custom"),
             label_style: OptionCssPropertyWithConditionsVec::Some(custom),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         };
         let taken = label.swap_with_default();
         assert_eq!(taken.string.as_str(), "custom");
@@ -987,6 +1008,7 @@ mod autotest_generated {
         let dom = Label {
             string: AzString::from_const_str("hand built"),
             label_style: OptionCssPropertyWithConditionsVec::Some(custom.clone()),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
         .dom();
         assert_eq!(
@@ -1010,6 +1032,7 @@ mod autotest_generated {
             label_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
             ),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
         .dom();
         assert!(
