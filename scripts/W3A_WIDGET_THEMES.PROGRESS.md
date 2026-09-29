@@ -82,10 +82,16 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   ring; flora FAQ list). API: `Accordion.theme` appended after `on_toggle`;
   set_theme / with_theme.
 
+- menubar: bc1e6059e (plumbing: NEW `Menubar { menu, theme }` Rust-only
+  struct; build_menubar_dom = Menubar::create(menu).dom(); menubar::build with
+  style closures), a85f45fcc (RED), 26d474db7 (flora strip). API: `Menubar`
+  (create / set_theme / with_theme / dom) - not in api.json (neither was the
+  function).
+
 ## IN PROGRESS
 
 ## NEXT
-menubar, color_input, date_picker
+color_input, date_picker
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
