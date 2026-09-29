@@ -594,3 +594,5 @@ mod an_app_names_itself_with_app_id;
 mod a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules;
 #[path = "ctrl_d_searches_for_the_whole_word.rs"]
 mod ctrl_d_searches_for_the_whole_word;
+#[path = "shift_down_off_a_paragraph_keeps_the_column.rs"]
+mod shift_down_off_a_paragraph_keeps_the_column;
