@@ -592,3 +592,5 @@ mod app_set_text_beats_typing;
 mod an_app_names_itself_with_app_id;
 #[path = "a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules.rs"]
 mod a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules;
+#[path = "ctrl_d_searches_for_the_whole_word.rs"]
+mod ctrl_d_searches_for_the_whole_word;
