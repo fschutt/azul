@@ -25,10 +25,16 @@ Branch `wt/v1-visual-followups`, cut from `0a326afe5`. Nothing compiled (house r
 
 - item 5 widgets: cf7ef5e18 segmented, bb0f49454 pagination, 2f48d441d stepper, 6ecad1cdf date_picker (+ text_input one-liner); every `window_is_dark` / `renders_dark` twin deleted
 
+- self-review: every changed Rust file parses (`rustfmt --check`, syntax only)
+- report: scripts/V1_VISUAL_FOLLOWUPS_2026_09_29.md
+
 ## IN PROGRESS
-- self-review pass for compile risks, then the report
+- nothing - handed to the parent for compile + tests
 
 ## NEXT
-5. item 5: (a) plumbing `CallbackInfo::set_node_inline_style` / `CallbackChange::SetNodeInlineStyle` / `ContentChange::NodeStyle` (stub); (b) engine RED + impl; (c) integration RED (click -> scheme switch -> new mode's colours) for segmented / stepper / pagination / date_picker; (d) per-widget fixes, delete `window_is_dark` / `renders_dark` twins; text_input's invalid ring asks `get_resolved_color_scheme`
+- parent: compile, run the test list in the report, apply the api.json entry via autofix
 
 ## Open questions
+- `set_node_inline_style` is public API (one new CallbackInfo method): keep it public, or
+  `pub(crate)` if the parent prefers the widgets-only surface.
+- The spinner's nested clip + nested rotation needs one real-window look (renderers).
