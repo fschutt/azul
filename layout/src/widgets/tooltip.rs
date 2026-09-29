@@ -1490,3 +1490,122 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The tooltip's theme is a DOM-level choice: the tip is built from the
+    //! skin of the theme the tooltip carries, flat by default. Both keep the
+    //! hover mechanics: the tip starts hidden (`opacity: 0`) and the enter /
+    //! leave handlers only write its opacity.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn tooltip(theme: Option<UiTheme>) -> Dom {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("Explains it"));
+        match theme {
+            Some(th) => t.with_theme(th).dom(),
+            None => t.dom(),
+        }
+    }
+
+    fn tip(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_tooltip_without_a_theme_renders_flat() {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("x"));
+        assert_eq!(t.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&tooltip(None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Tooltip::new(Dom::create_div(), AzString::from("x"));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Tooltip::new(Dom::create_div(), AzString::from("x")).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_tip_is_the_established_dark_chip_in_both_modes() {
+        let dom = tooltip(Some(UiTheme::Flat));
+        for dark in [false, true] {
+            assert_eq!(bg(tip(&dom), dark), Some(TIP_BG_COLOR), "dark={dark}");
+            assert_eq!(tc::text_color(tip(&dom), dark), Some(TIP_TEXT_COLOR), "dark={dark}");
+        }
+    }
+
+    #[test]
+    fn a_flora_tip_is_an_ink_panel_by_day_and_by_night() {
+        let dom = tooltip(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let t = tip(&dom);
+        // `--fl-code-bg` / `--fl-code-fg` / `--fl-code-bd`, day and night.
+        assert_eq!(bg(t, false), Some(ColorU::rgb(33, 31, 27)));
+        assert_eq!(bg(t, true), Some(ColorU::rgb(20, 20, 20)));
+        assert_eq!(tc::text_color(t, false), Some(ColorU::rgb(228, 225, 214)));
+        assert_eq!(tc::text_color(t, true), Some(ColorU::rgb(226, 226, 226)));
+        assert_eq!(tc::border_top_color(t, false, None), Some(ColorU::rgb(68, 63, 53)));
+        assert_eq!(tc::border_top_color(t, true, None), Some(ColorU::rgb(54, 54, 54)));
+        tc::assert_theme_invariants("tooltip Flora", &dom);
+    }
+
+    #[test]
+    fn every_theme_s_tip_starts_hidden_and_keeps_its_placement() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = tooltip(Some(theme));
+            let t = tip(&dom);
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Opacity, false, None),
+                Some(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+                "{theme:?}: the enter / leave handlers toggle opacity"
+            );
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Position, false, None),
+                Some(CssProperty::const_position(LayoutPosition::Absolute)),
+                "{theme:?}"
+            );
+            assert_eq!(
+                tc::resolve(t, CssPropertyType::Top, false, None),
+                Some(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_tip_resolver_answers_for_the_theme() {
+        let t = Tooltip::new(Dom::create_div(), AzString::from("x")).with_theme(UiTheme::Flora);
+        assert!(t
+            .resolved_tip_style()
+            .as_ref()
+            .iter()
+            .any(|p| tc::bg_color(&p.property) == Some(ColorU::rgb(33, 31, 27))));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        assert_eq!(
+            tc::a11y_outline(&tooltip(Some(UiTheme::Flat))),
+            tc::a11y_outline(&tooltip(Some(UiTheme::Flora)))
+        );
+    }
+}
