@@ -51,10 +51,17 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   set_indicator/with_indicator, set_theme/with_theme; default size 32.
   Build in `spinner::build(s, &SpinnerLook)`; flat/flora supply the look.
 
+- chip: 4c6add68b (plumbing: ChipLook + chip::build; decl::shadow single-side,
+  decl::focus_halo), 993691435 (RED), 764fb51fe (flat focus halos + flora tag).
+  API: `Chip.theme` appended after `container_style`; set_theme / with_theme.
+  Focus-ring convention: bordered node -> decl::focus_ring (border colour);
+  borderless -> decl::focus_halo (2px spread shadow). Flat colours FIELD_RING /
+  flat DARK_ACC; flora LIGHT_ACC / DARK_GLOW.
+
 ## IN PROGRESS
 
 ## NEXT
-chip, alert, card, frame, breadcrumb,
+alert, card, frame, breadcrumb,
 accordion, menubar, color_input, date_picker
 
 ## Open questions
