@@ -27,6 +27,10 @@
 //!   (the `cargo-bundle` key, [`configured_icons`]): an `.icns` is copied, square PNGs of the
 //!   sizes an `.icns` holds are wrapped into one as they are ([`icns_from_pngs`]; no `iconutil`,
 //!   no resampling).
+//! * **The id** (`CFBundleIdentifier`) comes from `--bundle-id`, else the crate's
+//!   `[package.metadata.bundle] identifier` (the id the app sets as `AppConfig::app_id`,
+//!   [`default_bundle_id`]), else `com.azul.<binary>`. The running app keeps the bundle's id
+//!   and logs a warning when its `app_id` names another app.
 //! * **The libraries**: by default the build's own ([`DylibScope::Build`]); `--portable` also
 //!   takes Homebrew's and MacPorts' - everything outside `/usr/lib` and `/System`
 //!   ([`DylibScope::NonSystem`]) - for a Mac that does not have them.
@@ -167,12 +171,14 @@ pub fn bundle_version(cargo_version: &str) -> String {
     }
 }
 
-/// The default `CFBundleIdentifier` of a binary: `com.azul.<name>`, using
-/// only what Apple allows in one (letters, digits, `-`, `.`).
+/// The `CFBundleIdentifier` of a binary nobody named: `com.azul.<name>`,
+/// using only what Apple allows in one (letters, digits, `-`, `.`). A crate
+/// that declares `[package.metadata.bundle] identifier` gets that instead
+/// ([`default_bundle_id`]).
 ///
 /// The app's ONE identity (`wire::AppIdentity`), not a derivation of its own:
 /// the same binary running unbundled, or on Windows (its toast AUMID), names
-/// itself exactly this.
+/// itself exactly this unless it sets `AppConfig::app_id`.
 pub fn bundle_id_for(binary_name: &str) -> String {
     azul_layout::managers::notification::wire::AppIdentity::from_executable(binary_name)
         .apple_bundle_id()
@@ -350,27 +356,14 @@ pub fn plan_dylib_tree(
     tree
 }
 
-/// `identifier` of `[package.metadata.bundle]` (RED stub).
-pub fn configured_identifier(cargo_toml: &str) -> Option<String> {
-    let _ = cargo_toml;
-    None
-}
+// ────────── [package.metadata.bundle] ───────────────────────────────────
 
-/// The default `CFBundleIdentifier` (RED stub).
-pub fn default_bundle_id(cargo_toml: Option<&str>, binary_name: &str) -> String {
-    let _ = cargo_toml;
-    bundle_id_for(binary_name)
-}
-
-// ────────── The icon ───────────────────────────────────────────────────
-
-/// The icon files a crate configures: `icon` of `[package.metadata.bundle]`,
-/// the table and key `cargo-bundle` reads, so a crate set up for it needs
-/// nothing more. A list of paths (PNGs of the sizes an `.icns` holds, and/or
-/// an `.icns`) or one path, relative to the crate's directory.
+/// The quoted strings of `key` in the crate's `[package.metadata.bundle]`
+/// table - the table `cargo-bundle` reads, so a crate set up for it needs
+/// nothing more. The value is one string or an array, which may span lines.
 ///
-/// A line scan, like [`package_version`]: the array may span lines.
-pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
+/// A line scan, like [`package_version`]: azul-doc has no TOML parser.
+fn bundle_metadata(cargo_toml: &str, key: &str) -> Vec<String> {
     let mut in_table = false;
     let mut collecting = false;
     let mut value = String::new();
@@ -390,8 +383,8 @@ pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
         if !in_table {
             continue;
         }
-        // `icon = ...`, not `icons = ...` or `icon_x = ...`.
-        let Some(rest) = t.strip_prefix("icon") else {
+        // `icon = ...`, not `icons = ...` or `icon_x = ...` (any `key`).
+        let Some(rest) = t.strip_prefix(key) else {
             continue;
         };
         let Some(rest) = rest.trim_start().strip_prefix('=') else {
@@ -414,6 +407,41 @@ pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// `identifier` of `[package.metadata.bundle]`: the app's reverse-DNS id,
+/// declared at build time. The app sets the same string as
+/// `AppConfig::app_id`; `bundle macos` and `mobile build` default the bundle
+/// id / package to it. `None` when it is absent or blank.
+pub fn configured_identifier(cargo_toml: &str) -> Option<String> {
+    bundle_metadata(cargo_toml, "identifier")
+        .into_iter()
+        .next()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+}
+
+/// The default `CFBundleIdentifier`: the crate's configured identifier in
+/// its Apple form (no `_`; the running app accepts that form as the same
+/// id), else the id derived from the binary ([`bundle_id_for`]).
+pub fn default_bundle_id(cargo_toml: Option<&str>, binary_name: &str) -> String {
+    match cargo_toml.and_then(configured_identifier) {
+        Some(id) => azul_layout::managers::notification::wire::AppIdentity::declared(
+            &id,
+            binary_name,
+        )
+        .apple_bundle_id(),
+        None => bundle_id_for(binary_name),
+    }
+}
+
+// ────────── The icon ───────────────────────────────────────────────────
+
+/// The icon files a crate configures: `icon` of `[package.metadata.bundle]`
+/// ([`bundle_metadata`]). A list of paths (PNGs of the sizes an `.icns`
+/// holds, and/or an `.icns`) or one path, relative to the crate's directory.
+pub fn configured_icons(cargo_toml: &str) -> Vec<String> {
+    bundle_metadata(cargo_toml, "icon")
 }
 
 /// A PNG's pixel size `(width, height)`, from its `IHDR` chunk; `None` for
@@ -534,8 +562,10 @@ fn print_usage() {
     println!("  --profile <name>     a custom cargo profile's build");
     println!("  --bin <name>         the binary, if it is not named like the package");
     println!("  --exe <path>         bundle this binary instead of looking in target/");
-    println!("  --bundle-id <id>     CFBundleIdentifier (default com.azul.<binary>, the id the");
-    println!("                       app gives itself unbundled and on Windows)");
+    println!("  --bundle-id <id>     CFBundleIdentifier (default: `identifier` of");
+    println!("                       [package.metadata.bundle] - the id the app sets as");
+    println!("                       AppConfig::app_id - else com.azul.<binary>, the id an");
+    println!("                       unnamed app gives itself unbundled and on Windows)");
     println!("  --name <name>        the app's name (default: the binary's)");
     println!("  --icon <path>        an .icns, or a square PNG of 16..1024 px (default: `icon` of");
     println!("                       [package.metadata.bundle] in the crate's Cargo.toml)");
@@ -826,12 +856,13 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
         .to_string();
     let spec = MacBundleSpec {
         app_name: a.name.clone().unwrap_or_else(|| executable.clone()),
-        // From the BINARY's name, like the running app derives its identity
-        // (desktop::app_identity) - not from the package name.
+        // The crate's declared identifier, else from the BINARY's name, like
+        // the running app derives its identity (desktop::app_identity) - not
+        // from the package name.
         bundle_id: a
             .bundle_id
             .clone()
-            .unwrap_or_else(|| bundle_id_for(&executable)),
+            .unwrap_or_else(|| default_bundle_id(manifest_text.as_deref(), &executable)),
         executable,
         version,
         icon_file: icon.as_ref().map(|_| ICON_FILE.to_string()),
@@ -1357,7 +1388,11 @@ mod tests {
             configured_identifier(toml).as_deref(),
             Some("org.example.Editor")
         );
-        assert_eq!(configured_icons(toml), vec!["icons/128.png"], "the same table, another key");
+        assert_eq!(
+            configured_icons(toml),
+            vec!["icons/128.png"],
+            "the same table, another key"
+        );
         assert_eq!(configured_identifier("[package]\nname = \"x\"\n"), None);
         let elsewhere = "[package.metadata.other]\nidentifier = \"no.such.App\"\n";
         assert_eq!(configured_identifier(elsewhere), None);
@@ -1370,7 +1405,10 @@ mod tests {
     #[test]
     fn the_configured_identifier_is_the_default_bundle_id() {
         let toml = "[package.metadata.bundle]\nidentifier = \"org.example.Editor\"\n";
-        assert_eq!(default_bundle_id(Some(toml), "Editor"), "org.example.Editor");
+        assert_eq!(
+            default_bundle_id(Some(toml), "Editor"),
+            "org.example.Editor"
+        );
         let underscore = "[package.metadata.bundle]\nidentifier = \"org.example.my_app\"\n";
         assert_eq!(
             default_bundle_id(Some(underscore), "my_app"),

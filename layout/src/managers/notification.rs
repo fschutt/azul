@@ -1677,6 +1677,19 @@ pub mod wire {
                 Self::Flatpak(_) => "FLATPAK_ID (the Flatpak sandbox)",
             }
         }
+
+        /// Whether the platform's id names the same app as `app_id`: equal,
+        /// or - for a bundle - equal to `app_id`'s Apple form (what `azul-doc
+        /// bundle macos` writes when the identifier has an underscore).
+        fn names(&self, app_id: &str) -> bool {
+            let id = self.id().trim();
+            match self {
+                Self::AppleBundle(_) => {
+                    id == app_id || id == AppIdentity::declared(app_id, "").apple_bundle_id()
+                }
+                Self::AndroidPackage(_) | Self::Flatpak(_) => id == app_id,
+            }
+        }
     }
 
     /// The app's identity, and what became of the app's own declaration.
@@ -1689,17 +1702,45 @@ pub mod wire {
     }
 
     impl AppIdentity {
-        /// Who the app is, from everything that may name it (RED stub).
+        /// Who the app is, from everything that may name it - ONE rule for
+        /// every OS, a pure function of its inputs:
+        ///
+        /// 1. the platform's declaration (`platform`: a bundle's `CFBundleIdentifier`, the
+        ///    Android package, `FLATPAK_ID`) wins - the OS keys its services on it and the app
+        ///    cannot change it. An `app_id` that names another app is reported in `warning`;
+        /// 2. else the app's own `app_id` (`AppConfig::app_id`): on Windows the AUMID and the COM
+        ///    activator, on Linux the `desktop-entry` hint, the Wayland `app_id` and the X11
+        ///    `WM_CLASS` defaults;
+        /// 3. else the id derived from the executable ([`AppIdentity::from_executable`]).
+        ///
+        /// A blank id - from the app or the platform - is no declaration.
         #[must_use]
         pub fn resolve(
             app_id: &str,
             platform: Option<&PlatformAppId>,
             exe_path: &str,
         ) -> ResolvedAppIdentity {
-            let _ = (app_id, platform);
-            ResolvedAppIdentity {
-                identity: Self::from_executable(exe_path),
-                warning: None,
+            let app_id = app_id.trim();
+            match platform.filter(|p| !p.id().trim().is_empty()) {
+                Some(platform) => {
+                    let identity = Self::declared(platform.id(), exe_path);
+                    let warning = (!app_id.is_empty() && !platform.names(app_id)).then(|| {
+                        format!(
+                            "AppConfig::app_id is {app_id:?}, but {} is {:?}: the OS knows the \
+                             app by the latter, so it is the app's id here. Declare the same id \
+                             in both (a bundle's id comes from [package.metadata.bundle] \
+                             identifier)",
+                            platform.origin(),
+                            identity.id
+                        )
+                    });
+                    ResolvedAppIdentity { identity, warning }
+                }
+                // `declared` treats an empty id as none: the executable's.
+                None => ResolvedAppIdentity {
+                    identity: Self::declared(app_id, exe_path),
+                    warning: None,
+                },
             }
         }
     }

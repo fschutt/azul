@@ -1222,8 +1222,7 @@ impl AppConfig {
 
     /// In-place [`Self::with_app_id`].
     pub fn set_app_id(&mut self, app_id: AzString) {
-        // RED stub: the id is not stored yet.
-        let _ = app_id;
+        self.app_id = app_id;
     }
 
     #[must_use]

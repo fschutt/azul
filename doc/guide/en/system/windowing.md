@@ -349,6 +349,34 @@ On X11, set `LinuxWindowOptions.window_icon`. macOS uses the icon from the `.app
 
 Linux options carry X11-specific hints (`x11_window_types`, `x11_wm_classes`, `x11_resize_increments`) and Wayland-specific identifiers (`wayland_app_id`, `wayland_theme`). Most apps don't need these — the defaults work.
 
+## App identity
+
+The OS keys several services on the app's id: the Windows toast registration (the AUMID) and the app's entry in the notification settings, the freedesktop `desktop-entry` hint, and the Wayland `app_id` / X11 `WM_CLASS` a desktop matches to a `.desktop` file. Declare it once, as a reverse-DNS id, with `AppConfig::app_id`:
+
+```rust,ignore
+let config = AppConfig::create().with_app_id("org.example.Editor".into());
+```
+
+Where the platform has already named the app, the platform wins, and a different `app_id` is logged as a warning:
+
+| Platform | The app's id |
+|---|---|
+| Windows | `app_id`. The toast AUMID, and the COM activator that delivers a click after the app exited, follow it |
+| Linux | `app_id`: the `desktop-entry` hint, the default Wayland `app_id` and the default X11 `WM_CLASS` (a window's own `wayland_app_id` / `x11_wm_classes` still win). Inside a Flatpak, `FLATPAK_ID` wins |
+| macOS, iOS | the bundle's `CFBundleIdentifier` |
+| Android | the manifest package |
+
+Without an `app_id` nothing changes: the id is the platform's, else `com.azul.<executable name>` (and on Linux the `.desktop` name is the executable's name). The id is read once, when the `App` is created.
+
+Declare the same id at build time as `identifier` in the crate's `[package.metadata.bundle]` table (the `cargo-bundle` key). `azul-doc bundle macos` writes it as the `CFBundleIdentifier` (in its Apple form: `_` becomes `-`), and `azul-doc mobile build` uses it as the iOS bundle id and the Android package. `--bundle-id` / `--package` override it.
+
+```toml
+[package.metadata.bundle]
+identifier = "org.example.Editor"
+```
+
+On Linux, install the app's desktop file as `<app_id>.desktop`: without it, a desktop can attribute a notification only through the process ID while a window is open. On Windows, an app that starts setting `app_id` gets a new entry in Settings > Notifications; the old one stays in the registry until removed.
+
 ## Common errors
 
 - **Window opens off-screen** — `window_state.position` was set to a `WindowPosition::Initialized(...)` outside any monitor's bounds. Set to `Uninitialized` to let the OS place it.

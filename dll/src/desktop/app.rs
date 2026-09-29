@@ -163,6 +163,14 @@ impl App {
         #[cfg(feature = "logging")]
         crate::desktop::logging::init_default_logger();
 
+        // The app's own id (`AppConfig::app_id`), HERE: every run path -
+        // `run`, `run_tray_only`, the crash reporter, iOS's
+        // `UIApplicationMain` - starts from this App, and the launch hooks
+        // (the Windows toast activator), the notification backends and the
+        // first window read the identity. After the logger, so a conflict
+        // with the bundle's / package's / Flatpak's id is reported.
+        crate::desktop::app_identity::declare(app_config.app_id.as_str());
+
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
 
