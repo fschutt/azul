@@ -105,7 +105,7 @@ pub struct NumberInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). Handed
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). Handed
     /// to the wrapped [`TextInput`], which draws the field; a theme is a
     /// DOM-level choice, so switching it rebuilds the field.
     pub theme: OptionUiTheme,
@@ -285,8 +285,8 @@ impl NumberInput {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the field renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the field follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -301,12 +301,16 @@ impl NumberInput {
     }
 
     /// Renders the field. Rendering goes through the theme modules (as
-    /// `Button::dom` does); `UiTheme::default()` is flat.
+    /// `Button::dom` does). Unpinned (`theme: None`), the field follows the
+    /// APP theme: built in the structure of the theme its DOM is built for,
+    /// carrying every theme's blocks (`themes::flat::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        use crate::widgets::themes::{flat, flora};
         match self.theme.into_option() {
-            Some(UiTheme::Flora) => crate::widgets::themes::flora::number_input(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::number_input(self),
+            Some(UiTheme::Flora) => flora::number_input(self),
+            Some(UiTheme::Flat) => flat::number_input(self),
+            None => flat::follow_app_theme(self, flat::number_input, flora::number_input),
         }
     }
 

@@ -58,9 +58,13 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   autotest DOM-style pins now pin `with_theme(Flat)`; new: an unpinned stepper built for flora
   restyles in flora's colours)
 
+- number_input: RED 617f4cd10, impl: see git log (DOM merge: `flat::follow_app_theme(self,
+  flat::number_input, flora::number_input)`; no pin needed changing. NOTE: ColorInput's R/G/B/A
+  fields and node_graph's fields build unpinned NumberInputs - they now follow the app theme)
+
 ## IN PROGRESS
 
-- number_input
+- text_input
 
 ## NEXT
 
