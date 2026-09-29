@@ -360,3 +360,122 @@ pub fn keyword_list() -> Vec<azul_css::dynamic_selector::CssPropertyWithConditio
 pub fn keyword_module() -> azul_css::codegen::ir::Module {
     azul_css::codegen::lower::lower_property_list("keywords", &keyword_list())
 }
+
+// ── DOM export (AzBuilder "Subtree -> code" / "Component -> code") ──
+//
+// What `azul_core::xml::lower_xml_fragment` produces for a converted
+// component's template
+//
+//     <div class="card" style="padding: 8px">
+//       <h2>{title}</h2><p>{text}</p>
+//       <a href="{href}">Read more</a><span>by {author}</span>
+//     </div>
+//
+// (core's own tests pin that lowering; these pin the printers).
+
+/// The card template as one item `render_card(title, text, href, author)`:
+/// builder methods, parameters, a joined string, an accessible link.
+pub fn dom_card_module() -> azul_css::codegen::ir::Module {
+    use azul_css::codegen::ir::{Expr, Ident, Item, ItemParam, Module};
+    let s = Expr::str;
+    let p = Expr::param;
+    let dom = |m: &str, args: Vec<Expr>| Expr::call("Dom", m, args);
+    let with = |recv: Expr, m: &str, args: Vec<Expr>| Expr::method(recv, "Dom", m, args);
+    let mut value = dom("create_div", vec![]);
+    value = with(value, "with_css", vec![s("padding: 8px")]);
+    value = with(value, "with_class", vec![s("card")]);
+    value = with(value, "with_child", vec![dom("create_h2_with_text", vec![p("title")])]);
+    value = with(value, "with_child", vec![dom("create_p_with_text", vec![p("text")])]);
+    value = with(
+        value,
+        "with_child",
+        vec![dom(
+            "create_a",
+            vec![
+                p("href"),
+                s("Read more"),
+                Expr::call("SmallAriaInfo", "label", vec![s("Read more")]),
+            ],
+        )],
+    );
+    value = with(
+        value,
+        "with_child",
+        vec![dom(
+            "create_span_with_text",
+            vec![Expr::concat(vec![s("by "), p("author")])],
+        )],
+    );
+    Module {
+        items: vec![Item {
+            name: Ident::from_text("render_card"),
+            doc: vec!["`user:card`: its texts and its link are parameters".to_string()],
+            ty: "Dom".to_string(),
+            params: vec![
+                ItemParam::string("title", "Hello"),
+                ItemParam::string("text", "Some text"),
+                ItemParam::string("href", "https://azul.rs"),
+                ItemParam::string("author", "me"),
+            ],
+            value,
+        }],
+        ..Module::default()
+    }
+}
+
+/// [`dom_card_module`] as the component library `user` (the printers that
+/// can spell it append the registration).
+pub fn dom_library_module() -> azul_css::codegen::ir::Module {
+    use azul_css::codegen::ir::{ComponentSpec, Ident, LibrarySpec};
+    let mut m = dom_card_module();
+    m.library = Some(LibrarySpec {
+        name: "user".to_string(),
+        version: "0.1.0".to_string(),
+        components: vec![ComponentSpec {
+            item: Ident::from_text("render_card"),
+            name: "card".to_string(),
+            display_name: "Card".to_string(),
+            description: "Converted from a <div> subtree in AzBuilder".to_string(),
+            data_model: "CardData".to_string(),
+            data_model_description: "Converted from a <div> subtree in AzBuilder".to_string(),
+            field_descriptions: vec![
+                "Text of the <h2>".to_string(),
+                "Text of the <p>".to_string(),
+                "`href` of the <a>".to_string(),
+                "Text of the <span>".to_string(),
+            ],
+        }],
+    });
+    m
+}
+
+/// A page body (`<body><h1>My App</h1><p>Hello</p></body>`) as an app.
+pub fn dom_app_module() -> azul_css::codegen::ir::Module {
+    use azul_css::codegen::ir::{AppSpec, Expr, Ident, Item, Module};
+    let dom = |m: &str, args: Vec<Expr>| Expr::call("Dom", m, args);
+    let with = |recv: Expr, m: &str, args: Vec<Expr>| Expr::method(recv, "Dom", m, args);
+    let value = with(
+        with(
+            dom("create_body", vec![]),
+            "with_child",
+            vec![dom("create_h1_with_text", vec![Expr::str("My App")])],
+        ),
+        "with_child",
+        vec![dom("create_p_with_text", vec![Expr::str("Hello")])],
+    );
+    Module {
+        items: vec![Item {
+            name: Ident::from_text("render_ui"),
+            doc: Vec::new(),
+            ty: "Dom".to_string(),
+            params: Vec::new(),
+            value,
+        }],
+        app: Some(AppSpec {
+            title: "My App".to_string(),
+            root: Ident::from_text("render_ui"),
+            is_body: true,
+        }),
+        library: None,
+    }
+}

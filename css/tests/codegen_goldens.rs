@@ -106,6 +106,22 @@ fn check_lang(lang: &str) {
         .map(|(_, e)| *e)
         .unwrap();
     let mut failures = Vec::new();
+    // DOM export (AzBuilder): a converted component's render function, the
+    // same as a component library (registration where the language has
+    // it), and an app around a page body.
+    compare(
+        &format!("{lang}/dom_card.{ext}"),
+        &backend.emit_module(&codegen_cases::dom_card_module()),
+        &mut failures,
+    );
+    compare(
+        &format!("{lang}/dom_library.{ext}"),
+        &backend.emit_module(&codegen_cases::dom_library_module()),
+        &mut failures,
+    );
+    for file in backend.emit_project_files(&codegen_cases::dom_app_module()) {
+        compare(&format!("{lang}/dom_app/{}", file.path), &file.contents, &mut failures);
+    }
     for (case, css) in CASES {
         let (parsed, _warnings) = azul_css::parser2::new_from_str(css);
         let got = backend.emit_css(&parsed);
