@@ -1084,6 +1084,13 @@ mod label_convention {
                     .dom(),
             ),
             (
+                "text_input (search, flora)",
+                TextInput::create_search()
+                    .with_theme(super::themes::UiTheme::Flora)
+                    .with_text(AzString::from("query"))
+                    .dom(),
+            ),
+            (
                 "text_input (email)",
                 TextInput::create_email()
                     .with_text(AzString::from("someone@example.com"))
@@ -1900,6 +1907,7 @@ mod theme_contrast {
         "time_picker",
         "text_input (password)",
         "text_input (search)",
+        "text_input (search, flora)",
         "text_input (email)",
         "date_picker (month)",
         "date_picker (week)",
