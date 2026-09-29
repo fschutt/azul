@@ -56,14 +56,15 @@ assets, `debug_server/platform.rs`), shell = `dll/src/desktop/shell2/common/even
 - 7403fddb5 audit (this file, section 1)
 - 90c194056 RED: `layout/src/e2e/builder_tests.rs` (9 scenarios; run `cargo test -p azul-layout --features e2e-server --lib builder_tests`)
 
+- 01faf30e9 fix: `layout/src/e2e/builder.rs` (document model + 20 unit tests), `DebugEvent` variants + arms in `full.rs`, `render_tree` on create/update component, gene2e OP_POLICY rows
+
 ## IN PROGRESS
-- Fix: `layout/src/e2e/builder.rs` + dispatcher arms
+- Browser: `debugger-dnd.js` (written, node test 13/13 green) — serve it (build.rs + platform.rs), load it (debugger.html), fix `showView` in debugger.js
 
 ## NEXT
-2. Fix: `builder.rs` + `DebugEvent` variants + dispatch arms; `render_tree` on create/update component.
-3. Browser: `debugger-dnd.js`, served + loaded; minimal hooks in `debugger.js`.
-4. Node test for the pure JS (drop-zone math, payloads).
-5. Report `scripts/B1_BUILDER_DND_2026_09_29.md`.
+1. Commit the browser part.
+2. HTTP request read loop (platform.rs reads ONE 16 KiB chunk) — separate small fix.
+3. Report `scripts/B1_BUILDER_DND_2026_09_29.md`.
 
 ## Open questions
 - Template components are not carried by `export_component_library` (no field for them in `ExportedComponentDef`); export is B3's area.
