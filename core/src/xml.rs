@@ -9119,12 +9119,14 @@ pub fn str_to_c_code<'a>(
     ))
 }
 
-// A DOM FRAGMENT (a builder subtree, a component template) → a render
-// function per language: AzBuilder's "Subtree → code" / "Component → code".
+// A DOM FRAGMENT (a builder subtree, a component template, a page body) →
+// the codegen IR every binding language prints (azul_css::codegen):
+// AzBuilder's "Subtree → code" / "Component → code" / Export > Code.
 #[path = "xml_fragment_codegen.rs"]
 mod fragment_codegen;
 pub use fragment_codegen::{
-    compile_xml_fragment, compile_xml_fragment_app, CompiledFragment, FragmentParam,
+    compile_xml_fragment, compile_xml_fragment_app, lower_xml_fragment, lower_xml_fragment_app,
+    lower_xml_page_app, FragmentParam,
 };
 
 #[cfg(test)]
